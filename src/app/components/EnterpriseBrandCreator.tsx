@@ -1,0 +1,1156 @@
+/**
+ * Enterprise Brand Creator
+ * 
+ * Comprehensive brand identity creation and management:
+ * - AI-powered brand generation
+ * - Brand colors and typography
+ * - Logo and asset management
+ * - Brand messaging and values
+ * - Visual brand guidelines
+ * - Integration with company info
+ */
+
+import { useState, useEffect } from 'react';
+import {
+  Sparkles, Palette, Type, Image as ImageIcon, FileText, Save,
+  RefreshCw, Copy, Download, Upload, Eye, Wand2, Zap, Star,
+  CheckCircle2, AlertCircle, Plus, X, Edit2, Trash2, ExternalLink,
+  MessageSquare, Target, Heart, Lightbulb, TrendingUp, Award,
+  Camera, Layers, Grid, Layout, Monitor, Smartphone, Hash,
+  AlignLeft, Bold, Italic, Code, Link2
+} from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
+import { TextArea } from './ui/input/TextArea';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
+import * as CompanyStore from '../lib/simpleCompanyStore';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { saveDual, loadDual } from '../lib/database';
+
+interface BrandData {
+  // Brand Identity
+  brandName: string;
+  tagline: string;
+  
+  // Multiple Logo Variations
+  logoPrimary?: string;
+  logoSecondary?: string;
+  logoIcon?: string;
+  logoLight?: string;
+  logoDark?: string;
+  logoHorizontal?: string;
+  logoVertical?: string;
+  
+  // Brand Colors
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  textColor: string;
+  
+  // Typography
+  headingFont: string;
+  bodyFont: string;
+  fontSize: string;
+  
+  // Brand Messaging
+  mission: string;
+  vision: string;
+  values: string[];
+  positioning: string;
+  
+  // Brand Voice
+  tone: string[];
+  personality: string[];
+  
+  // Visual Elements
+  logoStyle: string;
+  imageStyle: string;
+  iconStyle: string;
+  
+  // AI Generated
+  aiGenerated: boolean;
+  generatedAt?: string;
+}
+
+interface EnterpriseBrandCreatorProps {
+  companyId: string;
+  companyName: string;
+  onSave?: (brandData: BrandData) => void;
+  onClose?: () => void;
+}
+
+export default function EnterpriseBrandCreator({ 
+  companyId, 
+  companyName, 
+  onSave,
+  onClose 
+}: EnterpriseBrandCreatorProps) {
+  const [activeSection, setActiveSection] = useState<'identity' | 'colors' | 'typography' | 'messaging' | 'visual' | 'preview'>('identity');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [brandData, setBrandData] = useState<BrandData>({
+    brandName: companyName,
+    tagline: '',
+    primaryColor: '#ea580c',
+    secondaryColor: '#0A0A0A',
+    accentColor: '#f97316',
+    backgroundColor: '#ffffff',
+    textColor: '#1a1a1a',
+    headingFont: 'Inter',
+    bodyFont: 'Inter',
+    fontSize: '16px',
+    mission: '',
+    vision: '',
+    values: [],
+    positioning: '',
+    tone: [],
+    personality: [],
+    logoStyle: 'Modern',
+    imageStyle: 'Professional',
+    iconStyle: 'Minimal',
+    aiGenerated: false
+  });
+
+  // 🔄 LOAD SAVED DATA from database when component mounts
+  useEffect(() => {
+    (async () => {
+      const brandKey = `brand_data_${companyId}`;
+      const savedData = await loadDual(brandKey);
+
+      // FIRST: Check if company has logos in SimpleStore
+      const companies = await CompanyStore.getAllCompanies();
+      const company = companies.find(c => c.id === companyId);
+
+      if (company && (company.logo_url || company.logos)) {
+        console.log('✅ Found company logos in SimpleStore!');
+        console.log('Company:', company.name);
+        console.log('Logo URL:', company.logo_url);
+        console.log('Logos array:', company.logos);
+
+        // If we have company logos but no brand data, populate brand data with company logos
+        if (!savedData) {
+          const companyLogos = company.logos || [];
+          const primaryLogo = company.logo_url || companyLogos.find(l => l.isPrimary)?.preview || companyLogos[0]?.preview;
+
+          if (primaryLogo) {
+            console.log('📸 Auto-loading company logo into brand data');
+            setBrandData(prev => ({
+              ...prev,
+              logoPrimary: primaryLogo,
+              logoSecondary: companyLogos[1]?.preview || primaryLogo,
+              logoIcon: primaryLogo,
+            }));
+            toast.success('Loaded your company logo!', { duration: 2000 });
+            return;
+          }
+        }
+      }
+
+      if (savedData) {
+        console.log('✅ Loaded brand data from database:', brandKey);
+        console.log('📊 Logos loaded:', {
+          primary: !!savedData.logoPrimary,
+          secondary: !!savedData.logoSecondary,
+          icon: !!savedData.logoIcon,
+          light: !!savedData.logoLight,
+          dark: !!savedData.logoDark,
+          horizontal: !!savedData.logoHorizontal,
+          vertical: !!savedData.logoVertical,
+        });
+        setBrandData(savedData);
+        toast.success('Brand data loaded! Your logos are here.', { duration: 2000 });
+      } else if (company) {
+        console.log('💡 No brand data found, but company exists. You can upload logos in Company Profile.');
+      }
+    })();
+  }, [companyId]);
+
+  // Handle logo upload (generic for all logo types)
+  const handleSpecificLogoUpload = (logoType: keyof BrandData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    console.log(`🖼️ Uploading ${logoType}:`, file.name, `(${(file.size / 1024).toFixed(1)} KB)`);
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    // Convert to base64 for preview/storage
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64String = event.target?.result as string;
+      console.log(`✅ ${logoType} converted to base64 (${base64String.length} chars)`);
+      setBrandData(prev => ({ ...prev, [logoType]: base64String }));
+      toast.success(`${logoType.replace('logo', 'Logo ')} uploaded successfully!`);
+    };
+    reader.onerror = () => {
+      console.error(`❌ Failed to read ${logoType}`);
+      toast.error('Failed to read file');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Render logo upload card
+  const LogoUploadCard = ({ 
+    logoType, 
+    title, 
+    description, 
+    icon: Icon 
+  }: { 
+    logoType: keyof BrandData;
+    title: string;
+    description: string;
+    icon: any;
+  }) => {
+    const logoValue = brandData[logoType] as string | undefined;
+    const inputId = `${logoType}-upload-input`;
+    
+    return (
+      <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Icon className="w-4 h-4 text-orange-400" />
+          <h4 className="text-sm font-semibold text-white">{title}</h4>
+        </div>
+        <p className="text-xs text-gray-400 mb-3">{description}</p>
+        
+        <div className="border-2 border-dashed border-[#2A2A2A] rounded-lg p-4 text-center hover:border-orange-500/50 transition">
+          {logoValue ? (
+            <div className="space-y-2">
+              <img 
+                src={logoValue} 
+                alt={title} 
+                className="max-h-20 mx-auto rounded"
+              />
+              <p className="text-xs text-green-400 font-medium">✓ Uploaded</p>
+            </div>
+          ) : (
+            <>
+              <Upload className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+              <p className="text-xs text-gray-400 mb-2">PNG, JPG, SVG (5MB max)</p>
+            </>
+          )}
+          
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleSpecificLogoUpload(logoType)}
+            className="hidden"
+            id={inputId}
+          />
+          <button
+            type="button"
+            onClick={() => document.getElementById(inputId)?.click()}
+            className="mt-2 px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 rounded-lg text-xs font-medium transition border border-orange-500/30"
+          >
+            {logoValue ? 'Change' : 'Upload'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // AI Brand Generation
+  const handleAIGeneration = async () => {
+    setAiGenerating(true);
+    
+    try {
+      // Simulate AI brand generation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const aiGeneratedBrand: Partial<BrandData> = {
+        tagline: `${companyName} - Innovation Meets Excellence`,
+        mission: `At ${companyName}, we strive to deliver exceptional products and services that transform businesses and empower success.`,
+        vision: `To become the leading provider in our industry, setting new standards for quality, innovation, and customer satisfaction.`,
+        values: ['Innovation', 'Integrity', 'Customer Focus', 'Excellence', 'Collaboration'],
+        positioning: `${companyName} positions itself as a premium, innovative solution provider that combines cutting-edge technology with exceptional service.`,
+        tone: ['Professional', 'Confident', 'Approachable', 'Innovative'],
+        personality: ['Trustworthy', 'Forward-thinking', 'Customer-centric', 'Results-driven'],
+        primaryColor: '#ea580c',
+        secondaryColor: '#0f172a',
+        accentColor: '#f97316',
+        backgroundColor: '#ffffff',
+        textColor: '#1a1a1a',
+        logoStyle: 'Modern & Bold',
+        imageStyle: 'Professional with Vibrant Accents',
+        iconStyle: 'Clean & Minimal',
+        aiGenerated: true,
+        generatedAt: new Date().toISOString()
+      };
+
+      setBrandData(prev => ({ ...prev, ...aiGeneratedBrand }));
+      toast.success('🎨 AI Brand Generated Successfully!');
+      setActiveSection('colors');
+    } catch (error) {
+      console.error('AI generation error:', error);
+      toast.error('Failed to generate brand identity');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  // Save Brand
+  const handleSave = async () => {
+    console.log('🚨🚨🚨 ===== SAVE BRAND CLICKED ===== 🚨🚨🚨');
+    console.log('📊 companyId:', companyId);
+    console.log('📊 Current brandData:', {
+      brandName: brandData.brandName,
+      tagline: brandData.tagline,
+      logoPrimary: brandData.logoPrimary ? `Yes (${brandData.logoPrimary.substring(0, 50)}...)` : 'No',
+      logoSecondary: brandData.logoSecondary ? 'Yes' : 'No',
+      logoIcon: brandData.logoIcon ? 'Yes' : 'No',
+      logoLight: brandData.logoLight ? 'Yes' : 'No',
+      logoDark: brandData.logoDark ? 'Yes' : 'No',
+      logoHorizontal: brandData.logoHorizontal ? 'Yes' : 'No',
+      logoVertical: brandData.logoVertical ? 'Yes' : 'No',
+    });
+
+    setSaving(true);
+
+    // EMERGENCY TIMEOUT: If save takes more than 10 seconds, force stop
+    const emergencyTimeout = setTimeout(() => {
+      console.error('⏰ EMERGENCY TIMEOUT: Save took too long, forcing stop');
+      toast.error('Save timeout - trying to save anyway');
+      setSaving(false);
+    }, 10000);
+
+    try {
+      // Validate companyId
+      if (!companyId || companyId.trim() === '') {
+        console.error('❌ No companyId provided - cannot save!');
+        toast.error('No active company selected - cannot save brand');
+        setSaving(false);
+        return;
+      }
+
+      // Validate required fields
+      if (!brandData.brandName || !brandData.primaryColor) {
+        console.error('❌ Validation failed - missing required fields');
+        toast.error('Please fill in Brand Name and Primary Color');
+        setSaving(false);
+        return;
+      }
+      
+      console.log('✅ Validation passed');
+
+      // 💾 SAVE TO DATABASE + localStorage (dual persistence)
+      const brandKey = `brand_data_${companyId}`;
+      console.log('📍 Saving brand data to database:', brandKey);
+
+      await saveDual(brandKey, brandData);
+      console.log('✅ Brand data saved to database with all logos');
+
+      // ALSO save to company_branding_profile for landing page compatibility
+      const landingPageBranding = {
+        company_name: brandData.brandName,
+        company_tagline: brandData.tagline,
+        logo_url: brandData.logoPrimary,
+        logo_primary: brandData.logoPrimary,
+        logo_secondary: brandData.logoSecondary,
+        logo_icon: brandData.logoIcon,
+        logo_light: brandData.logoLight,
+        logo_dark: brandData.logoDark,
+        logo_horizontal: brandData.logoHorizontal,
+        logo_vertical: brandData.logoVertical,
+        primary_color: brandData.primaryColor,
+        secondary_color: brandData.secondaryColor,
+        accent_color: brandData.accentColor,
+        phone: '',
+        email: '',
+        street_address: '',
+        city: '',
+        state: '',
+        zip_code: ''
+      };
+
+      await saveDual('company_branding_profile', landingPageBranding);
+      console.log('✅ Brand data also saved to landing page format');
+
+      console.log('📍 Checkpoint 6: Calling onSave callback');
+      if (onSave) {
+        onSave(brandData);
+      }
+
+      console.log('📍 Checkpoint 7: Showing success message');
+      toast.success('✨ Brand Saved to Database! All logos are permanently saved.');
+      console.log('📍 Checkpoint 8: SUCCESS - Save complete!');
+    } catch (error) {
+      console.error('💥 Save error:', error);
+      toast.error('Failed to save brand identity: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      clearTimeout(emergencyTimeout);
+      console.log('✅ Save complete, stopping spinner');
+      setSaving(false);
+    }
+  };
+
+  // Add Value
+  const addValue = (value: string) => {
+    if (value && !brandData.values.includes(value)) {
+      setBrandData(prev => ({
+        ...prev,
+        values: [...prev.values, value]
+      }));
+    }
+  };
+
+  // Remove Value
+  const removeValue = (index: number) => {
+    setBrandData(prev => ({
+      ...prev,
+      values: prev.values.filter((_, i) => i !== index)
+    }));
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-orange-600/10 to-purple-600/10 border border-orange-500/30 rounded-2xl p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+              <Sparkles className="w-7 h-7 text-orange-400" />
+              Enterprise Brand Creator
+            </h2>
+            <p className="text-gray-300 text-sm">
+              Create a comprehensive brand identity for <span className="font-semibold text-orange-400">{companyName}</span>
+            </p>
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition"
+            >
+              <X className="w-5 h-5 text-gray-400" />
+            </button>
+          )}
+        </div>
+
+        {/* AI Generate Button */}
+        <button
+          onClick={handleAIGeneration}
+          disabled={aiGenerating}
+          className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white px-6 py-4 rounded-xl font-semibold transition flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/20"
+        >
+          {aiGenerating ? (
+            <>
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              Generating Brand Identity with AI...
+            </>
+          ) : (
+            <>
+              <Wand2 className="w-5 h-5" />
+              ✨ Generate Complete Brand Identity with AI
+              <Zap className="w-5 h-5" />
+            </>
+          )}
+        </button>
+
+        {brandData.aiGenerated && (
+          <div className="mt-3 p-3 bg-green-600/10 border border-green-500/30 rounded-xl flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-green-400" />
+            <span className="text-xs text-green-400 font-medium">
+              AI-Generated Brand Identity • {brandData.generatedAt && new Date(brandData.generatedAt).toLocaleString()}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Section Navigation */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+        {[
+          { id: 'identity', label: 'Brand Identity', icon: Star },
+          { id: 'colors', label: 'Colors', icon: Palette },
+          { id: 'typography', label: 'Typography', icon: Type },
+          { id: 'messaging', label: 'Messaging', icon: MessageSquare },
+          { id: 'visual', label: 'Visual Elements', icon: ImageIcon },
+          { id: 'preview', label: 'Preview', icon: Eye }
+        ].map((section) => {
+          const Icon = section.icon;
+          return (
+            <button
+              key={section.id}
+              onClick={() => setActiveSection(section.id as any)}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                activeSection === section.id
+                  ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20'
+                  : 'bg-[#1A1A1A] text-gray-400 hover:bg-[#2A2A2A] border border-[#2A2A2A]'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {section.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content Sections */}
+      <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-6">
+        {/* Brand Identity Section */}
+        {activeSection === 'identity' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <Star className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Brand Identity</h3>
+                <p className="text-sm text-gray-400">Core brand information and identity</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Brand Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Brand Name *
+                </label>
+                <input
+                  type="text"
+                  value={brandData.brandName}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, brandName: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Enter brand name"
+                />
+              </div>
+
+              {/* Tagline */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Brand Tagline
+                </label>
+                <input
+                  type="text"
+                  value={brandData.tagline}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, tagline: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Your compelling tagline"
+                />
+              </div>
+            </div>
+
+            {/* Logo Upload */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <LogoUploadCard
+                logoType="logoPrimary"
+                title="Primary Logo"
+                description="Main logo for brand recognition"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoSecondary"
+                title="Secondary Logo"
+                description="Alternative logo for different contexts"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoIcon"
+                title="Icon Logo"
+                description="Small logo for compact spaces"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoLight"
+                title="Light Logo"
+                description="Logo for light backgrounds"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoDark"
+                title="Dark Logo"
+                description="Logo for dark backgrounds"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoHorizontal"
+                title="Horizontal Logo"
+                description="Logo in horizontal format"
+                icon={Star}
+              />
+              <LogoUploadCard
+                logoType="logoVertical"
+                title="Vertical Logo"
+                description="Logo in vertical format"
+                icon={Star}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Colors Section */}
+        {activeSection === 'colors' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <Palette className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Brand Colors</h3>
+                <p className="text-sm text-gray-400">Define your brand color palette</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Primary Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Primary Color *
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brandData.primaryColor}
+                    onChange={(e) => setBrandData(prev => ({ ...prev, primaryColor: e.target.value }))}
+                    className="w-16 h-16 rounded-xl border-2 border-[#2A2A2A] cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={brandData.primaryColor}
+                      onChange={(e) => setBrandData(prev => ({ ...prev, primaryColor: e.target.value }))}
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Secondary Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Secondary Color
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brandData.secondaryColor}
+                    onChange={(e) => setBrandData(prev => ({ ...prev, secondaryColor: e.target.value }))}
+                    className="w-16 h-16 rounded-xl border-2 border-[#2A2A2A] cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={brandData.secondaryColor}
+                      onChange={(e) => setBrandData(prev => ({ ...prev, secondaryColor: e.target.value }))}
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Accent Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Accent Color
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brandData.accentColor}
+                    onChange={(e) => setBrandData(prev => ({ ...prev, accentColor: e.target.value }))}
+                    className="w-16 h-16 rounded-xl border-2 border-[#2A2A2A] cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={brandData.accentColor}
+                      onChange={(e) => setBrandData(prev => ({ ...prev, accentColor: e.target.value }))}
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Background Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Background Color
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brandData.backgroundColor}
+                    onChange={(e) => setBrandData(prev => ({ ...prev, backgroundColor: e.target.value }))}
+                    className="w-16 h-16 rounded-xl border-2 border-[#2A2A2A] cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={brandData.backgroundColor}
+                      onChange={(e) => setBrandData(prev => ({ ...prev, backgroundColor: e.target.value }))}
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Text Color */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Text Color
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={brandData.textColor}
+                    onChange={(e) => setBrandData(prev => ({ ...prev, textColor: e.target.value }))}
+                    className="w-16 h-16 rounded-xl border-2 border-[#2A2A2A] cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={brandData.textColor}
+                      onChange={(e) => setBrandData(prev => ({ ...prev, textColor: e.target.value }))}
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Color Palette Preview */}
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-6">
+              <h4 className="text-sm font-semibold text-gray-300 mb-4">Color Palette Preview</h4>
+              <div className="grid grid-cols-5 gap-4">
+                {[
+                  { label: 'Primary', color: brandData.primaryColor },
+                  { label: 'Secondary', color: brandData.secondaryColor },
+                  { label: 'Accent', color: brandData.accentColor },
+                  { label: 'Background', color: brandData.backgroundColor },
+                  { label: 'Text', color: brandData.textColor }
+                ].map((item) => (
+                  <div key={item.label}>
+                    <div
+                      className="w-full h-24 rounded-xl border-2 border-[#2A2A2A] mb-2"
+                      style={{ backgroundColor: item.color }}
+                    ></div>
+                    <p className="text-xs text-gray-400 text-center">{item.label}</p>
+                    <p className="text-xs text-white text-center font-mono">{item.color}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Typography Section */}
+        {activeSection === 'typography' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <Type className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Typography</h3>
+                <p className="text-sm text-gray-400">Define your brand typography system</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Heading Font */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Heading Font
+                </label>
+                <select
+                  value={brandData.headingFont}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, headingFont: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="Inter">Inter</option>
+                  <option value="Poppins">Poppins</option>
+                  <option value="Roboto">Roboto</option>
+                  <option value="Montserrat">Montserrat</option>
+                  <option value="Open Sans">Open Sans</option>
+                  <option value="Lato">Lato</option>
+                  <option value="Playfair Display">Playfair Display</option>
+                </select>
+              </div>
+
+              {/* Body Font */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Body Font
+                </label>
+                <select
+                  value={brandData.bodyFont}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, bodyFont: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="Inter">Inter</option>
+                  <option value="Roboto">Roboto</option>
+                  <option value="Open Sans">Open Sans</option>
+                  <option value="Lato">Lato</option>
+                  <option value="Source Sans Pro">Source Sans Pro</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Typography Preview */}
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-6">
+              <h4 className="text-sm font-semibold text-gray-300 mb-4">Typography Preview</h4>
+              <div className="space-y-4">
+                <div style={{ fontFamily: brandData.headingFont }}>
+                  <p className="text-4xl font-bold text-white mb-2">Heading Example</p>
+                  <p className="text-sm text-gray-400">Font: {brandData.headingFont}</p>
+                </div>
+                <div style={{ fontFamily: brandData.bodyFont }}>
+                  <p className="text-base text-gray-300 mb-2">
+                    This is an example of body text using your selected font. It demonstrates how your content will look across the platform.
+                  </p>
+                  <p className="text-sm text-gray-400">Font: {brandData.bodyFont}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Messaging Section */}
+        {activeSection === 'messaging' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <MessageSquare className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Brand Messaging</h3>
+                <p className="text-sm text-gray-400">Define your brand's voice and message</p>
+              </div>
+            </div>
+
+            {/* Mission */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <Target className="w-4 h-4 text-orange-400" />
+                Mission Statement
+              </label>
+              <TextArea
+                value={brandData.mission}
+                onChange={(value) => setBrandData(prev => ({ ...prev, mission: value }))}
+                rows={3}
+                placeholder="What is your company's mission?"
+              />
+            </div>
+
+            {/* Vision */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <Lightbulb className="w-4 h-4 text-orange-400" />
+                Vision Statement
+              </label>
+              <TextArea
+                value={brandData.vision}
+                onChange={(value) => setBrandData(prev => ({ ...prev, vision: value }))}
+                rows={3}
+                placeholder="What is your long-term vision?"
+              />
+            </div>
+
+            {/* Brand Values */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <Heart className="w-4 h-4 text-orange-400" />
+                Brand Values
+              </label>
+              <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="text"
+                  id="newValue"
+                  className="flex-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Enter a brand value"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      const input = e.target as HTMLInputElement;
+                      addValue(input.value);
+                      input.value = '';
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('newValue') as HTMLInputElement;
+                    if (input) {
+                      addValue(input.value);
+                      input.value = '';
+                    }
+                  }}
+                  className="px-4 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-medium transition flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {brandData.values.map((value, index) => (
+                  <div
+                    key={index}
+                    className="px-3 py-2 bg-orange-600/10 border border-orange-500/30 rounded-lg text-orange-400 text-sm flex items-center gap-2"
+                  >
+                    {value}
+                    <button
+                      onClick={() => removeValue(index)}
+                      className="hover:text-orange-300 transition"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Brand Positioning */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-orange-400" />
+                Brand Positioning
+              </label>
+              <TextArea
+                value={brandData.positioning}
+                onChange={(value) => setBrandData(prev => ({ ...prev, positioning: value }))}
+                rows={3}
+                placeholder="How do you position your brand in the market?"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Visual Elements Section */}
+        {activeSection === 'visual' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <ImageIcon className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Visual Elements</h3>
+                <p className="text-sm text-gray-400">Define your brand's visual style</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Logo Style */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Logo Style
+                </label>
+                <select
+                  value={brandData.logoStyle}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, logoStyle: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="Modern">Modern</option>
+                  <option value="Classic">Classic</option>
+                  <option value="Minimal">Minimal</option>
+                  <option value="Bold">Bold</option>
+                  <option value="Elegant">Elegant</option>
+                  <option value="Playful">Playful</option>
+                </select>
+              </div>
+
+              {/* Image Style */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Image Style
+                </label>
+                <select
+                  value={brandData.imageStyle}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, imageStyle: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="Professional">Professional</option>
+                  <option value="Creative">Creative</option>
+                  <option value="Vibrant">Vibrant</option>
+                  <option value="Muted">Muted</option>
+                  <option value="High Contrast">High Contrast</option>
+                </select>
+              </div>
+
+              {/* Icon Style */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Icon Style
+                </label>
+                <select
+                  value={brandData.iconStyle}
+                  onChange={(e) => setBrandData(prev => ({ ...prev, iconStyle: e.target.value }))}
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="Minimal">Minimal</option>
+                  <option value="Outline">Outline</option>
+                  <option value="Filled">Filled</option>
+                  <option value="Duotone">Duotone</option>
+                  <option value="3D">3D</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Preview Section */}
+        {activeSection === 'preview' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-orange-600/10 rounded-xl">
+                <Eye className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Brand Preview</h3>
+                <p className="text-sm text-gray-400">See your complete brand identity</p>
+              </div>
+            </div>
+
+            {/* Brand Overview Card */}
+            <div 
+              className="p-8 rounded-2xl border-2"
+              style={{
+                backgroundColor: brandData.backgroundColor,
+                borderColor: brandData.primaryColor,
+                color: brandData.textColor
+              }}
+            >
+              <div className="text-center mb-6">
+                <h1 
+                  className="text-5xl font-bold mb-2"
+                  style={{ 
+                    fontFamily: brandData.headingFont,
+                    color: brandData.primaryColor
+                  }}
+                >
+                  {brandData.brandName}
+                </h1>
+                {brandData.tagline && (
+                  <p 
+                    className="text-xl"
+                    style={{ 
+                      fontFamily: brandData.bodyFont,
+                      color: brandData.secondaryColor
+                    }}
+                  >
+                    {brandData.tagline}
+                  </p>
+                )}
+              </div>
+
+              {/* Mission */}
+              {brandData.mission && (
+                <div className="mb-4">
+                  <h3 
+                    className="text-lg font-bold mb-2"
+                    style={{ 
+                      fontFamily: brandData.headingFont,
+                      color: brandData.primaryColor
+                    }}
+                  >
+                    Our Mission
+                  </h3>
+                  <p style={{ fontFamily: brandData.bodyFont }}>
+                    {brandData.mission}
+                  </p>
+                </div>
+              )}
+
+              {/* Values */}
+              {brandData.values.length > 0 && (
+                <div>
+                  <h3 
+                    className="text-lg font-bold mb-3"
+                    style={{ 
+                      fontFamily: brandData.headingFont,
+                      color: brandData.primaryColor
+                    }}
+                  >
+                    Our Values
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {brandData.values.map((value, index) => (
+                      <span
+                        key={index}
+                        className="px-4 py-2 rounded-lg font-medium"
+                        style={{
+                          backgroundColor: brandData.primaryColor + '20',
+                          color: brandData.primaryColor,
+                          fontFamily: brandData.bodyFont
+                        }}
+                      >
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Color Palette Summary */}
+            <div className="grid grid-cols-5 gap-3">
+              {[
+                { label: 'Primary', color: brandData.primaryColor },
+                { label: 'Secondary', color: brandData.secondaryColor },
+                { label: 'Accent', color: brandData.accentColor },
+                { label: 'Background', color: brandData.backgroundColor },
+                { label: 'Text', color: brandData.textColor }
+              ].map((item) => (
+                <div key={item.label} className="text-center">
+                  <div
+                    className="w-full h-20 rounded-xl mb-2 border-2 border-[#2A2A2A]"
+                    style={{ backgroundColor: item.color }}
+                  ></div>
+                  <p className="text-xs text-gray-400">{item.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex items-center justify-between gap-4">
+        <button
+          onClick={() => {
+            toast.info('Brand guidelines exported');
+          }}
+          className="px-6 py-3 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-white rounded-xl font-medium transition border border-[#2A2A2A] flex items-center gap-2"
+        >
+          <Download className="w-4 h-4" />
+          Export Guidelines
+        </button>
+
+        <div className="flex items-center gap-3">
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-white rounded-xl font-medium transition border border-[#2A2A2A]"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-6 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-semibold transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/20"
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Brand Identity
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

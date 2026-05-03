@@ -1,0 +1,63 @@
+portal, vendor-portal-new
+code_components_prev…596a6b.min.js.br:90 🔍 Settings route exists? true
+code_components_prev…596a6b.min.js.br:90 🔍 Settings maps to: 
+Object
+code_components_prev…596a6b.min.js.br:90 ✅ Page component found: unified-dashboard object
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] useEffect triggered, calling restoreSession
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] restoreSession called
+code_components_prev…596a6b.min.js.br:90 🎭 Checking for demo user: NOT FOUND
+code_components_prev…596a6b.min.js.br:90 🔐 Auth check - Real user: true Demo user: false Authenticated: 
+Object
+code_components_prev…596a6b.min.js.br:90 📍 Current path: unified-dashboard Is public: false
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] User: 
+Object
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] No user, setting loading=false
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] ✅ Restore complete, setting loading=false
+code_components_prev…596a6b.min.js.br:90 [CompanyContext] Auth state changed: INITIAL_SESSION
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/metrics/revenue' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/metrics/revenue' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/metrics/revenue' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm…c/metrics/revenue:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/metrics/revenue:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/metrics/revenue:1 
+ Failed to load resource: net::ERR_FAILED
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/business-profiles' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/business-profiles' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/business-profiles' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm…business-profiles:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…business-profiles:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…business-profiles:1 
+ Failed to load resource: net::ERR_FAILED
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/jobs/active-count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/jobs/active-count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/jobs/active-count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm…jobs/active-count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…jobs/active-count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…jobs/active-count:1 
+ Failed to load resource: net::ERR_FAILED
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/customers/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/customers/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/customers/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm…c/customers/count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/customers/count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/customers/count:1 
+ Failed to load resource: net::ERR_FAILED
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/employees/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/employees/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+unified-dashboard:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/employees/count' from origin 'https://9ad9c4d0-e014-4121-a8d0-83f3cdc4cc4f-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm…c/employees/count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/employees/count:1 
+ Failed to load resource: net::ERR_FAILED
+plzsvzwwcdopnawtiwzm…c/employees/count:1 
+ Failed to load resource: net::ERR_FAILED
+﻿
+

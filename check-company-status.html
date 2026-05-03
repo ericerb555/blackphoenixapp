@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Company Data Check</title>
+  <style>
+    body { font-family: monospace; background: #0A0A0A; color: #fff; padding: 20px; }
+    h1 { color: #ea580c; }
+    .found { color: #10b981; }
+    .missing { color: #ef4444; }
+    pre { background: #1A1A1A; padding: 15px; border-radius: 8px; overflow-x: auto; }
+    button { background: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 10px 5px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Company Data Status</h1>
+  <div id="results"></div>
+  <button onclick="checkData()">🔄 Refresh Check</button>
+  <button onclick="restoreCompany()">🔧 Force Restore Black Phoenix Builds</button>
+  <button onclick="location.reload()">↻ Reload Page</button>
+
+  <script>
+    function checkData() {
+      const resultsDiv = document.getElementById('results');
+      let html = '<h2>Checking all possible storage locations...</h2>';
+      
+      // Check all company-related keys
+      const allKeys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('compan') || key.includes('branding'))) {
+          allKeys.push(key);
+        }
+      }
+      
+      html += `<h3>Found ${allKeys.length} company-related keys:</h3>`;
+      
+      allKeys.forEach(key => {
+        const data = localStorage.getItem(key);
+        if (data) {
+          html += `<div class="found">✅ ${key}</div>`;
+          try {
+            const parsed = JSON.parse(data);
+            html += `<pre>${JSON.stringify(parsed, null, 2).substring(0, 300)}...</pre>`;
+          } catch(e) {
+            html += `<pre>${data.substring(0, 200)}...</pre>`;
+          }
+        }
+      });
+      
+      if (allKeys.length === 0) {
+        html += '<div class="missing"><h3>⚠️ NO COMPANY DATA FOUND ANYWHERE!</h3></div>';
+      }
+      
+      resultsDiv.innerHTML = html;
+    }
+    
+    function restoreCompany() {
+      const company = {
+        id: 'company_blackphoenix_primary',
+        name: 'Black Phoenix Builds',
+        slug: 'black-phoenix-builds',
+        is_primary: true,
+        role: 'owner',
+        industry: 'Construction',
+        description: 'Black Phoenix Builds - Enterprise Construction Management',
+        country: 'USA',
+        logo_url: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      // Save to EVERY possible key
+      localStorage.setItem('companies_offline', JSON.stringify([company]));
+      localStorage.setItem('companies_global_backup', JSON.stringify([company]));
+      localStorage.setItem('companies_latest', JSON.stringify([company]));
+      localStorage.setItem('company_blackphoenix_primary', JSON.stringify(company));
+      
+      // Also try user-specific keys
+      const currentUser = localStorage.getItem('currentUserProfile');
+      if (currentUser) {
+        try {
+          const profile = JSON.parse(currentUser);
+          if (profile.email) {
+            localStorage.setItem(`companies_${profile.email}`, JSON.stringify([company]));
+          }
+        } catch(e) {}
+      }
+      
+      alert('✅ Black Phoenix Builds restored to ALL storage locations!\n\nPlease refresh the page.');
+      checkData();
+    }
+    
+    // Auto-run on load
+    checkData();
+  </script>
+</body>
+</html>

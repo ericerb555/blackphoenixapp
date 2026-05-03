@@ -1,0 +1,288 @@
+-- Investment Opportunities System (rerunnable)
+-- Tables, indexes, RLS policies, and triggers
+
+BEGIN;
+
+-- ============================================
+-- 1) TABLES
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.investment_opportunities (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  min_investment NUMERIC NOT NULL,
+  max_investment NUMERIC NOT NULL,
+  projected_roi NUMERIC NOT NULL,
+  term TEXT NOT NULL,
+  payout_frequency TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  investors INTEGER NOT NULL DEFAULT 0,
+  funded NUMERIC NOT NULL DEFAULT 0,
+  target_raise NUMERIC NOT NULL,
+  current_commitments NUMERIC NOT NULL DEFAULT 0,
+  minimum_to_start NUMERIC,
+  highlight TEXT,
+  silent_investment BOOLEAN NOT NULL DEFAULT false,
+  needs_more_funding BOOLEAN NOT NULL DEFAULT false,
+  project_details JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.investor_commitments (
+  id TEXT PRIMARY KEY,
+  opportunity_id TEXT NOT NULL REFERENCES public.investment_opportunities(id) ON DELETE CASCADE,
+  investor_email TEXT NOT NULL,
+  investor_name TEXT NOT NULL,
+  investor_phone TEXT,
+  commitment_amount NUMERIC NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  commitment_date TIMESTAMPTZ NOT NULL DEFAULT now(),
+  approval_date TIMESTAMPTZ,
+  start_date TIMESTAMPTZ,
+  maturity_date TIMESTAMPTZ,
+  total_received NUMERIC NOT NULL DEFAULT 0,
+  total_roi NUMERIC NOT NULL DEFAULT 0,
+  documents_signed BOOLEAN NOT NULL DEFAULT false,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.payout_distributions (
+  id TEXT PRIMARY KEY,
+  commitment_id TEXT NOT NULL REFERENCES public.investor_commitments(id) ON DELETE CASCADE,
+  opportunity_id TEXT NOT NULL REFERENCES public.investment_opportunities(id) ON DELETE CASCADE,
+  investor_email TEXT NOT NULL,
+  payout_amount NUMERIC NOT NULL,
+  payout_date TIMESTAMPTZ NOT NULL,
+  payout_period TEXT,
+  payout_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'scheduled',
+  transaction_id TEXT,
+  payment_method TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS public.investment_documents (
+  id TEXT PRIMARY KEY,
+  opportunity_id TEXT NOT NULL REFERENCES public.investment_opportunities(id) ON DELETE CASCADE,
+  commitment_id TEXT REFERENCES public.investor_commitments(id) ON DELETE CASCADE,
+  document_type TEXT NOT NULL,
+  document_name TEXT NOT NULL,
+  document_url TEXT NOT NULL,
+  file_size INTEGER,
+  uploaded_by TEXT NOT NULL,
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  requires_signature BOOLEAN NOT NULL DEFAULT false,
+  signed_at TIMESTAMPTZ,
+  signed_by TEXT,
+  signature_data TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  is_active BOOLEAN NOT NULL DEFAULT true
+);
+
+-- ============================================
+-- 2) INDEXES
+-- ============================================
+
+CREATE INDEX IF NOT EXISTS idx_commitments_investor ON public.investor_commitments(investor_email);
+CREATE INDEX IF NOT EXISTS idx_commitments_opportunity ON public.investor_commitments(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_payouts_investor ON public.payout_distributions(investor_email);
+CREATE INDEX IF NOT EXISTS idx_payouts_commitment ON public.payout_distributions(commitment_id);
+CREATE INDEX IF NOT EXISTS idx_documents_opportunity ON public.investment_documents(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_documents_commitment ON public.investment_documents(commitment_id);
+
+-- ============================================
+-- 3) RLS
+-- ============================================
+
+ALTER TABLE public.investment_opportunities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.investor_commitments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payout_distributions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.investment_documents ENABLE ROW LEVEL SECURITY;
+
+-- investment_opportunities
+DROP POLICY IF EXISTS "Anyone can view active opportunities" ON public.investment_opportunities;
+CREATE POLICY "Anyone can view active opportunities"
+  ON public.investment_opportunities
+  FOR SELECT
+  TO anon, authenticated
+  USING (status = 'open');
+
+DROP POLICY IF EXISTS "Service role can manage opportunities" ON public.investment_opportunities;
+CREATE POLICY "Service role can manage opportunities"
+  ON public.investment_opportunities
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- investor_commitments
+DROP POLICY IF EXISTS "Investors can view their own commitments" ON public.investor_commitments;
+CREATE POLICY "Investors can view their own commitments"
+  ON public.investor_commitments
+  FOR SELECT
+  TO authenticated
+  USING (investor_email = (auth.jwt() ->> 'email'));
+
+DROP POLICY IF EXISTS "Service role can manage commitments" ON public.investor_commitments;
+CREATE POLICY "Service role can manage commitments"
+  ON public.investor_commitments
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- payout_distributions
+DROP POLICY IF EXISTS "Investors can view their own payouts" ON public.payout_distributions;
+CREATE POLICY "Investors can view their own payouts"
+  ON public.payout_distributions
+  FOR SELECT
+  TO authenticated
+  USING (investor_email = (auth.jwt() ->> 'email'));
+
+DROP POLICY IF EXISTS "Service role can manage payouts" ON public.payout_distributions;
+CREATE POLICY "Service role can manage payouts"
+  ON public.payout_distributions
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- investment_documents
+DROP POLICY IF EXISTS "Users can view documents for their commitments" ON public.investment_documents;
+CREATE POLICY "Users can view documents for their commitments"
+  ON public.investment_documents
+  FOR SELECT
+  TO authenticated
+  USING (
+    commitment_id IS NULL
+    OR commitment_id IN (
+      SELECT c.id
+      FROM public.investor_commitments c
+      WHERE c.investor_email = (auth.jwt() ->> 'email')
+    )
+  );
+
+DROP POLICY IF EXISTS "Service role can manage documents" ON public.investment_documents;
+CREATE POLICY "Service role can manage documents"
+  ON public.investment_documents
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- ============================================
+-- 4) HELPER FUNCTIONS + TRIGGERS
+-- ============================================
+
+-- Recompute opportunity stats safely for INSERT/UPDATE/DELETE
+CREATE OR REPLACE FUNCTION public.update_opportunity_stats()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_opportunity_id TEXT;
+BEGIN
+  v_opportunity_id := COALESCE(NEW.opportunity_id, OLD.opportunity_id);
+
+  UPDATE public.investment_opportunities io
+  SET
+    investors = (
+      SELECT COUNT(DISTINCT ic.investor_email)
+      FROM public.investor_commitments ic
+      WHERE ic.opportunity_id = v_opportunity_id
+        AND ic.status IN ('approved', 'active', 'completed')
+    ),
+    current_commitments = (
+      SELECT COALESCE(SUM(ic.commitment_amount), 0)
+      FROM public.investor_commitments ic
+      WHERE ic.opportunity_id = v_opportunity_id
+        AND ic.status IN ('approved', 'active', 'completed')
+    ),
+    funded = ROUND(
+      (
+        COALESCE((
+          SELECT SUM(ic.commitment_amount)
+          FROM public.investor_commitments ic
+          WHERE ic.opportunity_id = v_opportunity_id
+            AND ic.status IN ('approved', 'active', 'completed')
+        ), 0) / NULLIF(io.target_raise, 0)
+      ) * 100
+    , 2),
+    updated_at = now()
+  WHERE io.id = v_opportunity_id;
+
+  -- If UPDATE moved a commitment from one opportunity to another, refresh old too.
+  IF TG_OP = 'UPDATE'
+     AND OLD.opportunity_id IS DISTINCT FROM NEW.opportunity_id THEN
+    UPDATE public.investment_opportunities io
+    SET
+      investors = (
+        SELECT COUNT(DISTINCT ic.investor_email)
+        FROM public.investor_commitments ic
+        WHERE ic.opportunity_id = OLD.opportunity_id
+          AND ic.status IN ('approved', 'active', 'completed')
+      ),
+      current_commitments = (
+        SELECT COALESCE(SUM(ic.commitment_amount), 0)
+        FROM public.investor_commitments ic
+        WHERE ic.opportunity_id = OLD.opportunity_id
+          AND ic.status IN ('approved', 'active', 'completed')
+      ),
+      funded = ROUND(
+        (
+          COALESCE((
+            SELECT SUM(ic.commitment_amount)
+            FROM public.investor_commitments ic
+            WHERE ic.opportunity_id = OLD.opportunity_id
+              AND ic.status IN ('approved', 'active', 'completed')
+          ), 0) / NULLIF(io.target_raise, 0)
+        ) * 100
+      , 2),
+      updated_at = now()
+    WHERE io.id = OLD.opportunity_id;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_update_opportunity_stats ON public.investor_commitments;
+CREATE TRIGGER trigger_update_opportunity_stats
+AFTER INSERT OR UPDATE OR DELETE ON public.investor_commitments
+FOR EACH ROW
+EXECUTE FUNCTION public.update_opportunity_stats();
+
+-- Update investor totals when payout status becomes completed
+CREATE OR REPLACE FUNCTION public.update_investor_totals()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.status = 'completed' AND (OLD.status IS DISTINCT FROM 'completed') THEN
+    UPDATE public.investor_commitments
+    SET
+      total_received = total_received + NEW.payout_amount,
+      total_roi = ROUND(
+        ((total_received + NEW.payout_amount) / NULLIF(commitment_amount, 0) - 1) * 100
+      , 2),
+      updated_at = now()
+    WHERE id = NEW.commitment_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_update_investor_totals ON public.payout_distributions;
+CREATE TRIGGER trigger_update_investor_totals
+AFTER UPDATE ON public.payout_distributions
+FOR EACH ROW
+EXECUTE FUNCTION public.update_investor_totals();
+
+COMMIT;
