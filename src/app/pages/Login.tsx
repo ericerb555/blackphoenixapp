@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { autoSyncBranding } from '../utils/autoSyncBranding';
+import SignUpOptionsModal from '../components/SignUpOptionsModal';
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -24,6 +25,7 @@ export default function Login({ onNavigate }: LoginProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true); // Default to true
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [showSignUpModal, setShowSignUpModal] = useState(false);
 
   // Load remembered email on mount
   useEffect(() => {
@@ -397,7 +399,7 @@ export default function Login({ onNavigate }: LoginProps) {
 
           {/* Sign Up Link */}
           <button
-            onClick={() => onNavigate('signup')}
+            onClick={() => setShowSignUpModal(true)}
             className="w-full px-12 py-8 bg-[#0A0A0A] border-2 border-[#2A2A2A] hover:bg-[#2A2A2A] rounded-xl text-white text-3xl font-bold transition-all"
           >
             Create Account
@@ -412,6 +414,12 @@ export default function Login({ onNavigate }: LoginProps) {
           </div>
         </div>
       </motion.div>
+
+      {/* Sign Up Options Modal */}
+      <SignUpOptionsModal
+        isOpen={showSignUpModal}
+        onClose={() => setShowSignUpModal(false)}
+      />
     </div>
   );
 }
