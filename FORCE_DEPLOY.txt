@@ -1,0 +1,35 @@
+🚀 FORCE DEPLOYMENT - v3.0 🚀
+Timestamp: 2026-04-26 21:45 UTC
+
+LATEST CHANGES - UX IMPROVEMENT:
+✅ Added "Go to Add Company Section" button in empty state
+✅ Button scrolls to Business Profiles section automatically
+✅ Shows toast notification to guide user
+✅ Makes Add Company button easy to find
+✅ Improves user flow for first-time company creation
+
+USER EXPERIENCE FIX:
+- Users were missing the Add Company button (it was below the fold)
+- Added prominent orange button that scrolls to the section
+- Smooth scroll animation + helpful toast message
+- Clear call-to-action for users with no companies
+
+BUTTON FEATURES:
+- Orange gradient with hover effects
+- Scale animation on hover
+- Plus icon for clarity
+- Positioned in empty state message
+
+PREVIOUS UPDATES:
+v2.9: Fixed userCompanies undefined error
+v2.8: Added debug logging for Add Company button
+v2.7: Made On-Call Portal publicly accessible
+
+CACHE BUSTING:
+- Timestamped build files: 1745704567
+- No-cache headers enabled
+- Fresh build every deployment
+- All caches cleared
+
+STATUS: READY FOR PRODUCTION DEPLOYMENT
+DEPLOY IMMEDIATELY ⚡

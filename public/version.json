@@ -1,0 +1,10 @@
+{
+  "version": "1.0.2",
+  "buildDate": "2026-05-03T14:00:00Z",
+  "features": [
+    "Customer Documents Page",
+    "Admin Portal - Real-time alerts & support",
+    "Territory Portal - Separate admin app",
+    "DataPersistence Fix"
+  ]
+}

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head><title>Debug User Profile</title></head>
+<body>
+<h1>User Profile Debug</h1>
+<pre id="output"></pre>
+<script>
+const output = document.getElementById('output');
+const currentUserProfile = localStorage.getItem('currentUserProfile');
+const userProfiles = localStorage.getItem('userProfiles');
+const demoMode = localStorage.getItem('demo_mode');
+
+output.textContent = `Current User Profile:\n${currentUserProfile}\n\nAll User Profiles:\n${userProfiles}\n\nDemo Mode:\n${demoMode}`;
+</script>
+</body>
+</html>

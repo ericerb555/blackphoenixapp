@@ -1,0 +1,72 @@
+ Auto-saved project
+🎨 RENDERING WALL: 0 {
+  "type": "wall",
+  "x1": 864,
+  "y1": 464,
+  "x2": 864,
+  "y2": 736,
+  "layer": "Architectural"
+}
+🎨 RENDERING WALL: 1 {
+  "type": "wall",
+  "x1": 880,
+  "y1": 464,
+  "x2": 880,
+  "y2": 736,
+  "layer": "Architectural"
+}
+🎨 RENDERING WALL: 2 {
+  "type": "wall",
+  "x1": 880,
+  "y1": 464,
+  "x2": 880,
+  "y2": 768,
+  "layer": "Architectural"
+}
+🎨 RENDERING WALL: 3 {
+  "type": "wall",
+  "x1": 896,
+  "y1": 464,
+  "x2": 896,
+  "y2": 720,
+  "layer": "Architectural"
+}
+🎨 RENDERING WALL: 4 {
+  "type": "wall",
+  "x1": 896,
+  "y1": 512,
+  "x2": 896,
+  "y2": 784,
+  "layer": "Architectural"
+}
+🎨 RENDERING WALL: 5 {
+  "type": "wall",
+  "x1": 832,
+  "y1": 464,
+  "x2": 832,
+  "y2": 768,
+  "layer": "Architectural"
+}
+[vite] hot updated: /src/App.tsx
+[vite] hot updated: /index.css
+3:35:45 AM [vite] (client) hmr update /src/App.tsx, /index.css
+🚀 App component mounting with PWA support...
+📍 Current pathname: /design-studio-pro
+📄 Current page: design-studio-pro
+🌐 Online status: true
+🔄 Rendering App component...
+🎨 Rendering page: design-studio-pro
+🔍 Looking for: design-studio-pro
+🔍 Available routes: dashboard, unified-dashboard, admin-alerts, customers, invoices, design-studio-pro, time-tracking, vendor-advertising-hub, vendor-super-portal, dropshipper-admin, public-store, mobile-app-hub, order-tracking, customer-app, subcontractor-app, investor-app, advertiser-app, user-management, role-management, subscription-hub, enterprise-quote-workflow, materials-hub, bid-room, service-scheduling, work-request-tracking, work-request-intake, work-request-form-editor, unified-payment-center, financial-reconciliation, job-financial-tracker, payroll, reports, quote-to-contract-workflow, change-order-camera, waste-disposal-tracking, weather-job-site-monitor, vendor-management, master-scheduling, master-schedule, materials-database, product-data-sources, service-transfers, unified-calendar, material-estimating, purchase-orders, messaging, enterprise-email, enterprise-invoicing, landing-page-editor, website-settings, enterprise-content-center, social-media, social-media-manager, module-manager, referral-rewards, employee-management, ai-diagnostics, enterprise-hr, subcontractor-enterprise, enterprise-reporting, services, owners-dashboard, customer-dashboard
+✅ Page component found: design-studio-pro object
+[CompanyContext] useEffect triggered, calling restoreSession
+[CompanyContext] restoreSession called
+[CompanyContext] User: {
+  "hasUser": false
+}
+[CompanyContext] No user, setting loading=false
+[CompanyContext] ✅ Restore complete, setting loading=false
+✅ All service workers and caches cleared
+[CompanyContext] Auth state changed: INITIAL_SESSION
+🔔 ELEMENTS STATE CHANGED! New count: 0 Walls: 0
+🎨 isDrawing CHANGED to: false drawStart: null

@@ -1,0 +1,80 @@
+initializing...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current URL: https://2902942b-106e-4c59-8b75-d06f1fefa6e6-v2-figmaiframepreview.figma.site/unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current pathname: /unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📄 Current page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🌐 Online status: true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔄 Rendering App component...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🎨 Rendering page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Looking for: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Available routes: dashboard, unified-dashboard, admin-dashboard, admin-advanced-dashboard, owners-dashboard, settings, admin-alerts, notification-settings, customers, invoices, invoices-new, projects, projects-new, payroll, job-tracking-hub, revenue-monetization-hub, customer-management-hub, customer-registration, materials-procurement-hub, materials-estimating-hub, supplier-management-hub, hr-employee-hub, design-structural-hub, customer-quote-approval, vendors-admin-hub, vendor-advertising-hub, vendor-management, vendor-api-management, vendor-application, dropshipper-admin, public-store, order-tracking, customer-app, customer-portal, customer-portal-app, customer-subscription-portal, user-management-hub, user-management, user-management-admin, role-management, subscription-hub, cohort-management, unified-project-pipeline, enterprise-quote-workflow, quote-to-contract-workflow, work-request-tracking, quote-response-hub, work-request-hub, work-request-intake, work-request-form-editor, project-pipeline, workflow, pipeline, materials-hub, pricing-settings, labor-rates-config, bid-room, service-scheduling, application-submissions, unified-payment-center, payment-center, job-financial-tracker, reports, change-order-camera, waste-disposal-tracking, weather-job-site-monitor, code-tracker, enterprise-coding-tracking, master-scheduling, master-schedule, materials-database, product-data-sources, material-estimating, purchase-orders, enterprise-email, landing-page-editor, website-settings, design-studio-pro, structural-design, enterprise-content-center, social-media, social-media-manager, module-manager, module-access-control, referral-rewards, employee-management, ai-diagnostics, enterprise-hr, subcontractor-enterprise, enterprise-reporting, services, portal-demo-hub, employee-portal, property-manager-portal, vendor-portal, subcontractor-portal, advertiser-portal, owners-portal-v2, portal-access, portals-hub, portal-global-settings, investor-portal, landlord-portal, condo-association-portal, vendor-portal-new
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings route exists? true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings maps to: {$$typeof: Symbol(react.lazy), _payload: {…}, _init: ƒ}
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 ✅ Page component found: unified-project-pipeline object
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 App component initializing...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current URL: https://2902942b-106e-4c59-8b75-d06f1fefa6e6-v2-figmaiframepreview.figma.site/unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current pathname: /unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📄 Current page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🌐 Online status: true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔄 Rendering App component...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🎨 Rendering page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Looking for: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Available routes: dashboard, unified-dashboard, admin-dashboard, admin-advanced-dashboard, owners-dashboard, settings, admin-alerts, notification-settings, customers, invoices, invoices-new, projects, projects-new, payroll, job-tracking-hub, revenue-monetization-hub, customer-management-hub, customer-registration, materials-procurement-hub, materials-estimating-hub, supplier-management-hub, hr-employee-hub, design-structural-hub, customer-quote-approval, vendors-admin-hub, vendor-advertising-hub, vendor-management, vendor-api-management, vendor-application, dropshipper-admin, public-store, order-tracking, customer-app, customer-portal, customer-portal-app, customer-subscription-portal, user-management-hub, user-management, user-management-admin, role-management, subscription-hub, cohort-management, unified-project-pipeline, enterprise-quote-workflow, quote-to-contract-workflow, work-request-tracking, quote-response-hub, work-request-hub, work-request-intake, work-request-form-editor, project-pipeline, workflow, pipeline, materials-hub, pricing-settings, labor-rates-config, bid-room, service-scheduling, application-submissions, unified-payment-center, payment-center, job-financial-tracker, reports, change-order-camera, waste-disposal-tracking, weather-job-site-monitor, code-tracker, enterprise-coding-tracking, master-scheduling, master-schedule, materials-database, product-data-sources, material-estimating, purchase-orders, enterprise-email, landing-page-editor, website-settings, design-studio-pro, structural-design, enterprise-content-center, social-media, social-media-manager, module-manager, module-access-control, referral-rewards, employee-management, ai-diagnostics, enterprise-hr, subcontractor-enterprise, enterprise-reporting, services, portal-demo-hub, employee-portal, property-manager-portal, vendor-portal, subcontractor-portal, advertiser-portal, owners-portal-v2, portal-access, portals-hub, portal-global-settings, investor-portal, landlord-portal, condo-association-portal, vendor-portal-new
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings route exists? true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings maps to: {$$typeof: Symbol(react.lazy), _payload: {…}, _init: ƒ}
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 ✅ Page component found: unified-project-pipeline object
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 App component initializing...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current URL: https://2902942b-106e-4c59-8b75-d06f1fefa6e6-v2-figmaiframepreview.figma.site/unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 Current pathname: /unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📄 Current page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🌐 Online status: true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔄 Rendering App component...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🎨 Rendering page: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Looking for: unified-project-pipeline
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Available routes: dashboard, unified-dashboard, admin-dashboard, admin-advanced-dashboard, owners-dashboard, settings, admin-alerts, notification-settings, customers, invoices, invoices-new, projects, projects-new, payroll, job-tracking-hub, revenue-monetization-hub, customer-management-hub, customer-registration, materials-procurement-hub, materials-estimating-hub, supplier-management-hub, hr-employee-hub, design-structural-hub, customer-quote-approval, vendors-admin-hub, vendor-advertising-hub, vendor-management, vendor-api-management, vendor-application, dropshipper-admin, public-store, order-tracking, customer-app, customer-portal, customer-portal-app, customer-subscription-portal, user-management-hub, user-management, user-management-admin, role-management, subscription-hub, cohort-management, unified-project-pipeline, enterprise-quote-workflow, quote-to-contract-workflow, work-request-tracking, quote-response-hub, work-request-hub, work-request-intake, work-request-form-editor, project-pipeline, workflow, pipeline, materials-hub, pricing-settings, labor-rates-config, bid-room, service-scheduling, application-submissions, unified-payment-center, payment-center, job-financial-tracker, reports, change-order-camera, waste-disposal-tracking, weather-job-site-monitor, code-tracker, enterprise-coding-tracking, master-scheduling, master-schedule, materials-database, product-data-sources, material-estimating, purchase-orders, enterprise-email, landing-page-editor, website-settings, design-studio-pro, structural-design, enterprise-content-center, social-media, social-media-manager, module-manager, module-access-control, referral-rewards, employee-management, ai-diagnostics, enterprise-hr, subcontractor-enterprise, enterprise-reporting, services, portal-demo-hub, employee-portal, property-manager-portal, vendor-portal, subcontractor-portal, advertiser-portal, owners-portal-v2, portal-access, portals-hub, portal-global-settings, investor-portal, landlord-portal, condo-association-portal, vendor-portal-new
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings route exists? true
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔍 Settings maps to: {$$typeof: Symbol(react.lazy), _payload: {…}, _init: ƒ}
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 ✅ Page component found: unified-project-pipeline object
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 UnifiedProjectPipeline component starting to render...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📊 Checking loading state: true items: 0
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 ⏳ Showing loading spinner...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [Pipeline] Loading items from: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/pipeline/items
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] useEffect triggered, calling restoreSession
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] restoreSession called
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🎭 Checking for demo user: NOT FOUND
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🔐 Auth check - Real user: true Demo user: false Authenticated: {id: 'demo-user-123', email: 'demo@example.com', aud: 'authenticated', role: 'authenticated', created_at: '2026-03-23T21:55:58.732Z', …}
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📍 Current path: unified-project-pipeline Is public: false
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] User: {hasUser: false, email: undefined}
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] No user, setting loading=false
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] ✅ Restore complete, setting loading=false
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [CompanyContext] Auth state changed: INITIAL_SESSION
+unified-project-pipeline:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/pipeline/items' from origin 'https://2902942b-106e-4c59-8b75-d06f1fefa6e6-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+UnifiedProjectPipeline.tsx:239  GET https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/pipeline/items net::ERR_FAILED
+loadPipelineItems @ UnifiedProjectPipeline.tsx:239
+(anonymous) @ UnifiedProjectPipeline.tsx:463
+TN @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+T8 @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+T7 @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+T6 @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+T4 @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+S1 @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+SQ @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:65
+V @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:61
+B @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:61
+eo @ code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:61
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 Server not accessible, checking localStorage... TypeError: Failed to fetch
+    at loadPipelineItems (UnifiedProjectPipeline.tsx:239:32)
+    at UnifiedProjectPipeline.tsx:463:5
+    at TN (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:163247)
+    at code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:37:162379
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 [Pipeline] ✅ Loading complete, isLoading set to false
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 🚀 UnifiedProjectPipeline component starting to render...
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 📊 Checking loading state: false items: 0
+code_components_preview_iframe-4d2efcec2b596a6b.min.js.br:90 ✅ About to render main pipeline UI with 0 items
