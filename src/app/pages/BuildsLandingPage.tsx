@@ -135,7 +135,7 @@ export default function BuildsLandingPage({ onNavigate }: BuildsLandingPageProps
               )}
 
               <button
-                onClick={handleGetQuote}
+                onClick={() => handleNavigate('pricing')}
                 className="w-full mt-6 px-6 py-3 bg-orange-600/20 hover:bg-orange-600/30 border border-orange-500/50 text-orange-400 font-semibold rounded-xl transition-all"
               >
                 View All Plans

@@ -1236,7 +1236,7 @@ export default function MarketingHubLandingPage({ onNavigate }: MarketingHubLand
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
               <button
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                onClick={() => handleNavigate('pricing')}
                 className="px-12 py-5 bg-gradient-to-r from-pink-600 to-rose-600 text-white rounded-xl font-bold text-xl hover:from-pink-500 hover:to-rose-500 transition-all shadow-2xl shadow-pink-500/30 hover:shadow-pink-500/50 flex items-center justify-center gap-3 group"
               >
                 View All Plans

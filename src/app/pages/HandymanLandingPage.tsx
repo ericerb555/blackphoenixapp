@@ -117,7 +117,7 @@ export default function HandymanLandingPage({ onNavigate }: HandymanLandingPageP
               )}
 
               <button
-                onClick={handleGetQuote}
+                onClick={() => handleNavigate('pricing')}
                 className="w-full mt-6 px-6 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-400 font-semibold rounded-xl transition-all"
               >
                 View All Plans
