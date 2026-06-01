@@ -802,6 +802,10 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Service request forms (lead generation)
     'request-service',
     'get-quote',
+
+    // Customer portal (public view - allow visitors to explore features)
+    'customer-portal',
+    'customer-portal-app',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
