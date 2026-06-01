@@ -107,8 +107,6 @@ import {
   Home,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { CompanyDataRestorer } from "./components/CompanyDataRestorer";
-import DataSyncStatus from "./components/DataSyncStatus";
 import { CompanyContextProvider, useCompany } from "./contexts/CompanyContext";
 import { ActiveCompanyProvider } from "./contexts/ActiveCompanyContext";
 import { CompanySwitcher } from "./components/CompanySwitcher";
@@ -2021,12 +2019,6 @@ function AppContent() {
 
                     {/* Theme Manager */}
                     <ThemeManager />
-
-                    {/* Company Data Restorer - Auto-restore if missing */}
-                    <CompanyDataRestorer />
-
-                    {/* Data Sync Status - Shows real-time sync status */}
-                    <DataSyncStatus />
                   </div>
                 </NavigationContext.Provider>
                   </ActiveCompanyProvider>
