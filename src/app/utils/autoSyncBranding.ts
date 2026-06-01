@@ -33,12 +33,27 @@ export async function autoSyncBranding(): Promise<void> {
       if (user) {
         console.log('👤 [AutoSync] User authenticated - fetching from database...');
 
-        // FIRST: Try companies table
-        const { data: companies, error } = await supabase
+        // FIRST: Try to find "The Black Phoenix Company LLC" specifically
+        console.log('🔍 [AutoSync] Looking for The Black Phoenix Company LLC...');
+        let { data: companies, error } = await supabase
           .from('companies')
           .select('*')
-          .limit(1)
+          .ilike('company_name', '%black phoenix%')
           .order('created_at', { ascending: false });
+
+        // If not found, get the most recent company
+        if (!companies || companies.length === 0) {
+          console.log('⚠️ [AutoSync] Black Phoenix Company not found, getting most recent...');
+          const response = await supabase
+            .from('companies')
+            .select('*')
+            .limit(1)
+            .order('created_at', { ascending: false });
+          companies = response.data;
+          error = response.error;
+        } else {
+          console.log('✅ [AutoSync] Found Black Phoenix Company!');
+        }
 
         if (!error && companies && companies.length > 0) {
           const company = companies[0];
@@ -114,10 +129,55 @@ export async function autoSyncBranding(): Promise<void> {
         console.log('⚠️ [AutoSync] No logo found in database tables');
       } else {
         console.log('ℹ️ [AutoSync] No authentication - public visitor mode');
-        console.log('ℹ️ [AutoSync] Logo must be pre-loaded in localStorage');
+        console.log('🔍 [AutoSync] Checking for published public branding...');
+
+        // For public visitors, try to load published branding
+        try {
+          const { data: publicBranding, error: publicError } = await supabase
+            .from('kv_store_57095a78')
+            .select('*')
+            .eq('key', 'public_branding_profile')
+            .single();
+
+          if (!publicError && publicBranding && publicBranding.value) {
+            const branding = publicBranding.value;
+            if (branding.logo_url || branding.logo_primary || branding.logoPrimary) {
+              localStorage.setItem('company_branding_profile', JSON.stringify(branding));
+              window.dispatchEvent(new Event('brandingUpdated'));
+              console.log('✅ [AutoSync] Loaded public branding for visitor');
+              console.log('✅ [AutoSync] Company:', branding.company_name || branding.brandName);
+              return;
+            }
+          }
+        } catch (publicError) {
+          console.log('⚠️ [AutoSync] Could not load public branding');
+        }
+
+        console.log('ℹ️ [AutoSync] No public branding available');
       }
     } catch (authError) {
       console.log('ℹ️ [AutoSync] Auth check failed - public visitor mode');
+
+      // Try public branding even if auth check fails
+      try {
+        const { data: publicBranding, error: publicError } = await supabase
+          .from('kv_store_57095a78')
+          .select('*')
+          .eq('key', 'public_branding_profile')
+          .single();
+
+        if (!publicError && publicBranding && publicBranding.value) {
+          const branding = publicBranding.value;
+          if (branding.logo_url || branding.logo_primary || branding.logoPrimary) {
+            localStorage.setItem('company_branding_profile', JSON.stringify(branding));
+            window.dispatchEvent(new Event('brandingUpdated'));
+            console.log('✅ [AutoSync] Loaded public branding for visitor');
+            return;
+          }
+        }
+      } catch (publicError) {
+        console.log('⚠️ [AutoSync] Could not load public branding');
+      }
     }
 
     // If we get here, no logo was found in database
