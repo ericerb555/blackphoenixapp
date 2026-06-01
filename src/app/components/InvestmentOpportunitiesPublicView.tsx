@@ -750,6 +750,7 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
             setShowDataSheet(false);
             setDataSheetOpportunity(null);
           }}
+          onNavigate={onNavigate}
         />
       )}
 

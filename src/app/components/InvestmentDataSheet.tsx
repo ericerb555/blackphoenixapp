@@ -33,9 +33,10 @@ interface Opportunity {
 interface InvestmentDataSheetProps {
   opportunity: Opportunity;
   onClose: () => void;
+  onNavigate?: (page: string) => void;
 }
 
-export function InvestmentDataSheet({ opportunity: opp, onClose }: InvestmentDataSheetProps) {
+export function InvestmentDataSheet({ opportunity: opp, onClose, onNavigate }: InvestmentDataSheetProps) {
   // Interactive investment amount calculator
   const [investmentAmount, setInvestmentAmount] = useState(opp.minInvestment);
 
@@ -481,7 +482,16 @@ export function InvestmentDataSheet({ opportunity: opp, onClose }: InvestmentDat
             <p className="text-white/90 mb-4">
               Join {opp.investors} investors already profiting from this opportunity. Limited spots available.
             </p>
-            <button className="bg-white text-orange-600 px-8 py-3 rounded-lg font-bold text-lg hover:bg-gray-100 transition-colors">
+            <button
+              onClick={() => {
+                if (onNavigate) {
+                  onNavigate(`investor-application?opportunity=${opp.id}`);
+                } else {
+                  window.location.href = `/investor-application?opportunity=${opp.id}`;
+                }
+              }}
+              className="bg-white text-orange-600 px-8 py-3 rounded-lg font-bold text-lg hover:bg-gray-100 transition-colors"
+            >
               Invest Now - {formatCurrency(investmentAmount)}
             </button>
           </div>
