@@ -1031,10 +1031,16 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
                 {/* CTA Buttons */}
                 <div className="space-y-3 pt-4">
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('🔵 Invest Now clicked for opportunity:', opp.id);
+                      console.log('🔵 onNavigate function available?', !!onNavigate);
                       if (onNavigate) {
+                        console.log('🔵 Using onNavigate to go to investor-application');
                         onNavigate(`investor-application?opportunity=${opp.id}`);
                       } else {
+                        console.log('🔵 Using window.location.href fallback');
                         window.location.href = `/investor-application?opportunity=${opp.id}`;
                       }
                     }}
