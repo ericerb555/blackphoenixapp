@@ -10,7 +10,6 @@ import AdvertisingMarquee from '../components/AdvertisingMarquee';
 import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
 import { DIRECTORY_SECTIONS } from '../config/directoryLandingSections';
-import { autoSyncBranding } from '../utils/autoSyncBranding';
 
 interface DirectoryLandingPageProps {
   onNavigate?: (page: string) => void;
@@ -119,41 +118,34 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
   // Load company logo and name from branding profile
   useEffect(() => {
-    const loadBranding = async () => {
+    const loadBranding = () => {
       try {
         console.log('🎨 [DirectoryLandingPage] Loading company branding...');
 
-        // Load from localStorage cache first (instant display)
+        // Load from localStorage
         const brandingProfile = localStorage.getItem('company_branding_profile');
         if (brandingProfile && brandingProfile !== 'undefined' && brandingProfile !== 'null') {
           const profile = JSON.parse(brandingProfile);
+          console.log('📦 [DirectoryLandingPage] Branding profile found:', profile);
 
-          if (profile.logo_url && profile.logo_url !== 'null' && profile.logo_url !== 'undefined') {
-            setCompanyLogo(profile.logo_url);
-            console.log('✅ [DirectoryLandingPage] Logo loaded from cache');
+          // Try multiple logo fields in order of preference
+          const logoUrl = profile.logo_url || profile.logo_primary || profile.logoPrimary;
+
+          if (logoUrl && logoUrl !== 'null' && logoUrl !== 'undefined') {
+            setCompanyLogo(logoUrl);
+            console.log('✅ [DirectoryLandingPage] Logo loaded:', logoUrl.substring(0, 100) + '...');
+          } else {
+            console.log('⚠️ [DirectoryLandingPage] No logo in branding profile');
           }
 
-          if (profile.company_name) {
-            setCompanyName(profile.company_name);
-            console.log('✅ [DirectoryLandingPage] Company name loaded:', profile.company_name);
+          // Try multiple company name fields
+          const name = profile.company_name || profile.brandName || profile.businessName;
+          if (name) {
+            setCompanyName(name);
+            console.log('✅ [DirectoryLandingPage] Company name loaded:', name);
           }
         } else {
-          console.log('⚠️ [DirectoryLandingPage] No branding profile in cache');
-        }
-
-        // Sync from database in background
-        await autoSyncBranding();
-
-        // Reload after sync
-        const updatedProfile = localStorage.getItem('company_branding_profile');
-        if (updatedProfile && updatedProfile !== 'undefined' && updatedProfile !== 'null') {
-          const profile = JSON.parse(updatedProfile);
-          if (profile.logo_url && profile.logo_url !== 'null') {
-            setCompanyLogo(profile.logo_url);
-          }
-          if (profile.company_name) {
-            setCompanyName(profile.company_name);
-          }
+          console.log('⚠️ [DirectoryLandingPage] No branding profile in localStorage');
         }
       } catch (error) {
         console.error('❌ [DirectoryLandingPage] Error loading branding:', error);
