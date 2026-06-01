@@ -737,7 +737,9 @@ function CompanySelector() {
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
-  return pathname.slice(1) || "landing";
+  // Strip query parameters and hash fragments from the pathname
+  const pathWithoutQuery = pathname.split('?')[0].split('#')[0];
+  return pathWithoutQuery.slice(1) || "landing";
 };
 
 // Protected Route Wrapper Component
@@ -1690,15 +1692,24 @@ function AppContent() {
     console.log("🧭 Navigating to:", page);
     // Use startTransition to avoid suspense errors during navigation
     // Update state and URL without full page reload
-    const path = page.startsWith('/') ? page.slice(1) : page;
-    console.log("🧭 Normalized path:", path);
-    console.log("🧭 Route exists in pageMap?", path in pageMap);
-    console.log("🧭 About to set currentPage to:", path);
-    console.log("🧭 Current currentPage value:", currentPage);
+    const fullPath = page.startsWith('/') ? page.slice(1) : page;
+
+    // Split the path from query parameters
+    // For example: "investor-application?opportunity=PROP-025" -> ["investor-application", "opportunity=PROP-025"]
+    const [basePath, ...queryParts] = fullPath.split('?');
+    const queryString = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
+
+    console.log("🧭 Full path:", fullPath);
+    console.log("🧭 Base path (for routing):", basePath);
+    console.log("🧭 Query string:", queryString);
+    console.log("🧭 Route exists in pageMap?", basePath in pageMap);
+
     startPageTransition(() => {
-      console.log("🧭 Inside startTransition - setting state");
-      setCurrentPage(path);
-      window.history.pushState({}, '', `/${path}`);
+      console.log("🧭 Inside startTransition - setting state to:", basePath);
+      // Set currentPage to just the base path (without query params) for routing
+      setCurrentPage(basePath);
+      // But push the full URL with query params to history
+      window.history.pushState({}, '', `/${basePath}${queryString}`);
       window.scrollTo(0, 0);
       console.log("🧭 State set complete");
     });
