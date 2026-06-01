@@ -11,7 +11,6 @@ import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
 import { DIRECTORY_SECTIONS } from '../config/directoryLandingSections';
 import { autoSyncBranding } from '../utils/autoSyncBranding';
-import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
 interface DirectoryLandingPageProps {
   onNavigate?: (page: string) => void;
@@ -21,7 +20,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   console.log('🎯 [DirectoryLandingPage] Component mounting/rendering');
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
-  const companyName = 'The Black Phoenix Company';
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState('The Black Phoenix Company');
 
   // Live signup counters
   const [customerSignUps, setCustomerSignUps] = useState<number>(() => {
@@ -115,6 +115,63 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       setCurrentPromoIndex((prev) => (prev + 1) % promotions.length);
     }, 3000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Load company logo and name from branding profile
+  useEffect(() => {
+    const loadBranding = async () => {
+      try {
+        console.log('🎨 [DirectoryLandingPage] Loading company branding...');
+
+        // Load from localStorage cache first (instant display)
+        const brandingProfile = localStorage.getItem('company_branding_profile');
+        if (brandingProfile && brandingProfile !== 'undefined' && brandingProfile !== 'null') {
+          const profile = JSON.parse(brandingProfile);
+
+          if (profile.logo_url && profile.logo_url !== 'null' && profile.logo_url !== 'undefined') {
+            setCompanyLogo(profile.logo_url);
+            console.log('✅ [DirectoryLandingPage] Logo loaded from cache');
+          }
+
+          if (profile.company_name) {
+            setCompanyName(profile.company_name);
+            console.log('✅ [DirectoryLandingPage] Company name loaded:', profile.company_name);
+          }
+        } else {
+          console.log('⚠️ [DirectoryLandingPage] No branding profile in cache');
+        }
+
+        // Sync from database in background
+        await autoSyncBranding();
+
+        // Reload after sync
+        const updatedProfile = localStorage.getItem('company_branding_profile');
+        if (updatedProfile && updatedProfile !== 'undefined' && updatedProfile !== 'null') {
+          const profile = JSON.parse(updatedProfile);
+          if (profile.logo_url && profile.logo_url !== 'null') {
+            setCompanyLogo(profile.logo_url);
+          }
+          if (profile.company_name) {
+            setCompanyName(profile.company_name);
+          }
+        }
+      } catch (error) {
+        console.error('❌ [DirectoryLandingPage] Error loading branding:', error);
+      }
+    };
+
+    loadBranding();
+
+    // Listen for branding updates
+    const handleBrandingUpdate = () => {
+      console.log('🔔 [DirectoryLandingPage] Received brandingUpdated event - reloading');
+      loadBranding();
+    };
+    window.addEventListener('brandingUpdated', handleBrandingUpdate);
+
+    return () => {
+      window.removeEventListener('brandingUpdated', handleBrandingUpdate);
+    };
   }, []);
 
   const handleNavigate = (page: string) => {
@@ -315,12 +372,16 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
       >
         <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-          <img
-            src={companyLogo}
-            alt={companyName}
-            className="w-full h-full object-contain p-4"
-            style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-          />
+          {companyLogo ? (
+            <img
+              src={companyLogo}
+              alt={companyName}
+              className="w-full h-full object-contain p-4"
+              style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+            />
+          ) : (
+            <Building2 className="w-20 h-20 text-orange-400" />
+          )}
         </div>
       </motion.div>
 
@@ -410,12 +471,16 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             >
               <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900 rounded-full blur-2xl opacity-50 group-hover:opacity-75 transition-opacity" />
               <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-                <img
-                  src={companyLogo}
-                  alt={companyName}
-                  className="w-full h-full object-contain p-4"
-                  style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                />
+                {companyLogo ? (
+                  <img
+                    src={companyLogo}
+                    alt={companyName}
+                    className="w-full h-full object-contain p-4"
+                    style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+                  />
+                ) : (
+                  <Building2 className="w-20 h-20 text-orange-400" />
+                )}
               </div>
             </motion.div>
           </div>
