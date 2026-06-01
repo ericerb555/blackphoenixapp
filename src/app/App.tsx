@@ -255,6 +255,7 @@ import ModuleManager from "./pages/ModuleManager";
 import ReferralRewards from "./pages/ReferralRewards";
 import AIDiagnostics from "./pages/AIDiagnostics";
 import DiagnosticLogos from "./pages/DiagnosticLogos";
+import DiagnosticLogosDebug from "./pages/DiagnosticLogosDebug";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -804,6 +805,10 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Customer portal (public view - allow visitors to explore features)
     'customer-portal',
     'customer-portal-app',
+
+    // Diagnostic pages (public - for debugging)
+    'diagnostic-logos',
+    'diagnostic-logos-debug',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1634,6 +1639,7 @@ function AppContent() {
     "domain-management": LandingPageEditor, // Alias - domain management can be in landing page editor
     "theme-manager": LandingPageEditor, // Alias - theme manager can be in landing page editor
     "diagnostic-logos": DiagnosticLogos, // Logo diagnostic tool
+    "diagnostic-logos-debug": DiagnosticLogosDebug, // Logo debug diagnostic tool
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
