@@ -257,6 +257,7 @@ import AIDiagnostics from "./pages/AIDiagnostics";
 import DiagnosticLogos from "./pages/DiagnosticLogos";
 import DiagnosticLogosDebug from "./pages/DiagnosticLogosDebug";
 import UploadMyLogo from "./pages/UploadMyLogo";
+import CheckMyCompanies from "./pages/CheckMyCompanies";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -811,6 +812,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'diagnostic-logos',
     'diagnostic-logos-debug',
     'upload-my-logo',
+    'check-my-companies',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1643,6 +1645,7 @@ function AppContent() {
     "diagnostic-logos": DiagnosticLogos, // Logo diagnostic tool
     "diagnostic-logos-debug": DiagnosticLogosDebug, // Logo debug diagnostic tool
     "upload-my-logo": UploadMyLogo, // Simple logo uploader
+    "check-my-companies": CheckMyCompanies, // Database company checker
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
