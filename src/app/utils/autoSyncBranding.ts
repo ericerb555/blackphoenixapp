@@ -33,6 +33,7 @@ export async function autoSyncBranding(): Promise<void> {
       if (user) {
         console.log('👤 [AutoSync] User authenticated - fetching from database...');
 
+        // FIRST: Try companies table
         const { data: companies, error } = await supabase
           .from('companies')
           .select('*')
@@ -43,46 +44,74 @@ export async function autoSyncBranding(): Promise<void> {
           const company = companies[0];
           const logoToUse = company.logo_primary || company.logo_url;
 
-          const brandingProfile = {
-            company_name: company.company_name,
-            dbaName: company.company_legal_name || company.company_name,
-            businessName: company.company_name,
-            logo_url: logoToUse,
-            primary_color: company.primary_color || '#ea580c',
-            secondary_color: company.secondary_color || '#f97316',
-            email: company.email,
-            phone: company.phone,
-            address_line1: company.address_line1,
-            city: company.city,
-            state: company.state,
-            zip_code: company.zip_code,
-            country: company.country,
-            website: company.website,
-          };
+          if (logoToUse) {
+            const brandingProfile = {
+              company_name: company.company_name || company.name,
+              dbaName: company.company_legal_name || company.company_name || company.name,
+              businessName: company.company_name || company.name,
+              logo_url: logoToUse,
+              logo_primary: company.logo_primary,
+              logoPrimary: company.logo_primary,
+              primary_color: company.primary_color || '#ea580c',
+              secondary_color: company.secondary_color || '#f97316',
+              email: company.email,
+              phone: company.phone,
+              address_line1: company.address_line1,
+              city: company.city,
+              state: company.state,
+              zip_code: company.zip_code,
+              country: company.country,
+              website: company.website,
+            };
 
-          localStorage.setItem('company_branding_profile', JSON.stringify(brandingProfile));
-          console.log('✅ [AutoSync] Branding synced from database');
-          console.log('✅ [AutoSync] Company:', company.company_name);
-          console.log('✅ [AutoSync] Logo:', logoToUse ? (logoToUse.length / 1024).toFixed(1) + 'KB' : 'NOT SET');
+            localStorage.setItem('company_branding_profile', JSON.stringify(brandingProfile));
+            console.log('✅ [AutoSync] Branding synced from companies table');
+            console.log('✅ [AutoSync] Company:', company.company_name || company.name);
+            console.log('✅ [AutoSync] Logo:', (logoToUse.length / 1024).toFixed(1) + 'KB');
 
-          // Update logo variants
-          const logoVariants = {
-            logo_primary: company.logo_primary,
-            logo_secondary: company.logo_secondary,
-            logo_icon: company.logo_icon,
-            logo_square: company.logo_square,
-            logo_horizontal: company.logo_horizontal,
-            logo_vertical: company.logo_vertical,
-            logo_white: company.logo_white,
-            logo_black: company.logo_black,
-          };
-          localStorage.setItem('company_logo_variants', JSON.stringify(logoVariants));
+            // Update logo variants
+            const logoVariants = {
+              logo_primary: company.logo_primary,
+              logo_secondary: company.logo_secondary,
+              logo_icon: company.logo_icon,
+              logo_square: company.logo_square,
+              logo_horizontal: company.logo_horizontal,
+              logo_vertical: company.logo_vertical,
+              logo_white: company.logo_white,
+              logo_black: company.logo_black,
+            };
+            localStorage.setItem('company_logo_variants', JSON.stringify(logoVariants));
 
-          // Dispatch event
-          window.dispatchEvent(new Event('brandingUpdated'));
-          console.log('✅ [AutoSync] Sync complete!');
-          return;
+            // Dispatch event
+            window.dispatchEvent(new Event('brandingUpdated'));
+            console.log('✅ [AutoSync] Sync complete!');
+            return;
+          } else {
+            console.log('⚠️ [AutoSync] Company found but no logo - trying KV store...');
+          }
         }
+
+        // SECOND: Try kv_store table for branding profile
+        console.log('🔍 [AutoSync] Checking KV store for branding data...');
+        const { data: kvData, error: kvError } = await supabase
+          .from('kv_store_57095a78')
+          .select('*')
+          .eq('key', `company_branding_profile_${user.id}`)
+          .single();
+
+        if (!kvError && kvData && kvData.value) {
+          console.log('✅ [AutoSync] Found branding in KV store');
+          const brandingProfile = kvData.value;
+
+          if (brandingProfile.logo_url || brandingProfile.logo_primary || brandingProfile.logoPrimary) {
+            localStorage.setItem('company_branding_profile', JSON.stringify(brandingProfile));
+            window.dispatchEvent(new Event('brandingUpdated'));
+            console.log('✅ [AutoSync] Synced from KV store with logo');
+            return;
+          }
+        }
+
+        console.log('⚠️ [AutoSync] No logo found in database tables');
       } else {
         console.log('ℹ️ [AutoSync] No authentication - public visitor mode');
         console.log('ℹ️ [AutoSync] Logo must be pre-loaded in localStorage');
