@@ -91,9 +91,25 @@ export async function autoSyncBranding(): Promise<void> {
       console.log('ℹ️ [AutoSync] Auth check failed - public visitor mode');
     }
 
-    // If we get here, no logo was found
-    console.log('⚠️ [AutoSync] No logo found - using default branding');
+    // If we get here, no logo was found in database
+    // BUT DO NOT overwrite if user has already uploaded a logo locally
+    console.log('⚠️ [AutoSync] No logo found in database - checking localStorage...');
 
+    const existing = localStorage.getItem('company_branding_profile');
+    if (existing && existing !== 'undefined' && existing !== 'null') {
+      try {
+        const parsed = JSON.parse(existing);
+        if (parsed.logo_url || parsed.logo_primary || parsed.logoPrimary) {
+          console.log('✅ [AutoSync] User has uploaded logo locally - preserving it');
+          return; // Don't overwrite user's uploaded logo
+        }
+      } catch (e) {
+        // Invalid JSON, continue to write defaults
+      }
+    }
+
+    // Only write defaults if there's truly nothing
+    console.log('⚠️ [AutoSync] No branding found anywhere - using defaults');
     const defaultBranding = {
       company_name: 'The Black Phoenix Company',
       dbaName: 'Black Phoenix Builds',

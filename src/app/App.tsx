@@ -256,6 +256,7 @@ import ReferralRewards from "./pages/ReferralRewards";
 import AIDiagnostics from "./pages/AIDiagnostics";
 import DiagnosticLogos from "./pages/DiagnosticLogos";
 import DiagnosticLogosDebug from "./pages/DiagnosticLogosDebug";
+import UploadMyLogo from "./pages/UploadMyLogo";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -809,6 +810,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Diagnostic pages (public - for debugging)
     'diagnostic-logos',
     'diagnostic-logos-debug',
+    'upload-my-logo',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1640,6 +1642,7 @@ function AppContent() {
     "theme-manager": LandingPageEditor, // Alias - theme manager can be in landing page editor
     "diagnostic-logos": DiagnosticLogos, // Logo diagnostic tool
     "diagnostic-logos-debug": DiagnosticLogosDebug, // Logo debug diagnostic tool
+    "upload-my-logo": UploadMyLogo, // Simple logo uploader
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
