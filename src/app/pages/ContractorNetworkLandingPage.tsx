@@ -47,10 +47,10 @@ export default function ContractorNetworkLandingPage({ onNavigate }: ContractorN
           <h1 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
             Join Our Contractor Network
           </h1>
-          <p className="text-xl text-gray-300 mb-4 max-w-3xl mx-auto">
+          <p className="text-xl text-gray-300 mb-4 max-w-3xl mx-auto text-center">
             Connect with homeowners, property managers, and businesses looking for quality products and professional services
           </p>
-          <p className="text-gray-400 max-w-2xl mx-auto">
+          <p className="text-gray-400 max-w-2xl mx-auto text-center">
             Whether you're a vendor selling products, a subcontractor providing specialized services, or a service provider offering professional expertise, we have opportunities for you to grow your business
           </p>
         </div>
