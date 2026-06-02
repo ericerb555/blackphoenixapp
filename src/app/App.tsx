@@ -259,6 +259,7 @@ import DiagnosticLogosDebug from "./pages/DiagnosticLogosDebug";
 import UploadMyLogo from "./pages/UploadMyLogo";
 import CheckMyCompanies from "./pages/CheckMyCompanies";
 import PublishMyBranding from "./pages/PublishMyBranding";
+import FixMyLogo from "./pages/FixMyLogo";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -815,6 +816,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'upload-my-logo',
     'check-my-companies',
     'publish-my-branding',
+    'fix-my-logo',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1649,6 +1651,7 @@ function AppContent() {
     "upload-my-logo": UploadMyLogo, // Simple logo uploader
     "check-my-companies": CheckMyCompanies, // Database company checker
     "publish-my-branding": PublishMyBranding, // Publish branding for public visitors
+    "fix-my-logo": FixMyLogo, // One-click logo sync fix
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,

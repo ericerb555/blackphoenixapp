@@ -11,22 +11,8 @@ export async function autoSyncBranding(): Promise<void> {
   try {
     console.log('🔄 [AutoSync] Starting automatic branding sync...');
 
-    // Check if we already have branding in localStorage
-    const existingBranding = localStorage.getItem('company_branding_profile');
-    if (existingBranding && existingBranding !== 'undefined' && existingBranding !== 'null') {
-      try {
-        const parsed = JSON.parse(existingBranding);
-        if (parsed.logo_url) {
-          console.log('✅ [AutoSync] Logo already in localStorage - skipping sync');
-          console.log('✅ [AutoSync] Logo size:', (parsed.logo_url.length / 1024).toFixed(1) + 'KB');
-          return;
-        }
-      } catch (e) {
-        // Invalid JSON, continue with sync
-      }
-    }
-
-    // Try to sync from database if authenticated
+    // ALWAYS sync from database if authenticated (don't skip even if localStorage has data)
+    // This ensures we always get the latest logo from the database
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -181,34 +167,11 @@ export async function autoSyncBranding(): Promise<void> {
     }
 
     // If we get here, no logo was found in database
-    // BUT DO NOT overwrite if user has already uploaded a logo locally
-    console.log('⚠️ [AutoSync] No logo found in database - checking localStorage...');
+    console.log('⚠️ [AutoSync] No logo found in database');
 
-    const existing = localStorage.getItem('company_branding_profile');
-    if (existing && existing !== 'undefined' && existing !== 'null') {
-      try {
-        const parsed = JSON.parse(existing);
-        if (parsed.logo_url || parsed.logo_primary || parsed.logoPrimary) {
-          console.log('✅ [AutoSync] User has uploaded logo locally - preserving it');
-          return; // Don't overwrite user's uploaded logo
-        }
-      } catch (e) {
-        // Invalid JSON, continue to write defaults
-      }
-    }
-
-    // Only write defaults if there's truly nothing
-    console.log('⚠️ [AutoSync] No branding found anywhere - using defaults');
-    const defaultBranding = {
-      company_name: 'The Black Phoenix Company',
-      dbaName: 'Black Phoenix Builds',
-      businessName: 'The Black Phoenix Company',
-      logo_url: null,
-      primary_color: '#ea580c',
-      secondary_color: '#f97316'
-    };
-
-    localStorage.setItem('company_branding_profile', JSON.stringify(defaultBranding));
+    // DO NOT write defaults - this would overwrite any existing logo
+    // Let the existing localStorage data persist
+    console.log('ℹ️ [AutoSync] Keeping existing localStorage data (if any)');
 
   } catch (error) {
     console.error('❌ [AutoSync] Error:', error);
