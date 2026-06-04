@@ -260,6 +260,7 @@ import UploadMyLogo from "./pages/UploadMyLogo";
 import CheckMyCompanies from "./pages/CheckMyCompanies";
 import PublishMyBranding from "./pages/PublishMyBranding";
 import FixMyLogo from "./pages/FixMyLogo";
+import DobaIntegration from "./pages/DobaIntegration";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -1652,6 +1653,7 @@ function AppContent() {
     "check-my-companies": CheckMyCompanies, // Database company checker
     "publish-my-branding": PublishMyBranding, // Publish branding for public visitors
     "fix-my-logo": FixMyLogo, // One-click logo sync fix
+    "doba-integration": DobaIntegration, // Doba dropshipping integration
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
