@@ -674,7 +674,7 @@ export default function SubcontractorPortal() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Start Date</p>
                       <p className="text-sm text-white">{job.startDate}</p>
@@ -756,7 +756,7 @@ export default function SubcontractorPortal() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Bid ID</p>
                       <p className="text-sm text-white">{bid.id}</p>

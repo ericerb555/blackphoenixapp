@@ -594,7 +594,7 @@ export default function PropertyManagerPortalView() {
                         View Details
                       </button>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#2A2A2A]">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-[#2A2A2A]">
                       <div>
                         <p className="text-sm text-gray-400 mb-1">Total Units</p>
                         <p className="text-lg font-bold text-white">{assoc.totalUnits}</p>
@@ -647,7 +647,7 @@ export default function PropertyManagerPortalView() {
                             </div>
                             <p className="text-sm text-gray-400 mb-2">{request.propertyName} - {request.unitNumber}</p>
                             <p className="text-sm text-white mb-3">{request.description}</p>
-                            <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                               <div>
                                 <p className="text-gray-500">Category</p>
                                 <p className="text-white font-semibold">{request.category}</p>

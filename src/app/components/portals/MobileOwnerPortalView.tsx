@@ -302,7 +302,7 @@ export default function MobileOwnerPortalView() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-4 mb-4 pb-4 border-b border-[#2A2A2A]">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 pb-4 border-b border-[#2A2A2A]">
                         <div>
                           <p className="text-xs text-gray-500 mb-1">Monthly Rate</p>
                           <p className="text-lg font-bold text-white">${sub.monthlyRate}</p>

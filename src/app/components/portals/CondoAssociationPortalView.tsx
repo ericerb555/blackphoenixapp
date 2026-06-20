@@ -746,7 +746,7 @@ export default function CondoAssociationPortalView() {
                           {order.status.replace('-', ' ').toUpperCase()}
                         </span>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-sm pt-3 border-t border-[#2A2A2A]">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm pt-3 border-t border-[#2A2A2A]">
                         <div>
                           <p className="text-gray-500">Vendor</p>
                           <p className="text-white font-semibold">{order.vendor}</p>
@@ -846,7 +846,7 @@ export default function CondoAssociationPortalView() {
                           <p className="text-sm text-gray-400 mb-3">{request.unitNumber}</p>
                           <p className="text-white mb-3">{request.description}</p>
 
-                          <div className="grid grid-cols-3 gap-4 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                             <div>
                               <p className="text-gray-500">Category</p>
                               <p className="text-white font-semibold">{request.category}</p>

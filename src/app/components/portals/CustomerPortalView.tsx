@@ -722,7 +722,7 @@ export default function CustomerPortalView() {
                     Featured Reels
                   </h3>
                 </div>
-                <div className="grid grid-cols-3 gap-2 flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
                   {videoReels.slice(0, 3).map(reel => (
                     <div key={reel.id} className="group cursor-pointer flex flex-col h-full">
                       <div className="relative rounded overflow-hidden mb-2 flex-1 bg-[#0A0A0A]">

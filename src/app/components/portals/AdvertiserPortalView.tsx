@@ -336,7 +336,7 @@ export default function AdvertiserPortalView() {
                         {campaign.status.toUpperCase()}
                       </span>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 mb-3">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
                       <div>
                         <p className="text-xs text-gray-500">Budget</p>
                         <p className="text-sm font-semibold text-white">${campaign.budget.toLocaleString()}</p>

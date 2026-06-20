@@ -546,7 +546,7 @@ export default function LandlordPortalView() {
                         {property.status.toUpperCase()}
                       </span>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                       <div>
                         <p className="text-gray-500">Units</p>
                         <p className="text-white font-semibold">{property.occupied}/{property.units}</p>
@@ -599,7 +599,7 @@ export default function LandlordPortalView() {
                         {request.status.replace('-', ' ').toUpperCase()}
                       </span>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 text-sm pt-3 border-t border-[#2A2A2A]">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm pt-3 border-t border-[#2A2A2A]">
                       <div>
                         <p className="text-gray-500">Tenant</p>
                         <p className="text-white font-semibold">{request.tenant}</p>
@@ -993,7 +993,7 @@ export default function LandlordPortalView() {
                     </div>
 
                     {/* Performance Metrics */}
-                    <div className="grid grid-cols-4 gap-4 mb-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                       <div className="bg-[#1A1A1A] rounded-lg p-3">
                         <p className="text-xs text-gray-400 mb-1">Views</p>
                         <p className="text-xl font-bold text-white">{property.views}</p>
