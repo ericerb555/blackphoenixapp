@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "hono": "npm:hono@^4.0.0",
+    "hono/": "npm:hono@^4.0.0/"
+  },
+  "tasks": {
+    "serve": "deno run --allow-net --allow-read --allow-env index.tsx"
+  }
+}
