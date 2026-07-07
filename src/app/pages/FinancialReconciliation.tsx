@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { reconciliationService, BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
+import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { useCompany } from '../contexts/CompanyContext';
