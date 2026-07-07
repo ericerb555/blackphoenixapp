@@ -32,7 +32,7 @@ import { reconciliationService, BankTransaction, ReconciliationMatch, Reconcilia
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
+import { Badge } from '../components/ui/Badge';
 import { useCompany } from '../contexts/CompanyContext';
 
 interface FinancialReconciliationProps {
