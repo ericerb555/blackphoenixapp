@@ -1,5 +1,5 @@
 {
-  "installCommand": "pnpm install",
+  "installCommand": "npm i -g corepack && corepack prepare pnpm@8.15.6 --activate && pnpm install",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
   "framework": "vite",
