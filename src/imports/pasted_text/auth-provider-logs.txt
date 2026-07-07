@@ -1,0 +1,88 @@
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedCompany, setSelectedCompany] = useState(null);
+  con…
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 ✅ Page component found: owners-dashboard function
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🎭 [AuthProvider] INITIALIZING
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🎭 [AuthProvider] demo_mode from localStorage: null
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🎭 [AuthProvider] initialDemoMode: false
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🎭 [AuthProvider] Initial state set - isDemoMode: false user: true loading: false
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: false currentPath: owners-dashboard
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 🔒 [ProtectedRoutes] Rendering children
+code_components_preview_iframe-f315a529f3173ac1.min.js.br:106 SignOutButton render - user: true isDemoMode: false hasProfile: false
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ app-sc7qccjyv4bx3g3t…e/@vite/client:1035
+ WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ app-sc7qccjyv4bx3g3t…e/@vite/client:1035
+client:1035 WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+4784 log entries are not shown.
+4784 log entries are not shown.
+client:1035 WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+4784 log entries are not shown.
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+ WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+4788 log entries are not shown.
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+ WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-sc7qccjyv4bx3g3tsscpvrcthmvnklg7bxycihzqedknqkckhmcu.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-6ui44j5uywjaj6bpot5kxm4dtmkez7htzrq3a5lwavruqfdkr24i.makeproxy-c.figma.site/' failed: 
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
