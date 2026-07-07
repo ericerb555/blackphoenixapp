@@ -29,7 +29,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { reconciliationService, BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
-import { Button } from '../components/ui/button';
+import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
