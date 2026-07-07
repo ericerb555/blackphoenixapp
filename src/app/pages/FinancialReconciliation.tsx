@@ -31,7 +31,7 @@ import {
 import { reconciliationService, BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/Card';
-import { Input } from '../components/ui/input';
+import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { useCompany } from '../contexts/CompanyContext';
 
