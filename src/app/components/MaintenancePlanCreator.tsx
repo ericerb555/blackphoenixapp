@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import {
-  Clock, Plus, Trash2, Edit2, X, Send, RefreshCw,
+  Clock, Plus, Trash2, Edit2, X, Send, RefreshCw, Sparkles,
   ChevronDown, ChevronUp, CheckCircle, AlertTriangle,
   DollarSign, Users, Calendar, Eye, EyeOff, BarChart3,
   FileText, Wrench, Tag, TrendingUp,
@@ -219,6 +219,7 @@ export default function MaintenancePlanCreator() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [aiGenerating, setAiGenerating] = useState(false);
   const [logPlan, setLogPlan] = useState<any>(null);
   const [viewUsagePlan, setViewUsagePlan] = useState<any>(null);
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
@@ -265,6 +266,77 @@ export default function MaintenancePlanCreator() {
   }
 
   function cancelForm() { setShowForm(false); setEditingId(null); setForm({ ...EMPTY_FORM }); }
+
+  async function generateWithAI() {
+    const portals = form.targetPortals;
+    const assignee = form.assignedName || form.assignedTo;
+    const hasHours = form.hoursIncluded;
+    const hasFee = form.monthlyFee;
+    const hasPortals = portals.length > 0 && !portals.includes('all');
+
+    // Need at least one data point to generate from
+    if (!hasHours && !hasFee && !assignee && !hasPortals) {
+      toast.error('Fill in at least one field first — hours, fee, assignee, or target portal');
+      return;
+    }
+
+    setAiGenerating(true);
+    await new Promise(r => setTimeout(r, 1800));
+
+    // AI logic — generates plan based on whatever fields are filled
+    const hours = Number(form.hoursIncluded) || 20;
+    const fee = Number(form.monthlyFee) || 0;
+    const portalLabel = portals.includes('all') ? 'All Portals' :
+      portals.map(p => p.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())).join(', ');
+
+    // Determine plan tier based on hours
+    const tier = hours <= 10 ? 'Basic' : hours <= 25 ? 'Standard' : hours <= 50 ? 'Professional' : 'Enterprise';
+
+    // Generate smart name
+    const suggestedName = form.name || (assignee
+      ? `${assignee} — ${tier} Plan`
+      : `${tier} Maintenance Plan${hasPortals ? ` · ${portalLabel}` : ''}`);
+
+    // Generate description
+    const suggestedDescription = form.description || [
+      `${tier}-tier maintenance coverage`,
+      hours > 0 ? `includes ${hours} service hours per billing cycle` : '',
+      form.overageRate ? `overage billed at $${form.overageRate}/hr` : '',
+      assignee ? `assigned to ${assignee}` : `available to ${portalLabel}`,
+      form.billingCycle === 'annual' ? 'billed annually' : 'billed monthly',
+    ].filter(Boolean).join('. ') + '.';
+
+    // Suggest overage rate if not set (15-20% of hourly market rate)
+    const suggestedOverageRate = form.overageRate || (
+      hours <= 10 ? '95' :
+      hours <= 25 ? '85' :
+      hours <= 50 ? '75' : '65'
+    );
+
+    // Suggest monthly fee if not set
+    const suggestedFee = form.monthlyFee || (
+      hours <= 10 ? '149' :
+      hours <= 25 ? '299' :
+      hours <= 50 ? '549' : '899'
+    );
+
+    // Suggest renewal date (1 month from now)
+    const renewDate = new Date();
+    renewDate.setMonth(renewDate.getMonth() + 1);
+    const suggestedRenewsOn = form.renewsOn || renewDate.toISOString().slice(0, 10);
+
+    setForm(prev => ({
+      ...prev,
+      name: suggestedName,
+      description: suggestedDescription,
+      overageRate: suggestedOverageRate,
+      monthlyFee: suggestedFee,
+      renewsOn: suggestedRenewsOn,
+    }));
+
+    setAiGenerating(false);
+    toast.success('✨ AI filled in the plan details — review and adjust as needed!');
+  }
 
   async function savePlan() {
     if (!form.name.trim()) { toast.error('Plan name required'); return; }
@@ -367,7 +439,17 @@ export default function MaintenancePlanCreator() {
       {showForm && (
         <div className="bg-[#1A1A1A] border border-orange-500/30 rounded-2xl p-6 space-y-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-white">{editingId ? 'Edit Plan' : 'Create New Plan'}</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-bold text-white">{editingId ? 'Edit Plan' : 'Create New Plan'}</h3>
+              <button onClick={generateWithAI} disabled={aiGenerating}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: '#fff' }}
+                title="Fill in any fields then click to let AI complete the rest">
+                {aiGenerating
+                  ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+                  : <><Sparkles className="w-3.5 h-3.5" /> AI Fill</>}
+              </button>
+            </div>
             <button onClick={cancelForm} className="p-1.5 hover:bg-[#2A2A2A] rounded-lg text-gray-400 hover:text-white transition"><X className="w-4 h-4" /></button>
           </div>
 

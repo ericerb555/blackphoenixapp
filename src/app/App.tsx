@@ -1689,6 +1689,7 @@ function AppContent() {
     "subcontractor-portal": SubcontractorPortal,
     "investor-portal": InvestorPortalView,
     "admin-portal": AdminPortalView, // Platform Owner Admin Portal
+    "enterprise-content-center": EnterpriseContentCenter,
     "territory-portal": TerritoryPortalView, // Territory Admin Portal
     "territory-admin-portal": PortalsHub,
 

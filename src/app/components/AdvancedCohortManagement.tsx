@@ -806,25 +806,16 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
             ))}
           </div>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {cohort.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {cohort.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -887,25 +878,16 @@ function SubscriptionCard({ plan, onEdit, onDelete, onDuplicate, onToggleStatus 
             <span className="text-sm text-zinc-400 font-normal">/{plan.billingCycle}</span>
           </div>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {plan.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {plan.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -962,25 +944,16 @@ function VendorPlanCard({ plan, onEdit, onDelete, onDuplicate, onToggleStatus }:
           </div>
           <p className="text-sm text-zinc-400 mb-3">{plan.description}</p>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {plan.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {plan.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -1052,25 +1025,16 @@ function AdvertiserPlanCard({ plan, onEdit, onDelete, onDuplicate, onToggleStatu
           </div>
           <p className="text-sm text-zinc-400 mb-3">{plan.description}</p>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {plan.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {plan.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -1147,25 +1111,16 @@ function MaintenancePlanCard({ plan, onEdit, onDelete, onDuplicate, onToggleStat
           </div>
           <p className="text-sm text-zinc-400 mb-3">{plan.description}</p>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {plan.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {plan.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -1240,25 +1195,16 @@ function ConstructionPlanCard({ plan, onEdit, onDelete, onDuplicate, onToggleSta
           </div>
           <p className="text-sm text-zinc-400 mb-3">{plan.description}</p>
         </div>
-        <div className="relative group">
-          <button className="p-2 hover:bg-zinc-800 rounded-lg transition-colors">
-            <MoreVertical className="w-5 h-5 text-zinc-400" />
+        <div className="flex items-center gap-1.5">
+          <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ea580c]/20 border border-[#ea580c]/30 text-orange-400 hover:bg-[#ea580c]/30 rounded-lg text-xs font-semibold transition">
+            <Edit className="w-3.5 h-3.5" /> Edit
           </button>
-          <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-            <button onClick={onEdit} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Edit className="w-4 h-4" /> Edit
-            </button>
-            <button onClick={onDuplicate} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              <Copy className="w-4 h-4" /> Duplicate
-            </button>
-            <button onClick={onToggleStatus} className="w-full px-4 py-2 text-left text-sm text-white hover:bg-zinc-700 flex items-center gap-2">
-              {plan.status === 'active' ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-              {plan.status === 'active' ? 'Deactivate' : 'Activate'}
-            </button>
-            <button onClick={onDelete} className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-zinc-700 flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Delete
-            </button>
-          </div>
+          <button onClick={onDuplicate} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition" title="Duplicate">
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={onDelete} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 rounded-lg transition" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

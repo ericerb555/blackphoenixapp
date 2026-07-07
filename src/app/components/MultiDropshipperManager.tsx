@@ -189,6 +189,11 @@ export default function MultiDropshipperManager() {
   const [connected, setConnected] = useState<ConnectedSupplier[]>(MOCK_CONNECTED);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDef | null>(null);
+  const [isCustom, setIsCustom] = useState(false);
+  const [customSupplier, setCustomSupplier] = useState({
+    name: '', website: '', apiEndpoint: '', apiKey: '', apiSecret: '',
+    shipsFrom: '', avgShipping: '', categories: '', logo: '🏭',
+  });
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [markupType, setMarkupType] = useState<'percent' | 'fixed'>('percent');
   const [markupValue, setMarkupValue] = useState('35');
@@ -216,6 +221,26 @@ export default function MultiDropshipperManager() {
   }, []);
 
   async function connectSupplier() {
+    if (isCustom) {
+      if (!customSupplier.name.trim()) { toast.error('Supplier name is required'); return; }
+      setConnecting(true);
+      await new Promise(r => setTimeout(r, 1200));
+      const newConn: ConnectedSupplier = {
+        id: `cs${Date.now()}`, supplierId: `custom_${Date.now()}`, name: customSupplier.name,
+        status: 'connected', productCount: 0, lastSync: 'just now',
+        markupType, markupValue: Number(markupValue), autoForwardOrders: autoForward,
+        credentials: { api_key: customSupplier.apiKey, api_secret: customSupplier.apiSecret, endpoint: customSupplier.apiEndpoint },
+        syncInterval: 4, categories: customSupplier.categories ? customSupplier.categories.split(',').map(c => c.trim()) : ['General'],
+        totalRevenue: 0, pendingOrders: 0,
+      };
+      setConnected(prev => [...prev, newConn]);
+      toast.success(`✅ ${customSupplier.name} added! Configure their API settings to start syncing products.`);
+      setConnecting(false);
+      setShowAddModal(false);
+      setIsCustom(false);
+      setCustomSupplier({ name: '', website: '', apiEndpoint: '', apiKey: '', apiSecret: '', shipsFrom: '', avgShipping: '', categories: '', logo: '🏭' });
+      return;
+    }
     if (!selectedSupplier) return;
     const missing = selectedSupplier.fields.find(f => !credentials[f.key]);
     if (missing) { toast.error(`Please enter your ${missing.label}`); return; }
@@ -654,25 +679,149 @@ export default function MultiDropshipperManager() {
               </button>
             </div>
 
-            {!selectedSupplier ? (
-              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {availableSuppliers.map(s => (
-                  <button key={s.id} onClick={() => setSelectedSupplier(s)}
-                    className="flex items-start gap-3 p-4 bg-[#0A0A0A] border border-[#2A2A2A] hover:border-orange-500/40 rounded-xl text-left transition group">
-                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${s.color} flex items-center justify-center text-2xl flex-shrink-0`}>{s.logo}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm">{s.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{s.description.slice(0, 70)}…</p>
-                      <div className="flex gap-3 mt-2 text-xs text-gray-600">
-                        <span>✈ {s.shipsFrom}</span>
-                        <span>⏱ {s.avgShipping}</span>
+            {!selectedSupplier && !isCustom ? (
+              <div className="p-6 space-y-4">
+                {/* Custom supplier button — always at top */}
+                <button onClick={() => setIsCustom(true)}
+                  className="w-full flex items-center gap-4 p-4 bg-gradient-to-r from-orange-600/20 to-orange-700/10 border-2 border-orange-500/40 hover:border-orange-500/70 rounded-xl text-left transition group">
+                  <div className="w-12 h-12 rounded-xl bg-orange-600 flex items-center justify-center text-2xl flex-shrink-0">
+                    <Plus className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-white text-sm">Add Any Dropshipper</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Enter a custom supplier manually — any platform, any API</p>
+                  </div>
+                  <ChevronDown className="w-5 h-5 text-orange-400 ml-auto rotate-[-90deg]" />
+                </button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-[#2A2A2A]" />
+                  <span className="text-xs text-gray-600 font-semibold uppercase tracking-wider">or choose a preset</span>
+                  <div className="flex-1 h-px bg-[#2A2A2A]" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {availableSuppliers.map(s => (
+                    <button key={s.id} onClick={() => setSelectedSupplier(s)}
+                      className="flex items-start gap-3 p-4 bg-[#0A0A0A] border border-[#2A2A2A] hover:border-orange-500/40 rounded-xl text-left transition group">
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${s.color} flex items-center justify-center text-2xl flex-shrink-0`}>{s.logo}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-white text-sm">{s.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{s.description.slice(0, 70)}…</p>
+                        <div className="flex gap-3 mt-2 text-xs text-gray-600">
+                          <span>✈ {s.shipsFrom}</span>
+                          <span>⏱ {s.avgShipping}</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {s.pros.map(p => <span key={p} className="text-xs text-green-400">✓ {p}</span>).slice(0, 2)}
+                        </div>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {s.pros.map(p => <span key={p} className="text-xs text-green-400">✓ {p}</span>).slice(0, 2)}
-                      </div>
-                    </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : isCustom ? (
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'rgba(234,88,12,0.1)', border: '1px solid rgba(234,88,12,0.3)' }}>
+                  <span className="text-2xl">🏭</span>
+                  <div>
+                    <p className="font-bold text-white text-sm">Custom Dropshipper</p>
+                    <p className="text-xs text-gray-400">Add any supplier — Zendrop, Modalyst, Inventory Source, or your own wholesaler</p>
+                  </div>
+                  <button onClick={() => setIsCustom(false)} className="ml-auto p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white">
+                    <X className="w-4 h-4" />
                   </button>
-                ))}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Supplier Name *</label>
+                    <input value={customSupplier.name} onChange={e => setCustomSupplier(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. Zendrop, My Wholesale Co."
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Website</label>
+                    <input value={customSupplier.website} onChange={e => setCustomSupplier(p => ({ ...p, website: e.target.value }))}
+                      placeholder="https://theirsupplier.com"
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Ships From</label>
+                    <input value={customSupplier.shipsFrom} onChange={e => setCustomSupplier(p => ({ ...p, shipsFrom: e.target.value }))}
+                      placeholder="USA / China / EU"
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Avg. Shipping Time</label>
+                    <input value={customSupplier.avgShipping} onChange={e => setCustomSupplier(p => ({ ...p, avgShipping: e.target.value }))}
+                      placeholder="3–7 days"
+                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1.5">Product Categories (comma separated)</label>
+                  <input value={customSupplier.categories} onChange={e => setCustomSupplier(p => ({ ...p, categories: e.target.value }))}
+                    placeholder="Electronics, Apparel, Home Goods"
+                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                </div>
+
+                <div className="border-t border-[#2A2A2A] pt-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">API Credentials (optional — add later if needed)</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">API Endpoint</label>
+                      <input value={customSupplier.apiEndpoint} onChange={e => setCustomSupplier(p => ({ ...p, apiEndpoint: e.target.value }))}
+                        placeholder="https://api.supplier.com/v1"
+                        className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 mb-1.5">API Key</label>
+                      <input type="password" value={customSupplier.apiKey} onChange={e => setCustomSupplier(p => ({ ...p, apiKey: e.target.value }))}
+                        placeholder="Your API key"
+                        className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Markup + routing */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Markup Rule</label>
+                    <div className="flex gap-2">
+                      <select value={markupType} onChange={e => setMarkupType(e.target.value as any)}
+                        className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white text-sm focus:outline-none">
+                        <option value="percent">% Markup</option>
+                        <option value="fixed">$ Fixed Add</option>
+                      </select>
+                      <input type="number" min="0" value={markupValue} onChange={e => setMarkupValue(e.target.value)}
+                        className="w-24 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white text-sm focus:outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Auto Order Routing</label>
+                    <div className="flex items-center gap-3 mt-2">
+                      <button onClick={() => setAutoForward(!autoForward)}
+                        className={`w-11 h-6 rounded-full transition-all relative ${autoForward ? 'bg-green-600' : 'bg-[#2A2A2A]'}`}>
+                        <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${autoForward ? 'left-5' : 'left-0.5'}`} />
+                      </button>
+                      <span className="text-sm text-gray-300">{autoForward ? 'Auto-forward orders' : 'Manual only'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={connectSupplier} disabled={connecting}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition">
+                    {connecting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Adding…</> : <><CheckCircle className="w-4 h-4" /> Add {customSupplier.name || 'Supplier'}</>}
+                  </button>
+                  <button onClick={() => { setIsCustom(false); setCustomSupplier({ name: '', website: '', apiEndpoint: '', apiKey: '', apiSecret: '', shipsFrom: '', avgShipping: '', categories: '', logo: '🏭' }); }}
+                    className="px-5 py-3 bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white rounded-xl text-sm transition">
+                    Back
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="p-6 space-y-5">
