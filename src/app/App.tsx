@@ -197,6 +197,7 @@ import OrderTracking from "./components/OrderTracking";
 import PromotionsManager from "./pages/PromotionsManager";
 import AIRankingEngine from "./pages/AIRankingEngine";
 import AutoProductPilot from "./pages/AutoProductPilot";
+import SocialMediaHub from "./pages/SocialMediaHub";
 // Hub Pages - Consolidated Navigation
 import JobTrackingHub from "./pages/JobTrackingHub";
 import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
@@ -349,6 +350,7 @@ const navigationSections: NavSection[] = [
       { name: "Online Store", path: "dropshipper-admin" },
       { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
       { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
+      { name: "Social Media Hub", path: "social-media-hub", badge: "NEW" },
     ],
   },
   {
@@ -807,6 +809,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',
+    'shop',
+    'store',
     'order-tracking',
 
     // Application forms (lead generation - people apply then get login)
@@ -1576,6 +1580,7 @@ function AppContent() {
     "promotions-manager": PromotionsManager,
     "ai-ranking-engine": AIRankingEngine,
     "auto-product-pilot": AutoProductPilot,
+    "social-media-hub": SocialMediaHub,
 
     // CUSTOMER PORTAL - All customer interactions consolidated into single CustomerPortalView
     "customer-app": CustomerPortalApp,
@@ -1840,6 +1845,8 @@ function AppContent() {
         "companies": "company-profile",
         "business-profile": "company-profile",
         "dashboard": "unified-dashboard",
+        "shop": "public-store",
+        "store": "public-store",
         "": "landing",
       };
       

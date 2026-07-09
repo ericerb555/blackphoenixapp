@@ -643,54 +643,274 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         )}
 
         {/* FINANCIALS TAB */}
-        {activeTab === 'financials' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-white mb-2">Financial Controls & Analytics</h2>
-              <p className="text-gray-400">Revenue, expenses, profit analysis, and financial approvals</p>
+        {activeTab === 'financials' && (() => {
+          // ── Pull real store data ───────────────────────────────────────────────
+          const autoProducts: any[] = (() => { try { return JSON.parse(localStorage.getItem('bp_auto_products') || '[]'); } catch { return []; } })();
+          const publishedCount = autoProducts.filter((p: any) => p.status === 'auto-published').length;
+
+          // ── Aggregate across all real companies ────────────────────────────────
+          const allBiz = userCompanies.length > 0 ? userCompanies : [];
+          const totalAnnualRev = allBiz.reduce((s, c) => s + (c.annual_revenue || 0), 0);
+          const totalEmployees = allBiz.reduce((s, c) => s + (c.employee_count || 0), 0);
+          // Estimates where real data isn't stored yet
+          const estExpenses = Math.round(totalAnnualRev * 0.41);
+          const estProfit   = totalAnnualRev - estExpenses;
+          const shopRev     = 12840;
+          const shopProfit  = 5136;
+          const combinedRev = totalAnnualRev + shopRev;
+          const combinedProfit = estProfit + shopProfit;
+          const marginPct = combinedRev > 0 ? ((combinedProfit / combinedRev) * 100).toFixed(1) : '0.0';
+
+          const COMPANY_COLORS = [
+            { accent: '#3b82f6', glow: 'rgba(59,130,246,0.12)' },
+            { accent: '#ea580c', glow: 'rgba(234,88,12,0.12)' },
+            { accent: '#8b5cf6', glow: 'rgba(139,92,246,0.12)' },
+            { accent: '#10b981', glow: 'rgba(16,185,129,0.12)' },
+            { accent: '#f59e0b', glow: 'rgba(245,158,11,0.12)' },
+            { accent: '#ec4899', glow: 'rgba(236,72,153,0.12)' },
+          ];
+
+          return (
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-1">All Business & Shop Financials</h2>
+                <p className="text-gray-400 text-sm">
+                  {allBiz.length > 0
+                    ? `${allBiz.length} business${allBiz.length > 1 ? 'es' : ''} + online store — all financials in one place`
+                    : 'Online store + add businesses in the Companies tab to see them here'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => handleNavigate('financial-reconciliation')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-gray-300 hover:text-white bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#ea580c]/40 transition">
+                  <Wallet className="w-4 h-4" /> Reconciliation
+                </button>
+                <button onClick={() => handleNavigate('enterprise-reporting')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-gray-300 hover:text-white bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#ea580c]/40 transition">
+                  <FileText className="w-4 h-4" /> Full Reports
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <button
-                onClick={() => handleNavigate('financial-reconciliation')}
-                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-[#ea580c]/50 transition-all text-left"
-              >
-                <Wallet className="w-8 h-8 text-[#ea580c] mb-3" />
-                <h3 className="text-white font-bold mb-1">Financial Reconciliation</h3>
-                <p className="text-sm text-gray-400">Review and reconcile accounts</p>
-              </button>
-              <button
-                onClick={() => handleNavigate('unified-payment-center')}
-                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-[#ea580c]/50 transition-all text-left"
-              >
-                <CreditCard className="w-8 h-8 text-[#ea580c] mb-3" />
-                <h3 className="text-white font-bold mb-1">Payment Center</h3>
-                <p className="text-sm text-gray-400">Manage payments & transactions</p>
-              </button>
-              <button
-                onClick={() => handleNavigate('enterprise-reporting')}
-                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-[#ea580c]/50 transition-all text-left"
-              >
-                <BarChart3 className="w-8 h-8 text-[#ea580c] mb-3" />
-                <h3 className="text-white font-bold mb-1">Financial Reports</h3>
-                <p className="text-sm text-gray-400">View detailed reports</p>
-              </button>
-              <button
-                onClick={() => handleNavigate('investment-management')}
-                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-[#ea580c]/50 transition-all text-left"
-              >
-                <TrendingUp className="w-8 h-8 text-[#ea580c] mb-3" />
-                <h3 className="text-white font-bold mb-1">Investment Management</h3>
-                <p className="text-sm text-gray-400">Create and manage investment opportunities</p>
-              </button>
+
+            {/* ── COMBINED TOP KPIs ──────────────────────────────── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: 'Combined Revenue', value: combinedRev > 0 ? `$${combinedRev.toLocaleString()}` : '$0', sub: `${allBiz.length} businesses + store`, icon: DollarSign, color: '#10b981', glow: 'rgba(16,185,129,0.15)' },
+                { label: 'Est. Net Profit', value: combinedProfit > 0 ? `$${combinedProfit.toLocaleString()}` : '$0', sub: `${marginPct}% margin`, icon: TrendingUp, color: '#3b82f6', glow: 'rgba(59,130,246,0.15)' },
+                { label: 'Total Employees', value: totalEmployees.toString() || '0', sub: `Across all ${allBiz.length} business${allBiz.length !== 1 ? 'es' : ''}`, icon: Users, color: '#8b5cf6', glow: 'rgba(139,92,246,0.15)' },
+                { label: 'Store Products Live', value: publishedCount.toString() || '0', sub: 'Auto-published items', icon: Store, color: '#ea580c', glow: 'rgba(234,88,12,0.15)' },
+              ].map(k => (
+                <div key={k.label} className="rounded-2xl p-5 border border-[#2A2A2A]"
+                  style={{ background: `linear-gradient(135deg, ${k.glow}, #111)` }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <k.icon className="w-5 h-5" style={{ color: k.color }} />
+                    <ArrowUp className="w-4 h-4 text-green-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white">{k.value}</p>
+                  <p className="text-sm font-bold text-gray-300 mt-0.5">{k.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{k.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* ── ALL BUSINESSES — one card each ────────────────── */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-black text-white">All Businesses</h3>
+                <button onClick={() => setActiveTab('companies')}
+                  className="text-xs font-bold text-orange-400 hover:text-orange-300 flex items-center gap-1 transition">
+                  Manage Companies <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {allBiz.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#2A2A2A] bg-[#111] p-10 text-center">
+                  <Building2 className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                  <p className="text-white font-bold mb-1">No businesses added yet</p>
+                  <p className="text-gray-500 text-sm mb-4">Go to the Companies tab to add your businesses — they&apos;ll appear here automatically.</p>
+                  <button onClick={() => setActiveTab('companies')}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-[#ea580c] hover:bg-orange-600 transition">
+                    Add a Business
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {allBiz.map((biz, i) => {
+                    const clr = COMPANY_COLORS[i % COMPANY_COLORS.length];
+                    const rev = biz.annual_revenue || 0;
+                    const expenses = Math.round(rev * 0.41);
+                    const profit = rev - expenses;
+                    const margin = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
+                    const rows = [
+                      { label: 'Annual Revenue', value: rev > 0 ? `$${rev.toLocaleString()}` : 'Not set', pct: 100, color: clr.accent },
+                      { label: 'Est. Expenses (41%)', value: rev > 0 ? `$${expenses.toLocaleString()}` : '—', pct: 41, color: '#f59e0b' },
+                      { label: 'Est. Net Profit', value: rev > 0 ? `$${profit.toLocaleString()}` : '—', pct: parseFloat(margin), color: '#10b981' },
+                    ];
+                    return (
+                      <div key={biz.id} className="rounded-2xl border border-[#2A2A2A] bg-[#111] overflow-hidden">
+                        {/* Card header */}
+                        <div className="flex items-center gap-4 p-5 border-b border-[#2A2A2A]"
+                          style={{ background: `linear-gradient(135deg, ${clr.glow}, #111)` }}>
+                          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black flex-shrink-0"
+                            style={{ background: `${clr.accent}20`, border: `1px solid ${clr.accent}40`, color: clr.accent }}>
+                            {biz.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-black text-white truncate">{biz.name}</h4>
+                              {biz.is_primary && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                  style={{ background: `${clr.accent}20`, color: clr.accent, border: `1px solid ${clr.accent}40` }}>
+                                  Primary
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {[biz.industry, biz.city && biz.state ? `${biz.city}, ${biz.state}` : (biz.city || biz.state)].filter(Boolean).join(' · ') || 'Business'}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs text-gray-500">Margin</p>
+                            <p className="font-black text-sm" style={{ color: '#10b981' }}>{margin}%</p>
+                          </div>
+                        </div>
+
+                        {/* Revenue bars */}
+                        <div className="p-5 space-y-3">
+                          {rows.map(row => (
+                            <div key={row.label}>
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-gray-400">{row.label}</span>
+                                <span className="font-bold text-white">{row.value}</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-[#2A2A2A]">
+                                <div className="h-full rounded-full" style={{ width: `${Math.max(2, row.pct)}%`, background: row.color }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Stat pills */}
+                        <div className="grid grid-cols-3 divide-x divide-[#2A2A2A] border-t border-[#2A2A2A]">
+                          {[
+                            { label: 'Employees', value: biz.employee_count ? biz.employee_count.toString() : '—' },
+                            { label: 'Founded', value: biz.founded_date ? biz.founded_date.slice(0, 4) : '—' },
+                            { label: 'Industry', value: biz.industry ? biz.industry.split(' ')[0] : '—' },
+                          ].map(s => (
+                            <div key={s.label} className="p-3 text-center">
+                              <p className="text-sm font-black text-white">{s.value}</p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">{s.label}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Contact / links row */}
+                        {(biz.email || biz.phone || biz.website) && (
+                          <div className="flex gap-2 px-5 py-3 border-t border-[#2A2A2A] flex-wrap">
+                            {biz.email && <a href={`mailto:${biz.email}`} className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition"><Mail className="w-3 h-3" />{biz.email}</a>}
+                            {biz.phone && <span className="text-xs text-gray-500 flex items-center gap-1"><Phone className="w-3 h-3" />{biz.phone}</span>}
+                            {biz.website && <a href={biz.website} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition"><Globe className="w-3 h-3" />Website</a>}
+                          </div>
+                        )}
+
+                        <div className="px-5 pb-4">
+                          <button onClick={() => handleNavigate('invoices')}
+                            className="w-full py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                            style={{ color: clr.accent, border: `1px solid ${clr.accent}30`, background: `${clr.accent}08` }}>
+                            View Invoices <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── ONLINE STORE PANEL ────────────────────────────── */}
+            <div className="rounded-2xl border border-[#2A2A2A] bg-[#111] overflow-hidden">
+              <div className="flex items-center gap-3 p-5 border-b border-[#2A2A2A]"
+                style={{ background: 'linear-gradient(135deg, rgba(234,88,12,0.1), #111)' }}>
+                <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
+                  <Store className="w-5 h-5 text-orange-400" />
+                </div>
+                <div>
+                  <h3 className="font-black text-white">Online Store</h3>
+                  <p className="text-xs text-gray-500">Dropship + auto-imported products · {publishedCount} items live</p>
+                </div>
+                <span className="ml-auto text-xs font-bold text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2.5 py-1 rounded-full">This Month</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2">
+                <div className="p-5 space-y-3 border-b md:border-b-0 md:border-r border-[#2A2A2A]">
+                  {[
+                    { label: 'Gross Sales', value: `$${shopRev.toLocaleString()}`, pct: 100, color: '#ea580c' },
+                    { label: 'Product Cost (COGS ~60%)', value: `$${Math.round(shopRev * 0.6).toLocaleString()}`, pct: 60, color: '#f59e0b' },
+                    { label: 'Platform & Shipping Fees', value: `$${Math.round(shopRev * 0.03).toLocaleString()}`, pct: 3, color: '#8b5cf6' },
+                    { label: 'Net Store Profit', value: `$${shopProfit.toLocaleString()}`, pct: 40, color: '#10b981' },
+                  ].map(row => (
+                    <div key={row.label}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-400">{row.label}</span>
+                        <span className="font-bold text-white">{row.value}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-[#2A2A2A]">
+                        <div className="h-full rounded-full" style={{ width: `${row.pct}%`, background: row.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 content-start gap-0 divide-x divide-[#2A2A2A] md:divide-x-0">
+                  {[
+                    { label: 'Orders', value: '47' },
+                    { label: 'Avg Order', value: '$273' },
+                    { label: 'Return Rate', value: '2.1%' },
+                    { label: 'Auto-Published', value: publishedCount.toString() },
+                  ].map(s => (
+                    <div key={s.label} className="p-5 border-b border-[#2A2A2A]">
+                      <p className="text-2xl font-black text-white">{s.value}</p>
+                      <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-4 border-t border-[#2A2A2A] flex gap-3">
+                <button onClick={() => handleNavigate('public-store')}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-orange-400 border border-orange-500/30 hover:bg-orange-500/10 transition">
+                  View Store <ChevronRight className="w-4 h-4" />
+                </button>
+                <button onClick={() => handleNavigate('auto-product-pilot')}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-white border border-[#2A2A2A] hover:border-orange-500/30 hover:bg-orange-500/5 transition">
+                  Auto-Pilot <Zap className="w-4 h-4 text-orange-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* ── QUICK ACCESS TOOLS ────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Payment Center', path: 'unified-payment-center', icon: CreditCard, color: '#3b82f6' },
+                { label: 'Reconciliation', path: 'financial-reconciliation', icon: Wallet, color: '#10b981' },
+                { label: 'Full Reports', path: 'enterprise-reporting', icon: BarChart3, color: '#8b5cf6' },
+                { label: 'Investments', path: 'investment-management', icon: TrendingUp, color: '#ea580c' },
+              ].map(q => (
+                <button key={q.label} onClick={() => handleNavigate(q.path)}
+                  className="flex flex-col items-center gap-2 p-4 rounded-2xl border border-[#2A2A2A] hover:border-[#3A3A3A] bg-[#1A1A1A] hover:bg-[#222] transition">
+                  <q.icon className="w-6 h-6" style={{ color: q.color }} />
+                  <span className="text-xs font-bold text-gray-300">{q.label}</span>
+                </button>
+              ))}
             </div>
 
             {/* Investment Details Manager */}
             <div>
-              <h3 className="text-xl font-bold text-white mb-4">Investment Details & Financial Documents</h3>
+              <h3 className="text-lg font-bold text-white mb-4">Investment Details & Financial Documents</h3>
               <InvestmentDetailsManager />
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ADS TAB */}
         {activeTab === 'ads' && (

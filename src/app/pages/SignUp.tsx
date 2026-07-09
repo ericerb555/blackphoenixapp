@@ -31,6 +31,13 @@ export default function SignUp({ onNavigate }: SignUpProps) {
     e.preventDefault();
     setIsLoading(true);
 
+    // Name is required — must come from what the user types, never their email
+    if (!formData.fullName.trim()) {
+      toast.error('Please enter your full name');
+      setIsLoading(false);
+      return;
+    }
+
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
       toast.error('Passwords do not match');
@@ -74,7 +81,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
       // Store user profile data in localStorage
       const userProfile = {
         email: formData.email,
-        fullName: formData.fullName,
+        fullName: formData.fullName.trim(),
         phone: formData.phone || undefined,
         createdAt: new Date().toISOString(),
         accountType: accountType,

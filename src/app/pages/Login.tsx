@@ -169,7 +169,7 @@ export default function Login({ onNavigate }: LoginProps) {
 
         userProfiles[email.toLowerCase()] = ownerProfile;
         localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-        localStorage.setItem('currentUserProfile', JSON.stringify(ownerProfile));
+        localStorage.setItem(`currentUserProfile_${email.toLowerCase()}`, JSON.stringify(ownerProfile));
 
         console.log('✅✅✅ OWNER PROFILE FORCED:', ownerProfile);
         console.log('📋 Updated userProfiles:', userProfiles);
@@ -197,10 +197,9 @@ export default function Login({ onNavigate }: LoginProps) {
       });
 
       if (userProfile) {
-        // Ensure fullName exists
+        // Ensure fullName exists — always derive from email, never hardcode
         if (!userProfile.fullName || userProfile.fullName === 'User') {
-          // Create a name from email if not set
-          userProfile.fullName = isOwnerEmail ? 'Eric Erb' : email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1);
+          userProfile.fullName = email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         }
 
         // CRITICAL: Force owner email to always be owner
@@ -223,13 +222,13 @@ export default function Login({ onNavigate }: LoginProps) {
 
         userProfiles[email.toLowerCase()] = userProfile;
         localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-        localStorage.setItem('currentUserProfile', JSON.stringify(userProfile));
+        localStorage.setItem(`currentUserProfile_${email.toLowerCase()}`, JSON.stringify(userProfile));
         console.log('✅ User profile loaded:', userProfile);
       } else {
         // Create a basic profile for existing users who signed up before profiles were added
         // Check if they're the first user
         const isFirstUser = allUsers.length === 0;
-        const userName = isOwnerEmail ? 'Eric Erb' : email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1);
+        const userName = email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
         const newProfile = {
           email: email,
@@ -241,7 +240,7 @@ export default function Login({ onNavigate }: LoginProps) {
         };
         userProfiles[email.toLowerCase()] = newProfile;
         localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-        localStorage.setItem('currentUserProfile', JSON.stringify(newProfile));
+        localStorage.setItem(`currentUserProfile_${email.toLowerCase()}`, JSON.stringify(newProfile));
         console.log('✅ Created profile for existing user:', newProfile);
         userProfile = newProfile;
       }
@@ -252,7 +251,7 @@ export default function Login({ onNavigate }: LoginProps) {
         userProfile.accountType = 'owner';
         userProfiles[email.toLowerCase()] = userProfile;
         localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-        localStorage.setItem('currentUserProfile', JSON.stringify(userProfile));
+        localStorage.setItem(`currentUserProfile_${email.toLowerCase()}`, JSON.stringify(userProfile));
       }
 
       const accountType = userProfile.accountType;

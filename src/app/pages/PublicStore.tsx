@@ -236,6 +236,92 @@ export default function PublicStore() {
     }
   });
 
+  const [zipCode, setZipCode] = useState('');
+  const [taxState, setTaxState] = useState('');
+  const [taxRate, setTaxRate] = useState(0);
+
+  // US state sales tax rates (2024 average combined rates)
+  const STATE_TAX_RATES: Record<string, { rate: number; name: string }> = {
+    AL: { rate: 0.09, name: 'Alabama' }, AK: { rate: 0.0, name: 'Alaska' },
+    AZ: { rate: 0.084, name: 'Arizona' }, AR: { rate: 0.094, name: 'Arkansas' },
+    CA: { rate: 0.0885, name: 'California' }, CO: { rate: 0.077, name: 'Colorado' },
+    CT: { rate: 0.0635, name: 'Connecticut' }, DE: { rate: 0.0, name: 'Delaware' },
+    FL: { rate: 0.07, name: 'Florida' }, GA: { rate: 0.073, name: 'Georgia' },
+    HI: { rate: 0.044, name: 'Hawaii' }, ID: { rate: 0.06, name: 'Idaho' },
+    IL: { rate: 0.087, name: 'Illinois' }, IN: { rate: 0.07, name: 'Indiana' },
+    IA: { rate: 0.069, name: 'Iowa' }, KS: { rate: 0.087, name: 'Kansas' },
+    KY: { rate: 0.06, name: 'Kentucky' }, LA: { rate: 0.0952, name: 'Louisiana' },
+    ME: { rate: 0.055, name: 'Maine' }, MD: { rate: 0.06, name: 'Maryland' },
+    MA: { rate: 0.0625, name: 'Massachusetts' }, MI: { rate: 0.06, name: 'Michigan' },
+    MN: { rate: 0.0749, name: 'Minnesota' }, MS: { rate: 0.0707, name: 'Mississippi' },
+    MO: { rate: 0.082, name: 'Missouri' }, MT: { rate: 0.0, name: 'Montana' },
+    NE: { rate: 0.069, name: 'Nebraska' }, NV: { rate: 0.082, name: 'Nevada' },
+    NH: { rate: 0.0, name: 'New Hampshire' }, NJ: { rate: 0.066, name: 'New Jersey' },
+    NM: { rate: 0.079, name: 'New Mexico' }, NY: { rate: 0.0852, name: 'New York' },
+    NC: { rate: 0.0699, name: 'North Carolina' }, ND: { rate: 0.069, name: 'North Dakota' },
+    OH: { rate: 0.072, name: 'Ohio' }, OK: { rate: 0.089, name: 'Oklahoma' },
+    OR: { rate: 0.0, name: 'Oregon' }, PA: { rate: 0.068, name: 'Pennsylvania' },
+    RI: { rate: 0.07, name: 'Rhode Island' }, SC: { rate: 0.075, name: 'South Carolina' },
+    SD: { rate: 0.064, name: 'South Dakota' }, TN: { rate: 0.0955, name: 'Tennessee' },
+    TX: { rate: 0.0825, name: 'Texas' }, UT: { rate: 0.0719, name: 'Utah' },
+    VT: { rate: 0.0624, name: 'Vermont' }, VA: { rate: 0.057, name: 'Virginia' },
+    WA: { rate: 0.093, name: 'Washington' }, WV: { rate: 0.065, name: 'West Virginia' },
+    WI: { rate: 0.054, name: 'Wisconsin' }, WY: { rate: 0.054, name: 'Wyoming' },
+    DC: { rate: 0.06, name: 'Washington D.C.' },
+  };
+
+  // ZIP prefix → state code (first 3 digits covers most common ranges)
+  function zipToState(zip: string): string {
+    const z = parseInt(zip.slice(0, 3), 10);
+    if (z >= 988 && z <= 994) return 'WA'; if (z >= 970 && z <= 979) return 'OR';
+    if (z >= 900 && z <= 961) return 'CA'; if (z >= 967 && z <= 968) return 'HI';
+    if (z >= 995 && z <= 999) return 'AK'; if (z >= 800 && z <= 816) return 'CO';
+    if (z >= 820 && z <= 831) return 'WY'; if (z >= 832 && z <= 838) return 'ID';
+    if (z >= 840 && z <= 847) return 'UT'; if (z >= 850 && z <= 865) return 'AZ';
+    if (z >= 870 && z <= 884) return 'NM'; if (z >= 885 && z <= 885) return 'TX';
+    if (z >= 750 && z <= 799) return 'TX'; if (z >= 700 && z <= 714) return 'LA';
+    if (z >= 716 && z <= 729) return 'AR'; if (z >= 386 && z <= 397) return 'MS';
+    if (z >= 350 && z <= 369) return 'AL'; if (z >= 370 && z <= 385) return 'TN';
+    if (z >= 400 && z <= 427) return 'KY'; if (z >= 430 && z <= 458) return 'OH';
+    if (z >= 460 && z <= 479) return 'IN'; if (z >= 480 && z <= 499) return 'MI';
+    if (z >= 530 && z <= 549) return 'WI'; if (z >= 550 && z <= 567) return 'MN';
+    if (z >= 500 && z <= 528) return 'IA'; if (z >= 580 && z <= 588) return 'ND';
+    if (z >= 570 && z <= 577) return 'SD'; if (z >= 680 && z <= 693) return 'NE';
+    if (z >= 660 && z <= 679) return 'KS'; if (z >= 630 && z <= 658) return 'MO';
+    if (z >= 600 && z <= 629) return 'IL'; if (z >= 730 && z <= 749) return 'OK';
+    if (z >= 590 && z <= 599) return 'MT'; if (z >= 820 && z <= 822) return 'WY';
+    if (z >= 300 && z <= 319) return 'GA'; if (z >= 320 && z <= 349) return 'FL';
+    if (z >= 270 && z <= 289) return 'NC'; if (z >= 290 && z <= 299) return 'SC';
+    if (z >= 240 && z <= 246) return 'VA'; if (z >= 247 && z <= 268) return 'VA';
+    if (z >= 200 && z <= 205) return 'DC'; if (z >= 206 && z <= 212) return 'MD';
+    if (z >= 214 && z <= 219) return 'MD'; if (z >= 220 && z <= 231) return 'VA';
+    if (z >= 232 && z <= 238) return 'VA'; if (z >= 239 && z <= 239) return 'VA';
+    if (z >= 250 && z <= 268) return 'WV'; if (z >= 150 && z <= 196) return 'PA';
+    if (z >= 197 && z <= 199) return 'DE'; if (z >= 100 && z <= 149) return 'NY';
+    if (z >= 70 && z <= 89) return 'NJ'; if (z >= 10 && z <= 27) return 'MA';
+    if (z >= 28 && z <= 29) return 'RI'; if (z >= 30 && z <= 49) return 'NH';
+    if (z >= 50 && z <= 69) return 'VT'; if (z >= 3 && z <= 4) return 'ME';
+    if (z >= 5 && z <= 5) return 'ME'; if (z >= 6 && z <= 6) return 'CT';
+    if (z >= 600 && z <= 601) return 'PR';
+    return '';
+  }
+
+  function applyZip(zip: string) {
+    if (zip.length === 5) {
+      const state = zipToState(zip);
+      if (state && STATE_TAX_RATES[state]) {
+        setTaxState(state);
+        setTaxRate(STATE_TAX_RATES[state].rate);
+      } else {
+        setTaxState('');
+        setTaxRate(0);
+      }
+    } else {
+      setTaxState('');
+      setTaxRate(0);
+    }
+  }
+
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -798,19 +884,62 @@ export default function PublicStore() {
 
             {cart.length > 0 && (
               <div className="sticky bottom-0 p-6" style={{ background: '#0d0d0d', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                {/* ZIP / Tax calculator */}
+                <div className="mb-4">
+                  <p className="text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Calculate Tax</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={5}
+                      placeholder="Enter ZIP code"
+                      value={zipCode}
+                      onChange={e => {
+                        const v = e.target.value.replace(/\D/g, '');
+                        setZipCode(v);
+                        applyZip(v);
+                      }}
+                      className="flex-1 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500/50 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none"
+                    />
+                    {taxState && (
+                      <span className="flex items-center px-3 rounded-xl text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 whitespace-nowrap">
+                        {taxState} · {(taxRate * 100).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                  {zipCode.length === 5 && !taxState && (
+                    <p className="text-xs text-gray-600 mt-1">ZIP not recognized — no tax applied</p>
+                  )}
+                </div>
+
                 <div className="space-y-2 mb-5">
-                  <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span className="text-white font-semibold">${cartTotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>Subtotal</span>
+                    <span className="text-white font-semibold">${cartTotal.toFixed(2)}</span>
+                  </div>
                   <div className="flex justify-between text-sm text-gray-500">
                     <span>Shipping</span>
                     <span className={cartTotal >= 500 ? 'text-green-400 font-semibold' : 'text-white font-semibold'}>
                       {cartTotal >= 500 ? '✓ FREE' : '$25.00'}
                     </span>
                   </div>
+                  {taxRate > 0 && (
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Tax ({(taxRate * 100).toFixed(2)}%)</span>
+                      <span className="text-white font-semibold">${(cartTotal * taxRate).toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-base font-black text-white pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                     <span>Total</span>
-                    <span style={{ color: '#ea580c' }}>${(cartTotal >= 500 ? cartTotal : cartTotal + 25).toFixed(2)}</span>
+                    <span style={{ color: '#ea580c' }}>
+                      ${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}
+                    </span>
                   </div>
+                  {taxRate > 0 && (
+                    <p className="text-[10px] text-gray-600">Includes ${(cartTotal * taxRate).toFixed(2)} in {taxState} sales tax</p>
+                  )}
                 </div>
+
                 <button className="w-full py-4 rounded-2xl font-black text-base transition hover:scale-105 flex items-center justify-center gap-2" style={{ background: '#ea580c' }}>
                   <Lock className="w-4 h-4" /> Secure Checkout
                 </button>

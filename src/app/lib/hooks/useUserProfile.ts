@@ -50,28 +50,31 @@ export function useUserProfile(): {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
-    // First try to load from currentUserProfile (set during login)
-    const currentProfile = localStorage.getItem('currentUserProfile');
+    if (!user?.email) {
+      setProfile(null);
+      return;
+    }
+
+    // Use email-scoped key — same pattern used in Login.tsx
+    const scopedKey = `currentUserProfile_${user.email.toLowerCase()}`;
+    const currentProfile = localStorage.getItem(scopedKey);
     if (currentProfile) {
       try {
         const parsed = JSON.parse(currentProfile);
-        setProfile(parsed);
-        console.log('✅ [useUserProfile] Loaded from currentUserProfile:', parsed);
-        return;
+        // Safety: confirm profile belongs to this user before using it
+        if (parsed.email?.toLowerCase() === user.email.toLowerCase()) {
+          setProfile(parsed);
+          return;
+        }
       } catch (e) {
-        console.error('Error parsing currentUserProfile:', e);
+        // ignore parse errors
       }
     }
 
-    // Fallback to loading by email from userProfiles
-    if (user?.email) {
-      const loadedProfile = loadUserProfile(user.email);
-      setProfile(loadedProfile);
-      console.log('✅ [useUserProfile] Loaded from userProfiles:', loadedProfile);
-    } else {
-      setProfile(null);
-    }
-  }, [user?.email]);
+    // Fallback: load by email from userProfiles object
+    const loadedProfile = loadUserProfile(user.email);
+    setProfile(loadedProfile);
+  }, [user?.id, user?.email]);
 
   const updateProfile = (data: Partial<UserProfile>) => {
     if (!profile?.email && !user?.email) return;
@@ -85,7 +88,8 @@ export function useUserProfile(): {
     } as UserProfile;
 
     saveUserProfile(email, updated);
-    localStorage.setItem('currentUserProfile', JSON.stringify(updated));
+    const scopedKey = `currentUserProfile_${email.toLowerCase()}`;
+    localStorage.setItem(scopedKey, JSON.stringify(updated));
     setProfile(updated);
   };
 

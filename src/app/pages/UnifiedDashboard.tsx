@@ -926,6 +926,34 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             )}
           </button>
 
+          {/* Social Media Hub Button */}
+          <button
+            onClick={() => onNavigate?.('social-media-hub')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-pink-500/50 hover:bg-pink-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <Zap className="w-6 h-6 text-pink-400" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-pink-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Social Media Hub</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-pink-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Import · Learn · Publish</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-pink-400" />
+              </div>
+            )}
+          </button>
+
           {/* AI Ranking Engine Button */}
           <button
             onClick={() => onNavigate?.('ai-ranking-engine')}
