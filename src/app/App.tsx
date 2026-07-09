@@ -347,6 +347,8 @@ const navigationSections: NavSection[] = [
       { name: "Master Scheduling", path: "master-scheduling" },
       { name: "Unified Calendar", path: "unified-calendar" },
       { name: "Online Store", path: "dropshipper-admin" },
+      { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
+      { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
     ],
   },
   {
