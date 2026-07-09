@@ -897,6 +897,63 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
               </>
             )}
           </button>
+
+          {/* Auto-Product Pilot Button */}
+          <button
+            onClick={() => onNavigate?.('auto-product-pilot')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <Zap className="w-6 h-6 text-orange-400" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Auto-Product Pilot</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">AI product auto-import</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-orange-400" />
+              </div>
+            )}
+          </button>
+
+          {/* AI Ranking Engine Button */}
+          <button
+            onClick={() => onNavigate?.('ai-ranking-engine')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-purple-500/50 hover:bg-purple-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <TrendingUp className="w-6 h-6 text-purple-400" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">AI Ranking Engine</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Google · AI · Voice SEO</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-purple-400" />
+              </div>
+            )}
+          </button>
+
         </div>
       </div>
 
