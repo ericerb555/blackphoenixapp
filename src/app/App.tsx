@@ -108,6 +108,7 @@ import {
   BarChart3,
   LogOut,
   Home,
+  TrendingUp,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { CompanyContextProvider, useCompany } from "./contexts/CompanyContext";
@@ -194,6 +195,8 @@ import DropshipperAdmin from "./components/DropshipperAdminPanel";
 import PublicStore from "./pages/PublicStore";
 import OrderTracking from "./components/OrderTracking";
 import PromotionsManager from "./pages/PromotionsManager";
+import AIRankingEngine from "./pages/AIRankingEngine";
+import AutoProductPilot from "./pages/AutoProductPilot";
 // Hub Pages - Consolidated Navigation
 import JobTrackingHub from "./pages/JobTrackingHub";
 import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
@@ -473,6 +476,14 @@ const navigationSections: NavSection[] = [
         name: "Enterprise Reporting",
         path: "enterprise-reporting",
       },
+    ],
+  },
+  {
+    name: "Growth & Visibility",
+    icon: TrendingUp,
+    items: [
+      { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
+      { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
     ],
   },
 ];
@@ -1561,7 +1572,9 @@ function AppContent() {
     "public-store": PublicStore,
     "order-tracking": OrderTracking,
     "promotions-manager": PromotionsManager,
-    
+    "ai-ranking-engine": AIRankingEngine,
+    "auto-product-pilot": AutoProductPilot,
+
     // CUSTOMER PORTAL - All customer interactions consolidated into single CustomerPortalView
     "customer-app": CustomerPortalApp,
     "customer-portal": CustomerPortalApp,

@@ -98,7 +98,15 @@ export default function Login({ onNavigate }: LoginProps) {
 
       if (error) {
         console.error('❌ Sign in failed:', error);
-        toast.error(error.message || 'Login failed');
+        if (error.message?.toLowerCase().includes('invalid login credentials') || error.message?.toLowerCase().includes('invalid credentials')) {
+          toast.error('Incorrect email or password. Please try again or click "Forgot password?" to reset.');
+        } else if (error.message?.toLowerCase().includes('email not confirmed')) {
+          toast.error('Please check your email and confirm your account before signing in.');
+        } else if (error.message?.toLowerCase().includes('too many requests')) {
+          toast.error('Too many login attempts. Please wait a few minutes and try again.');
+        } else {
+          toast.error(error.message || 'Login failed. Please try again.');
+        }
         setIsLoading(false);
         return;
       }

@@ -508,6 +508,15 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             className="flex items-center justify-center gap-2 text-orange-400 w-full"
             style={{ justifyContent: 'center', textAlign: 'center' }}
           >
+            <span className="text-lg font-semibold text-center">Family Owned &amp; Operated</span>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.8, delay: 0.95 }}
+            className="flex items-center justify-center gap-2 text-orange-400 w-full"
+            style={{ justifyContent: 'center', textAlign: 'center' }}
+          >
             <Sparkles className="w-5 h-5 animate-pulse" />
             <span className="text-lg font-semibold text-center">Choose Your Path Below</span>
             <Sparkles className="w-5 h-5 animate-pulse" />
@@ -518,8 +527,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       {/* ── UNIFIED MARQUEE — sponsors, logos, offers, all in one ─────────── */}
       <SponsoredMarquee onNavigate={handleNavigate} />
 
-      {/* ── DEALS ZONE ─────────────────────────────────────────────────────── */}
-      <div className="w-full px-4 py-10 flex justify-center">
+      {/* ── DEALS ZONE (moved to sign-up modal) ────────────────────────────── */}
+      {false && <div className="w-full px-4 py-10 flex justify-center">
         <div className="w-full max-w-7xl mx-auto space-y-6">
 
           {/* Header */}
@@ -740,117 +749,306 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
           </div>{/* end featured promotions */}
 
         </div>
-      </div>
+      </div>}
       {/* ── END DEALS ZONE ──────────────────────────────────────────────────── */}
 
-      {/* Main Sections Grid */}
-      <div className="w-full px-4 py-16 flex justify-center">
-        <div className="w-full max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, delay: 1 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 justify-items-center"
+      {/* ── TWO BIG CTAs ─────────────────────────────────────────────────────── */}
+      <style>{`
+        @keyframes scanline {
+          0% { transform: translateY(-100%); }
+          100% { transform: translateY(400%); }
+        }
+        @keyframes cornerPulse {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 1; }
+        }
+        @keyframes gridFloat {
+          0%, 100% { opacity: 0.04; transform: translateY(0px); }
+          50% { opacity: 0.08; transform: translateY(-6px); }
+        }
+        .cta-scanline { animation: scanline 3s linear infinite; }
+        .cta-corner { animation: cornerPulse 2s ease-in-out infinite; }
+        .cta-grid { animation: gridFloat 4s ease-in-out infinite; }
+      `}</style>
+
+      <div className="w-full px-4 pt-10 pb-6 flex justify-center">
+        <div className="w-full max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+          {/* ── SHOP THE STORE ── */}
+          <motion.button
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            onClick={() => handleNavigate('public-store')}
+            className="group relative overflow-hidden text-left"
+            style={{
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #0a0a0a 0%, #1a0800 50%, #0a0a0a 100%)',
+              border: '1px solid rgba(251,146,60,0.35)',
+              boxShadow: '0 0 0 0 rgba(251,146,60,0), inset 0 0 60px rgba(251,146,60,0.04)',
+              transition: 'box-shadow 0.4s ease',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 60px rgba(251,146,60,0.25), 0 0 120px rgba(251,146,60,0.1), inset 0 0 60px rgba(251,146,60,0.08)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 0 rgba(251,146,60,0), inset 0 0 60px rgba(251,146,60,0.04)';
+            }}
           >
-          {sections.map((section, index) => (
-            <motion.div
-              key={section.id}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 * index }}
-              onHoverStart={() => setHoveredSection(section.id)}
-              onHoverEnd={() => setHoveredSection(null)}
-              className="group relative"
-            >
-              {/* Card */}
-              <div className={`relative bg-[#1A1A1A] border-2 border-[#2A2A2A] rounded-2xl overflow-hidden transition-all duration-300 h-full flex flex-col ${
-                hoveredSection === section.id ? 'border-opacity-100 shadow-2xl scale-105' : 'border-opacity-50'
-              }`}
-                style={{
-                  borderColor: hoveredSection === section.id ? `var(--${section.glowColor}-500)` : undefined,
-                  boxShadow: hoveredSection === section.id ? `0 0 40px rgba(var(--${section.glowColor}-rgb), 0.3)` : undefined,
-                  minHeight: '375px'
-                }}
-              >
-                {/* Image */}
-                <div className="relative h-32 overflow-hidden">
-                  <img
-                    src={section.image}
-                    alt={section.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  />
-                  <div className={`absolute inset-0 bg-gradient-to-t ${section.gradient} opacity-60 group-hover:opacity-40 transition-opacity`} />
+            {/* Animated grid bg */}
+            <div className="cta-grid absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: 'linear-gradient(rgba(251,146,60,1) 1px, transparent 1px), linear-gradient(90deg, rgba(251,146,60,1) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
+                opacity: 0.05,
+              }} />
 
-                  {/* Icon */}
-                  <div className="absolute top-2 right-2">
-                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${section.gradient} flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform`}>
-                      <section.icon className="w-6 h-6 text-white" />
-                    </div>
+            {/* Scan line */}
+            <div className="cta-scanline absolute left-0 right-0 h-16 pointer-events-none"
+              style={{ background: 'linear-gradient(to bottom, transparent, rgba(251,146,60,0.06), transparent)' }} />
+
+            {/* Corner brackets */}
+            <div className="cta-corner absolute top-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #fb923c', borderLeft: '2px solid #fb923c' }} />
+            <div className="cta-corner absolute top-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #fb923c', borderRight: '2px solid #fb923c', animationDelay: '0.5s' }} />
+            <div className="cta-corner absolute bottom-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #fb923c', borderLeft: '2px solid #fb923c', animationDelay: '1s' }} />
+            <div className="cta-corner absolute bottom-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #fb923c', borderRight: '2px solid #fb923c', animationDelay: '1.5s' }} />
+
+            {/* Background product image */}
+            <div className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: "url('https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=900&q=70')",
+                backgroundSize: 'cover', backgroundPosition: 'center',
+                opacity: 0.12,
+                mixBlendMode: 'luminosity',
+              }} />
+
+            {/* Diagonal accent slash */}
+            <div className="absolute -right-8 top-0 bottom-0 w-32 pointer-events-none"
+              style={{
+                background: 'linear-gradient(135deg, transparent 40%, rgba(251,146,60,0.08) 40%, rgba(251,146,60,0.12) 60%, transparent 60%)',
+                transform: 'skewX(-8deg)',
+              }} />
+
+            {/* Content */}
+            <div className="relative z-10 p-8 pb-7">
+              {/* Top label */}
+              <div className="flex items-center gap-2 mb-5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-orange-500/40" />
+                <span className="text-[10px] font-black tracking-[0.25em] text-orange-500 uppercase">Black Phoenix Store</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-orange-500/40" />
+              </div>
+
+              <div className="flex items-start gap-5 mb-5">
+                {/* Icon */}
+                <div className="relative flex-shrink-0">
+                  <div className="w-16 h-16 rounded-xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, rgba(251,146,60,0.2), rgba(251,146,60,0.05))', border: '1px solid rgba(251,146,60,0.4)' }}>
+                    <ShoppingCart className="w-8 h-8 text-orange-400 group-hover:scale-110 transition-transform duration-300" />
                   </div>
-
-                  {/* Number Badge */}
-                  <div className="absolute bottom-2 left-2">
-                    <div className="w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm border-2 border-white/20 flex items-center justify-center">
-                      <span className="text-lg font-bold text-white">{section.id}</span>
-                    </div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-orange-500 flex items-center justify-center">
+                    <span className="text-[7px] font-black text-white">NEW</span>
                   </div>
                 </div>
 
-                {/* Content */}
-                <div className="p-4 flex-1 flex flex-col">
-                  <h3 className="text-xl font-bold text-white mb-1">{section.title}</h3>
-                  <p className="text-sm text-gray-400 mb-2 font-semibold">{section.subtitle}</p>
-                  <p className="text-gray-300 text-sm mb-3 leading-relaxed line-clamp-2">{section.description}</p>
-
-                  {/* Benefits */}
-                  <div className="space-y-1.5 mb-3 flex-1">
-                    {section.benefits.slice(0, 3).map((benefit, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
-                        <CheckCircle className={`w-3 h-3 text-${section.glowColor}-400 flex-shrink-0`} />
-                        <span className="text-sm text-gray-400">{benefit}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Subscription Plans */}
-                  {section.subscriptionPlans && (
-                    <div className="mb-3 p-2.5 bg-[#0A0A0A] rounded-lg border border-[#2A2A2A]">
-                      <h4 className="text-sm font-bold text-white mb-2 text-center">Plans</h4>
-                      <div className="space-y-1">
-                        {section.subscriptionPlans.map((plan: any, i: number) => (
-                          <div key={i} className="flex items-center justify-between text-sm">
-                            <span className="text-gray-400 text-sm">{plan.name}</span>
-                            <span className={`text-${section.glowColor}-400 font-bold text-sm`}>{plan.price}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* CTA Buttons */}
-                  <div className="space-y-2 mt-auto">
-                    {section.showQuoteButton && (
-                      <button
-                        onClick={() => handleGetQuote(section.cohortType)}
-                        className={`w-full py-2 px-3 rounded-lg font-semibold text-sm text-white bg-gradient-to-r ${section.gradient} hover:shadow-lg hover:shadow-${section.glowColor}-500/50 transition-all flex items-center justify-center gap-2 group/btn`}
-                      >
-                        Get Quote
-                        <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleNavigate(section.navigate)}
-                      className={`w-full py-2 px-3 rounded-lg font-semibold text-sm ${section.showQuoteButton ? 'bg-white/10 hover:bg-white/20' : `bg-gradient-to-r ${section.gradient}`} text-white hover:shadow-lg transition-all flex items-center justify-center gap-2 group/btn`}
-                    >
-                      {section.showQuoteButton ? 'Learn More' : 'Explore'}
-                      <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                    </button>
-                  </div>
+                <div className="flex-1">
+                  <h2 className="text-3xl font-black text-white leading-none mb-1"
+                    style={{ textShadow: '0 0 30px rgba(251,146,60,0.3)' }}>
+                    Shop the Store
+                  </h2>
+                  <p className="text-orange-400/80 text-xs font-mono tracking-widest uppercase">Products · Tools · Supplies</p>
                 </div>
               </div>
-            </motion.div>
-          ))}
-        </motion.div>
+
+              <p className="text-gray-300 text-sm leading-relaxed mb-6">
+                Browse hundreds of products — tools, home goods, trending drops, and supplies — all shipped fast to your door.
+              </p>
+
+              {/* Stat chips */}
+              <div className="flex gap-3 mb-6 flex-wrap">
+                {['Fast Shipping', 'Top Brands', 'New Arrivals Daily'].map(t => (
+                  <span key={t} className="text-[11px] font-semibold text-orange-300 px-2.5 py-1 rounded-md"
+                    style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+
+              {/* CTA strip */}
+              <div className="flex items-center justify-between pt-4"
+                style={{ borderTop: '1px solid rgba(251,146,60,0.2)' }}>
+                <span className="text-xs font-mono text-orange-500/60 tracking-widest">[ ENTER STORE ]</span>
+                <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-black text-sm text-black group-hover:gap-3 transition-all"
+                  style={{ background: 'linear-gradient(90deg, #f97316, #fb923c)' }}>
+                  Browse Now
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </div>
+          </motion.button>
+
+          {/* ── REQUEST WORK ── */}
+          <motion.button
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            onClick={() => handleNavigate('request-service')}
+            className="group relative overflow-hidden text-left"
+            style={{
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #0a0a0a 0%, #00081a 50%, #0a0a0a 100%)',
+              border: '1px solid rgba(96,165,250,0.35)',
+              boxShadow: '0 0 0 0 rgba(96,165,250,0), inset 0 0 60px rgba(96,165,250,0.04)',
+              transition: 'box-shadow 0.4s ease',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 60px rgba(96,165,250,0.25), 0 0 120px rgba(96,165,250,0.1), inset 0 0 60px rgba(96,165,250,0.08)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 0 rgba(96,165,250,0), inset 0 0 60px rgba(96,165,250,0.04)';
+            }}
+          >
+            {/* Animated grid bg */}
+            <div className="cta-grid absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: 'linear-gradient(rgba(96,165,250,1) 1px, transparent 1px), linear-gradient(90deg, rgba(96,165,250,1) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
+                opacity: 0.05,
+                animationDelay: '2s',
+              }} />
+
+            {/* Scan line */}
+            <div className="cta-scanline absolute left-0 right-0 h-16 pointer-events-none"
+              style={{ background: 'linear-gradient(to bottom, transparent, rgba(96,165,250,0.06), transparent)', animationDelay: '1.5s' }} />
+
+            {/* Corner brackets */}
+            <div className="cta-corner absolute top-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #60a5fa', borderLeft: '2px solid #60a5fa' }} />
+            <div className="cta-corner absolute top-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #60a5fa', borderRight: '2px solid #60a5fa', animationDelay: '0.5s' }} />
+            <div className="cta-corner absolute bottom-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #60a5fa', borderLeft: '2px solid #60a5fa', animationDelay: '1s' }} />
+            <div className="cta-corner absolute bottom-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #60a5fa', borderRight: '2px solid #60a5fa', animationDelay: '1.5s' }} />
+
+            {/* Background construction image */}
+            <div className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: "url('https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=900&q=70')",
+                backgroundSize: 'cover', backgroundPosition: 'center',
+                opacity: 0.12,
+                mixBlendMode: 'luminosity',
+              }} />
+
+            {/* Diagonal accent slash */}
+            <div className="absolute -right-8 top-0 bottom-0 w-32 pointer-events-none"
+              style={{
+                background: 'linear-gradient(135deg, transparent 40%, rgba(96,165,250,0.08) 40%, rgba(96,165,250,0.12) 60%, transparent 60%)',
+                transform: 'skewX(-8deg)',
+              }} />
+
+            {/* Content */}
+            <div className="relative z-10 p-8 pb-7">
+              {/* Top label */}
+              <div className="flex items-center gap-2 mb-5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-blue-500/40" />
+                <span className="text-[10px] font-black tracking-[0.25em] text-blue-400 uppercase">Professional Services</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-blue-500/40" />
+              </div>
+
+              <div className="flex items-start gap-5 mb-5">
+                {/* Icon */}
+                <div className="relative flex-shrink-0">
+                  <div className="w-16 h-16 rounded-xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, rgba(96,165,250,0.2), rgba(96,165,250,0.05))', border: '1px solid rgba(96,165,250,0.4)' }}>
+                    <Wrench className="w-8 h-8 text-blue-400 group-hover:scale-110 transition-transform duration-300" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
+                    <span className="text-[7px] font-black text-white">FREE</span>
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <h2 className="text-3xl font-black text-white leading-none mb-1"
+                    style={{ textShadow: '0 0 30px rgba(96,165,250,0.3)' }}>
+                    Request Work
+                  </h2>
+                  <p className="text-blue-400/80 text-xs font-mono tracking-widest uppercase">Repairs · Builds · Handyman</p>
+                </div>
+              </div>
+
+              <p className="text-gray-300 text-sm leading-relaxed mb-6">
+                Home repairs, full builds, handyman jobs — submit a request and get a free quote from our licensed team fast.
+              </p>
+
+              {/* Stat chips */}
+              <div className="flex gap-3 mb-6 flex-wrap">
+                {['Free Quote', 'Licensed & Insured', 'Same-Day Response'].map(t => (
+                  <span key={t} className="text-[11px] font-semibold text-blue-300 px-2.5 py-1 rounded-md"
+                    style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+
+              {/* CTA strip */}
+              <div className="flex items-center justify-between pt-4"
+                style={{ borderTop: '1px solid rgba(96,165,250,0.2)' }}>
+                <span className="text-xs font-mono text-blue-400/60 tracking-widest">[ SUBMIT REQUEST ]</span>
+                <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-black text-sm text-white group-hover:gap-3 transition-all"
+                  style={{ background: 'linear-gradient(90deg, #3b82f6, #60a5fa)' }}>
+                  Get a Free Quote
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </div>
+          </motion.button>
+
+        </div>
+      </div>
+
+      {/* ── SERVICE PILLS ROW ────────────────────────────────────────────────── */}
+      <div className="w-full px-4 pb-10 flex justify-center">
+        <div className="w-full max-w-4xl mx-auto">
+          <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold text-center mb-4">Explore Everything We Offer</p>
+          <div className="flex flex-wrap justify-center gap-2.5">
+            {[
+              { label: 'Home Services', icon: Building, navigate: 'handyman-landing-page' },
+              { label: 'Builds & Renovation', icon: Building2, navigate: 'builds-landing-page' },
+              { label: 'Junk Removal', icon: Trash2, navigate: 'demo-landing-page' },
+              { label: 'Property Management', icon: Building, navigate: 'property-management-landing-page' },
+              { label: 'Contractor Network', icon: Users, navigate: 'contractor-network-landing-page' },
+              { label: 'Advertise With Us', icon: Megaphone, navigate: 'advertiser-application' },
+              { label: 'Become a Vendor', icon: Store, navigate: 'vendor-application' },
+              { label: 'Investment', icon: TrendingUp, navigate: 'investment-opportunities' },
+              { label: 'Join as Sub', icon: Briefcase, navigate: 'subcontractor-application' },
+            ].map((pill, i) => (
+              <motion.button
+                key={pill.label}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3, delay: 0.05 * i }}
+                onClick={() => handleNavigate(pill.navigate)}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 hover:bg-[#2A2A2A] text-gray-300 hover:text-white text-sm font-semibold transition-all"
+              >
+                <pill.icon className="w-3.5 h-3.5 text-orange-400" />
+                {pill.label}
+              </motion.button>
+            ))}
+            <motion.button
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3, delay: 0.45 }}
+              onClick={() => setShowSignUpModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-600/20 border border-orange-500/40 hover:bg-orange-600/30 text-orange-300 hover:text-white text-sm font-bold transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Founding Member Offers
+            </motion.button>
+          </div>
         </div>
       </div>
 
@@ -1408,21 +1606,105 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           viewport={{ once: true }}
-          className="w-full max-w-7xl flex justify-center"
+          className="w-full max-w-6xl"
         >
-          <div className="bg-gradient-to-r from-orange-600/20 via-purple-600/20 to-blue-600/20 border-2 border-orange-500/30 rounded-2xl p-12 w-full max-w-4xl flex flex-col items-center text-center">
-            <h3 className="text-3xl md:text-4xl font-bold text-white mb-4">Ready to Get Started?</h3>
-            <p className="text-xl text-gray-300 mb-8 max-w-2xl">
-              Join thousands of satisfied customers, contractors, and investors on our platform
-            </p>
-            <button
-              onClick={() => setShowSignUpModal(true)}
-              className="px-12 py-5 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl font-bold text-xl hover:from-orange-500 hover:to-orange-600 transition-all shadow-2xl shadow-orange-500/30 hover:shadow-orange-500/50 flex items-center gap-3 group"
-            >
-              Create Your Account
-              <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-            </button>
-          </div>
+          <button
+            onClick={() => setShowSignUpModal(true)}
+            className="group relative overflow-hidden w-full text-left"
+            style={{
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #0a0a0a 0%, #1a0000 50%, #0a0a0a 100%)',
+              border: '1px solid rgba(239,68,68,0.35)',
+              boxShadow: '0 0 0 0 rgba(239,68,68,0), inset 0 0 60px rgba(239,68,68,0.04)',
+              transition: 'box-shadow 0.4s ease',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 60px rgba(239,68,68,0.25), 0 0 120px rgba(239,68,68,0.1), inset 0 0 60px rgba(239,68,68,0.08)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 0 rgba(239,68,68,0), inset 0 0 60px rgba(239,68,68,0.04)';
+            }}
+          >
+            {/* Animated grid bg */}
+            <div className="cta-grid absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: 'linear-gradient(rgba(239,68,68,1) 1px, transparent 1px), linear-gradient(90deg, rgba(239,68,68,1) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
+                opacity: 0.05,
+                animationDelay: '1s',
+              }} />
+
+            {/* Scan line */}
+            <div className="cta-scanline absolute left-0 right-0 h-20 pointer-events-none"
+              style={{ background: 'linear-gradient(to bottom, transparent, rgba(239,68,68,0.06), transparent)', animationDelay: '0.8s' }} />
+
+            {/* Corner brackets */}
+            <div className="cta-corner absolute top-3 left-3 w-6 h-6 pointer-events-none"
+              style={{ borderTop: '2px solid #ef4444', borderLeft: '2px solid #ef4444' }} />
+            <div className="cta-corner absolute top-3 right-3 w-6 h-6 pointer-events-none"
+              style={{ borderTop: '2px solid #ef4444', borderRight: '2px solid #ef4444', animationDelay: '0.5s' }} />
+            <div className="cta-corner absolute bottom-3 left-3 w-6 h-6 pointer-events-none"
+              style={{ borderBottom: '2px solid #ef4444', borderLeft: '2px solid #ef4444', animationDelay: '1s' }} />
+            <div className="cta-corner absolute bottom-3 right-3 w-6 h-6 pointer-events-none"
+              style={{ borderBottom: '2px solid #ef4444', borderRight: '2px solid #ef4444', animationDelay: '1.5s' }} />
+
+            {/* Background hero image */}
+            <div className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: "url('https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=1400&q=70')",
+                backgroundSize: 'cover', backgroundPosition: 'center',
+                opacity: 0.1,
+                mixBlendMode: 'luminosity',
+              }} />
+
+            {/* Diagonal accent slash */}
+            <div className="absolute right-0 top-0 bottom-0 w-64 pointer-events-none"
+              style={{
+                background: 'linear-gradient(135deg, transparent 30%, rgba(239,68,68,0.06) 30%, rgba(239,68,68,0.1) 60%, transparent 60%)',
+                transform: 'skewX(-8deg)',
+              }} />
+
+            {/* Content */}
+            <div className="relative z-10 p-10 flex flex-col sm:flex-row items-center gap-8">
+
+              {/* Left: text */}
+              <div className="flex-1 text-center sm:text-left">
+                <div className="flex items-center justify-center sm:justify-start gap-2 mb-4">
+                  <div className="h-px w-10 bg-gradient-to-r from-transparent to-red-500/60" />
+                  <span className="text-[10px] font-black tracking-[0.25em] text-red-500 uppercase">Join Black Phoenix</span>
+                  <div className="h-px w-10 bg-gradient-to-l from-transparent to-red-500/60" />
+                </div>
+
+                <h3 className="text-4xl md:text-5xl font-black text-white mb-3 leading-none"
+                  style={{ textShadow: '0 0 40px rgba(239,68,68,0.25)' }}>
+                  Ready to Get Started?
+                </h3>
+                <p className="text-gray-400 text-base max-w-xl leading-relaxed">
+                  Join customers, contractors, and investors already on the platform. Create your free account in under 2 minutes.
+                </p>
+
+                <div className="flex flex-wrap gap-3 mt-5 justify-center sm:justify-start">
+                  {['Free to Join', 'No Credit Card', 'Instant Access'].map(t => (
+                    <span key={t} className="text-[11px] font-semibold text-red-300 px-2.5 py-1 rounded-md"
+                      style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right: big button */}
+              <div className="flex flex-col items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-3 px-10 py-5 rounded-xl font-black text-lg text-white group-hover:gap-4 transition-all"
+                  style={{ background: 'linear-gradient(90deg, #dc2626, #ef4444)', boxShadow: '0 0 30px rgba(239,68,68,0.35)' }}>
+                  Create Your Account
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </div>
+                <span className="text-xs font-mono text-red-500/50 tracking-widest">[ INITIALIZE ACCOUNT ]</span>
+              </div>
+
+            </div>
+          </button>
         </motion.div>
       </div>
 

@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, User, Wrench, Briefcase, Store, Megaphone,
   FileText, Building2, Home, Users, ShoppingCart, TrendingUp,
-  ArrowRight, Sparkles, Hammer, Camera, Clipboard, Award, Calendar, DollarSign, Key, Shield
+  ArrowRight, Sparkles, Hammer, Camera, Clipboard, Award, Calendar, DollarSign, Key, Shield,
+  Tag, Clock, CheckCircle2, ExternalLink
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import CustomerSubscriptionSelectionModal from './CustomerSubscriptionSelectionModal';
 import SubcontractorOnboarding from './SubcontractorOnboarding';
 import UniversalSignupFlow from './UniversalSignupFlow';
@@ -42,6 +43,27 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
   const [showLandlordApplication, setShowLandlordApplication] = useState(false);
   const [showCondoAssociationApplication, setShowCondoAssociationApplication] = useState(false);
   const [showEmployeeApplication, setShowEmployeeApplication] = useState(false);
+
+  // Promotions & sign-up counters (moved from landing page)
+  const [customerSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_customers') || '7'));
+  const [subcontractorSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_subcontractors') || '3'));
+  const [advertiserSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_advertisers') || '2'));
+  const [vendorSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_vendors') || '5'));
+  const [serviceProviderSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_serviceProviders') || '4'));
+  const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
+
+  const promotions = [
+    { id: 1, type: 'subcontractor', company: 'Elite Plumbing Services', title: '15% Off All Emergency Repairs', description: 'Professional plumbing services available 24/7', discount: '15% OFF', validUntil: 'June 30, 2026', image: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?w=400', color: 'purple' },
+    { id: 2, type: 'vendor', company: 'BuildPro Supply Co.', title: 'Summer Sale - Building Materials', description: '20% off lumber, drywall, and roofing materials', discount: '20% OFF', validUntil: 'July 15, 2026', image: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=400', color: 'blue' },
+    { id: 3, type: 'advertiser', company: 'TechTools Inc.', title: 'Professional Power Tools Rental', description: 'Weekly rentals starting at $49', discount: '$49/week', validUntil: 'August 1, 2026', image: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=400', color: 'pink' },
+    { id: 4, type: 'subcontractor', company: 'Pro Painters LLC', title: 'Interior Painting Special', description: 'Free color consultation + 10% off labor', discount: '10% OFF', validUntil: 'June 20, 2026', image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=400', color: 'purple' },
+    { id: 5, type: 'vendor', company: 'Premium Flooring Depot', title: 'Hardwood & Tile Clearance', description: 'Up to 40% off select inventory', discount: 'UP TO 40% OFF', validUntil: 'July 30, 2026', image: 'https://images.unsplash.com/photo-1615971677499-5467cbab01c0?w=400', color: 'blue' },
+  ];
+
+  useEffect(() => {
+    const t = setInterval(() => setCurrentPromoIndex(p => (p + 1) % promotions.length), 3500);
+    return () => clearInterval(t);
+  }, [promotions.length]);
 
   // Debug logging
   console.log('🔍 SignUpOptionsModal - isOpen:', isOpen, 'v4');
@@ -1027,6 +1049,192 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
                     </motion.button>
                   ))}
                 </div>
+
+                {/* ── Promotions & Offers ─────────────────────────────────────── */}
+                <div className="mt-8 space-y-5">
+
+                  {/* Header row */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-orange-400 animate-pulse" />
+                      <span className="text-white font-bold text-base uppercase tracking-wider">Promotions &amp; Offers</span>
+                      <Sparkles className="w-5 h-5 text-orange-400 animate-pulse" />
+                    </div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-600/20 border border-red-500/30 rounded-full">
+                      <Clock className="w-3.5 h-3.5 text-red-400" />
+                      <span className="text-red-300 font-semibold text-xs">Spots filling fast — founding member rates</span>
+                    </div>
+                  </div>
+
+                  {/* Founding Member Offers grid */}
+                  <div className="bg-gradient-to-br from-orange-600/10 via-purple-600/5 to-pink-600/10 border border-orange-500/30 rounded-2xl p-5">
+                    <h4 className="text-sm font-bold text-orange-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <Tag className="w-4 h-4" /> Limited Time Founding Member Offers — Lock In Your Rate Now!
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+
+                      {/* Customers */}
+                      <div className="relative text-left p-4 bg-[#1A1A1A] border border-orange-500/40 rounded-xl">
+                        <div className="absolute top-3 right-3 px-2 py-0.5 bg-orange-600 text-white text-[10px] font-bold rounded-full">FIRST 20</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center"><User className="w-4 h-4 text-orange-400" /></div>
+                          <p className="text-sm font-bold text-white">Customers</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-xs text-gray-400">Signed up:</span>
+                          <span className="text-sm font-bold text-white">{customerSignUps}</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-gray-300 mb-2">
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span><span className="font-bold text-white">6 hrs/mo</span> service credit</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span>Same price guaranteed</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span className="font-bold text-orange-300">Rate locked 1 full year</span></li>
+                        </ul>
+                      </div>
+
+                      {/* Subcontractors */}
+                      <div className="relative text-left p-4 bg-[#1A1A1A] border border-purple-500/40 rounded-xl">
+                        <div className="absolute top-3 right-3 px-2 py-0.5 bg-purple-600 text-white text-[10px] font-bold rounded-full">FIRST 10</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center"><Wrench className="w-4 h-4 text-purple-400" /></div>
+                          <p className="text-sm font-bold text-white">Subcontractors</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-xs text-gray-400">Signed up:</span>
+                          <span className="text-sm font-bold text-white">{subcontractorSignUps}</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-gray-300 mb-2">
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-purple-400 flex-shrink-0 mt-0.5" /><span><span className="font-bold text-white">6 months FREE</span></span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-purple-400 flex-shrink-0 mt-0.5" /><span>Next 6 months 50% off</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-purple-400 flex-shrink-0 mt-0.5" /><span className="font-bold text-purple-300">Risk-free trial</span></li>
+                        </ul>
+                      </div>
+
+                      {/* Service Providers */}
+                      <div className="relative text-left p-4 bg-[#1A1A1A] border border-orange-500/40 rounded-xl">
+                        <div className="absolute top-3 right-3 px-2 py-0.5 bg-orange-600 text-white text-[10px] font-bold rounded-full">FIRST 10</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center"><Briefcase className="w-4 h-4 text-orange-400" /></div>
+                          <p className="text-sm font-bold text-white">Service Providers</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-xs text-gray-400">Signed up:</span>
+                          <span className="text-sm font-bold text-white">{serviceProviderSignUps}</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-gray-300 mb-2">
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span><span className="font-bold text-white">6 months FREE</span></span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span>Next 6 months 50% off</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" /><span className="font-bold text-orange-300">Pro networking access</span></li>
+                        </ul>
+                      </div>
+
+                      {/* Advertisers */}
+                      <div className="relative text-left p-4 bg-[#1A1A1A] border border-pink-500/40 rounded-xl">
+                        <div className="absolute top-3 right-3 px-2 py-0.5 bg-pink-600 text-white text-[10px] font-bold rounded-full">FIRST 6</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center"><Megaphone className="w-4 h-4 text-pink-400" /></div>
+                          <p className="text-sm font-bold text-white">Advertisers</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-xs text-gray-400">Signed up:</span>
+                          <span className="text-sm font-bold text-white">{advertiserSignUps}</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-gray-300 mb-2">
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-pink-400 flex-shrink-0 mt-0.5" /><span><span className="font-bold text-white">3 months FREE</span></span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-pink-400 flex-shrink-0 mt-0.5" /><span>Next 9 months 50% off</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-pink-400 flex-shrink-0 mt-0.5" /><span className="font-bold text-pink-300">30% off forever after</span></li>
+                        </ul>
+                      </div>
+
+                      {/* Vendors */}
+                      <div className="relative text-left p-4 bg-[#1A1A1A] border border-blue-500/40 rounded-xl">
+                        <div className="absolute top-3 right-3 px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-full">FIRST 15</div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center"><Store className="w-4 h-4 text-blue-400" /></div>
+                          <p className="text-sm font-bold text-white">Vendors</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+                          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                          <span className="text-xs text-gray-400">Signed up:</span>
+                          <span className="text-sm font-bold text-white">{vendorSignUps}</span>
+                        </div>
+                        <ul className="space-y-1.5 text-xs text-gray-300 mb-2">
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" /><span><span className="font-bold text-white">4 months FREE</span></span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" /><span>Next 8 months 50% off</span></li>
+                          <li className="flex items-start gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" /><span className="font-bold text-blue-300">Premium placement</span></li>
+                        </ul>
+                      </div>
+
+                    </div>
+                    <div className="mt-4 flex justify-center">
+                      <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/20 border border-red-500/30 rounded-full">
+                        <Clock className="w-4 h-4 text-red-400" />
+                        <span className="text-red-300 font-semibold text-sm">{"Don't miss out on these exclusive founding member rates!"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Featured Deals carousel */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-orange-400" />
+                        <span className="text-sm font-bold text-orange-400 uppercase tracking-wider">Featured Deals</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setCurrentPromoIndex((currentPromoIndex - 1 + promotions.length) % promotions.length)}
+                          className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                          <ArrowRight className="w-3.5 h-3.5 text-white rotate-180" />
+                        </button>
+                        <div className="flex gap-1">
+                          {promotions.map((_, i) => (
+                            <button key={i} onClick={() => setCurrentPromoIndex(i)}
+                              className={`h-1.5 rounded-full transition-all ${i === currentPromoIndex ? 'w-5 bg-orange-500' : 'w-1.5 bg-gray-600'}`} />
+                          ))}
+                        </div>
+                        <button onClick={() => setCurrentPromoIndex((currentPromoIndex + 1) % promotions.length)}
+                          className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                          <ArrowRight className="w-3.5 h-3.5 text-white" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[currentPromoIndex, (currentPromoIndex + 1) % promotions.length].map((idx, slot) => {
+                        const promo = promotions[idx];
+                        const gradientClass = promo.color === 'purple' ? 'from-purple-600 to-purple-700' : promo.color === 'blue' ? 'from-blue-600 to-blue-700' : 'from-pink-600 to-pink-700';
+                        const textColor = promo.color === 'purple' ? 'text-purple-400' : promo.color === 'blue' ? 'text-blue-400' : 'text-pink-400';
+                        return (
+                          <div key={`${idx}-${slot}`} className="bg-gradient-to-br from-[#1A1A1A] to-[#0F0F0F] border border-gray-800 rounded-2xl overflow-hidden group hover:border-gray-600 transition-colors">
+                            <div className="relative h-32 overflow-hidden">
+                              <img src={promo.image} alt={promo.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                              <div className={`absolute top-3 left-3 px-3 py-1 bg-gradient-to-r ${gradientClass} text-white font-bold text-sm rounded-lg shadow`}>{promo.discount}</div>
+                            </div>
+                            <div className="p-4">
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${textColor}`}>{promo.type}</span>
+                              <h4 className="text-sm font-bold text-white mt-1 mb-1">{promo.title}</h4>
+                              <p className="text-xs text-gray-400 mb-1">by {promo.company}</p>
+                              <p className="text-xs text-gray-300 line-clamp-2 mb-3">{promo.description}</p>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1 text-xs text-gray-500">
+                                  <Clock className="w-3 h-3" /><span>Until {promo.validUntil}</span>
+                                </div>
+                                <button className={`px-3 py-1.5 text-xs font-bold text-white rounded-lg bg-gradient-to-r ${gradientClass} flex items-center gap-1`}>
+                                  View <ExternalLink className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                </div>
+                {/* ── End Promotions & Offers ─────────────────────────────────── */}
 
                 {/* Help Text */}
                 <div className="mt-8 p-6 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">

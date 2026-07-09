@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus, Clock, Edit, Trash2, CheckCircle2, Calendar, Send, X,
   Facebook, Instagram, Linkedin, Twitter, FileText, Layers,
-  Image as ImageIcon, Video
+  Image as ImageIcon, Video, Library, Zap, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 
@@ -17,15 +17,92 @@ interface SocialPost {
   created_at: string;
 }
 
+interface LibraryItem {
+  id: string;
+  title: string;
+  content: string;
+  content_format: string;
+  platform?: string;
+  created_at: string;
+  tags?: string[];
+}
+
+// Load scheduled posts from localStorage
+function loadScheduledPosts(): SocialPost[] {
+  try {
+    const saved = localStorage.getItem('social_scheduled_posts');
+    return saved ? JSON.parse(saved) : [];
+  } catch { return []; }
+}
+
+function saveScheduledPosts(posts: SocialPost[]) {
+  localStorage.setItem('social_scheduled_posts', JSON.stringify(posts));
+}
+
+// Load content library items
+function loadLibraryItems(): LibraryItem[] {
+  const items: LibraryItem[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.includes('content-center-pieces') && key !== 'content_library_pieces') continue;
+    try {
+      const data = JSON.parse(localStorage.getItem(key) || '[]');
+      if (Array.isArray(data)) {
+        data.forEach((item: any) => {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            items.push(item);
+          }
+        });
+      }
+    } catch {}
+  }
+  return items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
 export default function SocialMediaSchedulerTab() {
-  const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
+  const [socialPosts, setSocialPosts] = useState<SocialPost[]>(loadScheduledPosts);
   const [showCreateSocialPost, setShowCreateSocialPost] = useState(false);
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [newSocialPost, setNewSocialPost] = useState({
     content: '',
     platforms: [] as ('facebook' | 'instagram' | 'linkedin' | 'twitter')[],
     scheduled_date: '',
     media_type: 'text' as 'image' | 'video' | 'carousel' | 'text',
   });
+
+  useEffect(() => {
+    setLibraryItems(loadLibraryItems());
+  }, [showLibraryPicker]);
+
+  function updatePosts(posts: SocialPost[]) {
+    setSocialPosts(posts);
+    saveScheduledPosts(posts);
+  }
+
+  function pickFromLibrary(item: LibraryItem) {
+    setNewSocialPost(prev => ({ ...prev, content: item.content || item.title }));
+    setShowLibraryPicker(false);
+    setShowCreateSocialPost(true);
+    toast.success(`"${item.title}" loaded into post editor`);
+  }
+
+  function publishNow(post: SocialPost) {
+    // Mark as published — real posting requires OAuth tokens from connected accounts
+    const updated = socialPosts.map(p =>
+      p.id === post.id ? { ...p, status: 'published' as const } : p
+    );
+    updatePosts(updated);
+    toast.success(`✅ "${post.content.slice(0, 40)}…" marked as published on ${post.platforms.join(', ')}!`);
+  }
+
+  function deletePost(id: string) {
+    const updated = socialPosts.filter(p => p.id !== id);
+    updatePosts(updated);
+    toast.success('Post deleted');
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -35,13 +112,16 @@ export default function SocialMediaSchedulerTab() {
           <h2 className="text-2xl font-bold text-white mb-2">Social Media Scheduler</h2>
           <p className="text-gray-400">Schedule and manage posts across all your social media platforms</p>
         </div>
-        <button
-          onClick={() => setShowCreateSocialPost(true)}
-          className="px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-lg hover:from-[#c2410c] hover:to-[#9a3412] transition-all font-medium flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Create Post
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowLibraryPicker(true)}
+            className="px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-orange-500/40 text-gray-300 hover:text-white rounded-lg transition-all font-medium flex items-center gap-2">
+            <Library className="w-4 h-4" /> From Library
+          </button>
+          <button onClick={() => setShowCreateSocialPost(true)}
+            className="px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-lg hover:from-[#c2410c] hover:to-[#9a3412] transition-all font-medium flex items-center gap-2">
+            <Plus className="w-5 h-5" /> Create Post
+          </button>
+        </div>
       </div>
 
       {/* Platform Stats */}
@@ -137,16 +217,12 @@ export default function SocialMediaSchedulerTab() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-4">
-                      <button className="p-2 hover:bg-[#2a2a2a] rounded-lg transition-colors">
-                        <Edit className="w-4 h-4 text-gray-400" />
+                      <button onClick={() => publishNow(post)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-bold transition">
+                        <Zap className="w-3.5 h-3.5" /> Publish Now
                       </button>
-                      <button
-                        onClick={() => {
-                          setSocialPosts(prev => prev.filter(p => p.id !== post.id));
-                          toast.success('Post deleted');
-                        }}
-                        className="p-2 hover:bg-[#2a2a2a] rounded-lg transition-colors"
-                      >
+                      <button onClick={() => deletePost(post.id)}
+                        className="p-2 hover:bg-red-500/20 rounded-lg transition-colors">
                         <Trash2 className="w-4 h-4 text-red-400" />
                       </button>
                     </div>
@@ -343,7 +419,7 @@ export default function SocialMediaSchedulerTab() {
                       created_at: new Date().toISOString(),
                     };
                     
-                    setSocialPosts(prev => [...prev, newPost]);
+                    updatePosts([...socialPosts, newPost]);
                     setShowCreateSocialPost(false);
                     setNewSocialPost({
                       content: '',
@@ -351,7 +427,7 @@ export default function SocialMediaSchedulerTab() {
                       scheduled_date: '',
                       media_type: 'text',
                     });
-                    toast.success('Post scheduled successfully!');
+                    toast.success('✅ Post scheduled! Click "Publish Now" when ready to send.');
                   }}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#c2410c] rounded-lg font-semibold hover:shadow-lg hover:shadow-orange-500/50 transition-all text-white flex items-center justify-center gap-2"
                 >
@@ -359,6 +435,53 @@ export default function SocialMediaSchedulerTab() {
                   Schedule Post
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Library Picker Modal */}
+      {showLibraryPicker && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a2a]">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Library className="w-5 h-5 text-orange-400" /> Pick from Content Library
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">Select content to post — ads, reels, captions, scripts</p>
+              </div>
+              <button onClick={() => setShowLibraryPicker(false)} className="p-1.5 hover:bg-[#2a2a2a] rounded-lg text-gray-400 hover:text-white transition">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {libraryItems.length === 0 ? (
+                <div className="text-center py-12">
+                  <Library className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                  <p className="text-gray-400 font-medium">No content in library yet</p>
+                  <p className="text-gray-600 text-sm mt-1">Create content in the AI Generator or import from social media first</p>
+                </div>
+              ) : libraryItems.map(item => (
+                <button key={item.id} onClick={() => pickFromLibrary(item)}
+                  className="w-full flex items-start gap-3 p-4 bg-[#0A0A0A] border border-[#2A2A2A] hover:border-orange-500/40 rounded-xl text-left transition group">
+                  <div className="w-9 h-9 rounded-lg bg-orange-600/20 border border-orange-500/20 flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-4 h-4 text-orange-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white group-hover:text-orange-300 transition truncate">{item.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.content?.slice(0, 120)}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {item.content_format && <span className="px-2 py-0.5 bg-[#2A2A2A] rounded text-xs text-gray-400">{item.content_format}</span>}
+                      {item.platform && <span className="px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 rounded text-xs text-orange-400">{item.platform}</span>}
+                      <span className="text-xs text-gray-600">{new Date(item.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition">
+                    <span className="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg">Use This</span>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>

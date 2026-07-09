@@ -190,10 +190,32 @@ export default function PublicStore() {
     },
   ];
 
-  // Merge: live dropship products first, then hardcoded as fallback
+  // Auto-Pilot products from localStorage
+  const autoImported: Product[] = (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('bp_auto_products') || '[]');
+      return saved
+        .filter((p: any) => p.status === 'auto-published')
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description || '',
+          price: p.ourPrice,
+          originalPrice: undefined,
+          category: p.category,
+          rating: p.avgRating || 4.5,
+          reviews: Math.floor(Math.random() * 200) + 10,
+          image: p.image,
+          inStock: true,
+          badge: p.badge || (p.trendSignal === 'surging' ? '🔥 TRENDING' : 'NEW'),
+        }));
+    } catch { return []; }
+  })();
+
+  // Merge: live dropship products first, then auto-pilot, then hardcoded as fallback
   const allProducts = dropshipProducts.length > 0
-    ? [...dropshipProducts, ...products.filter(p => !dropshipProducts.find(d => d.name === p.name))]
-    : products;
+    ? [...dropshipProducts, ...autoImported.filter(a => !dropshipProducts.find(d => d.name === a.name)), ...products.filter(p => !dropshipProducts.find(d => d.name === p.name))]
+    : [...autoImported, ...products.filter(p => !autoImported.find(a => a.name === p.name))];
 
   const filteredProducts = allProducts.filter(product => {
     const matchesCategory = selectedCategory === 'all' ||

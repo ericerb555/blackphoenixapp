@@ -4592,3 +4592,110 @@ app.delete('/make-server-57095a78/tech-roster/:id', async (c) => {
     return c.json({ success: true });
   } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
+
+// ─── MARKET ALERT NOTIFICATIONS ──────────────────────────────────────────────
+
+// Save alert notification preferences
+app.post('/make-server-57095a78/market-alerts/preferences', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email, phone, alertTypes, urgencyLevel } = body;
+    await kv.set('market_alert_prefs', {
+      email: email || '',
+      phone: phone || '',
+      alertTypes: alertTypes || ['critical', 'high'],
+      urgencyLevel: urgencyLevel || 'high',
+      updatedAt: new Date().toISOString(),
+    });
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// Get alert preferences
+app.get('/make-server-57095a78/market-alerts/preferences', async (c) => {
+  try {
+    const prefs = await kv.get('market_alert_prefs');
+    return c.json({ prefs: prefs || {} });
+  } catch (error: any) { return c.json({ prefs: {}, error: error.message }); }
+});
+
+// Send a market alert notification (email + SMS)
+app.post('/make-server-57095a78/market-alerts/send', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { product, spike, category, reason, urgency, revenue } = body;
+
+    const prefs = await kv.get('market_alert_prefs') as any || {};
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const TWILIO_SID     = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+    const TWILIO_AUTH    = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+    const TWILIO_FROM    = Deno.env.get('TWILIO_FROM_NUMBER') || '';
+
+    const results = { emailSent: false, smsSent: false };
+    const alertEmail = prefs.email || 'ericerb555@proton.me';
+    const alertPhone = prefs.phone || '';
+
+    const urgencyEmoji = urgency === 'critical' ? '🚨' : urgency === 'high' ? '⚡' : '📈';
+    const subject = `${urgencyEmoji} Market Alert: ${product} trending ${spike}`;
+    const messageBody = `${urgencyEmoji} MARKET ALERT\n\nProduct: ${product}\nCategory: ${category}\nSpike: ${spike}\nRevenue Est: ${revenue}\n\n${reason}\n\nLog in to add this to your store now:\nhttps://theblackphoenixcompany.com`;
+
+    // Send email via Resend
+    if (RESEND_API_KEY && alertEmail) {
+      try {
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'alerts@theblackphoenixcompany.com',
+            to: [alertEmail],
+            subject,
+            html: `
+              <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#0f0f0f;color:#e5e5e5;border-radius:12px;">
+                <h2 style="color:${urgency === 'critical' ? '#ef4444' : '#f97316'};margin-bottom:8px;">${urgencyEmoji} ${subject}</h2>
+                <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin:16px 0;">
+                  <p style="font-size:24px;font-weight:bold;color:#fff;margin:0;">${product}</p>
+                  <p style="color:#f97316;font-size:20px;font-weight:bold;margin:8px 0;">${spike} spike · ${revenue}</p>
+                  <p style="color:#a3a3a3;">${category} · ${urgency.toUpperCase()} urgency</p>
+                </div>
+                <p style="color:#d4d4d4;line-height:1.6;">${reason}</p>
+                <a href="https://theblackphoenixcompany.com" style="display:inline-block;background:#ea580c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px;">View in Shop Intelligence →</a>
+                <p style="color:#525252;font-size:12px;margin-top:24px;">Black Phoenix Company · Market Intelligence Alerts</p>
+              </div>`,
+          }),
+        });
+        if (emailRes.ok) results.emailSent = true;
+      } catch {}
+    }
+
+    // Send SMS via Twilio
+    if (TWILIO_SID && TWILIO_AUTH && TWILIO_FROM && alertPhone) {
+      try {
+        const smsBody = `${urgencyEmoji} BLACK PHOENIX ALERT\n${product}: ${spike} trending!\n${revenue}\n${reason.substring(0, 100)}...\nLog in to add to your store.`;
+        const smsRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ From: TWILIO_FROM, To: alertPhone, Body: smsBody }).toString(),
+        });
+        if (smsRes.ok) results.smsSent = true;
+      } catch {}
+    }
+
+    // Store the alert in history
+    const history = (await kv.get('market_alert_history') as any[]) || [];
+    history.unshift({ product, spike, category, urgency, revenue, sentAt: new Date().toISOString(), ...results });
+    await kv.set('market_alert_history', history.slice(0, 50));
+
+    return c.json({ success: true, ...results });
+  } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+
+// Get alert history
+app.get('/make-server-57095a78/market-alerts/history', async (c) => {
+  try {
+    const history = (await kv.get('market_alert_history') as any[]) || [];
+    return c.json({ history });
+  } catch (error: any) { return c.json({ history: [], error: error.message }); }
+});

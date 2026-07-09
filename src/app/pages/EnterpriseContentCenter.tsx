@@ -50,6 +50,7 @@ import LiveMusicPreviewPlayer from '../components/LiveMusicPreviewPlayer';
 import VideoTimelineEditor from '../components/VideoTimelineEditor';
 import VideoRecreationEngine from '../components/VideoRecreationEngine';
 import ShopIntelligenceSuite from '../components/ShopIntelligenceSuite';
+import StoreAnalyticsDashboard from '../components/StoreAnalyticsDashboard';
 import LiveVideoPreviewPlayer from '../components/LiveVideoPreviewPlayer';
 import DraggableVideoLibrary from '../components/DraggableVideoLibrary';
 import PhotoToVideoConverter from '../components/PhotoToVideoConverter';
@@ -148,6 +149,7 @@ export default function EnterpriseContentCenter() {
   const currentCompany = companyContext?.activeCompany || null;
 
   const [activeTab, setActiveTab] = useState<'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence'>('library');
+  const [studioPreloadedProduct, setStudioPreloadedProduct] = useState<any>(null);
   const [contentPieces, setContentPieces] = useState<ContentPiece[]>([]);
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [channels, setChannels] = useState<ContentChannel[]>([]);
@@ -890,45 +892,66 @@ export default function EnterpriseContentCenter() {
     await new Promise(resolve => setTimeout(resolve, 800));
     setGenerationProgress(100);
 
-    // Create the new content piece using the backend
+    // Create the new content piece — save to localStorage + try backend
     try {
-      await createContentPiece({
+      const newPiece = {
+        id: `local_${Date.now()}`,
         title: `${typeObj?.name}: ${companyInfo.name} - ${new Date().toLocaleDateString()}`,
+        content: contentText,
         content_body: contentText,
         content_format: type,
         excerpt: contentText.substring(0, 200),
         status: 'draft',
         is_ai_generated: true,
-        ai_generation_metadata: {
-          tone: generationSettings.tone,
-          audience: generationSettings.audience,
-          length: generationSettings.length,
-          model: generationSettings.aiModel
-        },
-        current_workflow_stage: 1,
-        total_impressions: 0,
-        total_clicks: 0,
-        total_engagement: 0,
-        total_conversions: 0,
-      });
+        created_at: new Date().toISOString(),
+        tags: [type, 'ai-generated'],
+      };
 
-      // Reload data to show new content
-      await loadData();
+      // Always save to localStorage first (works without company setup)
+      saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, [
+        newPiece,
+        ...loadFromUserStorage<any[]>(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, []),
+      ]);
+      setContentPieces(prev => [newPiece, ...prev]);
+
+      // Also try backend (non-blocking, best effort)
+      try {
+        await createContentPiece({
+          title: newPiece.title,
+          content_body: contentText,
+          content_format: type,
+          excerpt: newPiece.excerpt,
+          status: 'draft',
+          is_ai_generated: true,
+          ai_generation_metadata: {
+            tone: generationSettings.tone,
+            audience: generationSettings.audience,
+            length: generationSettings.length,
+            model: generationSettings.aiModel,
+          },
+          current_workflow_stage: 1,
+          total_impressions: 0,
+          total_clicks: 0,
+          total_engagement: 0,
+          total_conversions: 0,
+        });
+      } catch {
+        // Backend save failed (no company) — localStorage save already succeeded above
+      }
 
       setIsGenerating(false);
       setGenerationProgress(0);
-      
+
       toast.success(`✅ ${typeObj?.name} Generated!`, {
         description: 'AI content ready for review and editing. Check your Content Library!'
       });
 
-      // Switch to library tab to show the new content
       setActiveTab('library');
     } catch (error) {
       console.error('Error creating content:', error);
       setIsGenerating(false);
       setGenerationProgress(0);
-      toast.error('Failed to create content. Please try again.');
+      toast.error('Failed to generate content. Please try again.');
     }
   };
 
@@ -1618,7 +1641,7 @@ export default function EnterpriseContentCenter() {
             { id: 'calendar', label: 'Calendar', icon: Calendar },
             { id: 'shop-intelligence', label: '📊 Shop Intelligence', icon: TrendingUp },
             { id: 'creator-studio', label: '🎬 Creator Studio', icon: Film },
-            { id: 'creator-vetting', label: 'Creator Vetting', icon: Users },
+            { id: 'creator-vetting', label: '🛒 Store Analytics', icon: BarChart3 },
             { id: 'analytics', label: 'Analytics', icon: BarChart3 },
             { id: 'settings', label: 'Settings', icon: Settings }
           ].map((tab) => {
@@ -1644,7 +1667,73 @@ export default function EnterpriseContentCenter() {
           {/* Library Tab */}
           {activeTab === 'library' && (
             <div className="space-y-6">
-              {/* Search and Filters */}
+
+              {/* ── STATUS TABS ─────────────────────────────────────────────── */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {[
+                  {
+                    key: 'wip', label: '🔧 Work In Progress',
+                    filter: (p: any) => p.status === 'draft' || p.status === 'pending_review',
+                    statusValues: ['draft', 'pending_review'],
+                    color: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300',
+                    activeColor: 'bg-yellow-500 text-white border-transparent',
+                  },
+                  {
+                    key: 'ready', label: '✅ Ready to Post',
+                    filter: (p: any) => p.status === 'approved',
+                    statusValues: ['approved'],
+                    color: 'bg-green-500/20 border-green-500/40 text-green-300',
+                    activeColor: 'bg-green-600 text-white border-transparent',
+                  },
+                  {
+                    key: 'published', label: '🚀 Published',
+                    filter: (p: any) => p.status === 'published',
+                    statusValues: ['published'],
+                    color: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
+                    activeColor: 'bg-blue-600 text-white border-transparent',
+                  },
+                  {
+                    key: 'all', label: 'All Content',
+                    filter: () => true,
+                    statusValues: ['all'],
+                    color: 'bg-[#1A1A1A] border-[#2A2A2A] text-gray-400',
+                    activeColor: 'bg-orange-600 text-white border-transparent',
+                  },
+                ].map(tab => {
+                  const count = contentPieces.filter(tab.filter).length;
+                  const isActive = tab.statusValues.includes(statusFilter) || (tab.key === 'all' && statusFilter === 'all');
+                  return (
+                    <button key={tab.key}
+                      onClick={() => setStatusFilter(tab.key === 'all' ? 'all' : tab.statusValues[0])}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition ${isActive ? tab.activeColor : tab.color} hover:opacity-90`}>
+                      {tab.label}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${isActive ? 'bg-white/20' : 'bg-black/20'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                {/* Mark selected as Ready to Post */}
+                {(statusFilter === 'draft' || statusFilter === 'pending_review') && (
+                  <button
+                    onClick={() => {
+                      const updated = contentPieces.map(p =>
+                        (p.status === 'draft' || p.status === 'pending_review') && filteredContent.find((f: any) => f.id === p.id)
+                          ? { ...p, status: 'approved' } : p
+                      );
+                      setContentPieces(updated);
+                      saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, updated);
+                      toast.success('Marked as Ready to Post!');
+                      setStatusFilter('approved');
+                    }}
+                    className="ml-auto flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-bold transition">
+                    ✅ Mark All as Ready to Post
+                  </button>
+                )}
+              </div>
+
+              {/* Search and Type Filter */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
@@ -1656,18 +1745,6 @@ export default function EnterpriseContentCenter() {
                     className="w-full pl-10 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
                   />
                 </div>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white focus:outline-none focus:border-[#ea580c] transition"
-                >
-                  <option value="all">All Status</option>
-                  <option value="draft">Drafts</option>
-                  <option value="pending_review">Pending Review</option>
-                  <option value="approved">Approved</option>
-                  <option value="published">Published</option>
-                  <option value="archived">Archived</option>
-                </select>
                 <select
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
@@ -1763,6 +1840,59 @@ export default function EnterpriseContentCenter() {
                               Publish Reel to Landing Page
                             </button>
                           )}
+
+                          {/* Status action buttons */}
+                          <div className="flex gap-2 mb-3">
+                            {(content.status === 'draft' || content.status === 'pending_review') && (
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  const updated = contentPieces.map(p => p.id === content.id ? { ...p, status: 'approved' } : p);
+                                  setContentPieces(updated);
+                                  saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, updated);
+                                  toast.success('✅ Moved to Ready to Post!');
+                                }}
+                                className="flex-1 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+                                ✅ Mark Ready
+                              </button>
+                            )}
+                            {content.status === 'approved' && (
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  const updated = contentPieces.map(p => p.id === content.id ? { ...p, status: 'draft' } : p);
+                                  setContentPieces(updated);
+                                  saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, updated);
+                                  toast.success('Moved back to Work In Progress');
+                                }}
+                                className="flex-1 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+                                🔧 Move to WIP
+                              </button>
+                            )}
+                            {(content.status === 'approved' || content.status === 'draft') && (
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  // Send to social scheduler
+                                  const saved = JSON.parse(localStorage.getItem('social_scheduled_posts') || '[]');
+                                  const newPost = {
+                                    id: `lib_${content.id}_${Date.now()}`,
+                                    content: content.content_body || content.content || content.title,
+                                    media_urls: [],
+                                    media_type: 'text',
+                                    platforms: ['facebook', 'instagram'],
+                                    scheduled_date: '',
+                                    status: 'draft',
+                                    created_at: new Date().toISOString(),
+                                  };
+                                  localStorage.setItem('social_scheduled_posts', JSON.stringify([newPost, ...saved]));
+                                  toast.success('📅 Added to Social Scheduler! Go schedule a date & time.');
+                                }}
+                                className="flex-1 py-1.5 bg-orange-600/20 border border-orange-500/30 text-orange-400 hover:bg-orange-600/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+                                📅 Schedule
+                              </button>
+                            )}
+                          </div>
 
                           {/* Metadata */}
                           <div className="flex items-center justify-between text-sm text-gray-500">
@@ -2871,12 +3001,19 @@ export default function EnterpriseContentCenter() {
             </div>
           )}
 
-          {/* Analytics Tab */}
+          {/* ── STORE ANALYTICS & FINANCIALS ── */}
+          {activeTab === 'creator-vetting' && (
+            <div className="py-2">
+              <StoreAnalyticsDashboard />
+            </div>
+          )}
+
           {/* ── SHOP INTELLIGENCE SUITE ── */}
           {activeTab === 'shop-intelligence' && (
             <div className="py-2">
               <ShopIntelligenceSuite
                 onSendToCreatorStudio={(product) => {
+                  setStudioPreloadedProduct(product);
                   setActiveTab('creator-studio');
                   toast.success(`"${product.name}" loaded in Creator Studio — upload a reference video to recreate it!`);
                 }}
@@ -2888,6 +3025,7 @@ export default function EnterpriseContentCenter() {
           {activeTab === 'creator-studio' && (
             <div className="py-2">
               <VideoRecreationEngine
+                preloadedProduct={studioPreloadedProduct}
                 onPushToScheduler={(content) => {
                   toast.success(`Content queued for ${content.platforms?.length || 1} platform(s)! Switch to Social Scheduler to set publish times.`);
                 }}
