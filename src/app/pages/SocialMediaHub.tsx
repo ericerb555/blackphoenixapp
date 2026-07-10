@@ -536,6 +536,214 @@ function AddAccountModal({ onClose, onAdd }: { onClose: () => void; onAdd: (acct
   );
 }
 
+// ── Content Type Templates ─────────────────────────────────────────────────────
+
+const LOCAL_URL = 'https://theblackphoenixcompany.com/local';
+
+const CONTENT_TYPES = [
+  {
+    id: 'local-offer',
+    label: 'Promote Local Offer',
+    icon: '📍',
+    color: '#ea580c',
+    badge: 'NEW',
+    description: 'Drive neighbors to your free 15% off local landing page',
+    templates: {
+      general: `🔥 Attention [City] neighbors!\n\nBlack Phoenix is YOUR local family-owned store for sports gear, clothing, beauty supplies, construction tools, electronics & more.\n\n📍 We're right in your backyard — serving a 50-mile radius.\n💥 Claim your exclusive 15% off welcome deal today.\n\n👇 Click the link to grab it free:\n${LOCAL_URL}\n\n#BlackPhoenix #ShopLocal #FamilyOwned #[City]`,
+      instagram: `📍 LOCAL DEAL ALERT 📍\n\nHey [City] fam! 👋 We're your neighborhood's go-to for EVERYTHING — sports, clothing, beauty, construction, electronics & more.\n\nFamily owned. Locally operated. Priced right. 🧡\n\n🎁 Get 15% off your first order — link in bio!\n\n#ShopLocal #BlackPhoenix #FamilyOwned #[City] #LocalBusiness`,
+      facebook: `Hey [City] friends and neighbors! 👋\n\nWe're Black Phoenix — a family-owned business right here in your community. We carry sports equipment, clothing, beauty supplies, construction gear, electronics, and so much more.\n\nFor a limited time, local neighbors get 15% off their first order — no catch, no hoops to jump through.\n\nClaim your deal here 👉 ${LOCAL_URL}\n\nShare this with someone local who needs it! 🙌`,
+    },
+  },
+  {
+    id: 'product-promo',
+    label: 'Product Promotion',
+    icon: '🛍️',
+    color: '#8b5cf6',
+    badge: null,
+    description: 'Showcase a product with a call to action',
+    templates: {
+      general: `🚨 New drop alert!\n\n[Product Name] is now available at Black Phoenix.\n\n✅ Top quality\n✅ Fast shipping\n✅ Family-backed guarantee\n\nShop now 👉 theblackphoenixcompany.com/shop\n\n#BlackPhoenix #NewArrival #ShopNow`,
+      instagram: `✨ Just dropped ✨\n\n[Product Name] — and it's exactly what you've been looking for.\n\nLink in bio to grab yours before they're gone! 🔥\n\n#BlackPhoenix #NewDrop #ShopNow`,
+      facebook: `📦 Just added to the store!\n\n[Product Name] is live and ready to ship. Family-owned quality, competitive prices, and we stand behind everything we sell.\n\nShop it here: theblackphoenixcompany.com/shop`,
+    },
+  },
+  {
+    id: 'family-story',
+    label: 'Family Business Story',
+    icon: '🏠',
+    color: '#10b981',
+    badge: null,
+    description: 'Connect with your community through authenticity',
+    templates: {
+      general: `🏠 A little about us...\n\nBlack Phoenix isn't a warehouse or a big corporation. We're a family — and we built this business from the ground up to serve OUR community.\n\nEvery order matters to us. Every customer is a neighbor.\n\nThank you for supporting small. 🧡\n\nShop with us: theblackphoenixcompany.com\n\n#FamilyOwned #SmallBusiness #BlackPhoenix #ShopLocal`,
+      instagram: `👨‍👩‍👧 Family built. Community driven.\n\nWe started Black Phoenix because WE needed a better local option. Now we're here for you.\n\nShop local. Support family. 🧡\n\n#FamilyOwned #BlackPhoenix #ShopLocal #CommunityFirst`,
+      facebook: `We want to share something personal...\n\nBlack Phoenix was built by a family who believes YOUR neighborhood deserves better options. We're not a corporation — we're your neighbors.\n\nWhen you shop with us, you're supporting a family's dream. And we never forget that.\n\nThank you. 🙏\n\nShop: theblackphoenixcompany.com`,
+    },
+  },
+  {
+    id: 'seasonal-sale',
+    label: 'Sale / Promotion',
+    icon: '💥',
+    color: '#f59e0b',
+    badge: null,
+    description: 'Announce a discount or limited-time deal',
+    templates: {
+      general: `💥 SALE IS LIVE 💥\n\nUse code BPBUILDS at checkout for 10% off your entire order at Black Phoenix.\n\n⏰ Limited time only\n🚚 Fast shipping\n✅ Thousands of products\n\nShop now: theblackphoenixcompany.com/shop\n\n#BlackPhoenix #Sale #ShopNow #Discount`,
+      instagram: `💥 10% OFF — TODAY ONLY 💥\n\nCode: BPBUILDS\n\nLink in bio 👆\n\n#Sale #BlackPhoenix #Discount #ShopNow`,
+      facebook: `🚨 DEAL ALERT 🚨\n\nUse code BPBUILDS for 10% off everything at Black Phoenix right now. Sports gear, clothing, beauty, construction, electronics — all of it.\n\nGrab it before it ends 👉 theblackphoenixcompany.com/shop`,
+    },
+  },
+  {
+    id: 'custom',
+    label: 'Write My Own',
+    icon: '✍️',
+    color: '#6b7280',
+    badge: null,
+    description: 'Start from scratch with AI assistance',
+    templates: { general: '', instagram: '', facebook: '' },
+  },
+];
+
+function CreateContentPanel({
+  composeContent,
+  setComposeContent,
+  onPublish,
+  onLibrary,
+  styleProfile,
+}: {
+  composeContent: string;
+  setComposeContent: (v: string) => void;
+  onPublish: () => void;
+  onLibrary: () => void;
+  styleProfile: { tone: string; avgLength: number; topTopics: string[]; bestTime: string } | null;
+}) {
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<'general' | 'instagram' | 'facebook'>('general');
+
+  function pickTemplate(typeId: string, variant: 'general' | 'instagram' | 'facebook') {
+    const type = CONTENT_TYPES.find(t => t.id === typeId);
+    if (!type) return;
+    const text = type.templates[variant] || type.templates.general;
+    setComposeContent(text);
+    setSelectedType(typeId);
+    setSelectedVariant(variant);
+  }
+
+  const activeType = CONTENT_TYPES.find(t => t.id === selectedType);
+
+  return (
+    <div className="space-y-4">
+      {/* Content type selector */}
+      <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5">
+        <h3 className="font-bold text-white mb-1 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-pink-400" /> What do you want to create?
+        </h3>
+        <p className="text-xs text-gray-500 mb-4">Pick a content type and we'll give you a ready-to-edit template.</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {CONTENT_TYPES.map(type => (
+            <button key={type.id} onClick={() => { setSelectedType(type.id); pickTemplate(type.id, 'general'); }}
+              className="relative flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all"
+              style={{
+                background: selectedType === type.id ? `${type.color}12` : '#0A0A0A',
+                borderColor: selectedType === type.id ? `${type.color}60` : '#2A2A2A',
+              }}>
+              {type.badge && (
+                <span className="absolute -top-2 -right-2 text-[10px] font-black px-1.5 py-0.5 rounded-full text-white"
+                  style={{ background: type.color }}>{type.badge}</span>
+              )}
+              <span className="text-2xl flex-shrink-0">{type.icon}</span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-white leading-snug">{type.label}</p>
+                <p className="text-[11px] text-gray-500 leading-snug mt-0.5">{type.description}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Variant picker + editor — shown once a type is selected */}
+      {selectedType && (
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5 space-y-4">
+          {/* Variant tabs */}
+          {selectedType !== 'custom' && (
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Optimized for</p>
+              <div className="flex gap-2">
+                {(['general', 'instagram', 'facebook'] as const).map(v => (
+                  <button key={v} onClick={() => pickTemplate(selectedType, v)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition capitalize"
+                    style={{
+                      background: selectedVariant === v ? (activeType?.color || '#ea580c') : 'rgba(255,255,255,0.05)',
+                      color: selectedVariant === v ? '#fff' : '#9ca3af',
+                      border: `1px solid ${selectedVariant === v ? (activeType?.color || '#ea580c') : 'rgba(255,255,255,0.08)'}`,
+                    }}>
+                    {v === 'general' ? '🌐 Any Platform' : v === 'instagram' ? '📸 Instagram' : '📘 Facebook'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local offer tip */}
+          {selectedType === 'local-offer' && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl"
+              style={{ background: 'rgba(234,88,12,0.08)', border: '1px solid rgba(234,88,12,0.2)' }}>
+              <span className="text-base flex-shrink-0">💡</span>
+              <div>
+                <p className="text-xs font-bold text-orange-300 mb-0.5">Pro tip</p>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Replace <span className="text-orange-300 font-mono">[City]</span> with your target city. This post drives traffic to your local opt-in page at{' '}
+                  <span className="text-orange-300 font-mono break-all">{LOCAL_URL}</span> — every sign-up flows into your AI emailer automatically.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Editor */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Your Content</p>
+              {composeContent && (
+                <button onClick={() => { navigator.clipboard.writeText(composeContent); toast.success('Copied!'); }}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition">
+                  <Copy className="w-3 h-3" /> Copy
+                </button>
+              )}
+            </div>
+            <textarea
+              value={composeContent}
+              onChange={e => setComposeContent(e.target.value)}
+              placeholder={selectedType === 'custom' ? "Start writing… (e.g. 'New kitchen renovation project we just finished')" : 'Edit the template to match your voice…'}
+              className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4 text-sm text-gray-300 placeholder-gray-600 resize-none focus:outline-none focus:border-blue-500/50 leading-relaxed"
+              rows={7}
+            />
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[10px] text-gray-700">{composeContent.length} chars</span>
+              {styleProfile && (
+                <span className="text-[10px] text-gray-600">Your style: {styleProfile.tone} · Best time: {styleProfile.bestTime}</span>
+              )}
+            </div>
+          </div>
+
+          <button onClick={onPublish} disabled={!composeContent.trim()}
+            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-pink-600 hover:from-blue-500 hover:to-pink-500 text-white rounded-xl text-sm font-bold transition disabled:opacity-40">
+            <Upload className="w-4 h-4" /> Publish This
+          </button>
+        </div>
+      )}
+
+      {!selectedType && (
+        <p className="text-sm text-gray-500 text-center">Or go to the{' '}
+          <button onClick={onLibrary} className="text-blue-400 hover:underline">Content Library</button>{' '}
+          and click <strong className="text-white">AI Repurpose</strong> on any post
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Main Hub ───────────────────────────────────────────────────────────────────
 export default function SocialMediaHub() {
   const [tab, setTab] = useState<Tab>('library');
   const [accounts, setAccounts] = useState<Record<CorePlatform, ConnectedAccount>>({
@@ -1064,25 +1272,13 @@ export default function SocialMediaHub() {
                     className="text-sm text-gray-500 hover:text-white transition">← Back to library</button>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-6">
-                    <h3 className="font-bold text-white mb-2 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-pink-400" /> Write New Content with AI
-                    </h3>
-                    <p className="text-xs text-gray-500 mb-4">The AI has studied your imported posts and knows your tone, topics, and style.</p>
-                    <textarea value={composeContent} onChange={e => setComposeContent(e.target.value)}
-                      placeholder="Start writing or paste a topic (e.g. 'New kitchen renovation project in Boston')…"
-                      className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4 text-sm text-gray-300 placeholder-gray-600 resize-none focus:outline-none focus:border-blue-500/50"
-                      rows={5} />
-                    <div className="flex gap-3 mt-3">
-                      <button onClick={() => setTab('publish')} disabled={!composeContent.trim()}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-pink-600 hover:from-blue-500 hover:to-pink-500 text-white rounded-xl text-sm font-bold transition disabled:opacity-40">
-                        <Upload className="w-4 h-4" /> Publish This
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-500 text-center">Or go to the <button onClick={() => setTab('library')} className="text-blue-400 hover:underline">Content Library</button> and click <strong className="text-white">AI Repurpose</strong> on any post</p>
-                </div>
+                <CreateContentPanel
+                  composeContent={composeContent}
+                  setComposeContent={setComposeContent}
+                  onPublish={() => setTab('publish')}
+                  onLibrary={() => setTab('library')}
+                  styleProfile={styleProfile}
+                />
               )}
             </div>
           )}

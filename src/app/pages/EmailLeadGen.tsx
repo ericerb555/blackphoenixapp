@@ -44,7 +44,7 @@ interface Stats {
   avgScore: number;
 }
 
-type Tab = 'dashboard' | 'leads' | 'compose' | 'blast';
+type Tab = 'dashboard' | 'leads' | 'compose' | 'blast' | 'segments';
 
 const INTENT_COLOR: Record<string, string> = {
   hot: '#ef4444',
@@ -53,11 +53,12 @@ const INTENT_COLOR: Record<string, string> = {
 };
 
 const EMAIL_TYPES = [
-  { id: 'welcome', label: 'Welcome Email', icon: '👋', desc: 'Friendly intro for new visitors' },
-  { id: 'cart_abandon', label: 'Cart Recovery', icon: '🛒', desc: 'Bring back abandoned carts' },
-  { id: 'hot_follow_up', label: 'Hot Lead Follow-Up', icon: '🔥', desc: 'Strike while iron is hot' },
-  { id: 'promo', label: 'Promo / Offer', icon: '🎁', desc: '10% off code BPBUILDS10' },
-  { id: 'custom', label: 'Custom Message', icon: '✍️', desc: 'Write your own prompt' },
+  { id: 'welcome',        label: 'Welcome Email',       icon: '👋', desc: 'Friendly intro for new visitors' },
+  { id: 'cart_abandon',   label: 'Cart Recovery',       icon: '🛒', desc: 'Bring back abandoned carts' },
+  { id: 'hot_follow_up',  label: 'Hot Lead Follow-Up',  icon: '🔥', desc: 'Strike while iron is hot' },
+  { id: 'promo',          label: 'Promo / Offer',       icon: '🎁', desc: '10% off code BPBUILDS10' },
+  { id: 'review_request', label: 'Review Request',      icon: '⭐', desc: 'Ask happy customers for a Google review' },
+  { id: 'custom',         label: 'Custom Message',      icon: '✍️', desc: 'Write your own prompt' },
 ];
 
 export default function EmailLeadGen() {
@@ -170,10 +171,69 @@ export default function EmailLeadGen() {
     );
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-    { id: 'leads', label: `Leads (${stats.total})`, icon: Users },
-    { id: 'compose', label: 'Send Email', icon: Send },
-    { id: 'blast', label: 'Email Blast', icon: Zap },
+    { id: 'dashboard', label: 'Dashboard',   icon: BarChart3 },
+    { id: 'leads',     label: `Leads (${stats.total})`, icon: Users },
+    { id: 'segments',  label: 'Segments',    icon: Filter },
+    { id: 'compose',   label: 'Send Email',  icon: Send },
+    { id: 'blast',     label: 'Email Blast', icon: Zap },
+  ];
+
+  // ── Segments: auto-categorize leads by behavior ──────────────────────────────
+  const SEGMENTS = [
+    {
+      id: 'vip',
+      label: '🏆 VIP Buyers',
+      color: '#f59e0b',
+      description: 'High score + high cart value — your best customers',
+      filter: (l: Lead) => l.score >= 80 && l.cartValue >= 100,
+      suggestedEmail: 'promo',
+      emailLabel: 'Exclusive VIP Offer',
+    },
+    {
+      id: 'hot_ready',
+      label: '🔥 Ready to Buy',
+      color: '#ef4444',
+      description: 'Hot intent leads who haven\'t converted yet',
+      filter: (l: Lead) => l.intent === 'hot' && l.status !== 'converted',
+      suggestedEmail: 'hot_follow_up',
+      emailLabel: 'Strike While Hot',
+    },
+    {
+      id: 'cart_left',
+      label: '🛒 Cart Abandoners',
+      color: '#ea580c',
+      description: 'Leads captured from abandoned cart events',
+      filter: (l: Lead) => l.source === 'abandoned_cart' || (l.cartValue > 0 && l.status === 'new'),
+      suggestedEmail: 'cart_abandon',
+      emailLabel: 'Cart Recovery',
+    },
+    {
+      id: 'local',
+      label: '📍 Local Neighbors',
+      color: '#8b5cf6',
+      description: 'Captured from your geo-targeted local ad page',
+      filter: (l: Lead) => l.source === 'geo_ad_local' || l.page?.includes('local'),
+      suggestedEmail: 'welcome',
+      emailLabel: 'Local Welcome',
+    },
+    {
+      id: 'cold_win_back',
+      label: '❄️ Win-Back Needed',
+      color: '#6b7280',
+      description: 'Cold leads who haven\'t heard from you in a while',
+      filter: (l: Lead) => l.intent === 'cold' && l.emailsSent === 0,
+      suggestedEmail: 'promo',
+      emailLabel: 'Win-Back Promo',
+    },
+    {
+      id: 'review_ready',
+      label: '⭐ Review Candidates',
+      color: '#10b981',
+      description: 'Contacted leads likely happy enough to leave a review',
+      filter: (l: Lead) => l.status === 'contacted' && l.score >= 60,
+      suggestedEmail: 'review_request',
+      emailLabel: 'Ask for Review',
+    },
   ];
 
   return (
@@ -566,6 +626,69 @@ export default function EmailLeadGen() {
                 ? <><RefreshCw className="w-4 h-4 animate-spin" /> Sending blast…</>
                 : <><Zap className="w-4 h-4" /> Launch Email Blast</>}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── SEGMENTS TAB ─────────────────────────────────────────────────── */}
+      {tab === 'segments' && (
+        <div className="space-y-4 max-w-2xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-black text-white text-lg">Smart Segments</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Auto-sorted leads ready for targeted blasts</p>
+            </div>
+            <span className="text-xs bg-orange-500/10 border border-orange-500/20 text-orange-400 px-3 py-1 rounded-full font-bold">
+              {leads.length} total leads
+            </span>
+          </div>
+
+          {SEGMENTS.map(seg => {
+            const matched = leads.filter(seg.filter);
+            return (
+              <div key={seg.id} className="rounded-2xl border border-[#2A2A2A] bg-[#111] p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-black text-white text-sm">{seg.label}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border"
+                        style={{ color: seg.color, borderColor: seg.color + '40', background: seg.color + '15' }}>
+                        {seg.emailLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-3">{seg.description}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ background: seg.color }} />
+                        <span className="text-sm font-bold text-white">{matched.length}</span>
+                        <span className="text-xs text-gray-500">leads matched</span>
+                      </div>
+                      {matched.length > 0 && (
+                        <div className="h-1.5 flex-1 rounded-full bg-[#1a1a1a] overflow-hidden">
+                          <div className="h-full rounded-full transition-all"
+                            style={{ width: `${Math.min(100, (matched.length / leads.length) * 100)}%`, background: seg.color }} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setBlastType(seg.suggestedEmail as any);
+                      setBlastFilter('all');
+                      setTab('blast');
+                    }}
+                    disabled={matched.length === 0}
+                    className="shrink-0 px-4 py-2 rounded-xl text-xs font-black text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+                    style={{ background: matched.length > 0 ? `linear-gradient(135deg, ${seg.color}cc, ${seg.color})` : '#2A2A2A' }}>
+                    {matched.length === 0 ? 'No Leads' : 'Blast →'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="rounded-2xl border border-dashed border-[#2A2A2A] p-5 text-center">
+            <p className="text-xs text-gray-600">Segments update automatically as leads come in — no setup needed.</p>
           </div>
         </div>
       )}

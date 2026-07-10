@@ -199,6 +199,22 @@ import AIRankingEngine from "./pages/AIRankingEngine";
 import AutoProductPilot from "./pages/AutoProductPilot";
 import SocialMediaHub from "./pages/SocialMediaHub";
 import EmailLeadGen from "./pages/EmailLeadGen";
+import LocalLeadsLanding from "./pages/LocalLeadsLanding";
+import LoyaltyProgram from "./pages/LoyaltyProgram";
+import QRCodeGenerator from "./pages/QRCodeGenerator";
+import RevenueAnalytics from "./pages/RevenueAnalytics";
+import SMSMarketing from "./pages/SMSMarketing";
+import AffiliateProgram from "./pages/AffiliateProgram";
+import ServiceBooking from "./pages/ServiceBooking";
+import InvoiceBuilder from "./pages/InvoiceBuilder";
+import FlashSaleManager from "./pages/FlashSaleManager";
+import GiftCards from "./pages/GiftCards";
+import SubscribeAndSave from "./pages/SubscribeAndSave";
+import ReviewsDashboard from "./pages/ReviewsDashboard";
+import AbandonedCart from "./pages/AbandonedCart";
+import CouponManager from "./pages/CouponManager";
+import LeadCRM from "./pages/LeadCRM";
+import AnalyticsDashboard from "./pages/AnalyticsDashboard";
 // Hub Pages - Consolidated Navigation
 import JobTrackingHub from "./pages/JobTrackingHub";
 import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
@@ -813,6 +829,36 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'shop',
     'store',
     'order-tracking',
+
+    // Geo-targeted ad landing page (public opt-in)
+    'local',
+    'offer',
+    'nearby',
+
+    // Loyalty program (public — customers check their points)
+    'loyalty',
+    'rewards',
+
+    // Affiliate program (public — anyone can join and share)
+    'affiliate',
+    'referral',
+    'refer',
+
+    // Subscribe & Save (public — customers sign up for recurring orders)
+    'subscribe',
+    'subscribe-and-save',
+    'subscriptions',
+
+    // Gift cards (public — customers buy and redeem)
+    'gift-cards',
+    'gift-card',
+    'gifts',
+
+    // Service booking (public — customers book jobs)
+    'book',
+    'booking',
+    'services',
+    'quote',
 
     // Application forms (lead generation - people apply then get login)
     'vendor-application',
@@ -1583,6 +1629,83 @@ function AppContent() {
     "auto-product-pilot": AutoProductPilot,
     "social-media-hub": SocialMediaHub,
     "email-lead-gen": EmailLeadGen,
+
+    // Geo-targeted ad landing page
+    "local": LocalLeadsLanding,
+    "offer": LocalLeadsLanding,
+    "nearby": LocalLeadsLanding,
+
+    // Loyalty & Rewards
+    "loyalty": LoyaltyProgram,
+    "rewards": LoyaltyProgram,
+
+    // QR Code Generator
+    "qr-codes": QRCodeGenerator,
+    "qr-generator": QRCodeGenerator,
+
+    // Revenue Analytics
+    "revenue-analytics": RevenueAnalytics,
+    "analytics": RevenueAnalytics,
+
+    // SMS Marketing
+    "sms-marketing": SMSMarketing,
+    "text-marketing": SMSMarketing,
+
+    // Subscribe & Save
+    "subscribe": SubscribeAndSave,
+    "subscribe-and-save": SubscribeAndSave,
+    "subscriptions": SubscribeAndSave,
+
+    // Gift Cards
+    "gift-cards": GiftCards,
+    "gift-card": GiftCards,
+    "gifts": GiftCards,
+
+    // Product Reviews
+    "reviews": ReviewsDashboard,
+    "product-reviews": ReviewsDashboard,
+
+    // Abandoned Cart Recovery
+    "abandoned-carts": AbandonedCart,
+    "abandoned-cart": AbandonedCart,
+    "cart-recovery": AbandonedCart,
+
+    // Coupon Manager
+    "coupons": CouponManager,
+    "coupon-manager": CouponManager,
+    "promo-codes": CouponManager,
+
+    // Lead CRM
+    "crm": LeadCRM,
+    "leads": LeadCRM,
+    "lead-crm": LeadCRM,
+    "pipeline": LeadCRM,
+
+    // Analytics Dashboard
+    "analytics": AnalyticsDashboard,
+    "business-analytics": AnalyticsDashboard,
+    "insights": AnalyticsDashboard,
+
+    // Flash Sale Manager
+    "flash-sales": FlashSaleManager,
+    "flash-sale": FlashSaleManager,
+    "promotions": FlashSaleManager,
+
+    // Invoice & Estimate Builder
+    "invoices": InvoiceBuilder,
+    "invoice": InvoiceBuilder,
+    "estimates": InvoiceBuilder,
+
+    // Service Booking
+    "book": ServiceBooking,
+    "booking": ServiceBooking,
+    "services": ServiceBooking,
+    "quote": ServiceBooking,
+
+    // Affiliate Program
+    "affiliate": AffiliateProgram,
+    "referral": AffiliateProgram,
+    "refer": AffiliateProgram,
 
     // CUSTOMER PORTAL - All customer interactions consolidated into single CustomerPortalView
     "customer-app": CustomerPortalApp,

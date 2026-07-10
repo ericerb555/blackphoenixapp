@@ -20,7 +20,8 @@ import {
   Crown, Code, Cloud, BookOpen, Menu, X, Activity,
   ArrowUpRight, ArrowDownRight, Minus, ChevronLeft,
   LayoutGrid, TrendingDown, AlertCircle, Plus, Home, LogIn,
-  Camera, CloudRain, Monitor, Key, MapPin, Calculator, Tag, HardHat
+  Camera, CloudRain, Monitor, Key, MapPin, Calculator, Tag, HardHat,
+  Star, QrCode, Heart, Share2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LineChart, Line, AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
@@ -975,6 +976,396 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
                       <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-green-600 text-white">NEW</span>
                     </div>
                     <p className="text-sm text-gray-400">Capture · Score · Convert</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-green-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Loyalty & Rewards */}
+          <button
+            onClick={() => onNavigate?.('loyalty')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-yellow-500/50 hover:bg-yellow-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Star className="w-6 h-6 text-yellow-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                    <Star className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Phoenix Rewards</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-yellow-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Loyalty · Referrals · Perks</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-yellow-400" />
+              </div>
+            )}
+          </button>
+
+          {/* QR Code Generator */}
+          <button
+            onClick={() => onNavigate?.('qr-codes')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-teal-500/50 hover:bg-teal-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><QrCode className="w-6 h-6 text-teal-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
+                    <QrCode className="w-5 h-5 text-teal-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">QR Code Generator</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-teal-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Truck · Cards · Flyers · Signs</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-teal-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Revenue Analytics */}
+          <button
+            onClick={() => onNavigate?.('revenue-analytics')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><BarChart3 className="w-6 h-6 text-orange-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <BarChart3 className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Revenue Analytics</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Products · Channels · Email</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-orange-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Subscribe & Save */}
+          <button
+            onClick={() => onNavigate?.('subscribe')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-cyan-500/50 hover:bg-cyan-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><RefreshCw className="w-6 h-6 text-cyan-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Subscribe &amp; Save</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-cyan-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Recurring Orders · Up to 15% Off</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-cyan-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Product Reviews */}
+          <button
+            onClick={() => onNavigate?.('reviews')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-violet-500/50 hover:bg-violet-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Star className="w-6 h-6 text-violet-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <Star className="w-5 h-5 text-violet-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Product Reviews</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Ratings · Moderation · Insights</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-violet-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Business Analytics */}
+          <button
+            onClick={() => onNavigate?.('analytics')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><BarChart3 className="w-6 h-6 text-orange-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <BarChart3 className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Analytics</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Revenue · Trends · AI Insights</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-orange-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Lead CRM */}
+          <button
+            onClick={() => onNavigate?.('crm')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-blue-500/50 hover:bg-blue-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Users className="w-6 h-6 text-blue-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Users className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Lead CRM</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Pipeline · Scoring · Notes</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-blue-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Coupon Manager */}
+          <button
+            onClick={() => onNavigate?.('coupons')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-emerald-500/50 hover:bg-emerald-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Tag className="w-6 h-6 text-emerald-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <Tag className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Coupon Manager</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Promo Codes · Discounts · Analytics</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-emerald-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Abandoned Cart Recovery */}
+          <button
+            onClick={() => onNavigate?.('abandoned-carts')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-red-500/50 hover:bg-red-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><ShoppingCart className="w-6 h-6 text-red-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                    <ShoppingCart className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Cart Recovery</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Win Back · Recovery Emails</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-red-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Gift Cards */}
+          <button
+            onClick={() => onNavigate?.('gift-cards')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-pink-500/50 hover:bg-pink-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Gift className="w-6 h-6 text-pink-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-pink-500/10 flex items-center justify-center">
+                    <Gift className="w-5 h-5 text-pink-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Gift Cards</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-pink-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Buy · Send · Redeem</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-pink-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Flash Sale Manager */}
+          <button
+            onClick={() => onNavigate?.('flash-sales')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-yellow-500/50 hover:bg-yellow-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Zap className="w-6 h-6 text-yellow-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Flash Sales</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-yellow-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Timed Promos · Live Banners</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-yellow-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Invoice Builder */}
+          <button
+            onClick={() => onNavigate?.('invoices')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-emerald-500/50 hover:bg-emerald-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><FileText className="w-6 h-6 text-emerald-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Invoices & Estimates</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Create · Send · Get Paid</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-emerald-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Service Booking */}
+          <button
+            onClick={() => onNavigate?.('book')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-blue-500/50 hover:bg-blue-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Calendar className="w-6 h-6 text-blue-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Calendar className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Service Booking</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-blue-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Jobs · Quotes · Scheduling</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-blue-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Affiliate Program */}
+          <button
+            onClick={() => onNavigate?.('affiliate')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Share2 className="w-6 h-6 text-orange-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <Share2 className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Affiliate Program</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Referrals · 10% Commission</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-orange-400" />
+              </div>
+            )}
+          </button>
+
+          {/* SMS Marketing */}
+          <button
+            onClick={() => onNavigate?.('sms-marketing')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-green-500/50 hover:bg-green-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><Smartphone className="w-6 h-6 text-green-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                    <Smartphone className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">SMS Marketing</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-green-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Text Blasts · 98% Open Rate</p>
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-green-400" />

@@ -17,6 +17,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCompany } from '../contexts/CompanyContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
+import { ActiveFlashBanner } from './FlashSaleManager';
+import SocialProofWidget from '../components/SocialProofWidget';
+import StoreReviews from '../components/StoreReviews';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -64,6 +68,17 @@ export default function PublicStore() {
   const [leadSubmitted, setLeadSubmitted] = useState(false);
   const [dropshipProducts, setDropshipProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [showReviewRequest, setShowReviewRequest] = useState(false);
+  const [reviewStep, setReviewStep] = useState<'rate' | 'thanks'>('rate');
+
+  // ── AI Chat ──────────────────────────────────────────────────────────────
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'bot'; text: string }[]>([
+    { role: 'bot', text: "Hey! 👋 I'm Phoenix, your Black Phoenix shopping assistant. Ask me anything — products, shipping, deals, or help finding the right item!" },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatTyping, setChatTyping] = useState(false);
+  const [chatUnread, setChatUnread] = useState(1);
 
   // Fetch live products from connected dropshippers
   useEffect(() => {
@@ -108,6 +123,51 @@ export default function PublicStore() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Abandoned cart recovery — fire after 10 min of cart inactivity
+  useEffect(() => {
+    if (cart.length === 0) return;
+    const cartValue = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+    const cartItems = cart.map(i => i.name).join(', ');
+    const recoveredKey = 'bp_cart_recovered';
+    const alreadyRecovered = localStorage.getItem(recoveredKey);
+    if (alreadyRecovered) return;
+
+    const timer = setTimeout(async () => {
+      // Only fire if we have an email (from lead capture or user session)
+      const capturedEmail = localStorage.getItem('bp_lead_email') || user?.email || '';
+      const capturedName = localStorage.getItem('bp_lead_name') || '';
+      if (!capturedEmail) return;
+      try {
+        await fetch(`${SERVER}/leads/capture`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: capturedEmail,
+            name: capturedName,
+            source: 'abandoned_cart',
+            page: window.location.pathname,
+            cartValue,
+            metadata: { cartItems, trigger: 'abandoned_cart' },
+          }),
+        });
+        // Auto-send recovery email
+        await fetch(`${SERVER}/leads/send-email`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: capturedEmail,
+            name: capturedName || 'there',
+            emailType: 'cart_abandon',
+            metadata: { cartItems, cartValue: cartValue.toFixed(2) },
+          }),
+        });
+        localStorage.setItem(recoveredKey, '1');
+      } catch { /* silent */ }
+    }, 10 * 60 * 1000); // 10 minutes
+
+    return () => clearTimeout(timer);
+  }, [cart, user]);
+
   async function submitLead(source = 'store_popup') {
     if (!leadEmail) return;
     try {
@@ -122,6 +182,8 @@ export default function PublicStore() {
         }),
       });
       localStorage.setItem('bp_lead_captured', '1');
+      localStorage.setItem('bp_lead_email', leadEmail);
+      if (leadName) localStorage.setItem('bp_lead_name', leadName);
       setLeadSubmitted(true);
       setTimeout(() => setShowLeadCapture(false), 2500);
     } catch { setShowLeadCapture(false); }
@@ -381,6 +443,39 @@ export default function PublicStore() {
   const [email, setEmail] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
 
+  const BUNDLES = [
+    {
+      id: 'bundle-home',
+      label: 'Home Essentials Kit',
+      badge: 'SAVE 22%',
+      emoji: '🏠',
+      tagline: 'Everything you need to upgrade your space',
+      productIds: ['p3', 'p9', 'p10'],
+      originalTotal: 94.97,
+      bundlePrice: 73.99,
+    },
+    {
+      id: 'bundle-outdoors',
+      label: 'Outdoor Ready Pack',
+      badge: 'SAVE 18%',
+      emoji: '🌿',
+      tagline: 'Stay hydrated, protected, and active',
+      productIds: ['p2', 'p5', 'p7'],
+      originalTotal: 89.97,
+      bundlePrice: 73.99,
+    },
+    {
+      id: 'bundle-tech',
+      label: 'Tech Starter Bundle',
+      badge: 'SAVE 25%',
+      emoji: '⚡',
+      tagline: 'Premium gear for work and play',
+      productIds: ['p1', 'p6', 'p8'],
+      originalTotal: 139.97,
+      bundlePrice: 104.99,
+    },
+  ];
+
   const REVIEWS = [
     { name: 'Marcus T.', role: 'Verified Buyer', rating: 5, text: "Fast shipping, great prices, and the product quality is exactly as described. My go-to shop for everything.", avatar: 'M' },
     { name: 'Sarah K.', role: 'Verified Buyer', rating: 5, text: "Love the variety here. Found everything from kitchen gadgets to workout gear in one place. Will definitely be back!", avatar: 'S' },
@@ -485,11 +580,54 @@ export default function PublicStore() {
     );
   };
 
+  async function sendChatMessage() {
+    const text = chatInput.trim();
+    if (!text) return;
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', text }]);
+    setChatTyping(true);
+
+    // Simple rule-based AI that knows the store
+    const q = text.toLowerCase();
+    await new Promise(r => setTimeout(r, 900 + Math.random() * 600));
+
+    let reply = '';
+    if (q.match(/ship|deliver|how long|arrival/)) {
+      reply = "We ship within 1-2 business days! Orders $500+ get FREE shipping. Standard delivery is 3-7 days. Need it faster? Reach us at (your phone) and we'll do our best! 🚚";
+    } else if (q.match(/return|refund|exchange/)) {
+      reply = "We have a hassle-free 30-day return policy. If you're not happy, we'll make it right — that's the Black Phoenix promise. Just reply to your order email and we'll handle it! 💛";
+    } else if (q.match(/discount|coupon|promo|deal|sale|off/)) {
+      reply = "Use code **BPBUILDS** for 10% off your order! 🔥 Also check out our Bundle & Save section for up to 25% off. Local neighbor? Grab 15% off at theblackphoenixcompany.com/local";
+    } else if (q.match(/reward|loyalty|points|phoenix reward/)) {
+      reply = "We have a Phoenix Rewards program! Earn points on every purchase — Bronze, Silver, Gold, and Phoenix tiers. Join free at theblackphoenixcompany.com/loyalty 🏆";
+    } else if (q.match(/headphone|wireless|audio|earbuds/)) {
+      reply = "Our Wireless Noise-Cancelling Headphones are a bestseller at $79.99 (was $129.99)! 30hr battery, active noise cancellation, foldable. Customers rate them 4.9/5 ⭐";
+    } else if (q.match(/water bottle|bottle|hydrat/)) {
+      reply = "The Stainless Steel Water Bottle (32oz) is TOP RATED at $24.99! Double-wall vacuum insulated, keeps drinks cold 24hrs / hot 12hrs. Over 5,000 reviews! 💧";
+    } else if (q.match(/contact|call|email|phone|reach/)) {
+      reply = "You can reach us at hello@theblackphoenixcompany.com or visit theblackphoenixcompany.com. We're a family-owned business and personally respond to every message! 🧡";
+    } else if (q.match(/bundle|kit|combo|pack/)) {
+      reply = "Check out our Bundle & Save section! We have Home Essentials (save 22%), Outdoor Ready Pack (save 18%), and Tech Starter Bundle (save 25%). All handpicked deals! 🎁";
+    } else if (q.match(/family|owner|who are you|about/)) {
+      reply = "Black Phoenix Company is a family-owned and operated business. We're real people who stand behind every product we sell. When you shop with us, you're supporting a family — not a warehouse. 🧡";
+    } else if (q.match(/track|order status|where.*order/)) {
+      reply = "To track your order, check the confirmation email we sent you — it has a tracking link. Questions? Email hello@theblackphoenixcompany.com with your order number!";
+    } else {
+      reply = "Great question! I want to make sure I give you the right answer. For anything specific, you can also email us at hello@theblackphoenixcompany.com — we reply fast! Is there anything else I can help with? 😊";
+    }
+
+    setChatTyping(false);
+    setChatMessages(prev => [...prev, { role: 'bot', text: reply }]);
+    if (!showChat) setChatUnread(prev => prev + 1);
+  }
+
   return (
     <div className="min-h-screen text-white" style={{ background: '#080808' }}>
 
       {/* ── STICKY HEADER ──────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 border-b" style={{ background: 'rgba(8,8,8,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.06)' }}>
+        {/* Flash sale banner — shows when Eric has an active sale */}
+        <ActiveFlashBanner />
         {/* Announcement bar */}
         <div className="py-2 text-center text-xs font-semibold tracking-widest uppercase" style={{ background: '#ea580c', color: '#fff' }}>
           🔥 Free Shipping $500+ · Code <span className="underline">BPBUILDS</span> saves 10%
@@ -520,6 +658,18 @@ export default function PublicStore() {
               <button className="md:hidden p-2 rounded-xl hover:bg-white/5 transition text-gray-400" onClick={() => setShopView(shopView === 'home' ? 'all' : shopView)}>
                 <Search className="w-5 h-5" />
               </button>
+              {/* Loyalty points badge */}
+              {user?.email && (() => {
+                const acct = getLoyaltyAccount(user.email!);
+                if (!acct) return null;
+                return (
+                  <a href="/loyalty" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition hover:brightness-110"
+                    style={{ background: 'rgba(234,88,12,0.12)', border: '1px solid rgba(234,88,12,0.25)' }}>
+                    <span className="text-sm">🔥</span>
+                    <span className="text-xs font-black" style={{ color: '#fb923c' }}>{acct.points.toLocaleString()} pts</span>
+                  </a>
+                );
+              })()}
               {/* Wishlist */}
               <button className="relative p-2 rounded-xl hover:bg-white/5 transition">
                 <Heart className="w-5 h-5 text-gray-400" />
@@ -759,6 +909,83 @@ export default function PublicStore() {
             </div>
           </section>
 
+          {/* ── BUNDLE DEALS ─────────────────────────────────────────────────── */}
+          <section className="max-w-screen-xl mx-auto px-4 pt-2 pb-4">
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="w-1 h-7 rounded-full" style={{ background: 'linear-gradient(180deg, #a855f7, #6d28d9)' }} />
+              <div>
+                <h2 className="text-xl font-black text-white leading-none">Bundle &amp; Save</h2>
+                <p className="text-[11px] text-gray-600 mt-0.5">Handpicked combos at unbeatable prices</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {BUNDLES.map(bundle => {
+                const bundleProducts = bundle.productIds.map(id => allProducts.find(p => p.id === id)).filter(Boolean) as typeof allProducts;
+                const savings = bundle.originalTotal - bundle.bundlePrice;
+                return (
+                  <div key={bundle.id}
+                    className="group relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200"
+                    style={{ background: '#111', border: '1px solid rgba(168,85,247,0.18)' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(168,85,247,0.5)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(168,85,247,0.18)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
+                    <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none"
+                      style={{ background: 'radial-gradient(ellipse at top right, rgba(168,85,247,0.08) 0%, transparent 70%)' }} />
+                    <div className="p-4">
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-lg">{bundle.emoji}</span>
+                            <span className="text-xs font-black px-2 py-0.5 rounded-full"
+                              style={{ background: 'rgba(168,85,247,0.15)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' }}>
+                              {bundle.badge}
+                            </span>
+                          </div>
+                          <h3 className="font-black text-white text-sm">{bundle.label}</h3>
+                          <p className="text-[11px] text-gray-500 mt-0.5">{bundle.tagline}</p>
+                        </div>
+                      </div>
+                      {/* Product thumbnails */}
+                      <div className="flex gap-2 mb-4">
+                        {bundleProducts.slice(0, 3).map(p => (
+                          <div key={p.id} className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0"
+                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            {p.image && p.image !== '/placeholder-product.jpg'
+                              ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center"><Package className="w-5 h-5 text-gray-700" /></div>}
+                          </div>
+                        ))}
+                        <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 text-[10px] font-black text-gray-500"
+                          style={{ border: '1px dashed rgba(255,255,255,0.1)' }}>
+                          +more
+                        </div>
+                      </div>
+                      {/* Price row */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-lg font-black" style={{ color: '#c084fc' }}>${bundle.bundlePrice.toFixed(2)}</div>
+                          <div className="text-[11px] text-gray-600">
+                            <span className="line-through">${bundle.originalTotal.toFixed(2)}</span>
+                            <span className="text-green-400 font-bold ml-1">Save ${savings.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            bundleProducts.forEach(p => addToCart(p));
+                            toast.success(`${bundle.label} added to cart!`);
+                          }}
+                          className="px-4 py-2.5 rounded-xl font-black text-xs text-white transition-all hover:brightness-110 active:scale-95"
+                          style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+                          Add Bundle
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
           {/* ── FAMILY OWNED BANNER ───────────────────────────────────────────── */}
           <section className="max-w-screen-xl mx-auto px-4 py-6">
             <div className="rounded-3xl overflow-hidden relative flex flex-col sm:flex-row items-center justify-between gap-6 px-7 py-7"
@@ -948,6 +1175,40 @@ export default function PublicStore() {
               ))}
             </div>
 
+            {/* ── UPSELL STRIP ─────────────────────────────────────────────── */}
+            {cart.length > 0 && (() => {
+              const cartIds = new Set(cart.map(i => i.id));
+              const upsells = allProducts.filter(p => !cartIds.has(p.id) && p.inStock).slice(0, 3);
+              if (upsells.length === 0) return null;
+              return (
+                <div className="px-6 pb-4">
+                  <p className="text-[10px] font-black tracking-widest uppercase text-gray-600 mb-2">You Might Also Like</p>
+                  <div className="flex flex-col gap-2">
+                    {upsells.map(p => (
+                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl transition"
+                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0"
+                          style={{ background: 'rgba(255,255,255,0.04)' }}>
+                          {p.image && p.image !== '/placeholder-product.jpg'
+                            ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                            : <Package className="w-5 h-5 text-gray-700 m-auto mt-2.5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-white truncate">{p.name}</p>
+                          <p className="text-[11px] font-black" style={{ color: '#fb923c' }}>${p.price.toFixed(2)}</p>
+                        </div>
+                        <button onClick={() => addToCart(p)}
+                          className="flex-shrink-0 text-[10px] font-black px-3 py-1.5 rounded-lg transition hover:brightness-110"
+                          style={{ background: '#ea580c' }}>
+                          + Add
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {cart.length > 0 && (
               <div className="sticky bottom-0 p-6" style={{ background: '#0d0d0d', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                 {/* ZIP / Tax calculator */}
@@ -1006,7 +1267,30 @@ export default function PublicStore() {
                   )}
                 </div>
 
-                <button className="w-full py-4 rounded-2xl font-black text-base transition hover:scale-105 flex items-center justify-center gap-2" style={{ background: '#ea580c' }}>
+                <button
+                  className="w-full py-4 rounded-2xl font-black text-base transition hover:scale-105 flex items-center justify-center gap-2"
+                  style={{ background: '#ea580c' }}
+                  onClick={async () => {
+                    // Clear abandonment tracker on checkout
+                    localStorage.removeItem('bp_cart_recovered');
+                    // Show review request modal
+                    setShowCart(false);
+                    setReviewStep('rate');
+                    setShowReviewRequest(true);
+                    // Auto-send review request email if we have their email
+                    const email = localStorage.getItem('bp_lead_email') || user?.email || '';
+                    const name = localStorage.getItem('bp_lead_name') || '';
+                    if (email) {
+                      try {
+                        await fetch(`${SERVER}/leads/send-email`, {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ email, name, emailType: 'review_request' }),
+                        });
+                      } catch { /* silent */ }
+                    }
+                  }}
+                >
                   <Lock className="w-4 h-4" /> Secure Checkout
                 </button>
                 <button onClick={() => setShowCart(false)} className="w-full mt-2 py-3 text-sm text-gray-500 hover:text-gray-300 transition">Continue Shopping</button>
@@ -1061,6 +1345,10 @@ export default function PublicStore() {
                   className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105" style={{ background: '#ea580c' }}>
                   <ShoppingCart className="w-5 h-5" /> Add to Cart
                 </button>
+                <div className="pt-4 border-t mt-4" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                  <h3 className="text-sm font-black text-white mb-3">Customer Reviews</h3>
+                  <StoreReviews productId={showQuickView.id} compact />
+                </div>
               </div>
             </div>
           </div>
@@ -1111,6 +1399,180 @@ export default function PublicStore() {
           </div>
         </div>
       )}
+      {/* ── REVIEW REQUEST MODAL ─────────────────────────────────────────── */}
+      {showReviewRequest && (
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
+          <div className="w-full max-w-sm rounded-3xl overflow-hidden" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}>
+            {reviewStep === 'rate' ? (
+              <>
+                <div className="px-6 pt-8 pb-4 text-center">
+                  <div className="text-5xl mb-3">🎉</div>
+                  <h3 className="text-xl font-black text-white mb-1">Thank You for Your Order!</h3>
+                  <p className="text-sm text-gray-400 leading-relaxed">
+                    As a family-owned business, every review means the world to us. Would you take 60 seconds to share your experience?
+                  </p>
+                </div>
+
+                {/* Star rating */}
+                <div className="flex justify-center gap-2 py-3">
+                  {[1,2,3,4,5].map(s => (
+                    <button key={s}
+                      onClick={() => {
+                        if (s >= 4) {
+                          // High rating → send to Google
+                          window.open('https://g.page/r/your-google-review-link/review', '_blank');
+                          setReviewStep('thanks');
+                        } else {
+                          // Low rating → collect feedback privately
+                          setReviewStep('thanks');
+                        }
+                      }}
+                      className="transition hover:scale-125 active:scale-95">
+                      <Star className="w-9 h-9 fill-yellow-400 text-yellow-400" />
+                    </button>
+                  ))}
+                </div>
+
+                <div className="px-6 pb-6 space-y-2 mt-2">
+                  <a href="https://g.page/r/your-google-review-link/review" target="_blank" rel="noreferrer"
+                    onClick={() => setReviewStep('thanks')}
+                    className="flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl font-black text-white text-sm transition hover:brightness-110"
+                    style={{ background: '#4285F4' }}>
+                    <Star className="w-4 h-4 fill-white" /> Leave a Google Review
+                  </a>
+                  <button onClick={() => setShowReviewRequest(false)}
+                    className="w-full py-2.5 text-xs text-gray-600 hover:text-gray-400 transition">
+                    Maybe later
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="px-6 py-10 text-center">
+                <div className="text-5xl mb-4">🧡</div>
+                <h3 className="text-xl font-black text-white mb-2">You're Amazing!</h3>
+                <p className="text-sm text-gray-400 mb-6">Your support keeps this family business going. We'll also send a reminder to your email — no pressure.</p>
+                <button onClick={() => { setShowReviewRequest(false); setReviewStep('rate'); }}
+                  className="w-full py-3.5 rounded-2xl font-black text-white text-sm transition hover:brightness-110"
+                  style={{ background: '#ea580c' }}>
+                  Keep Shopping
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SOCIAL PROOF WIDGET ──────────────────────────────────────────── */}
+      <SocialProofWidget />
+
+      {/* ── AI CHAT WIDGET ────────────────────────────────────────────────── */}
+      <div className="fixed bottom-6 right-5 z-50 flex flex-col items-end gap-3">
+        {/* Chat panel */}
+        {showChat && (
+          <div className="w-80 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            style={{ background: '#0d0d0d', border: '1px solid rgba(234,88,12,0.25)', maxHeight: '70vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl overflow-hidden flex-shrink-0 bg-white/20 flex items-center justify-center">
+                  <img src={companyLogo} alt="Phoenix" className="w-6 h-6 object-contain" />
+                </div>
+                <div>
+                  <p className="text-xs font-black text-white">Phoenix AI</p>
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-300 animate-pulse" />
+                    <p className="text-[10px] text-orange-100">Online · Replies instantly</p>
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setShowChat(false)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/20 transition">
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ minHeight: 200, maxHeight: 340 }}>
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'bot' && (
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mr-2 mt-0.5"
+                      style={{ background: 'rgba(234,88,12,0.2)' }}>
+                      <span className="text-[10px]">🔥</span>
+                    </div>
+                  )}
+                  <div className="max-w-[75%] px-3 py-2 rounded-2xl text-xs leading-relaxed"
+                    style={msg.role === 'user'
+                      ? { background: '#ea580c', color: '#fff', borderBottomRightRadius: 4 }
+                      : { background: '#1a1a1a', color: '#d1d5db', borderBottomLeftRadius: 4 }}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {chatTyping && (
+                <div className="flex justify-start">
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mr-2"
+                    style={{ background: 'rgba(234,88,12,0.2)' }}>
+                    <span className="text-[10px]">🔥</span>
+                  </div>
+                  <div className="px-3 py-2.5 rounded-2xl" style={{ background: '#1a1a1a', borderBottomLeftRadius: 4 }}>
+                    <div className="flex gap-1">
+                      {[0,1,2].map(d => (
+                        <div key={d} className="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce"
+                          style={{ animationDelay: `${d * 0.15}s` }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick replies */}
+            <div className="px-3 pb-2 flex gap-1.5 flex-wrap flex-shrink-0">
+              {['Shipping info', 'Best deals', 'Returns'].map(q => (
+                <button key={q} onClick={() => { setChatInput(q); }}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full transition"
+                  style={{ background: 'rgba(234,88,12,0.1)', color: '#fb923c', border: '1px solid rgba(234,88,12,0.2)' }}>
+                  {q}
+                </button>
+              ))}
+            </div>
+
+            {/* Input */}
+            <div className="flex gap-2 p-3 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <input
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendChatMessage()}
+                placeholder="Ask me anything…"
+                className="flex-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50"
+              />
+              <button onClick={sendChatMessage}
+                className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition hover:brightness-110"
+                style={{ background: '#ea580c' }}>
+                <ArrowRight className="w-3.5 h-3.5 text-white" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Bubble button */}
+        <button
+          onClick={() => { setShowChat(prev => !prev); setChatUnread(0); }}
+          className="w-14 h-14 rounded-2xl shadow-2xl flex items-center justify-center relative transition-all hover:scale-105 active:scale-95"
+          style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)', boxShadow: '0 8px 32px rgba(234,88,12,0.45)' }}>
+          {showChat
+            ? <X className="w-6 h-6 text-white" />
+            : <MessageSquare className="w-6 h-6 text-white" />}
+          {!showChat && chatUnread > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white"
+              style={{ background: '#ef4444' }}>
+              {chatUnread}
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

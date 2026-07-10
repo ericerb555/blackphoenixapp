@@ -3266,6 +3266,10 @@ app.post('/make-server-57095a78/leads/send-email', async (c) => {
         subject: `Exclusive offer just for you — 10% off your first order`,
         prompt: `Write a promotional email offering 10% off with code BPBUILDS10. Company: ${COMPANY_NAME}. Store: ${STORE_URL}. Mention free shipping over $500. Upbeat, exciting tone. 2 paragraphs + CTA.`,
       },
+      review_request: {
+        subject: `${lead.name ? lead.name + ', h' : 'H'}ow was your experience with ${COMPANY_NAME}? ⭐`,
+        prompt: `Write a short, warm post-purchase review request email for ${lead.name || 'a customer'} who just ordered from ${COMPANY_NAME}. Thank them sincerely for their order. Ask them to leave a Google review with this direct link: https://g.page/r/your-google-review-link/review — explain it takes less than 60 seconds and means the world to a family-owned business. Keep it personal, 2 short paragraphs. Do NOT be pushy.`,
+      },
       custom: {
         subject: `A message from ${COMPANY_NAME}`,
         prompt: customMessage || 'Write a friendly outreach email.',
