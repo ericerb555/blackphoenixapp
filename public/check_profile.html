@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h1>Check LocalStorage</h1>
+<pre id="output"></pre>
+<script>
+const profile = localStorage.getItem('currentUserProfile');
+const profiles = localStorage.getItem('userProfiles');
+document.getElementById('output').textContent = 
+  'currentUserProfile:\n' + profile + '\n\n' +
+  'userProfiles:\n' + profiles;
+</script>
+</body>
+</html>
