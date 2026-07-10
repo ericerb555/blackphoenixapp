@@ -90,6 +90,329 @@ async function getAuthToken(): Promise<string> {
   return data.session?.access_token || publicAnonKey;
 }
 
+// ── AI Onboarding Wizard ───────────────────────────────────────────────────────
+
+const ALL_PLATFORMS = [
+  { id: 'facebook',    label: 'Facebook',        color: '#1877F2', icon: '📘', hint: 'facebook.com/YourPage',       urlBase: 'https://facebook.com/' },
+  { id: 'instagram',   label: 'Instagram',       color: '#E1306C', icon: '📸', hint: '@yourhandle',                urlBase: 'https://instagram.com/' },
+  { id: 'tiktok',      label: 'TikTok',          color: '#ff0050', icon: '🎵', hint: '@yourhandle',                urlBase: 'https://tiktok.com/@' },
+  { id: 'youtube',     label: 'YouTube',         color: '#FF0000', icon: '▶️', hint: '@YourChannel',               urlBase: 'https://youtube.com/@' },
+  { id: 'twitter',     label: 'X (Twitter)',     color: '#000000', icon: '🐦', hint: '@yourhandle',                urlBase: 'https://x.com/' },
+  { id: 'linkedin',    label: 'LinkedIn',        color: '#0A66C2', icon: '💼', hint: 'company/your-business',      urlBase: 'https://linkedin.com/' },
+  { id: 'pinterest',   label: 'Pinterest',       color: '#E60023', icon: '📌', hint: 'yourhandle',                 urlBase: 'https://pinterest.com/' },
+  { id: 'snapchat',    label: 'Snapchat',        color: '#FFFC00', icon: '👻', hint: 'yourusername',               urlBase: 'https://snapchat.com/add/' },
+  { id: 'threads',     label: 'Threads',         color: '#101010', icon: '🧵', hint: '@yourhandle',                urlBase: 'https://threads.net/@' },
+  { id: 'nextdoor',    label: 'Nextdoor',        color: '#00B246', icon: '🏘️', hint: 'Your Business Name',        urlBase: 'https://nextdoor.com/pages/' },
+  { id: 'yelp',        label: 'Yelp',            color: '#D32323', icon: '⭐', hint: 'biz/your-business-name',    urlBase: 'https://yelp.com/' },
+  { id: 'google',      label: 'Google Business', color: '#4285F4', icon: '🔍', hint: 'Your Business Name',        urlBase: 'https://business.google.com/' },
+  { id: 'houzz',       label: 'Houzz',           color: '#7CC04B', icon: '🏠', hint: 'yourprofile',               urlBase: 'https://houzz.com/pro/' },
+  { id: 'thumbtack',   label: 'Thumbtack',       color: '#009FD9', icon: '📋', hint: 'Your Business Name',        urlBase: 'https://thumbtack.com/' },
+];
+
+type WizardStep = 'welcome' | 'chat' | 'done';
+
+interface WizardMessage {
+  role: 'ai' | 'user';
+  text: string;
+  platforms?: typeof ALL_PLATFORMS;
+  type?: 'platform-select' | 'input' | 'confirm' | 'text';
+}
+
+function AIOnboardingWizard({ onClose, onAdd, existingAccounts }: {
+  onClose: () => void;
+  onAdd: (acct: CustomAccount) => void;
+  existingAccounts: CustomAccount[];
+}) {
+  const [step, setStep] = useState<WizardStep>('welcome');
+  const [messages, setMessages] = useState<WizardMessage[]>([]);
+  const [currentPlatform, setCurrentPlatform] = useState<typeof ALL_PLATFORMS[0] | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [addedPlatforms, setAddedPlatforms] = useState<string[]>([]);
+  const [isThinking, setIsThinking] = useState(false);
+  const [awaitingHandle, setAwaitingHandle] = useState(false);
+  const bottomRef = { current: null as HTMLDivElement | null };
+
+  const existingIds = new Set([
+    ...existingAccounts.map(a => a.platform),
+    'facebook', 'instagram', 'tiktok', // core platforms (OAuth)
+  ]);
+
+  const remainingPlatforms = ALL_PLATFORMS.filter(p => !addedPlatforms.includes(p.id));
+
+  function addMsg(msg: WizardMessage) {
+    setMessages(prev => [...prev, msg]);
+  }
+
+  function startChat() {
+    setStep('chat');
+    setIsThinking(true);
+    setTimeout(() => {
+      setIsThinking(false);
+      addMsg({
+        role: 'ai',
+        text: "Hey! I'm your Social Setup Assistant 👋 I'll walk you through connecting all your accounts in about 2 minutes. Which platforms are you on? Tap everything that applies:",
+        type: 'platform-select',
+        platforms: ALL_PLATFORMS,
+      });
+    }, 800);
+  }
+
+  function handlePlatformSelect(platform: typeof ALL_PLATFORMS[0]) {
+    setCurrentPlatform(platform);
+    setAwaitingHandle(true);
+    addMsg({ role: 'user', text: `I have ${platform.label}` });
+    setIsThinking(true);
+    setTimeout(() => {
+      setIsThinking(false);
+      addMsg({
+        role: 'ai',
+        text: `Nice! What's your ${platform.label} handle or page name? Just type it below — I'll figure out the rest. (Example: ${platform.hint})`,
+        type: 'input',
+      });
+    }, 600);
+  }
+
+  function handleHandleSubmit() {
+    if (!currentPlatform || !inputValue.trim()) return;
+    const handle = inputValue.trim().replace(/^@/, '');
+    const url = handle.startsWith('http') ? handle : `${currentPlatform.urlBase}${handle}`;
+
+    const acct: CustomAccount = {
+      id: `custom_${Date.now()}`,
+      platform: currentPlatform.id,
+      label: currentPlatform.label,
+      profileUrl: url,
+      handle: `@${handle}`,
+      color: currentPlatform.color,
+      addedAt: new Date().toISOString(),
+    };
+    onAdd(acct);
+
+    const newAdded = [...addedPlatforms, currentPlatform.id];
+    setAddedPlatforms(newAdded);
+    setInputValue('');
+    setAwaitingHandle(false);
+    setCurrentPlatform(null);
+
+    addMsg({ role: 'user', text: `@${handle}` });
+    setIsThinking(true);
+
+    const left = ALL_PLATFORMS.filter(p => !newAdded.includes(p.id));
+
+    setTimeout(() => {
+      setIsThinking(false);
+      if (left.length === 0) {
+        addMsg({ role: 'ai', text: `${currentPlatform.label} connected! ✅ You're all set — every platform is linked. Amazing work! 🎉` });
+        setTimeout(() => setStep('done'), 1200);
+      } else {
+        addMsg({
+          role: 'ai',
+          text: `${currentPlatform.label} ✅ Added! You've got ${newAdded.length} platform${newAdded.length > 1 ? 's' : ''} connected. Any more? Pick another or tap "I'm Done" when ready.`,
+          type: 'platform-select',
+          platforms: left,
+        });
+      }
+    }, 700);
+  }
+
+  function handleDone() {
+    if (addedPlatforms.length === 0) {
+      onClose();
+      return;
+    }
+    setStep('done');
+  }
+
+  const showPlatformGrid = messages.length > 0 &&
+    messages[messages.length - 1].type === 'platform-select' &&
+    !awaitingHandle;
+
+  return (
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <motion.div initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+        className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col"
+        style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)', maxHeight: '92vh' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899, #f97316)' }}>
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="font-black text-white text-sm">AI Setup Assistant</p>
+              <p className="text-[11px] text-gray-500">Connect all your socials in minutes</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-white/5 transition">
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Welcome screen */}
+        {step === 'welcome' && (
+          <div className="flex flex-col items-center justify-center p-8 text-center flex-1 gap-5">
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center text-4xl"
+              style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(236,72,153,0.2))', border: '1px solid rgba(99,102,241,0.3)' }}>
+              🤖
+            </div>
+            <div>
+              <h3 className="text-2xl font-black text-white mb-2">Let's Set Up Your Socials</h3>
+              <p className="text-gray-400 text-sm leading-relaxed max-w-xs">
+                I'll guide you through connecting every social media account you have — one at a time, no tech stuff needed.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              {[
+                { icon: '⚡', text: 'Takes about 2 minutes' },
+                { icon: '🔒', text: 'Your credentials stay private' },
+                { icon: '📊', text: 'All accounts in one place' },
+              ].map((item, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm text-gray-300"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="text-base">{item.icon}</span>
+                  <span className="font-medium">{item.text}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={startChat}
+              className="w-full max-w-xs py-4 rounded-2xl font-black text-white text-base transition hover:brightness-110 active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)', boxShadow: '0 8px 32px rgba(99,102,241,0.3)' }}>
+              Let's Go →
+            </button>
+          </div>
+        )}
+
+        {/* Chat screen */}
+        {step === 'chat' && (
+          <>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: 0 }}>
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-2`}>
+                  {msg.role === 'ai' && (
+                    <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 text-sm"
+                      style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)' }}>🤖</div>
+                  )}
+                  <div className={`max-w-[85%] ${msg.role === 'user' ? 'order-first' : ''}`}>
+                    <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'text-white font-semibold rounded-tr-sm'
+                        : 'text-gray-200 rounded-tl-sm'
+                    }`} style={{
+                      background: msg.role === 'user'
+                        ? 'linear-gradient(135deg, #6366f1, #ec4899)'
+                        : 'rgba(255,255,255,0.06)',
+                      border: msg.role === 'ai' ? '1px solid rgba(255,255,255,0.07)' : 'none',
+                    }}>
+                      {msg.text}
+                    </div>
+                    {/* Platform grid inside AI bubble */}
+                    {msg.role === 'ai' && msg.type === 'platform-select' && msg.platforms && i === messages.length - 1 && !awaitingHandle && (
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {msg.platforms.map(p => (
+                          <button key={p.id} onClick={() => handlePlatformSelect(p)}
+                            className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-all active:scale-95 hover:scale-105"
+                            style={{ background: `${p.color}15`, border: `1px solid ${p.color}35` }}>
+                            <span className="text-xl">{p.icon}</span>
+                            <span className="text-[10px] font-bold text-white text-center leading-tight">{p.label}</span>
+                          </button>
+                        ))}
+                        {addedPlatforms.length > 0 && (
+                          <button onClick={handleDone}
+                            className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-all active:scale-95 col-span-3"
+                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                            <span className="text-xs font-black text-gray-300">✅ I'm Done ({addedPlatforms.length} added)</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Thinking indicator */}
+              {isThinking && (
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-xl flex items-center justify-center text-sm flex-shrink-0"
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)' }}>🤖</div>
+                  <div className="flex gap-1 px-4 py-3 rounded-2xl rounded-tl-sm"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    {[0,1,2].map(i => (
+                      <span key={i} className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                        style={{ animationDelay: `${i * 0.15}s` }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div ref={el => { bottomRef.current = el; }} />
+            </div>
+
+            {/* Input area */}
+            {awaitingHandle && (
+              <div className="p-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                <p className="text-[11px] text-gray-600 mb-2 font-semibold uppercase tracking-widest">
+                  Your {currentPlatform?.label} handle
+                </p>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">@</span>
+                    <input
+                      autoFocus
+                      value={inputValue}
+                      onChange={e => setInputValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleHandleSubmit(); }}
+                      placeholder={currentPlatform?.hint || 'yourhandle'}
+                      className="w-full pl-7 pr-3 py-3 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none"
+                      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    />
+                  </div>
+                  <button onClick={handleHandleSubmit}
+                    className="px-4 py-3 rounded-xl font-black text-white transition hover:brightness-110 active:scale-95"
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)', minWidth: 56 }}>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Done screen */}
+        {step === 'done' && (
+          <div className="flex flex-col items-center justify-center p-8 text-center flex-1 gap-4">
+            <div className="text-5xl animate-bounce">🎉</div>
+            <h3 className="text-2xl font-black text-white">You're All Set!</h3>
+            <p className="text-gray-400 text-sm max-w-xs">
+              {addedPlatforms.length > 0
+                ? `${addedPlatforms.length} social account${addedPlatforms.length > 1 ? 's' : ''} connected to your hub. Your AI now knows where to find you.`
+                : "All done! Your social accounts are ready."}
+            </p>
+            {addedPlatforms.length > 0 && (
+              <div className="flex flex-wrap gap-2 justify-center">
+                {addedPlatforms.map(id => {
+                  const p = ALL_PLATFORMS.find(x => x.id === id);
+                  return p ? (
+                    <span key={id} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-white"
+                      style={{ background: `${p.color}25`, border: `1px solid ${p.color}40` }}>
+                      {p.icon} {p.label}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            )}
+            <button onClick={onClose}
+              className="mt-2 w-full max-w-xs py-4 rounded-2xl font-black text-white text-base transition hover:brightness-110 active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)' }}>
+              Go to My Hub
+            </button>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Add Account Modal ──────────────────────────────────────────────────────────
 
 function AddAccountModal({ onClose, onAdd }: { onClose: () => void; onAdd: (acct: CustomAccount) => void }) {
@@ -222,6 +545,7 @@ export default function SocialMediaHub() {
   });
   const [customAccounts, setCustomAccounts] = useState<CustomAccount[]>(loadCustomAccounts);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAIWizard, setShowAIWizard] = useState(false);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null);
   const [isFetching, setIsFetching] = useState(false);
@@ -425,6 +749,11 @@ export default function SocialMediaHub() {
               {isFetching ? `Fetching ${fetchingPlatform || ''}…` : 'Sync All'}
             </button>
           )}
+          <button onClick={() => setShowAIWizard(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-black text-white transition hover:brightness-110 active:scale-95"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)', boxShadow: '0 4px 16px rgba(99,102,241,0.3)' }}>
+            <Sparkles className="w-4 h-4" /> AI Setup
+          </button>
         </div>
       </div>
 
@@ -543,12 +872,26 @@ export default function SocialMediaHub() {
         <AddAccountModal onClose={() => setShowAddModal(false)} onAdd={addCustomAccount} />
       )}
 
+      {/* AI Onboarding Wizard */}
+      {showAIWizard && (
+        <AIOnboardingWizard
+          onClose={() => setShowAIWizard(false)}
+          onAdd={addCustomAccount}
+          existingAccounts={customAccounts}
+        />
+      )}
+
       {/* No connections state */}
       {connectedCount === 0 && customAccounts.length === 0 && (
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-10 text-center">
-          <Brain className="w-12 h-12 text-gray-700 mx-auto mb-3" />
-          <p className="text-white font-bold mb-1">Connect your social accounts above</p>
-          <p className="text-gray-500 text-sm">Once connected, the AI will pull your posts, learn your content style, and help you create more like your best-performing content.</p>
+          <div className="text-4xl mb-3">🤖</div>
+          <p className="text-white font-black text-lg mb-1">No accounts connected yet</p>
+          <p className="text-gray-500 text-sm mb-5 max-w-xs mx-auto">Let the AI walk you through adding all your social accounts — takes about 2 minutes.</p>
+          <button onClick={() => setShowAIWizard(true)}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white transition hover:brightness-110 active:scale-95"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)', boxShadow: '0 4px 20px rgba(99,102,241,0.3)' }}>
+            <Sparkles className="w-4 h-4" /> Set Up with AI
+          </button>
         </div>
       )}
 

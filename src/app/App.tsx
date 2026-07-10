@@ -198,6 +198,7 @@ import PromotionsManager from "./pages/PromotionsManager";
 import AIRankingEngine from "./pages/AIRankingEngine";
 import AutoProductPilot from "./pages/AutoProductPilot";
 import SocialMediaHub from "./pages/SocialMediaHub";
+import EmailLeadGen from "./pages/EmailLeadGen";
 // Hub Pages - Consolidated Navigation
 import JobTrackingHub from "./pages/JobTrackingHub";
 import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
@@ -1581,6 +1582,7 @@ function AppContent() {
     "ai-ranking-engine": AIRankingEngine,
     "auto-product-pilot": AutoProductPilot,
     "social-media-hub": SocialMediaHub,
+    "email-lead-gen": EmailLeadGen,
 
     // CUSTOMER PORTAL - All customer interactions consolidated into single CustomerPortalView
     "customer-app": CustomerPortalApp,

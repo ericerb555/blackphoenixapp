@@ -954,6 +954,34 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             )}
           </button>
 
+          {/* Email Lead Gen Button */}
+          <button
+            onClick={() => onNavigate?.('email-lead-gen')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-green-500/50 hover:bg-green-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <Mail className="w-6 h-6 text-green-400" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                    <Mail className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Email Lead Gen</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-green-600 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Capture · Score · Convert</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-green-400" />
+              </div>
+            )}
+          </button>
+
           {/* AI Ranking Engine Button */}
           <button
             onClick={() => onNavigate?.('ai-ranking-engine')}

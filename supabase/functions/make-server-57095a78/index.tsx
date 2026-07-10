@@ -3125,4 +3125,263 @@ app.get('/make-server-57095a78/messaging/unread/:userId', async (c) => {
   } catch (e: any) { return c.json({ unreadCount: 0 }); }
 });
 
+// ── AI EMAIL LEAD GENERATION ─────────────────────────────────────────────────
+
+// Capture a new lead
+app.post('/make-server-57095a78/leads/capture', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email, name, source, page, cartValue, productsViewed, phone } = body;
+    if (!email) return c.json({ error: 'Email required' }, 400);
+
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || '';
+    const existingLeads: any[] = (await kv.get('leads:all') as any[]) || [];
+
+    // Don't duplicate
+    const existing = existingLeads.find((l: any) => l.email === email);
+    if (existing) {
+      // Update activity
+      existing.lastSeen = new Date().toISOString();
+      existing.pageViews = (existing.pageViews || 0) + 1;
+      if (cartValue) existing.cartValue = cartValue;
+      await kv.set('leads:all', existingLeads);
+      return c.json({ success: true, leadId: existing.id, existing: true });
+    }
+
+    // AI score the lead
+    let score = 50;
+    let intent = 'browsing';
+    let aiSummary = '';
+
+    if (OPENAI_API_KEY) {
+      try {
+        const prompt = `Score this ecommerce lead from 0-100 and classify intent.
+Lead data:
+- Source: ${source || 'store'}
+- Page: ${page || 'homepage'}
+- Cart value: $${cartValue || 0}
+- Products viewed: ${productsViewed || 0}
+- Has phone: ${!!phone}
+
+Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "one sentence why", "recommendedAction": "what email to send first"}`;
+
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' },
+            max_tokens: 150,
+          }),
+        });
+        const data = await res.json();
+        const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+        score = parsed.score || 50;
+        intent = parsed.intent || 'warm';
+        aiSummary = parsed.summary || '';
+      } catch { /* use default score */ }
+    } else {
+      // Simple rule-based scoring without AI
+      if (cartValue > 100) { score = 85; intent = 'hot'; }
+      else if (cartValue > 0) { score = 70; intent = 'warm'; }
+      else if (source === 'quote') { score = 90; intent = 'hot'; }
+      else { score = 40; intent = 'cold'; }
+    }
+
+    const lead = {
+      id: `lead_${Date.now()}`,
+      email, name: name || '', phone: phone || '',
+      source: source || 'store', page: page || '',
+      cartValue: cartValue || 0, productsViewed: productsViewed || 0,
+      score, intent, aiSummary,
+      capturedAt: new Date().toISOString(),
+      lastSeen: new Date().toISOString(),
+      pageViews: 1,
+      emailsSent: 0, emailsOpened: 0,
+      status: 'new', tags: [],
+      sequence: 'welcome',
+      sequenceStep: 0,
+    };
+
+    existingLeads.unshift(lead);
+    await kv.set('leads:all', existingLeads);
+    return c.json({ success: true, leadId: lead.id, score, intent });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// Get all leads
+app.get('/make-server-57095a78/leads', async (c) => {
+  try {
+    const leads = (await kv.get('leads:all') as any[]) || [];
+    const stats = {
+      total: leads.length,
+      hot: leads.filter((l: any) => l.intent === 'hot').length,
+      warm: leads.filter((l: any) => l.intent === 'warm').length,
+      cold: leads.filter((l: any) => l.intent === 'cold').length,
+      emailsSent: leads.reduce((s: number, l: any) => s + (l.emailsSent || 0), 0),
+      avgScore: leads.length ? Math.round(leads.reduce((s: number, l: any) => s + (l.score || 0), 0) / leads.length) : 0,
+    };
+    return c.json({ leads, stats });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// Send AI-written email to a lead
+app.post('/make-server-57095a78/leads/send-email', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { leadId, emailType, customMessage } = body;
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || '';
+    const COMPANY_NAME = 'The Black Phoenix Company';
+    const FROM_EMAIL = 'hello@theblackphoenixcompany.com';
+    const STORE_URL = 'https://theblackphoenixcompany.com/shop';
+
+    if (!RESEND_API_KEY) return c.json({ error: 'RESEND_API_KEY not configured' }, 400);
+
+    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
+    const lead = leads.find((l: any) => l.id === leadId);
+    if (!lead) return c.json({ error: 'Lead not found' }, 404);
+
+    // AI writes the email
+    let subject = '';
+    let htmlBody = '';
+    let textBody = '';
+
+    const emailTemplates: Record<string, { subject: string; prompt: string }> = {
+      welcome: {
+        subject: `Welcome to ${COMPANY_NAME} — Here's What We Have For You`,
+        prompt: `Write a warm welcome email for a new store visitor named "${lead.name || 'Friend'}". They visited our store page: ${lead.page}. Company: ${COMPANY_NAME}. Store: ${STORE_URL}. Keep it friendly, 3 short paragraphs, end with a CTA to browse the store.`,
+      },
+      cart_abandon: {
+        subject: `Hey${lead.name ? ' ' + lead.name : ''}, you left something behind 🛒`,
+        prompt: `Write a cart abandonment recovery email. Customer left $${lead.cartValue} in their cart. Company: ${COMPANY_NAME}. Store: ${STORE_URL}. Be friendly, create urgency, offer help. 2-3 short paragraphs.`,
+      },
+      hot_follow_up: {
+        subject: `${lead.name ? lead.name + ', we' : 'We'} noticed you were interested — can we help?`,
+        prompt: `Write a follow-up email for a high-intent lead (score: ${lead.score}/100). They browsed ${lead.productsViewed} products. Company: ${COMPANY_NAME}. Store: ${STORE_URL}. Be direct, helpful, and offer to answer questions. Short and friendly.`,
+      },
+      promo: {
+        subject: `Exclusive offer just for you — 10% off your first order`,
+        prompt: `Write a promotional email offering 10% off with code BPBUILDS10. Company: ${COMPANY_NAME}. Store: ${STORE_URL}. Mention free shipping over $500. Upbeat, exciting tone. 2 paragraphs + CTA.`,
+      },
+      custom: {
+        subject: `A message from ${COMPANY_NAME}`,
+        prompt: customMessage || 'Write a friendly outreach email.',
+      },
+    };
+
+    const template = emailTemplates[emailType] || emailTemplates.welcome;
+
+    if (OPENAI_API_KEY) {
+      try {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: 'You are an email marketing expert. Write concise, high-converting emails. Return JSON with keys: subject, html, text' },
+              { role: 'user', content: template.prompt + '\n\nReturn JSON: {"subject": "...", "html": "<html email body>", "text": "plain text version"}' },
+            ],
+            response_format: { type: 'json_object' },
+            max_tokens: 800,
+          }),
+        });
+        const data = await res.json();
+        const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+        subject = parsed.subject || template.subject;
+        htmlBody = parsed.html || `<p>${parsed.text || ''}</p>`;
+        textBody = parsed.text || '';
+      } catch { subject = template.subject; }
+    } else {
+      subject = template.subject;
+    }
+
+    // Wrap in branded template
+    const brandedHtml = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+        <div style="background:#0a0a0a;padding:24px;text-align:center">
+          <h1 style="color:#ea580c;margin:0;font-size:22px">${COMPANY_NAME}</h1>
+          <p style="color:#888;margin:4px 0 0;font-size:13px">theblackphoenixcompany.com</p>
+        </div>
+        <div style="padding:32px 24px;color:#222;line-height:1.7">
+          ${htmlBody}
+        </div>
+        <div style="background:#f5f5f5;padding:20px 24px;text-align:center;border-top:1px solid #eee">
+          <a href="${STORE_URL}" style="display:inline-block;padding:12px 28px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px">Visit the Store →</a>
+          <p style="color:#aaa;font-size:11px;margin:16px 0 0">© ${new Date().getFullYear()} ${COMPANY_NAME} · <a href="${STORE_URL}" style="color:#aaa">Unsubscribe</a></p>
+        </div>
+      </div>`;
+
+    const emailRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${COMPANY_NAME} <${FROM_EMAIL}>`,
+        to: [lead.email],
+        subject,
+        html: brandedHtml,
+        text: textBody || subject,
+      }),
+    });
+
+    if (!emailRes.ok) {
+      const err = await emailRes.json();
+      return c.json({ error: err.message || 'Email send failed' }, 500);
+    }
+
+    // Update lead record
+    lead.emailsSent = (lead.emailsSent || 0) + 1;
+    lead.lastEmailSent = new Date().toISOString();
+    lead.lastEmailType = emailType;
+    lead.status = 'contacted';
+    await kv.set('leads:all', leads);
+
+    return c.json({ success: true, subject, to: lead.email });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// Blast email to all leads (or by intent filter)
+app.post('/make-server-57095a78/leads/blast', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { emailType, intentFilter, customMessage } = body;
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    if (!RESEND_API_KEY) return c.json({ error: 'RESEND_API_KEY not configured' }, 400);
+
+    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
+    const targets = intentFilter && intentFilter !== 'all'
+      ? leads.filter((l: any) => l.intent === intentFilter)
+      : leads;
+
+    const results = { sent: 0, failed: 0, total: targets.length };
+
+    // Send in batches to avoid rate limits
+    for (const lead of targets.slice(0, 50)) {
+      try {
+        await fetch(`https://${Deno.env.get('SUPABASE_URL')?.split('//')[1]}/functions/v1/make-server-57095a78/leads/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}` },
+          body: JSON.stringify({ leadId: lead.id, emailType, customMessage }),
+        });
+        results.sent++;
+      } catch { results.failed++; }
+    }
+
+    return c.json({ success: true, ...results });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// Delete a lead
+app.delete('/make-server-57095a78/leads/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
+    await kv.set('leads:all', leads.filter((l: any) => l.id !== id));
+    return c.json({ success: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
 Deno.serve(app.fetch);
