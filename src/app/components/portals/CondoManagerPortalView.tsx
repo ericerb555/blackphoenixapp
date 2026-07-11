@@ -3,6 +3,7 @@ import { toast } from 'sonner@2.0.3';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, BarChart3, ChevronRight, ArrowUpRight, CheckCircle, Tag, MessageSquare,
+  TrendingUp, Zap, Star, Package, Car,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -52,9 +53,9 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'crm' | 'deals' | 'financials' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'crm' | 'deals' | 'financials' | 'revenue-ai' | 'messages' | 'settings';
 
-const TABS: { id: Tab; label: string; icon: any }[] = [
+const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'units', label: 'Units', icon: Building2 },
   { id: 'owners', label: 'Owners', icon: Users },
@@ -63,8 +64,18 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'deals', label: 'Deals & Reels', icon: Tag },
   { id: 'financials', label: 'Financials', icon: BarChart3 },
+  { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
+];
+
+const CONDO_MGR_OPPS = [
+  { icon: Car, color: 'text-blue-400', name: 'Reserved Parking Revenue', rev: '$600–$2,400/yr', difficulty: 'Easy', nhNote: 'NH RSA 356-B allows associations to allocate parking as a chargeable amenity — coordinate with board for policy update.' },
+  { icon: Zap, color: 'text-green-400', name: 'EV Charging Stations', rev: '$1,200–$3,600/yr', difficulty: 'Medium', nhNote: 'Eversource NH rebates up to $500/port — condo manager can coordinate bulk install across the portfolio.' },
+  { icon: Package, color: 'text-amber-400', name: 'Package Locker Systems', rev: '$800–$2,000/yr', difficulty: 'Medium', nhNote: 'Package theft is a growing NH complaint — locker systems reduce liability and generate subscription revenue.' },
+  { icon: Star, color: 'text-orange-400', name: 'Vendor Referral Program', rev: '$500–$2,000/yr', difficulty: 'Easy', nhNote: 'NH contractors often offer referral fees — structure a transparent program disclosed per RSA 356-B fiduciary rules.' },
+  { icon: TrendingUp, color: 'text-teal-400', name: 'Reserve Fund Optimization', rev: '$1,000–$4,000 saved/yr', difficulty: 'Easy', nhNote: 'NH-compliant reserve study + bulk vendor contracts can significantly reduce annual operating drain.' },
+  { icon: BarChart3, color: 'text-purple-400', name: 'Owner Reporting Premium Tier', rev: '$120–$480/yr per owner', difficulty: 'Easy', nhNote: 'NH condo owners increasingly expect digital dashboards — premium reporting is a chargeable management add-on.' },
 ];
 
 function getDemoProfile() {
@@ -119,6 +130,7 @@ export default function CondoManagerPortalView() {
                       : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-indigo-500/30'
                   }`}>
                   <Icon className="w-4 h-4" />{t.label}
+                  {t.badge && <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">{t.badge}</span>}
                 </button>
               );
             })}
@@ -302,6 +314,78 @@ export default function CondoManagerPortalView() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === 'revenue-ai' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-indigo-400" /> Revenue AI — Condo Portfolio
+                </h2>
+                <p className="text-sm text-gray-400 mt-1">Identify common area revenue and cost-reduction opportunities across your managed associations.</p>
+              </div>
+              <button
+                onClick={() => { try { (window as any).__navigateApp('property-revenue'); } catch { toast.success('Navigate to Property Revenue Intelligence'); } }}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" /> Full Portfolio Analysis
+              </button>
+            </div>
+
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-5">
+              <p className="text-sm font-semibold text-indigo-400 mb-1">NH RSA 356-B — Condo Manager Authority</p>
+              <p className="text-sm text-gray-300">Under NH RSA 356-B, condo managers can propose and implement association revenue programs with proper board approval. Common area amenities, vendor programs, and parking allocation changes all fall within manageable scope — each opportunity below includes board approval guidance.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {CONDO_MGR_OPPS.map((opp, i) => {
+                const Icon = opp.icon;
+                return (
+                  <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] hover:border-indigo-500/30 rounded-xl p-5 transition space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] flex items-center justify-center flex-shrink-0">
+                        <Icon className={`w-5 h-5 ${opp.color}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm">{opp.name}</p>
+                        <p className="text-xs text-gray-400">{opp.rev}</p>
+                      </div>
+                      <span className={`ml-auto px-2 py-0.5 rounded text-[10px] font-bold border flex-shrink-0 ${opp.difficulty === 'Easy' ? 'border-green-500/30 text-green-400 bg-green-500/10' : 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10'}`}>
+                        {opp.difficulty}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">{opp.nhNote}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-[#1A1A1A] border border-indigo-500/20 rounded-xl p-6">
+              <p className="text-sm font-semibold text-indigo-400 mb-3">Condo Fee Impact — 180 Units × 2 Programs</p>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                {[
+                  { label: 'EV Charging (8 ports)', annual: '$9,600/yr', perUnit: '−$53/unit/yr in dues' },
+                  { label: 'Package Lockers (3 bays)', annual: '$6,000/yr', perUnit: '−$33/unit/yr in dues' },
+                ].map((item, i) => (
+                  <div key={i} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
+                    <p className="text-sm font-bold text-indigo-300">{item.annual}</p>
+                    <p className="text-xs text-green-400 mt-0.5">{item.perUnit}</p>
+                    <p className="text-xs text-gray-500 mt-1">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between p-4 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+                <span className="text-sm font-semibold text-gray-300">Combined Annual Association Revenue</span>
+                <span className="text-xl font-bold text-indigo-400">+$15,600/yr</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => { try { (window as any).__navigateApp('property-revenue'); } catch { toast.success('Navigate to Property Revenue Intelligence'); } }}
+              className="w-full py-4 rounded-xl border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition text-sm font-semibold flex items-center justify-center gap-2">
+              <ArrowUpRight className="w-4 h-4" /> Open Full AI Revenue Analysis →
+            </button>
           </div>
         )}
 

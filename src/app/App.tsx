@@ -118,6 +118,8 @@ import { UserProvider, useUser } from "./lib/user-context";
 import { UserRole } from "./lib/rbac";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
+import WorkRequestWidget from "./components/WorkRequestWidget";
+import StoreAccessButton from "./components/StoreAccessButton";
 import { ThemeManager, ThemeProvider } from "./components/ThemeManager";
 import { RoleSwitcher } from "./components/RoleSwitcher";
 import DataInitializer from "./components/DataInitializer";
@@ -215,6 +217,7 @@ import AbandonedCart from "./pages/AbandonedCart";
 import CouponManager from "./pages/CouponManager";
 import LeadCRM from "./pages/LeadCRM";
 import AnalyticsDashboard from "./pages/AnalyticsDashboard";
+import OrderManager from "./pages/OrderManager";
 // Hub Pages - Consolidated Navigation
 import JobTrackingHub from "./pages/JobTrackingHub";
 import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
@@ -285,6 +288,14 @@ import CheckMyCompanies from "./pages/CheckMyCompanies";
 import PublishMyBranding from "./pages/PublishMyBranding";
 import FixMyLogo from "./pages/FixMyLogo";
 import DobaIntegration from "./pages/DobaIntegration";
+import SpocketIntegration from "./pages/SpocketIntegration";
+import ZendropIntegration from "./pages/ZendropIntegration";
+import PropertyRevenueHub from "./pages/PropertyRevenueHub";
+import PropertyAIEnterprise from "./pages/PropertyAIEnterprise";
+import OrderSuccess from "./pages/OrderSuccess";
+import DigitalStorefront from "./pages/DigitalStorefront";
+import AdCreator from "./pages/AdCreator";
+import DocumentViewer from "./pages/DocumentViewer";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -829,6 +840,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'shop',
     'store',
     'order-tracking',
+    'order-success',
 
     // Geo-targeted ad landing page (public opt-in)
     'local',
@@ -1686,6 +1698,11 @@ function AppContent() {
     "business-analytics": AnalyticsDashboard,
     "insights": AnalyticsDashboard,
 
+    // Order Manager
+    "orders": OrderManager,
+    "order-manager": OrderManager,
+    "order-history": OrderManager,
+
     // Flash Sale Manager
     "flash-sales": FlashSaleManager,
     "flash-sale": FlashSaleManager,
@@ -1801,6 +1818,26 @@ function AppContent() {
     "publish-my-branding": PublishMyBranding, // Publish branding for public visitors
     "fix-my-logo": FixMyLogo, // One-click logo sync fix
     "doba-integration": DobaIntegration, // Doba dropshipping integration
+    "spocket": SpocketIntegration,
+    "spocket-integration": SpocketIntegration,
+    "zendrop": ZendropIntegration,
+    "zendrop-integration": ZendropIntegration,
+    "property-revenue": PropertyRevenueHub,
+    "property-revenue-intel": PropertyRevenueHub,
+    "revenue-intel": PropertyRevenueHub,
+    "property-ai-enterprise": PropertyAIEnterprise,
+    "property-ai": PropertyAIEnterprise,
+    "pai": PropertyAIEnterprise,
+    "order-success": OrderSuccess,
+    "store": DigitalStorefront,
+    "digital-store": DigitalStorefront,
+    "shop": DigitalStorefront,
+    "digital-products": DigitalStorefront,
+    "ad-creator": AdCreator,
+    "ads": AdCreator,
+    "promotions-creator": AdCreator,
+    "document": DocumentViewer,
+    "doc": DocumentViewer,
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
@@ -1885,6 +1922,9 @@ function AppContent() {
     });
     console.log("🧭 Navigate function complete");
   };
+
+  // Expose navigate globally so portal components can jump to hub pages
+  (window as any).__navigateApp = navigate;
 
   const toggleSection = (sectionName: string) => {
     setExpandedSection(
@@ -2186,6 +2226,12 @@ function AppContent() {
 
                     {/* Toast Notifications */}
                     <Toaster />
+
+                    {/* Global Work Request Widget — visible on every page */}
+                    <WorkRequestWidget />
+
+                    {/* Global Store Access Button — visible on every page */}
+                    <StoreAccessButton />
 
                     {/* Theme Manager */}
                     <ThemeManager />

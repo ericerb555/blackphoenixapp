@@ -21,7 +21,7 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, ChevronLeft,
   LayoutGrid, TrendingDown, AlertCircle, Plus, Home, LogIn,
   Camera, CloudRain, Monitor, Key, MapPin, Calculator, Tag, HardHat,
-  Star, QrCode, Heart, Share2
+  Star, QrCode, Heart, Share2, ShoppingBag
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LineChart, Line, AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
@@ -899,6 +899,183 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             )}
           </button>
 
+          {/* PropertyAI Enterprise */}
+          <button
+            onClick={() => onNavigate?.('property-ai-enterprise')}
+            className="relative w-full p-4 rounded-xl border-2 transition-all duration-300 bg-[#1A1A1A] hover:bg-violet-600/10"
+            style={{ borderColor: 'rgba(124,58,237,0.5)' }}
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">🧠</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center text-xl">🧠</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">PropertyAI Enterprise</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-violet-500 text-white">NEW</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Health · Capital · Revenue · AI</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-violet-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Property Revenue Intelligence */}
+          <button
+            onClick={() => onNavigate?.('property-revenue')}
+            className="relative w-full p-4 rounded-xl border-2 transition-all duration-300 bg-[#1A1A1A] hover:bg-yellow-600/10"
+            style={{ borderColor: 'rgba(245,158,11,0.4)' }}
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">🏘️</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center text-xl">🏘️</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Property Revenue AI</p>
+                    </div>
+                    <p className="text-sm text-gray-400">Landlord · Condo · Commercial</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-yellow-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Spocket Button */}
+          <button
+            onClick={() => onNavigate?.('spocket')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-purple-500/50 hover:bg-purple-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">🚀</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-xl">🚀</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Spocket</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-600 text-white">PRIMARY</span>
+                    </div>
+                    <p className="text-sm text-gray-400">US/EU dropship supplier</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-purple-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Zendrop Button */}
+          <button
+            onClick={() => onNavigate?.('zendrop')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-emerald-500/50 hover:bg-emerald-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">⚡</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-xl">⚡</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Zendrop</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">BACKUP</span>
+                    </div>
+                    <p className="text-sm text-gray-400">US-based auto-fulfillment</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-emerald-400" />
+              </div>
+            )}
+          </button>
+
+          {/* AI Emergency Agent */}
+          <button
+            onClick={() => onNavigate?.('ai-emergency')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-red-900/40 hover:border-red-500/50 hover:bg-red-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">🤖</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center text-xl">🤖</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">AI Emergency Agent</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-600 text-white">AI</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Auto-triage, no wakeup calls</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-red-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Auto-Dispatch Engine */}
+          <button
+            onClick={() => onNavigate?.('auto-dispatch')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-yellow-500/50 hover:bg-yellow-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">🚛</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center text-xl">🚛</div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Auto-Dispatch Engine</p>
+                    <p className="text-sm text-gray-400">Smart contractor routing</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-yellow-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Self-Service Fix Hub */}
+          <button
+            onClick={() => onNavigate?.('self-service')}
+            className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-blue-500/50 hover:bg-blue-600/10"
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center">
+                <span className="text-xl">📖</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-xl">📖</div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Self-Service Hub</p>
+                    <p className="text-sm text-gray-400">DIY guides, no call needed</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-blue-400" />
+              </div>
+            )}
+          </button>
+
           {/* Auto-Product Pilot Button */}
           <button
             onClick={() => onNavigate?.('auto-product-pilot')}
@@ -1109,6 +1286,33 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-violet-400" />
+              </div>
+            )}
+          </button>
+
+          {/* Orders — MOST IMPORTANT */}
+          <button
+            onClick={() => onNavigate?.('orders')}
+            className="relative w-full p-4 rounded-xl border-2 transition-all duration-300 bg-[#1A1A1A] hover:bg-orange-600/10"
+            style={{ borderColor: '#ea580c' }}
+          >
+            {sidebarCollapsed ? (
+              <div className="flex flex-col items-center"><ShoppingBag className="w-6 h-6 text-orange-400" /></div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(234,88,12,0.2)' }}>
+                    <ShoppingBag className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">Orders</p>
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full text-white" style={{ background: '#ea580c' }}>LIVE</span>
+                    </div>
+                    <p className="text-sm text-gray-400">Stripe Payments · Fulfillment</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-orange-400" />
               </div>
             )}
           </button>

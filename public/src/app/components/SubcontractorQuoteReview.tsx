@@ -1,1 +1,0 @@
-export default function SubcontractorQuoteReview() { return <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6"><h3 className="text-lg font-semibold text-white mb-2">Subcontractor Quote Review</h3><p className="text-gray-400">Component coming soon...</p></div>; }

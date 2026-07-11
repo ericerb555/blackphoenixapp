@@ -9,6 +9,7 @@ import {
   Clock, CheckCircle, AlertTriangle, DollarSign, TrendingUp,
   Plus, ChevronDown, ChevronUp, CreditCard, FileText, Wrench,
   Calendar, ArrowUpRight, X, BarChart3, Zap, Package,
+  ShoppingBag, BookOpen, Bot, Star, ExternalLink, Shield,
 } from 'lucide-react';
 import TierPicker from '../TierPicker';
 
@@ -539,6 +540,23 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
         )}
       </div>
 
+      {/* NH Compliance Callout — property roles only */}
+      {(portalRole === 'landlord' || portalRole === 'condo_manager' || portalRole === 'property_manager') && (
+        <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-violet-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-violet-300">NH Compliance Notice</p>
+              <p className="text-xs text-violet-400/80 mt-1">
+                {portalRole === 'landlord' && 'Under RSA 540, NH landlords must provide written notice before entering a rental unit and maintain habitable conditions. Your maintenance plan documents service history—keep records for all completed work per RSA 540:13-a.'}
+                {portalRole === 'condo_manager' && 'NH RSA 356-B (Condominium Act) requires associations to maintain common areas in good repair. Log all service hours here to support reserve fund justification and board transparency requirements.'}
+                {portalRole === 'property_manager' && 'NH property managers handling trust funds must comply with RSA 331-A. Your service hour logs provide the documentation trail required for owner reporting and licensed property management oversight.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payments / Invoices */}
       <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-hidden">
         <button
@@ -592,6 +610,116 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
             )}
           </div>
         )}
+      </div>
+
+      {/* Digital Add-ons — Marketplace products */}
+      <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-hidden">
+        <div className="px-5 py-4 flex items-center gap-3 border-b border-[#2A2A2A]">
+          <div className="w-8 h-8 rounded-lg bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+            <ShoppingBag className="w-4 h-4 text-violet-400" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">Digital Add-ons & Resources</p>
+            <p className="text-xs text-gray-400">Included with your plan · Access instantly</p>
+          </div>
+          <button
+            onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs font-semibold rounded-lg transition border border-violet-500/30">
+            <ExternalLink className="w-3 h-3" /> Browse All
+          </button>
+        </div>
+
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* PropertyAI Enterprise */}
+          <div className="bg-[#0A0A0A] border border-violet-500/20 rounded-xl p-4 hover:border-violet-500/40 transition group">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-lg bg-violet-600/20 flex items-center justify-center flex-shrink-0">
+                <Bot className="w-4 h-4 text-violet-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">PropertyAI Enterprise</p>
+                <p className="text-xs text-violet-400">AI-powered property tools</p>
+              </div>
+            </div>
+            <ul className="space-y-1.5 mb-4">
+              {(portalRole === 'landlord'
+                ? ['RSA 540 compliance checker', 'Lease clause analyzer', 'Rental pricing AI']
+                : portalRole === 'condo_manager'
+                ? ['RSA 356-B compliance tools', 'Reserve fund analyzer', 'Board meeting AI notes']
+                : ['Multi-property dashboard', 'Revenue opportunity AI', '10-year capital planning']
+              ).map(f => (
+                <li key={f} className="flex items-center gap-2 text-xs text-gray-400">
+                  <CheckCircle className="w-3 h-3 text-violet-400 flex-shrink-0" /> {f}
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+              className="w-full py-2 bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs font-semibold rounded-lg transition border border-violet-500/30 group-hover:bg-violet-600/40">
+              Open PropertyAI →
+            </button>
+          </div>
+
+          {/* Knowledge Center */}
+          <div className="bg-[#0A0A0A] border border-blue-500/20 rounded-xl p-4 hover:border-blue-500/40 transition group">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-600/20 flex items-center justify-center flex-shrink-0">
+                <BookOpen className="w-4 h-4 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Knowledge Center</p>
+                <p className="text-xs text-blue-400">NH law library & templates</p>
+              </div>
+            </div>
+            <ul className="space-y-1.5 mb-4">
+              {(portalRole === 'landlord'
+                ? ['NH landlord law guides', 'Eviction process flowcharts', 'Security deposit rules']
+                : portalRole === 'condo_manager'
+                ? ['NH condo act summaries', 'Meeting procedure guides', 'Budget templates']
+                : ['NH PM licensing guides', 'Owner report templates', 'Trust accounting guides']
+              ).map(f => (
+                <li key={f} className="flex items-center gap-2 text-xs text-gray-400">
+                  <CheckCircle className="w-3 h-3 text-blue-400 flex-shrink-0" /> {f}
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+              className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 text-xs font-semibold rounded-lg transition border border-blue-500/30 group-hover:bg-blue-600/40">
+              Open Knowledge Center →
+            </button>
+          </div>
+
+          {/* Marketplace */}
+          <div className="bg-[#0A0A0A] border border-emerald-500/20 rounded-xl p-4 hover:border-emerald-500/40 transition group">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-600/20 flex items-center justify-center flex-shrink-0">
+                <Package className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Marketplace</p>
+                <p className="text-xs text-emerald-400">Ebooks, templates & calculators</p>
+              </div>
+            </div>
+            <ul className="space-y-1.5 mb-4">
+              {(portalRole === 'landlord'
+                ? ['NH Landlord Operations Manual', 'NH Lease Agreement Pack', 'Rental Pricing Calculator']
+                : portalRole === 'condo_manager'
+                ? ['Condo Board Handbook', 'Board Meeting Package', 'Reserve Fund Calculator']
+                : ['Property Manager Pro Bundle', 'Vendor Contract Pack', 'Property ROI Calculator']
+              ).map(f => (
+                <li key={f} className="flex items-center gap-2 text-xs text-gray-400">
+                  <Star className="w-3 h-3 text-emerald-400 flex-shrink-0 fill-emerald-400" /> {f}
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+              className="w-full py-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 text-xs font-semibold rounded-lg transition border border-emerald-500/30 group-hover:bg-emerald-600/40">
+              Browse Marketplace →
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

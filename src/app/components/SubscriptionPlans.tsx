@@ -12,7 +12,8 @@ import { useState } from 'react';
 import {
   Crown, Zap, Rocket, Building2, Wrench, Megaphone, Star,
   Check, X, Sparkles, TrendingUp, Shield, Award, Target,
-  Users, DollarSign, Calendar, Gift, Tag, ChevronRight, Flame, Home, Building, HardHat, Edit2
+  Users, DollarSign, Calendar, Gift, Tag, ChevronRight, Flame, Home, Building, HardHat, Edit2,
+  Bot, BookOpen, ShoppingBag, ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -283,6 +284,78 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
           <span className="hidden lg:inline">Advertiser</span>
         </button>
       </div>
+
+      {/* PropertyAI Digital Tools Banner — customer homeowner plans */}
+      {activeCategory === 'customer' && (
+        <div className="bg-gradient-to-r from-teal-900/30 to-emerald-900/20 border border-teal-500/30 rounded-xl p-5">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="w-10 h-10 rounded-lg bg-teal-600/30 border border-teal-500/30 flex items-center justify-center flex-shrink-0">
+              <Bot className="w-5 h-5 text-teal-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-teal-200 mb-1">All Homeowner Plans Include Digital Tools</p>
+              <p className="text-xs text-teal-300/70 mb-3">
+                AI-powered home tools, NH homeowner guides, Eversource rebate info, and downloadable resources come bundled with every plan — no extra cost.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-1.5 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-1.5">
+                  <Bot className="w-3.5 h-3.5 text-violet-400" />
+                  <span className="text-xs text-violet-300 font-medium">PropertyAI Tools</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs text-blue-300 font-medium">Knowledge Center</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5">
+                  <ShoppingBag className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-xs text-emerald-300 font-medium">Marketplace Resources</span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+              className="flex items-center gap-1.5 px-4 py-2 bg-teal-600/30 hover:bg-teal-600/50 text-teal-200 text-xs font-semibold rounded-lg transition border border-teal-500/30 flex-shrink-0 self-start">
+              <ExternalLink className="w-3.5 h-3.5" /> Explore Tools
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PropertyAI Digital Tools Banner — property-management only */}
+      {activeCategory === 'property-management' && (
+        <div className="bg-gradient-to-r from-violet-900/30 to-indigo-900/20 border border-violet-500/30 rounded-xl p-5">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="w-10 h-10 rounded-lg bg-violet-600/30 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
+              <Bot className="w-5 h-5 text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-violet-200 mb-1">All Property Management Plans Include PropertyAI Digital Suite</p>
+              <p className="text-xs text-violet-300/70 mb-3">
+                NH-specific AI tools, legal knowledge base, and downloadable resources are bundled with every property management subscription — no extra cost.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-1.5 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-1.5">
+                  <Bot className="w-3.5 h-3.5 text-violet-400" />
+                  <span className="text-xs text-violet-300 font-medium">PropertyAI Enterprise</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs text-blue-300 font-medium">Knowledge Center</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5">
+                  <ShoppingBag className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-xs text-emerald-300 font-medium">Marketplace Bundle</span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => (window as any).__navigateApp?.('/property-ai-enterprise')}
+              className="flex items-center gap-1.5 px-4 py-2 bg-violet-600/30 hover:bg-violet-600/50 text-violet-200 text-xs font-semibold rounded-lg transition border border-violet-500/30 flex-shrink-0 self-start">
+              <ExternalLink className="w-3.5 h-3.5" /> Explore Tools
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Plans Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

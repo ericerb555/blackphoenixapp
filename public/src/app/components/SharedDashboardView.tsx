@@ -1,1 +1,0 @@
-export default function SharedDashboardView() { return <div className="min-h-screen flex items-center justify-center bg-[#0A0A0A]"><div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-8 w-full max-w-4xl"><h1 className="text-2xl font-bold text-white mb-6">Shared Dashboard</h1><p className="text-gray-400">Shared dashboard view coming soon...</p></div></div>; }

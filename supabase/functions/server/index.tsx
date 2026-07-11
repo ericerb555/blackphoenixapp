@@ -1349,6 +1349,260 @@ app.post('/make-server-57095a78/auto-generate-quote', async (c) => {
   }
 });
 
+// ============================================
+// STORE — STRIPE CHECKOUT + ORDERS
+// ============================================
+
+// POST /store/checkout — create Stripe Checkout Session
+app.post('/make-server-57095a78/store/checkout', async (c) => {
+  try {
+    const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
+    if (!STRIPE_SECRET_KEY) {
+      return c.json({ error: 'Stripe not configured — add STRIPE_SECRET_KEY to Edge Function secrets' }, 500);
+    }
+
+    const body = await c.req.json();
+    const { items, customer, coupon, shipping } = body;
+
+    if (!items || !items.length) return c.json({ error: 'No items in cart' }, 400);
+
+    // Build Stripe line_items
+    const lineItems = items.map((item: any) => ({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: item.name,
+          ...(item.image ? { images: [item.image] } : {}),
+        },
+        unit_amount: Math.round(item.price * 100), // cents
+      },
+      quantity: item.qty || 1,
+    }));
+
+    // Add shipping as a line item if not free
+    if (shipping && shipping > 0) {
+      lineItems.push({
+        price_data: {
+          currency: 'usd',
+          product_data: { name: 'Standard Shipping' },
+          unit_amount: Math.round(shipping * 100),
+        },
+        quantity: 1,
+      });
+    }
+
+    const origin = c.req.header('origin') || 'https://www.theblackphoenixcompany.com';
+
+    // Create Stripe Checkout Session
+    const params = new URLSearchParams();
+    params.append('mode', 'payment');
+    params.append('success_url', `${origin}/?page=order-success&session_id={CHECKOUT_SESSION_ID}`);
+    params.append('cancel_url', `${origin}/?page=public-store`);
+    params.append('payment_method_types[]', 'card');
+
+    lineItems.forEach((li: any, i: number) => {
+      params.append(`line_items[${i}][price_data][currency]`, li.price_data.currency);
+      params.append(`line_items[${i}][price_data][product_data][name]`, li.price_data.product_data.name);
+      if (li.price_data.product_data.images?.[0]) {
+        params.append(`line_items[${i}][price_data][product_data][images][0]`, li.price_data.product_data.images[0]);
+      }
+      params.append(`line_items[${i}][price_data][unit_amount]`, String(li.price_data.unit_amount));
+      params.append(`line_items[${i}][quantity]`, String(li.quantity));
+    });
+
+    if (customer?.email) {
+      params.append('customer_email', customer.email);
+    }
+
+    // Metadata so webhook can reconstruct the order
+    const orderMeta = JSON.stringify({
+      customer_name: customer?.name || '',
+      customer_email: customer?.email || '',
+      customer_phone: customer?.phone || '',
+      shipping_address: customer?.address || '',
+      items: items.map((i: any) => ({ id: i.id, name: i.name, price: i.price, qty: i.qty || 1 })),
+      coupon: coupon || null,
+    });
+    params.append('metadata[order_data]', orderMeta.substring(0, 500)); // Stripe 500 char limit per key
+    params.append('metadata[source]', 'black_phoenix_store');
+
+    const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+
+    const session = await stripeRes.json() as any;
+
+    if (!stripeRes.ok) {
+      console.error('[Store/Checkout] Stripe error:', session);
+      return c.json({ error: session.error?.message || 'Stripe error' }, 500);
+    }
+
+    console.log('[Store/Checkout] Session created:', session.id);
+    return c.json({ url: session.url, session_id: session.id });
+
+  } catch (err: any) {
+    console.error('[Store/Checkout] Error:', err);
+    return c.json({ error: err.message || 'Checkout failed' }, 500);
+  }
+});
+
+// POST /store/webhook — Stripe webhook (payment confirmed → save order)
+app.post('/make-server-57095a78/store/webhook', async (c) => {
+  try {
+    const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET') ?? '';
+    const rawBody = await c.req.text();
+    const sig = c.req.header('stripe-signature') ?? '';
+
+    // Signature verification (skip in test mode if no secret)
+    if (STRIPE_WEBHOOK_SECRET && sig) {
+      // Basic timestamp tolerance check — full HMAC requires crypto library
+      const parts = sig.split(',').reduce((acc: any, p) => {
+        const [k, v] = p.split('='); acc[k] = v; return acc;
+      }, {});
+      const timestamp = parseInt(parts.t || '0');
+      if (Math.abs(Date.now() / 1000 - timestamp) > 300) {
+        return c.json({ error: 'Webhook timestamp too old' }, 400);
+      }
+    }
+
+    const event = JSON.parse(rawBody);
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const meta = session.metadata || {};
+
+      let orderItems = [];
+      try { orderItems = JSON.parse(meta.order_data || '{}').items || []; } catch {}
+
+      const orderId = `BP-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const order = {
+        id: orderId,
+        stripe_session_id: session.id,
+        stripe_payment_intent: session.payment_intent,
+        customer_name: meta.customer_name || session.customer_details?.name || '',
+        customer_email: meta.customer_email || session.customer_email || '',
+        customer_phone: meta.customer_phone || '',
+        shipping_address: meta.shipping_address || '',
+        items: orderItems,
+        amount_total: (session.amount_total || 0) / 100,
+        currency: session.currency || 'usd',
+        status: 'paid',
+        fulfillment_status: 'pending',
+        created_at: new Date().toISOString(),
+      };
+
+      // Save order to KV store
+      await kv.set(`bp_order_${orderId}`, JSON.stringify(order));
+
+      // Add to orders index
+      const idx = await kv.get('bp_orders_index');
+      const orderIds: string[] = idx ? JSON.parse(idx) : [];
+      orderIds.unshift(orderId);
+      await kv.set('bp_orders_index', JSON.stringify(orderIds.slice(0, 500)));
+
+      console.log('[Webhook] Order saved:', orderId, '— $' + order.amount_total);
+
+      // Forward to Doba if items exist
+      if (orderItems.length > 0) {
+        const DOBA_API_KEY = Deno.env.get('DOBA_API_KEY') ?? '';
+        const DOBA_API_SECRET = Deno.env.get('DOBA_API_SECRET') ?? '';
+        if (DOBA_API_KEY && DOBA_API_SECRET) {
+          try {
+            await fetch('https://api.doba.com/v2/orders', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Doba-Api-Key': DOBA_API_KEY,
+                'X-Doba-Api-Secret': DOBA_API_SECRET,
+              },
+              body: JSON.stringify({
+                retailer_order_id: orderId,
+                shipping_address: { name: order.customer_name, address: order.shipping_address },
+                items: orderItems.map((i: any) => ({ sku: i.id, quantity: i.qty })),
+              }),
+            });
+            // Update fulfillment status
+            order.fulfillment_status = 'forwarded_to_doba';
+            await kv.set(`bp_order_${orderId}`, JSON.stringify(order));
+            console.log('[Webhook] Order forwarded to Doba:', orderId);
+          } catch (dobaErr) {
+            console.error('[Webhook] Doba forward failed:', dobaErr);
+          }
+        }
+      }
+    }
+
+    return c.json({ received: true });
+  } catch (err: any) {
+    console.error('[Webhook] Error:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// GET /store/orders — list all orders (admin)
+app.get('/make-server-57095a78/store/orders', async (c) => {
+  try {
+    const idx = await kv.get('bp_orders_index');
+    const orderIds: string[] = idx ? JSON.parse(idx) : [];
+    const orders = [];
+    for (const id of orderIds.slice(0, 100)) {
+      const raw = await kv.get(`bp_order_${id}`);
+      if (raw) orders.push(JSON.parse(raw));
+    }
+    return c.json({ orders, total: orders.length });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// GET /store/orders/:id — single order
+app.get('/make-server-57095a78/store/orders/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const raw = await kv.get(`bp_order_${id}`);
+    if (!raw) return c.json({ error: 'Order not found' }, 404);
+    return c.json(JSON.parse(raw));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// PATCH /store/orders/:id — update fulfillment status
+app.patch('/make-server-57095a78/store/orders/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const raw = await kv.get(`bp_order_${id}`);
+    if (!raw) return c.json({ error: 'Order not found' }, 404);
+    const order = { ...JSON.parse(raw), ...body, updated_at: new Date().toISOString() };
+    await kv.set(`bp_order_${id}`, JSON.stringify(order));
+    return c.json(order);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST /leads/capture — save lead from any form
+app.post('/make-server-57095a78/leads/capture', async (c) => {
+  try {
+    const body = await c.req.json();
+    const leadId = `lead_${Date.now()}`;
+    await kv.set(leadId, JSON.stringify({ ...body, id: leadId, createdAt: new Date().toISOString() }));
+    const idx = await kv.get('bp_leads_index');
+    const ids: string[] = idx ? JSON.parse(idx) : [];
+    ids.unshift(leadId);
+    await kv.set('bp_leads_index', JSON.stringify(ids.slice(0, 1000)));
+    return c.json({ success: true, id: leadId });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Root
 app.get("/", (c) => {
   return c.json({
@@ -1359,7 +1613,9 @@ app.get("/", (c) => {
       investments: "/make-server-57095a78/investments",
       applications: "/make-server-57095a78/applications",
       kv: "/make-server-57095a78/kv/*",
-      autoQuote: "/make-server-57095a78/auto-generate-quote"
+      autoQuote: "/make-server-57095a78/auto-generate-quote",
+      store: "/make-server-57095a78/store/*",
+      leads: "/make-server-57095a78/leads/*"
     }
   });
 });

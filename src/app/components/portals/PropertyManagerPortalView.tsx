@@ -3,6 +3,7 @@ import { toast } from 'sonner@2.0.3';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, CreditCard, ChevronRight, ArrowUpRight, CheckCircle, Tag, BarChart3, MessageSquare,
+  TrendingUp, Zap, Star, Package, Car, Wifi,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -49,9 +50,9 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'crm' | 'deals' | 'payments' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'crm' | 'deals' | 'payments' | 'revenue-ai' | 'messages' | 'settings';
 
-const TABS: { id: Tab; label: string; icon: any }[] = [
+const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'properties', label: 'Properties', icon: Building2 },
   { id: 'work-requests', label: 'Work Requests', icon: Wrench },
@@ -59,8 +60,18 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'deals', label: 'Deals & Reels', icon: Tag },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
+];
+
+const PM_OPPS = [
+  { icon: Package, color: 'text-amber-400', name: 'Bulk Maintenance Contracts', rev: '$1,200–$3,600/yr per property', difficulty: 'Easy', nhNote: 'NH RSA 540 allows landlords to pass through documented maintenance costs — bulk contracts improve margins.' },
+  { icon: Car, color: 'text-blue-400', name: 'Portfolio Parking Optimization', rev: '$400–$2,400/yr per property', difficulty: 'Easy', nhNote: 'NH has no state cap on parking fees — market rate applies in most municipalities.' },
+  { icon: Wifi, color: 'text-purple-400', name: 'Bulk Internet Resale Program', rev: '$600–$1,800/yr per property', difficulty: 'Medium', nhNote: 'Consolidated Communications and Spectrum both offer NH property manager bulk-rate agreements.' },
+  { icon: Zap, color: 'text-green-400', name: 'EV Charging Portfolio Rollout', rev: '$800–$2,400/yr per property', difficulty: 'Medium', nhNote: 'Eversource NH offers Level 2 charger rebates up to $500/port — significant cost reduction for managers.' },
+  { icon: Star, color: 'text-orange-400', name: 'Maintenance Subscription Plans', rev: '$240–$720/yr per unit', difficulty: 'Easy', nhNote: 'Recurring maintenance contracts reduce RSA 540 habitability risk and improve NOI predictability.' },
+  { icon: TrendingUp, color: 'text-teal-400', name: 'Portfolio Performance Reports', rev: '$150–$600/yr per owner', difficulty: 'Easy', nhNote: 'NH property owners increasingly demand data — premium reporting tier adds recurring revenue.' },
 ];
 
 function getDemoProfile() {
@@ -115,6 +126,7 @@ export default function PropertyManagerPortalView() {
                       : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-amber-500/30'
                   }`}>
                   <Icon className="w-4 h-4" />{t.label}
+                  {t.badge && <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">{t.badge}</span>}
                 </button>
               );
             })}
@@ -266,6 +278,78 @@ export default function PropertyManagerPortalView() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === 'revenue-ai' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-amber-400" /> Revenue AI — Portfolio Intelligence
+                </h2>
+                <p className="text-sm text-gray-400 mt-1">Identify revenue opportunities across your managed properties.</p>
+              </div>
+              <button
+                onClick={() => { try { (window as any).__navigateApp('property-revenue'); } catch { toast.success('Navigate to Property Revenue Intelligence'); } }}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" /> Full Portfolio Analysis
+              </button>
+            </div>
+
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5">
+              <p className="text-sm font-semibold text-amber-400 mb-1">NH Property Manager Advantage</p>
+              <p className="text-sm text-gray-300">As a NH property manager, you operate under RSA 540 (landlord-tenant) with flexibility to structure fee programs, bulk vendor contracts, and value-add amenities that generate recurring revenue across your entire managed portfolio — not just one property.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {PM_OPPS.map((opp, i) => {
+                const Icon = opp.icon;
+                return (
+                  <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] hover:border-amber-500/30 rounded-xl p-5 transition space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] flex items-center justify-center flex-shrink-0">
+                        <Icon className={`w-5 h-5 ${opp.color}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm">{opp.name}</p>
+                        <p className="text-xs text-gray-400">{opp.rev}</p>
+                      </div>
+                      <span className={`ml-auto px-2 py-0.5 rounded text-[10px] font-bold border flex-shrink-0 ${opp.difficulty === 'Easy' ? 'border-green-500/30 text-green-400 bg-green-500/10' : 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10'}`}>
+                        {opp.difficulty}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">{opp.nhNote}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-[#1A1A1A] border border-amber-500/20 rounded-xl p-6">
+              <p className="text-sm font-semibold text-amber-400 mb-3">Portfolio Scenario — 3 Properties × 3 Programs</p>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                {[
+                  { label: 'Bulk Internet Resale', value: '+$4,800/yr' },
+                  { label: 'EV Charging (6 ports)', value: '+$7,200/yr' },
+                  { label: 'Maintenance Plans', value: '+$8,640/yr' },
+                ].map((item, i) => (
+                  <div key={i} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4 text-center">
+                    <p className="text-lg font-bold text-amber-400">{item.value}</p>
+                    <p className="text-xs text-gray-400 mt-1">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between p-4 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                <span className="text-sm font-semibold text-gray-300">Combined Portfolio Uplift</span>
+                <span className="text-xl font-bold text-amber-400">+$20,640/yr</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => { try { (window as any).__navigateApp('property-revenue'); } catch { toast.success('Navigate to Property Revenue Intelligence'); } }}
+              className="w-full py-4 rounded-xl border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition text-sm font-semibold flex items-center justify-center gap-2">
+              <ArrowUpRight className="w-4 h-4" /> Open Full AI Revenue Analysis →
+            </button>
           </div>
         )}
 

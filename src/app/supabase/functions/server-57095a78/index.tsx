@@ -3479,6 +3479,149 @@ app.post('/make-server-57095a78/payments/create-checkout', async (c) => {
   }
 });
 
+// ── MARKETPLACE PRODUCTS CRUD ────────────────────────────────────────────────
+// Tables required (run migration SQL in Supabase dashboard):
+//   marketplace_products  — product catalog
+//   marketplace_orders    — purchase records
+
+// GET all visible products (public storefront)
+app.get('/make-server-57095a78/marketplace/products', async (c) => {
+  try {
+    const adminMode = c.req.query('admin') === 'true';
+    let query = supabase.from('marketplace_products').select('*').order('sort_order', { ascending: true });
+    if (!adminMode) query = query.eq('visible', true);
+    const { data, error } = await query;
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ products: data || [] });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// POST — create product (admin)
+app.post('/make-server-57095a78/marketplace/products', async (c) => {
+  try {
+    const product = await c.req.json();
+    product.updated_at = new Date().toISOString();
+    const { data, error } = await supabase.from('marketplace_products').insert(product).select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ product: data });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// PUT — update product (admin)
+app.put('/make-server-57095a78/marketplace/products/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const updates = await c.req.json();
+    updates.updated_at = new Date().toISOString();
+    const { data, error } = await supabase.from('marketplace_products').update(updates).eq('id', id).select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ product: data });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// DELETE — remove product (admin)
+app.delete('/make-server-57095a78/marketplace/products/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { error } = await supabase.from('marketplace_products').delete().eq('id', id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// POST — bulk seed products (admin, idempotent upsert)
+app.post('/make-server-57095a78/marketplace/products/seed', async (c) => {
+  try {
+    const { products } = await c.req.json();
+    if (!Array.isArray(products) || products.length === 0) return c.json({ error: 'No products provided' }, 400);
+    const rows = products.map((p: any) => ({ ...p, updated_at: new Date().toISOString() }));
+    const { data, error } = await supabase.from('marketplace_products').upsert(rows, { onConflict: 'id' }).select();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ seeded: data?.length || 0 });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// GET — all orders (admin)
+app.get('/make-server-57095a78/marketplace/orders', async (c) => {
+  try {
+    const { data, error } = await supabase.from('marketplace_orders').select('*').order('created_at', { ascending: false }).limit(200);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ orders: data || [] });
+  } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// ── MARKETPLACE CHECKOUT ─────────────────────────────────────────────────────
+// Creates a Stripe Checkout session for digital product purchases.
+// Requires STRIPE_SECRET_KEY in Supabase secrets.
+// Items: [{ id, title, price (cents), qty }]
+
+app.post('/make-server-57095a78/marketplace/checkout', async (c) => {
+  try {
+    const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') || '';
+    if (!STRIPE_KEY) {
+      return c.json({ error: 'Stripe not configured. Add STRIPE_SECRET_KEY to Supabase Edge Function secrets.', configured: false }, 503);
+    }
+
+    const { items, email, name, successUrl, cancelUrl } = await c.req.json();
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return c.json({ error: 'No items provided' }, 400);
+    }
+
+    const APP_URL = 'https://www.theblackphoenixcompany.com';
+    const params = new URLSearchParams({
+      'payment_method_types[]': 'card',
+      'mode': 'payment',
+      'success_url': successUrl || `${APP_URL}/store?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      'cancel_url': cancelUrl || `${APP_URL}/store`,
+      'customer_email': email || '',
+      'metadata[customerName]': name || '',
+      'metadata[source]': 'marketplace',
+      'metadata[productIds]': items.map((i: any) => i.id).join(','),
+    });
+
+    items.forEach((item: any, idx: number) => {
+      params.set(`line_items[${idx}][price_data][currency]`, 'usd');
+      params.set(`line_items[${idx}][price_data][unit_amount]`, String(Math.round(item.price)));
+      params.set(`line_items[${idx}][price_data][product_data][name]`, item.title);
+      params.set(`line_items[${idx}][price_data][product_data][description]`, `Digital download — Black Phoenix Property Services`);
+      params.set(`line_items[${idx}][quantity]`, String(item.qty || 1));
+    });
+
+    const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${STRIPE_KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+
+    const session = await stripeRes.json();
+    if (!stripeRes.ok) {
+      console.error('[Marketplace Stripe] Error:', session.error?.message);
+      return c.json({ error: session.error?.message || 'Stripe error' }, 500);
+    }
+
+    // Record pending order in Supabase
+    const total = items.reduce((sum: number, i: any) => sum + i.price * (i.qty || 1), 0);
+    await supabase.from('marketplace_orders').insert({
+      id: session.id,
+      stripe_session_id: session.id,
+      customer_email: email || '',
+      customer_name: name || '',
+      items,
+      total,
+      status: 'pending',
+      download_sent: false,
+    }).then(({ error: orderErr }) => {
+      if (orderErr) console.error('[Marketplace] Order insert error:', orderErr.message);
+    });
+
+    console.log(`✅ [Marketplace] Checkout session created: ${session.id} for ${items.length} items`);
+    return c.json({ url: session.url, sessionId: session.id });
+  } catch (e: any) {
+    console.error('[Marketplace] Exception:', e);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // Stripe Webhook — called when payment completes
 app.post('/make-server-57095a78/payments/webhook', async (c) => {
   try {
@@ -3616,6 +3759,110 @@ app.post('/make-server-57095a78/payments/webhook', async (c) => {
         }
       }
       // ── END REVIEW REQUEST ─────────────────────────────────────────────────
+
+      // ── MARKETPLACE FULFILLMENT ────────────────────────────────────────────
+      // If this was a marketplace purchase, fulfill the order automatically.
+      const isMarketplace = session.metadata?.source === 'marketplace';
+      if (isMarketplace) {
+        const buyerEmail = (session.customer_details?.email || session.customer_email || email || '') as string;
+        const buyerName = (session.metadata?.customerName || session.customer_details?.name || 'there') as string;
+
+        // Mark order as paid + fulfilled
+        await supabase.from('marketplace_orders')
+          .update({ status: 'paid', fulfilled_at: new Date().toISOString() })
+          .eq('stripe_session_id', session.id);
+
+        // Fetch the order items from our DB
+        const { data: orderRow } = await supabase.from('marketplace_orders')
+          .select('items').eq('stripe_session_id', session.id).maybeSingle();
+        const purchasedItems: any[] = orderRow?.items || [];
+
+        // Send fulfillment email via Resend (preferred) or SendGrid fallback
+        const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
+        const SENDGRID_KEY2 = Deno.env.get('SENDGRID_API_KEY') || '';
+        const FROM_EMAIL2 = Deno.env.get('FROM_EMAIL') || 'store@theblackphoenixcompany.com';
+
+        const itemListHtml = purchasedItems.map((item: any) =>
+          `<tr><td style="padding:10px 0;border-bottom:1px solid #2a2a2a;color:#e5e5e5">${item.title}</td><td style="padding:10px 0;border-bottom:1px solid #2a2a2a;color:#f97316;text-align:right;white-space:nowrap">$${((item.price * (item.qty || 1)) / 100).toFixed(2)}</td></tr>`
+        ).join('');
+
+        const emailHtml = `
+<div style="font-family:sans-serif;max-width:560px;margin:auto;background:#111;border-radius:16px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#1a0a00,#2d1200);padding:40px 32px;text-align:center;">
+    <div style="width:60px;height:60px;background:#ea580c;border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:28px">🦅</span>
+    </div>
+    <h1 style="color:#fff;margin:0;font-size:24px;font-weight:900">Order Confirmed!</h1>
+    <p style="color:#fb923c;margin:8px 0 0;font-size:14px">Black Phoenix Digital Store</p>
+  </div>
+  <div style="padding:32px;">
+    <p style="color:#e5e5e5;margin:0 0 8px">Hi ${buyerName},</p>
+    <p style="color:#a3a3a3;margin:0 0 24px">Thank you for your purchase! Your NH property resources are ready. Download links for each product are below — they're also saved to your account for future access.</p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <thead><tr><th style="text-align:left;color:#6b7280;font-size:11px;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2a2a">Product</th><th style="text-align:right;color:#6b7280;font-size:11px;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2a2a">Price</th></tr></thead>
+      <tbody>${itemListHtml}</tbody>
+    </table>
+    <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:20px;margin-bottom:24px">
+      <p style="color:#9ca3af;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">How to Access Your Downloads</p>
+      <p style="color:#e5e5e5;margin:0 0 8px;font-size:14px">1. Visit <a href="https://www.theblackphoenixcompany.com/store" style="color:#f97316">blackphoenixapp.com/store</a></p>
+      <p style="color:#e5e5e5;margin:0 0 8px;font-size:14px">2. Sign in with this email address (${buyerEmail})</p>
+      <p style="color:#e5e5e5;margin:0;font-size:14px">3. Your purchased items will show a ✅ Download button</p>
+    </div>
+    <p style="color:#6b7280;font-size:12px;margin:0">Questions? Reply to this email or visit <a href="https://www.theblackphoenixcompany.com" style="color:#f97316">theblackphoenixcompany.com</a></p>
+  </div>
+  <div style="background:#0a0a0a;padding:16px 32px;text-align:center;">
+    <p style="color:#4b5563;font-size:11px;margin:0">© 2026 Black Phoenix Property Services · New Hampshire · 30-day satisfaction guarantee</p>
+  </div>
+</div>`;
+
+        if (RESEND_KEY && buyerEmail) {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: `Black Phoenix Store <${FROM_EMAIL2}>`,
+              to: [buyerEmail],
+              subject: `Your order is confirmed — ${purchasedItems.length} item${purchasedItems.length !== 1 ? 's' : ''} from Black Phoenix`,
+              html: emailHtml,
+            }),
+          }).then(async r => {
+            if (!r.ok) console.error('[Marketplace Resend] Error:', await r.text());
+            else {
+              await supabase.from('marketplace_orders').update({ download_sent: true }).eq('stripe_session_id', session.id);
+              console.log(`✅ [Marketplace] Fulfillment email sent to ${buyerEmail}`);
+            }
+          }).catch(err => console.error('[Marketplace Resend] Exception:', err));
+        } else if (SENDGRID_KEY2 && buyerEmail) {
+          await fetch('https://api.sendgrid.com/v3/mail/send', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${SENDGRID_KEY2}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              personalizations: [{ to: [{ email: buyerEmail, name: buyerName }] }],
+              from: { email: FROM_EMAIL2, name: 'Black Phoenix Store' },
+              subject: `Your order is confirmed — ${purchasedItems.length} item${purchasedItems.length !== 1 ? 's' : ''} from Black Phoenix`,
+              content: [{ type: 'text/html', value: emailHtml }],
+            }),
+          }).catch(err => console.error('[Marketplace SendGrid] Exception:', err));
+        } else {
+          console.warn('[Marketplace] No email provider configured. Add RESEND_API_KEY to Supabase secrets.');
+        }
+
+        // Admin alert for marketplace sale
+        const saleTotal = purchasedItems.reduce((s: number, i: any) => s + i.price * (i.qty || 1), 0);
+        const saleAlert = {
+          id: `mkt_sale_${session.id}`,
+          type: 'info', category: 'Marketplace',
+          title: `🛒 Marketplace Sale — $${(saleTotal / 100).toFixed(2)} from ${buyerName}`,
+          description: `${purchasedItems.length} product${purchasedItems.length !== 1 ? 's' : ''} purchased: ${purchasedItems.map((i: any) => i.title).join(', ')}`,
+          priority: 'high', status: 'unread', source: 'stripe-webhook',
+          actionRequired: false, timestamp: new Date().toISOString(),
+          data: { sessionId: session.id, buyerEmail, items: purchasedItems, total: saleTotal },
+        };
+        const existingAlerts2 = (await kv.get('admin_alerts') as any[]) || [];
+        existingAlerts2.unshift(saleAlert);
+        await kv.set('admin_alerts', existingAlerts2.slice(0, 200));
+      }
+      // ── END MARKETPLACE FULFILLMENT ────────────────────────────────────────
     }
 
     return c.json({ received: true });

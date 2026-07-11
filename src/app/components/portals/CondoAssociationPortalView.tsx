@@ -6,7 +6,8 @@ import {
   Building2, Users, DollarSign, Clipboard, Calendar, FileText,
   Wrench, AlertCircle, TrendingUp, Home, MessageSquare, Settings,
   Bell, ChevronRight, CheckCircle, Shield, Tool, Package, Vote, Award,
-  Check, X, UserCheck, Key, Clock, AlertTriangle
+  Check, X, UserCheck, Key, Clock, AlertTriangle, ArrowUpRight,
+  Zap, Star, Megaphone, Car,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -466,7 +467,8 @@ export default function CondoAssociationPortalView() {
       { id: 'documents', label: 'Documents', icon: FileText, visible: true },
       { id: 'team', label: 'Team', icon: UserCheck, visible: canApproveExpenses },
       { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
-    { id: 'referrals', label: 'Referral Rewards', icon: Award, visible: true }
+      { id: 'revenue-ai', label: '💡 Revenue AI', icon: TrendingUp, visible: canViewFinancials },
+      { id: 'referrals', label: 'Referral Rewards', icon: Award, visible: true }
     );
 
     return baseTabs.filter(tab => tab.visible);
@@ -977,6 +979,109 @@ export default function CondoAssociationPortalView() {
           <FeaturedDealsReels portalType="condo_manager" />
           <DealsOffersSection portalType="advertiser" storageKey="condo_assoc_deals" />
           </>
+        )}
+
+        {activeTab === 'revenue-ai' && (
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                  <TrendingUp className="w-5 h-5 text-yellow-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Condo Revenue Intelligence</h2>
+                  <p className="text-xs text-gray-500">AI opportunities to offset condo fees and strengthen reserves</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { const ctx = (window as any).__navigateApp; if (ctx) ctx('property-revenue'); else window.location.hash = '#property-revenue'; }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white hover:brightness-110 transition"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                Full Analysis <ArrowUpRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* RSA 356-B note */}
+            <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+              <span className="text-xl flex-shrink-0">🏔</span>
+              <div>
+                <p className="text-xs font-black text-indigo-400">New Hampshire — RSA 356-B (Condominium Act)</p>
+                <p className="text-xs text-gray-400 mt-0.5">Common-area revenue programs require board approval and must comply with your Declaration. These opportunities are legal in NH when properly authorized — they do not require a unit owner vote unless your bylaws specify otherwise. Always verify with your association attorney.</p>
+              </div>
+            </div>
+
+            {/* Fee reduction calculator */}
+            <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}>
+              <p className="text-sm font-bold text-white mb-3">Condo Fee Impact Estimator</p>
+              <p className="text-xs text-gray-400 mb-4">How new income reduces pressure on monthly assessments</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { source: 'Storage lockers (10 units)', annual: 7200 },
+                  { source: 'Clubhouse rentals (8/mo)', annual: 4800 },
+                  { source: 'Vendor sponsorships (3)', annual: 5400 },
+                ].map((s, i) => {
+                  const units = condoData?.totalUnits || 24;
+                  const perUnitMonthly = (s.annual / units / 12).toFixed(2);
+                  return (
+                    <div key={i} className="rounded-lg p-3 text-center" style={{ background: '#0A0A0A' }}>
+                      <p className="text-sm font-black text-green-400">-${perUnitMonthly}/mo</p>
+                      <p className="text-[9px] text-gray-500 mt-0.5">per unit assessment</p>
+                      <p className="text-[10px] text-gray-600 mt-1">{s.source}</p>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-green-400 font-black mt-3 text-center">Combined: potential to reduce monthly fees by $14–28/unit</p>
+              <p className="text-[10px] text-gray-600 text-center mt-1">Estimates based on {condoData?.totalUnits || 24} units. Open Full Analysis for your actual numbers.</p>
+            </div>
+
+            {/* Opportunity cards */}
+            <div>
+              <p className="text-sm font-bold text-white mb-3">Top Opportunities for Your Association</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { icon: Package, color: '#fbbf24', name: 'Storage Locker Rentals', rev: '$420–$900/yr per locker', diff: 'Easy', boardRequired: true, nhNote: 'Board vote required. Check Declaration for restrictions.' },
+                  { icon: Users, color: '#60a5fa', name: 'Clubhouse / Meeting Room Rentals', rev: '$1,200–$7,200/yr', diff: 'Easy', boardRequired: true, nhNote: 'Popular NH association income source. Board approval needed.' },
+                  { icon: Star, color: '#fbbf24', name: 'Vendor Sponsorship Program', rev: '$1,800–$10,800/yr', diff: 'Easy', boardRequired: true, nhNote: 'No RSA 356-B restrictions on sponsorship income when board-approved.' },
+                  { icon: Car, color: '#34d399', name: 'Parking Space Rentals', rev: '$480–$1,440/yr per space', diff: 'Easy', boardRequired: true, nhNote: 'Verify Declaration does not grant free parking rights to all unit owners.' },
+                  { icon: Zap, color: '#a78bfa', name: 'EV Charging Stations', rev: '$1,920–$9,600/yr', diff: 'Medium', boardRequired: true, nhNote: 'Eversource NH rebates available. NH does not prohibit condo EV programs.' },
+                  { icon: Megaphone, color: '#f87171', name: 'Resident Maintenance Plans', rev: '$8–$25/unit/mo', diff: 'Easy', boardRequired: false, nhNote: 'Black Phoenix service integration. Optional resident enrollment.' },
+                ].map((o, i) => (
+                  <div key={i} className="rounded-xl p-4" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}>
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: o.color + '18' }}>
+                        <o.icon className="w-4 h-4" style={{ color: o.color }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white">{o.name}</p>
+                        <p className="text-xs font-black mt-0.5" style={{ color: '#4ade80' }}>{o.rev}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80' }}>{o.diff}</span>
+                          {o.boardRequired && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>Board Vote</span>}
+                        </div>
+                        <p className="text-[10px] text-indigo-400 mt-1.5">🏔 {o.nhNote}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Reserve fund teaser */}
+            <div className="rounded-xl p-5" style={{ background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)' }}>
+              <p className="text-sm font-bold text-green-400 mb-2">Reserve Fund Impact</p>
+              <p className="text-xs text-gray-400">If your association implements 3 revenue programs generating $15,000/year, contributing 50% to reserves adds $7,500/year without any assessment increase. Over 10 years, that is $75,000 in additional reserve strength.</p>
+              <p className="text-[10px] text-gray-600 mt-2">Consult your reserve study professional and association attorney before committing revenue to reserves. NH RSA 356-B:45 governs reserve fund requirements.</p>
+            </div>
+
+            <button
+              onClick={() => { const ctx = (window as any).__navigateApp; if (ctx) ctx('property-revenue'); else window.location.hash = '#property-revenue'; }}
+              className="w-full py-4 rounded-xl font-black text-sm text-white hover:brightness-110 transition flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+              <TrendingUp className="w-4 h-4" /> Open Full AI Revenue Analysis →
+            </button>
+          </div>
         )}
 
         {activeTab === 'referrals' && (

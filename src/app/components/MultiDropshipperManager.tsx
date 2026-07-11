@@ -126,6 +126,18 @@ const SUPPLIERS: SupplierDef[] = [
     ],
     pros: ['US-only shipping', '1M+ products', 'Auto routing'],
   },
+  {
+    id: 'zendrop', name: 'Zendrop', logo: '⚡', color: 'from-emerald-600 to-emerald-700',
+    description: 'US-based fulfillment with fast shipping and a full auto-fulfillment API. Strong for home goods and tools.',
+    categories: ['Home', 'Tools', 'Lifestyle', 'Electronics'],
+    minOrder: 'No minimum', shipsFrom: 'USA', avgShipping: '3–5 days',
+    apiType: 'key', website: 'zendrop.com',
+    fields: [
+      { key: 'api_key', label: 'API Key', placeholder: 'zdp_live_••••••••', secret: true },
+      { key: 'store_id', label: 'Store ID (optional)', placeholder: 'Your Zendrop Store ID' },
+    ],
+    pros: ['US warehouse priority', 'Auto-fulfillment API', '1M+ products'],
+  },
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────────

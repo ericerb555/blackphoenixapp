@@ -71,6 +71,12 @@ export default function PublicStore() {
   const [showReviewRequest, setShowReviewRequest] = useState(false);
   const [reviewStep, setReviewStep] = useState<'rate' | 'thanks'>('rate');
 
+  // ── Checkout ──────────────────────────────────────────────────────────────
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState<'info' | 'processing' | 'done'>('info');
+  const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', phone: '', address: '', city: '', zip: '' });
+  const [checkoutError, setCheckoutError] = useState('');
+
   // ── AI Chat ──────────────────────────────────────────────────────────────
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'bot'; text: string }[]>([
@@ -1270,25 +1276,15 @@ export default function PublicStore() {
                 <button
                   className="w-full py-4 rounded-2xl font-black text-base transition hover:scale-105 flex items-center justify-center gap-2"
                   style={{ background: '#ea580c' }}
-                  onClick={async () => {
-                    // Clear abandonment tracker on checkout
+                  onClick={() => {
                     localStorage.removeItem('bp_cart_recovered');
-                    // Show review request modal
+                    const savedName = localStorage.getItem('bp_lead_name') || user?.email?.split('@')[0] || '';
+                    const savedEmail = localStorage.getItem('bp_lead_email') || user?.email || '';
+                    setCheckoutForm(f => ({ ...f, name: f.name || savedName, email: f.email || savedEmail }));
+                    setCheckoutStep('info');
+                    setCheckoutError('');
                     setShowCart(false);
-                    setReviewStep('rate');
-                    setShowReviewRequest(true);
-                    // Auto-send review request email if we have their email
-                    const email = localStorage.getItem('bp_lead_email') || user?.email || '';
-                    const name = localStorage.getItem('bp_lead_name') || '';
-                    if (email) {
-                      try {
-                        await fetch(`${SERVER}/leads/send-email`, {
-                          method: 'POST',
-                          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ email, name, emailType: 'review_request' }),
-                        });
-                      } catch { /* silent */ }
-                    }
+                    setShowCheckout(true);
                   }}
                 >
                   <Lock className="w-4 h-4" /> Secure Checkout
@@ -1351,6 +1347,130 @@ export default function PublicStore() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CHECKOUT MODAL ───────────────────────────────────────────────── */}
+      {showCheckout && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl" style={{ background: '#0f0f0f', border: '1px solid rgba(234,88,12,0.25)' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(234,88,12,0.05)' }}>
+              <div>
+                <p className="font-black text-white">Secure Checkout</p>
+                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)} total</p>
+              </div>
+              <button onClick={() => setShowCheckout(false)} className="p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {checkoutStep === 'info' && (
+              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                {/* Order summary */}
+                <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Order Summary</p>
+                  {cart.map(item => (
+                    <div key={item.id} className="flex justify-between text-sm">
+                      <span className="text-gray-400 truncate mr-2">{item.name} × {item.qty}</span>
+                      <span className="text-white font-bold flex-shrink-0">${(item.price * item.qty).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div className="border-t pt-2 mt-2 flex justify-between text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                    <span className="text-gray-500">Shipping</span>
+                    <span className="text-white">{cartTotal >= 500 ? 'FREE' : '$25.00'}</span>
+                  </div>
+                  {taxRate > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tax</span>
+                      <span className="text-white">${(cartTotal * taxRate).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="border-t pt-2 flex justify-between font-black" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                    <span className="text-white">Total</span>
+                    <span style={{ color: '#ea580c' }}>${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Your Information</p>
+                {[
+                  { key: 'name',    label: 'Full Name *',     type: 'text',  placeholder: 'John Smith' },
+                  { key: 'email',   label: 'Email *',         type: 'email', placeholder: 'you@example.com' },
+                  { key: 'phone',   label: 'Phone',           type: 'tel',   placeholder: '(614) 555-0000' },
+                  { key: 'address', label: 'Shipping Address *', type: 'text', placeholder: '123 Main St' },
+                  { key: 'city',    label: 'City *',          type: 'text',  placeholder: 'Columbus' },
+                  { key: 'zip',     label: 'ZIP Code *',      type: 'text',  placeholder: '43215' },
+                ].map(field => (
+                  <div key={field.key}>
+                    <label className="text-xs font-bold text-gray-500 block mb-1">{field.label}</label>
+                    <input
+                      type={field.type}
+                      value={(checkoutForm as any)[field.key]}
+                      onChange={e => setCheckoutForm(f => ({ ...f, [field.key]: e.target.value }))}
+                      placeholder={field.placeholder}
+                      className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
+                      style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.08)' }}
+                    />
+                  </div>
+                ))}
+
+                {checkoutError && (
+                  <p className="text-sm text-red-400 font-bold">{checkoutError}</p>
+                )}
+
+                <button
+                  className="w-full py-4 rounded-2xl font-black text-base text-white flex items-center justify-center gap-2 hover:brightness-110 transition"
+                  style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)', boxShadow: '0 4px 20px rgba(234,88,12,0.35)' }}
+                  onClick={async () => {
+                    if (!checkoutForm.name.trim()) { setCheckoutError('Name is required'); return; }
+                    if (!checkoutForm.email.trim()) { setCheckoutError('Email is required'); return; }
+                    if (!checkoutForm.address.trim() || !checkoutForm.city.trim() || !checkoutForm.zip.trim()) { setCheckoutError('Full shipping address is required'); return; }
+                    setCheckoutError('');
+                    setCheckoutStep('processing');
+
+                    // Save email for lead tracking
+                    localStorage.setItem('bp_lead_email', checkoutForm.email);
+                    localStorage.setItem('bp_lead_name', checkoutForm.name);
+
+                    try {
+                      const shipping = cartTotal >= 500 ? 0 : 25;
+                      const res = await fetch(`${SERVER}/store/checkout`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+                        body: JSON.stringify({
+                          items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.qty, image: item.image })),
+                          customer: { name: checkoutForm.name, email: checkoutForm.email, phone: checkoutForm.phone, address: `${checkoutForm.address}, ${checkoutForm.city} ${checkoutForm.zip}` },
+                          shipping,
+                          coupon: null,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.url) {
+                        window.location.href = data.url;
+                      } else {
+                        setCheckoutError(data.error || 'Payment setup failed. Please try again.');
+                        setCheckoutStep('info');
+                      }
+                    } catch {
+                      setCheckoutError('Could not connect to payment processor. Please try again.');
+                      setCheckoutStep('info');
+                    }
+                  }}
+                >
+                  <Lock className="w-4 h-4" /> Pay Now — Powered by Stripe
+                </button>
+                <p className="text-center text-[10px] text-gray-700">256-bit SSL encrypted · You will be redirected to Stripe's secure payment page</p>
+              </div>
+            )}
+
+            {checkoutStep === 'processing' && (
+              <div className="flex flex-col items-center justify-center py-16 px-6">
+                <div className="w-12 h-12 rounded-full border-2 border-orange-500 border-t-transparent animate-spin mb-4" />
+                <p className="font-black text-white">Setting up secure payment…</p>
+                <p className="text-sm text-gray-500 mt-1">Redirecting to Stripe</p>
+              </div>
+            )}
           </div>
         </div>
       )}

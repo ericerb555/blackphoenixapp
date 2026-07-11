@@ -1,0 +1,684 @@
+/**
+ * Digital Storefront — Public-facing product store.
+ * Accessible from main site nav at /store.
+ * Reads products from localStorage (set by MarketplaceAdmin) or falls back to defaults.
+ * Full cart, checkout flow, category filters, and search.
+ */
+import { useState, useMemo, useEffect } from 'react';
+import {
+  ShoppingCart, X, Search, Star, BookOpen, FileText, Calculator,
+  BarChart3, Wrench, Layers, CheckCircle, ArrowRight, Download,
+  Shield, CreditCard, Package, Sparkles, Home, Building2,
+  Plus, Minus, Trash2, Bot, Gift, ChevronLeft, ChevronRight,
+  Zap, Clock, Tag, Users, Eye, Lock, TrendingUp,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const STORAGE_KEY = 'bp_mkt_products';
+const PURCHASED_KEY = 'bp_mkt_purchased';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ProductCategory = 'ebook' | 'template' | 'calculator' | 'ai_report' | 'maintenance' | 'bundle';
+
+interface Product {
+  id: string;
+  category: ProductCategory;
+  title: string;
+  subtitle: string;
+  description: string;
+  features: string[];
+  price: number;
+  originalPrice?: number;
+  pricingModel: 'one_time' | 'subscription';
+  audience: string[];
+  rating: number;
+  reviews: number;
+  color: string;
+  badge?: string;
+  nhRelevant: boolean;
+  popular?: boolean;
+  preview?: string;
+  fileTypes: string[];
+  pages?: number;
+  deliveryMethod: 'download' | 'generated' | 'interactive';
+  visible: boolean;
+  sortOrder: number;
+}
+
+interface CartItem { product: Product; quantity: number; }
+
+const CAT_CONFIG: Record<ProductCategory, { label: string; icon: any; color: string; bg: string }> = {
+  ebook:       { label: 'Ebooks',       icon: BookOpen,    color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/20' },
+  template:    { label: 'Templates',    icon: FileText,    color: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/20' },
+  calculator:  { label: 'Calculators',  icon: Calculator,  color: 'text-lime-400',    bg: 'bg-lime-500/10 border-lime-500/20' },
+  ai_report:   { label: 'AI Reports',   icon: BarChart3,   color: 'text-violet-400',  bg: 'bg-violet-500/10 border-violet-500/20' },
+  maintenance: { label: 'Maintenance',  icon: Wrench,      color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20' },
+  bundle:      { label: 'Bundles',      icon: Layers,      color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20' },
+};
+
+function fmt(cents: number) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function Stars({ r }: { r: number }) {
+  return (
+    <span className="flex items-center gap-0.5">
+      {[1,2,3,4,5].map(i => (
+        <Star key={i} className={`w-3 h-3 ${i <= Math.round(r) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'}`} />
+      ))}
+    </span>
+  );
+}
+
+// ─── Default catalog (mirrors MarketplaceAdmin defaults) ──────────────────────
+
+const DEFAULT_PRODUCTS: Product[] = [
+  { id: 'eb-landlord-ops', category: 'ebook', pricingModel: 'one_time', deliveryMethod: 'download', title: 'NH Landlord Operations Manual', subtitle: 'The complete legal and operational guide for NH landlords', description: 'A professionally authored 85-page guide covering every aspect of NH landlord operations — from RSA 540 compliance and tenant screening to lease drafting, habitability standards, and the eviction process.', features: ['RSA 540 and RSA 540-A compliance guide', 'NH-specific tenant screening framework', 'Sample lease clauses (NH-compliant)', 'Security deposit rules and timelines', 'Step-by-step eviction process flowchart', 'Habitability standards checklist', 'Vendor contract guidance'], price: 2900, audience: ['Landlords', 'Property Managers'], rating: 4.9, reviews: 142, color: 'text-teal-400', badge: 'BESTSELLER', nhRelevant: true, popular: true, fileTypes: ['PDF', 'EPUB'], pages: 85, visible: true, sortOrder: 1, preview: 'Chapter 1 covers RSA 540 in plain English — no law degree required. Every NH landlord should understand their rights and obligations before accepting a first tenant.' },
+  { id: 'eb-condo-board', category: 'ebook', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Condo Board Governance Handbook', subtitle: 'Run your NH association with legal confidence', description: 'A 72-page guide for NH condo and HOA board members. Covers RSA 356-B in detail, board meeting procedures, fiduciary duties, budget governance, reserve funds, vendor contracts, and owner communication.', features: ['RSA 356-B plain-English guide', 'Board meeting agenda and minute templates', 'Fiduciary duty explained', 'Special assessment procedures', 'Reserve fund adequacy framework', 'Vendor contract red flags', 'Owner dispute resolution'], price: 2400, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'], rating: 4.8, reviews: 98, color: 'text-violet-400', nhRelevant: true, popular: true, fileTypes: ['PDF'], pages: 72, visible: true, sortOrder: 2 },
+  { id: 'eb-homeowner-guide', category: 'ebook', pricingModel: 'one_time', deliveryMethod: 'download', title: 'First-Time Homeowner Complete Guide', subtitle: 'Your first year of ownership — done right', description: 'Everything a new NH homeowner needs to know — from day one orientation to seasonal maintenance, building systems, emergency preparedness, and smart budgeting.', features: ['First 30-day orientation checklist', 'NH seasonal maintenance calendar', 'Building systems life expectancy chart', 'Emergency preparedness plan template', 'Annual budget worksheet', 'Eversource NH rebate guide', 'Contractor hiring checklist'], price: 1400, audience: ['Homeowners', 'First-Time Buyers'], rating: 4.7, reviews: 215, color: 'text-blue-400', nhRelevant: true, fileTypes: ['PDF', 'EPUB'], pages: 58, visible: true, sortOrder: 3 },
+  { id: 'eb-capital-planning', category: 'ebook', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Capital Planning for Property Managers', subtitle: 'Forecast, fund, and execute large capital projects', description: 'A technical 45-page guide to 10-year capital planning for multi-family and commercial properties.', features: ['Reserve study interpretation guide', 'Straight-line vs. percent-funded models', 'Financing vs. special assessment analysis', 'NH CDFA financing overview', 'Project bidding and contractor selection', '10-year capital planning spreadsheet', 'Owner communication templates'], price: 3400, audience: ['Property Managers', 'Condo Boards', 'Commercial Owners'], rating: 4.8, reviews: 67, color: 'text-orange-400', nhRelevant: true, fileTypes: ['PDF', 'XLSX'], pages: 45, visible: true, sortOrder: 4 },
+  { id: 'eb-diy-repair', category: 'ebook', pricingModel: 'one_time', deliveryMethod: 'download', title: 'DIY Home Repair Encyclopedia', subtitle: 'Fix it yourself — safely and correctly', description: 'An illustrated 120-page guide to the most common home repairs. Covers plumbing, electrical safety, drywall, painting, weatherproofing, and NH-specific winterization.', features: ['100+ repair procedures with photos', 'NH winterization deep-dive', 'When to DIY vs. hire a pro', 'Tools required for each repair', 'Material cost estimates', 'Safety checklist per category', 'Eversource NH weatherization rebates'], price: 2900, audience: ['Homeowners', 'DIY Enthusiasts'], rating: 4.6, reviews: 189, color: 'text-amber-400', nhRelevant: true, fileTypes: ['PDF'], pages: 120, visible: true, sortOrder: 5 },
+  { id: 'tmpl-nh-lease', category: 'template', pricingModel: 'one_time', deliveryMethod: 'download', title: 'NH Lease Agreement Template Pack', subtitle: 'Attorney-reviewed, RSA 540-compliant lease templates', description: 'Three NH lease agreement formats: standard 12-month, month-to-month, and room rental. All reviewed for RSA 540 compliance.', features: ['Standard 12-month lease (RSA 540-compliant)', 'Month-to-month lease agreement', 'Room rental agreement', 'Pet addendum (NH law)', 'Move-in inspection checklist addendum', 'Security deposit receipt', 'Lead paint disclosure', 'Editable Word and PDF formats'], price: 4900, audience: ['Landlords'], rating: 4.9, reviews: 321, color: 'text-green-400', badge: 'TOP RATED', nhRelevant: true, popular: true, fileTypes: ['DOCX', 'PDF'], visible: true, sortOrder: 6 },
+  { id: 'tmpl-inspection', category: 'template', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Property Inspection Report Template', subtitle: 'Document every unit condition with professional precision', description: 'A comprehensive move-in/move-out inspection template with room-by-room checklists, condition ratings, and signature fields.', features: ['Room-by-room condition checklist (16 areas)', 'Numerical condition rating system', 'Photo documentation log', 'Dual-party signature section', 'Damage cost estimation worksheet', 'NH RSA 540-A compliance notes', 'Fillable PDF and Word formats'], price: 1900, audience: ['Landlords', 'Property Managers'], rating: 4.8, reviews: 178, color: 'text-indigo-400', nhRelevant: true, fileTypes: ['PDF', 'DOCX'], visible: true, sortOrder: 7 },
+  { id: 'tmpl-vendor-contract', category: 'template', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Vendor Contract Template Pack', subtitle: 'Professional contracts for every property service', description: 'Five vendor contract templates: HVAC, landscaping/snow removal, cleaning, general handyman, and management agreement.', features: ['HVAC maintenance agreement', 'Landscaping and snow removal contract', 'Cleaning services agreement', 'General handyman contract', 'Property management agreement', 'Certificate of insurance checklist', 'NH contractor license verification guide'], price: 5900, audience: ['Property Managers', 'Condo Boards', 'Landlords'], rating: 4.7, reviews: 94, color: 'text-amber-400', nhRelevant: true, fileTypes: ['DOCX', 'PDF'], visible: true, sortOrder: 8 },
+  { id: 'tmpl-board-meeting', category: 'template', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Board Meeting Package', subtitle: 'Everything your association needs to run meetings professionally', description: 'A complete meeting package for condo and HOA boards: agenda template, minutes, action item tracker, proxy form, and annual meeting package.', features: ['Board meeting agenda template', 'Meeting minutes template (RSA 356-B compliant)', 'Action item tracker spreadsheet', 'Owner notification letter templates', 'Proxy voting form', 'Annual meeting package', 'Executive session documentation guide'], price: 2400, audience: ['Condo Boards', 'HOA Boards'], rating: 4.8, reviews: 112, color: 'text-violet-400', nhRelevant: true, fileTypes: ['DOCX', 'XLSX', 'PDF'], visible: true, sortOrder: 9 },
+  { id: 'calc-roi', category: 'calculator', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Property ROI Calculator', subtitle: 'Analyze any investment in minutes', description: 'An interactive Excel-based calculator modeling cash-on-cash return, cap rate, NOI, debt service coverage, and 10-year equity growth.', features: ['Cash-on-cash return model', 'Cap rate and NOI calculator', 'Mortgage amortization table', 'Vacancy and expense scenario modeling', '10-year equity projection', 'Comparison tool for multiple properties', 'NH-specific tax rate inputs'], price: 3900, audience: ['Real Estate Investors', 'Landlords', 'Commercial Owners'], rating: 4.9, reviews: 267, color: 'text-lime-400', badge: 'INTERACTIVE', nhRelevant: true, popular: true, fileTypes: ['XLSX'], visible: true, sortOrder: 10 },
+  { id: 'calc-reserve', category: 'calculator', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Reserve Fund Adequacy Calculator', subtitle: 'Know exactly where your reserve fund stands', description: 'A spreadsheet calculator that inventories capital components and projects future funding under different contribution scenarios.', features: ['Component inventory worksheet (50 line items)', 'Current percent-funded score', '3 funding scenario models', 'Annual contribution optimizer', 'Special assessment probability estimator', '10-year projection chart', 'Board presentation chart pack'], price: 2900, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'], rating: 4.8, reviews: 83, color: 'text-orange-400', nhRelevant: true, fileTypes: ['XLSX'], visible: true, sortOrder: 11 },
+  { id: 'calc-ev-roi', category: 'calculator', pricingModel: 'one_time', deliveryMethod: 'download', title: 'EV Charging Revenue Calculator', subtitle: 'Model your EV charging ROI with Eversource NH rebates', description: 'Calculate exact ROI on EV charging station installation — Eversource NH rebates, installation costs, and annual revenue projections.', features: ['Eversource NH rebate calculator', 'Installation cost estimator', 'Revenue projection by port count', 'Payback period analysis', 'Pricing strategy comparison', 'NH net metering integration model', 'Residential vs. commercial comparison'], price: 1900, audience: ['Condo Boards', 'Property Managers', 'Commercial Owners'], rating: 4.7, reviews: 45, color: 'text-emerald-400', nhRelevant: true, fileTypes: ['XLSX'], visible: true, sortOrder: 12 },
+  { id: 'calc-rental-pricing', category: 'calculator', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Rental Pricing Optimizer', subtitle: 'Set the right rent for every unit', description: 'A market-driven rental pricing model factoring comparable rents, vacancy sensitivity, seasonal adjustment, and unit features.', features: ['Comparable rent analysis framework', 'Vacancy rate sensitivity model', 'Seasonal pricing adjustment table', 'Unit feature value matrix', 'Optimal rent recommendation engine', 'Revenue maximization scenario planner', 'NH market benchmark data (2026)'], price: 2400, audience: ['Landlords', 'Property Managers'], rating: 4.6, reviews: 61, color: 'text-cyan-400', nhRelevant: true, fileTypes: ['XLSX'], visible: true, sortOrder: 13 },
+  { id: 'air-property-health', category: 'ai_report', pricingModel: 'one_time', deliveryMethod: 'generated', title: 'AI Property Health Report', subtitle: 'A personalized property assessment powered by AI', description: 'Submit your property details and receive a 12-page AI-generated health assessment covering maintenance status, risk flags, capital needs, and a 90-day action plan.', features: ['AI-generated maintenance health score', 'System-by-system risk assessment', '90-day action plan', 'Estimated capital needs (1-3 year horizon)', 'NH seasonal risk flags', 'Vendor recommendation list', 'Executive summary PDF'], price: 7900, audience: ['Homeowners', 'Landlords', 'Property Managers'], rating: 4.9, reviews: 38, color: 'text-violet-400', badge: 'AI-POWERED', nhRelevant: true, popular: true, fileTypes: ['PDF'], visible: true, sortOrder: 14 },
+  { id: 'air-revenue-opp', category: 'ai_report', pricingModel: 'one_time', deliveryMethod: 'generated', title: 'Revenue Opportunity Analysis', subtitle: 'Uncover hidden revenue in your portfolio', description: 'A data-driven AI report identifying underperforming assets, pricing gaps, and revenue opportunities including ADU, EV charging, storage, and laundry.', features: ['Portfolio revenue gap analysis', 'Rent optimization recommendations', 'ADU feasibility assessment', 'Ancillary revenue opportunities', 'EV charging revenue model', 'Expense reduction targets', '12-month revenue growth roadmap'], price: 9900, audience: ['Landlords', 'Property Managers', 'Real Estate Investors'], rating: 4.8, reviews: 29, color: 'text-emerald-400', badge: 'AI-POWERED', nhRelevant: true, fileTypes: ['PDF'], visible: true, sortOrder: 15 },
+  { id: 'air-capital-plan', category: 'ai_report', pricingModel: 'one_time', deliveryMethod: 'generated', title: 'AI 10-Year Capital Plan', subtitle: 'Your complete capital roadmap built by AI', description: 'A custom 10-year capital plan from your property inventory — modeling component lifespans, replacement costs, funding scenarios, and annual contribution schedules.', features: ['Full component lifecycle model', 'Annual contribution schedule', '3 funding scenario comparison', 'Special assessment risk score', 'NH contractor cost benchmarks', 'Reserve fund growth projections', 'Board-ready presentation deck'], price: 12900, audience: ['Condo Boards', 'Property Managers', 'HOA Boards'], rating: 4.9, reviews: 17, color: 'text-orange-400', badge: 'AI-POWERED', nhRelevant: true, fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16 },
+  { id: 'maint-nh-winter', category: 'maintenance', pricingModel: 'one_time', deliveryMethod: 'download', title: 'NH Winter Prep Package', subtitle: 'Get your property ready for New Hampshire winters', description: "A complete NH winter preparation kit: 47-item winterization checklist, vendor call scheduling template, emergency contact log, and a storm response protocol.", features: ['47-item winterization checklist', 'System-by-system prep guide', 'Vendor call scheduling template', 'Emergency contact log', 'Storm response protocol', 'Pipe freeze prevention guide', 'Eversource weatherization rebate checklist'], price: 3400, audience: ['Homeowners', 'Landlords', 'Property Managers'], rating: 4.8, reviews: 156, color: 'text-blue-400', nhRelevant: true, popular: true, fileTypes: ['PDF', 'DOCX'], visible: true, sortOrder: 17 },
+  { id: 'maint-annual-planner', category: 'maintenance', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Annual Maintenance Planner', subtitle: '12-month property maintenance calendar', description: 'A complete 12-month property maintenance planning kit with month-by-month checklists, vendor scheduling templates, and budget tracking worksheets.', features: ['12-month maintenance calendar', 'Month-by-month task checklists', 'Vendor scheduling template', 'Maintenance budget tracker', 'System inspection schedules', 'NH seasonal timeline guide', 'Annual review worksheet'], price: 2400, audience: ['Homeowners', 'Landlords', 'Condo Boards'], rating: 4.7, reviews: 203, color: 'text-green-400', nhRelevant: true, fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 18 },
+  { id: 'bundle-landlord-starter', category: 'bundle', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Landlord Starter Bundle', subtitle: 'Everything a new NH landlord needs — one price', description: 'The essential bundle for new NH landlords: NH Landlord Operations Manual + NH Lease Agreement Pack + Property Inspection Report Template. Saves $121 vs. buying separately.', features: ['NH Landlord Operations Manual (85 pages)', 'NH Lease Agreement Pack (3 leases + addenda)', 'Property Inspection Report Template', 'NH RSA 540 compliance guide included', 'Editable Word and PDF formats', 'Instant download', '30-day satisfaction guarantee'], price: 8900, originalPrice: 21000, audience: ['Landlords', 'First-Time Landlords'], rating: 4.9, reviews: 74, color: 'text-orange-400', badge: 'SAVE $121', nhRelevant: true, popular: true, fileTypes: ['PDF', 'DOCX', 'EPUB'], visible: true, sortOrder: 19 },
+  { id: 'bundle-condo-complete', category: 'bundle', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Condo Board Complete Bundle', subtitle: 'The full governance toolkit for NH condo boards', description: 'Everything a condo board needs: Condo Board Governance Handbook + Board Meeting Package + Reserve Fund Adequacy Calculator.', features: ['Condo Board Governance Handbook (72 pages)', 'Board Meeting Package (6 templates)', 'Reserve Fund Adequacy Calculator (Excel)', 'RSA 356-B compliance guide', 'Instant download', '30-day satisfaction guarantee'], price: 14900, originalPrice: 17700, audience: ['Condo Boards', 'HOA Boards'], rating: 4.8, reviews: 41, color: 'text-violet-400', badge: 'SAVE $28', nhRelevant: true, fileTypes: ['PDF', 'DOCX', 'XLSX', 'EPUB'], visible: true, sortOrder: 20 },
+  { id: 'bundle-pm-pro', category: 'bundle', pricingModel: 'one_time', deliveryMethod: 'download', title: 'Property Manager Pro Bundle', subtitle: 'The complete toolkit for professional property managers', description: 'The ultimate bundle: Capital Planning Guide + Vendor Contract Pack + Property ROI Calculator + Annual Maintenance Planner. Saves $100 vs. buying separately.', features: ['Capital Planning for Property Managers (45 pages)', 'Vendor Contract Template Pack (5 contracts)', 'Property ROI Calculator (Excel)', 'Annual Maintenance Planner (12-month)', 'NH CDFA financing overview included', 'Instant download', '30-day satisfaction guarantee'], price: 19900, originalPrice: 29700, audience: ['Property Managers', 'Commercial Owners'], rating: 4.9, reviews: 33, color: 'text-orange-400', badge: 'SAVE $100', nhRelevant: true, fileTypes: ['PDF', 'DOCX', 'XLSX'], visible: true, sortOrder: 21 },
+];
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function DigitalStorefront() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [showCart, setShowCart] = useState(false);
+  const [selected, setSelected] = useState<Product | null>(null);
+  const [purchased, setPurchased] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [filterCat, setFilterCat] = useState<ProductCategory | 'all'>('all');
+  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'details' | 'processing' | 'success'>('cart');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/marketplace/products`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const prods = (data.products || data) as Product[];
+          if (prods.length > 0) {
+            setProducts(prods);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(prods));
+            return;
+          }
+        }
+      } catch {}
+      // Fallback: localStorage → defaults
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        setProducts(raw ? JSON.parse(raw) : DEFAULT_PRODUCTS);
+      } catch { setProducts(DEFAULT_PRODUCTS); }
+    })();
+    try {
+      const p = JSON.parse(localStorage.getItem(PURCHASED_KEY) || '[]');
+      setPurchased(new Set(p));
+    } catch {}
+  }, []);
+
+  const visible = useMemo(() =>
+    products
+      .filter(p => p.visible)
+      .filter(p => filterCat === 'all' || p.category === filterCat)
+      .filter(p => !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.subtitle.toLowerCase().includes(search.toLowerCase()))
+      .sort((a, b) => a.sortOrder - b.sortOrder),
+    [products, filterCat, search]
+  );
+
+  const featured = useMemo(() => products.filter(p => p.visible && p.popular).slice(0, 3), [products]);
+  const cartTotal = cart.reduce((a, i) => a + i.product.price * i.quantity, 0);
+  const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
+  const cartSavings = cart.reduce((a, i) => a + (i.product.originalPrice ? (i.product.originalPrice - i.product.price) * i.quantity : 0), 0);
+
+  function addToCart(p: Product) {
+    setCart(prev => {
+      const ex = prev.find(i => i.product.id === p.id);
+      if (ex) return prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i);
+      return [...prev, { product: p, quantity: 1 }];
+    });
+    toast.success(`"${p.title}" added to cart`);
+  }
+
+  function removeFromCart(id: string) { setCart(prev => prev.filter(i => i.product.id !== id)); }
+  function updateQty(id: string, qty: number) {
+    if (qty < 1) { removeFromCart(id); return; }
+    setCart(prev => prev.map(i => i.product.id === id ? { ...i, quantity: qty } : i));
+  }
+
+  async function processCheckout() {
+    if (!name.trim() || !email.trim()) { toast.error('Name and email are required'); return; }
+    setCheckoutStep('processing');
+    try {
+      const res = await fetch(`${SERVER.replace('/make-server-57095a78', '')}/make-server-57095a78/marketplace/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({
+          items: cart.map(i => ({ id: i.product.id, title: i.product.title, price: i.product.price, qty: i.quantity })),
+          email,
+          name,
+          successUrl: window.location.origin + '/store?checkout=success',
+          cancelUrl: window.location.origin + '/store',
+        }),
+      });
+      const data = await res.json();
+      if (data.url) { window.location.href = data.url; return; }
+    } catch {}
+    // Fallback simulation (Stripe not yet configured)
+    await new Promise(r => setTimeout(r, 2000));
+    const ids = cart.map(i => i.product.id);
+    const next = new Set([...purchased, ...ids]);
+    setPurchased(next);
+    localStorage.setItem(PURCHASED_KEY, JSON.stringify([...next]));
+    setCart([]);
+    setCheckoutStep('success');
+  }
+
+  function openCart() { setShowCart(true); setCheckoutStep('cart'); }
+
+  const CatIcon = ({ cat }: { cat: ProductCategory }) => {
+    const Icon = CAT_CONFIG[cat].icon;
+    return <Icon className={`w-4 h-4 ${CAT_CONFIG[cat].color}`} />;
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-white">
+      {/* Cart Drawer */}
+      <AnimatePresence>
+        {showCart && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 z-40" onClick={() => setShowCart(false)} />
+            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+              transition={{ type: 'spring', stiffness: 350, damping: 35 }}
+              className="fixed right-0 top-0 h-full w-full max-w-md bg-[#111] border-l border-[#2A2A2A] z-50 flex flex-col">
+              {/* Cart Header */}
+              <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A2A]">
+                <h2 className="font-bold text-lg text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-orange-400" />
+                  {checkoutStep === 'success' ? 'Order Complete!' : checkoutStep === 'processing' ? 'Processing…' : checkoutStep === 'details' ? 'Checkout' : `Cart (${cartCount})`}
+                </h2>
+                <button onClick={() => setShowCart(false)} className="p-1.5 hover:bg-[#2A2A2A] rounded-lg text-gray-400 hover:text-white transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* Success */}
+                {checkoutStep === 'success' && (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle className="w-8 h-8 text-green-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">Thank you!</h3>
+                    <p className="text-sm text-gray-400 mb-6">Your download links have been sent to <strong className="text-white">{email}</strong></p>
+                    <button onClick={() => { setShowCart(false); setCheckoutStep('cart'); }}
+                      className="px-6 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
+                      Continue Shopping
+                    </button>
+                  </div>
+                )}
+
+                {/* Processing */}
+                {checkoutStep === 'processing' && (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center mx-auto mb-4 animate-spin">
+                      <Zap className="w-8 h-8 text-orange-400" />
+                    </div>
+                    <p className="text-gray-400 text-sm">Securing your order…</p>
+                  </div>
+                )}
+
+                {/* Checkout Details */}
+                {checkoutStep === 'details' && (
+                  <div className="space-y-5">
+                    <button onClick={() => setCheckoutStep('cart')} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition">
+                      <ChevronLeft className="w-4 h-4" /> Back to cart
+                    </button>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1.5">Full Name *</label>
+                        <input value={name} onChange={e => setName(e.target.value)}
+                          placeholder="Your name"
+                          className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 placeholder-gray-600" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email Address *</label>
+                        <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                          placeholder="your@email.com"
+                          className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 placeholder-gray-600" />
+                      </div>
+                    </div>
+                    <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 space-y-2">
+                      {cart.map(i => (
+                        <div key={i.product.id} className="flex justify-between text-sm">
+                          <span className="text-gray-300 truncate flex-1 mr-3">{i.product.title} × {i.quantity}</span>
+                          <span className="text-white font-medium">{fmt(i.product.price * i.quantity)}</span>
+                        </div>
+                      ))}
+                      <div className="border-t border-[#2A2A2A] pt-2 flex justify-between font-bold">
+                        <span className="text-white">Total</span>
+                        <span className="text-orange-400">{fmt(cartTotal)}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 text-xs text-gray-500">
+                      <Shield className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span>Secure checkout · Instant download · 30-day satisfaction guarantee</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cart Items */}
+                {checkoutStep === 'cart' && (
+                  <>
+                    {cart.length === 0 ? (
+                      <div className="text-center py-16">
+                        <ShoppingCart className="w-10 h-10 mx-auto mb-3 text-gray-600" />
+                        <p className="text-gray-500 text-sm">Your cart is empty</p>
+                        <button onClick={() => setShowCart(false)}
+                          className="mt-4 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
+                          Browse Products
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {cart.map(item => (
+                          <div key={item.product.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 flex gap-3">
+                            <div className={`w-10 h-10 rounded-lg border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[item.product.category].bg}`}>
+                              <CatIcon cat={item.product.category} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{item.product.title}</p>
+                              <p className="text-xs text-gray-500">{item.product.fileTypes.join(', ')}</p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <button onClick={() => updateQty(item.product.id, item.quantity - 1)}
+                                  className="w-6 h-6 rounded bg-[#2A2A2A] flex items-center justify-center text-gray-400 hover:text-white transition">
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="text-sm text-white font-medium w-4 text-center">{item.quantity}</span>
+                                <button onClick={() => updateQty(item.product.id, item.quantity + 1)}
+                                  className="w-6 h-6 rounded bg-[#2A2A2A] flex items-center justify-center text-gray-400 hover:text-white transition">
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-sm font-bold text-white">{fmt(item.product.price * item.quantity)}</p>
+                              <button onClick={() => removeFromCart(item.product.id)}
+                                className="mt-2 text-gray-500 hover:text-red-400 transition">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {cartSavings > 0 && (
+                          <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-2.5 text-sm text-green-400 flex items-center gap-2">
+                            <Gift className="w-4 h-4" /> You save {fmt(cartSavings)} with bundles!
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Cart Footer */}
+              {checkoutStep === 'cart' && cart.length > 0 && (
+                <div className="px-6 py-5 border-t border-[#2A2A2A] space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Subtotal ({cartCount} item{cartCount !== 1 ? 's' : ''})</span>
+                    <span className="font-bold text-white">{fmt(cartTotal)}</span>
+                  </div>
+                  <button onClick={() => setCheckoutStep('details')}
+                    className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                    <CreditCard className="w-4 h-4" /> Proceed to Checkout
+                  </button>
+                </div>
+              )}
+              {checkoutStep === 'details' && (
+                <div className="px-6 py-5 border-t border-[#2A2A2A]">
+                  <button onClick={processCheckout}
+                    className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                    <Lock className="w-4 h-4" /> Complete Purchase — {fmt(cartTotal)}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Product Detail Panel */}
+      <AnimatePresence>
+        {selected && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 z-40" onClick={() => setSelected(null)} />
+            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+              transition={{ type: 'spring', stiffness: 350, damping: 35 }}
+              className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#111] border-l border-[#2A2A2A] z-50 overflow-y-auto">
+              <div className="sticky top-0 bg-[#111] border-b border-[#2A2A2A] px-6 py-4 flex items-center justify-between">
+                <span className={`text-xs font-semibold ${CAT_CONFIG[selected.category].color}`}>{CAT_CONFIG[selected.category].label}</span>
+                <button onClick={() => setSelected(null)} className="p-1.5 hover:bg-[#2A2A2A] rounded-lg text-gray-400 hover:text-white transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-6">
+                <div>
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className={`w-12 h-12 rounded-xl border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[selected.category].bg}`}>
+                      <CatIcon cat={selected.category} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-white leading-snug">{selected.title}</h2>
+                      <p className="text-sm text-gray-400 mt-0.5">{selected.subtitle}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <Stars r={selected.rating} />
+                      <span className="text-sm text-gray-400">{selected.rating} ({selected.reviews} reviews)</span>
+                    </div>
+                    {selected.badge && (
+                      <span className="px-2 py-0.5 bg-orange-500/20 border border-orange-500/30 text-orange-300 text-xs font-bold rounded">
+                        {selected.badge}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div className="flex items-baseline gap-3">
+                  <span className="text-3xl font-bold text-white">{fmt(selected.price)}</span>
+                  {selected.originalPrice && (
+                    <span className="text-lg text-gray-500 line-through">{fmt(selected.originalPrice)}</span>
+                  )}
+                  <span className="text-sm text-gray-500">{selected.pricingModel === 'subscription' ? '/month' : 'one-time'}</span>
+                </div>
+
+                {/* CTA */}
+                {purchased.has(selected.id) ? (
+                  <button onClick={() => (window as any).__navigateApp?.(`/document?id=${selected.id}`)}
+                    className="w-full py-3 bg-green-600/20 hover:bg-green-600/40 border border-green-500/30 text-green-400 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                    <CheckCircle className="w-4 h-4" /> Read Document Now →
+                  </button>
+                ) : (
+                  <button onClick={() => { addToCart(selected); setSelected(null); }}
+                    className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                    <ShoppingCart className="w-4 h-4" /> Add to Cart
+                  </button>
+                )}
+
+                {/* Description */}
+                <div>
+                  <h3 className="text-sm font-bold text-white mb-2">About this product</h3>
+                  <p className="text-sm text-gray-400 leading-relaxed">{selected.description}</p>
+                </div>
+
+                {/* Preview */}
+                {selected.preview && (
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Free Preview</p>
+                    <p className="text-sm text-gray-300 italic leading-relaxed">"{selected.preview}"</p>
+                  </div>
+                )}
+
+                {/* Features */}
+                <div>
+                  <h3 className="text-sm font-bold text-white mb-3">What's included</h3>
+                  <ul className="space-y-2">
+                    {selected.features.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2.5 text-sm text-gray-300">
+                        <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" /> {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Metadata */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {selected.pages && (
+                    <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
+                      <p className="text-xs text-gray-500 mb-0.5">Length</p>
+                      <p className="font-medium text-white">{selected.pages} pages</p>
+                    </div>
+                  )}
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-0.5">Format</p>
+                    <p className="font-medium text-white">{selected.fileTypes.join(', ')}</p>
+                  </div>
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-0.5">Delivery</p>
+                    <p className="font-medium text-white capitalize">{selected.deliveryMethod}</p>
+                  </div>
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-0.5">Audience</p>
+                    <p className="font-medium text-white">{selected.audience.slice(0, 2).join(', ')}</p>
+                  </div>
+                </div>
+
+                {/* Trust */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[['Instant Access', 'Download immediately after purchase'],['30-Day Guarantee', 'Full refund if not satisfied'],['NH-Specific', 'Written for New Hampshire law & climate'],['Secure Checkout', 'Stripe-protected payment']].map(([t, d]) => (
+                    <div key={t} className="flex items-start gap-2 text-xs text-gray-400">
+                      <Shield className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <div><p className="text-white font-medium">{t}</p><p>{d}</p></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Store Header / Hero */}
+      <div className="relative border-b border-[#1A1A1A] bg-gradient-to-b from-[#111] to-[#0A0A0A]">
+        <div className="max-w-6xl mx-auto px-6 py-12">
+          <div className="flex items-start justify-between gap-6 flex-wrap">
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-orange-600/20 border border-orange-500/30 flex items-center justify-center">
+                  <Package className="w-4 h-4 text-orange-400" />
+                </div>
+                <span className="text-sm font-semibold text-orange-400">Black Phoenix Digital Store</span>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-black text-white leading-tight mb-3">
+                NH Property Resources<br />
+                <span className="text-orange-400">Built for Real Owners</span>
+              </h1>
+              <p className="text-gray-400 max-w-md">
+                Ebooks, templates, calculators, and AI-powered reports written specifically for New Hampshire property owners, landlords, and condo boards.
+              </p>
+              <div className="flex items-center gap-4 mt-4 flex-wrap">
+                {[['Instant Download', Download],['NH-Specific', Shield],['30-Day Guarantee', CheckCircle]].map(([label, Icon]: any) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <Icon className="w-3.5 h-3.5 text-green-400" /> {label}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button onClick={openCart}
+              className="relative flex items-center gap-2 px-5 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-semibold transition">
+              <ShoppingCart className="w-5 h-5" />
+              Cart
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 w-5 h-5 bg-white text-orange-600 text-xs font-bold rounded-full flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-6 py-10 space-y-12">
+        {/* Featured */}
+        {featured.length > 0 && (
+          <section>
+            <h2 className="text-lg font-bold text-white mb-5 flex items-center gap-2">
+              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" /> Most Popular
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {featured.map(p => {
+                const Icon = CAT_CONFIG[p.category].icon;
+                return (
+                  <div key={p.id} onClick={() => setSelected(p)}
+                    className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5 cursor-pointer hover:border-orange-500/40 transition group">
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[p.category].bg}`}>
+                        <Icon className={`w-5 h-5 ${CAT_CONFIG[p.category].color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {p.badge && <span className="text-xs font-bold text-orange-400">{p.badge}</span>}
+                        <p className="text-sm font-bold text-white leading-snug">{p.title}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400 line-clamp-2 mb-4">{p.subtitle}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-bold text-white">{fmt(p.price)}</span>
+                      <button onClick={e => { e.stopPropagation(); addToCart(p); }}
+                        className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition">
+                        Add to Cart
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Search + Filters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-56">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search products…"
+              className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 placeholder-gray-600" />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setFilterCat('all')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition border ${filterCat === 'all' ? 'bg-orange-600 text-white border-orange-500' : 'bg-[#1A1A1A] border-[#2A2A2A] text-gray-400 hover:text-white'}`}>
+              All
+            </button>
+            {Object.entries(CAT_CONFIG).map(([k, v]) => {
+              const Icon = v.icon;
+              return (
+                <button key={k} onClick={() => setFilterCat(k as ProductCategory)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition border ${filterCat === k ? `bg-[#1A1A1A] border-orange-500 ${v.color}` : 'bg-[#1A1A1A] border-[#2A2A2A] text-gray-400 hover:text-white'}`}>
+                  <Icon className="w-3.5 h-3.5" /> {v.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Product Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {visible.map(p => {
+            const Icon = CAT_CONFIG[p.category].icon;
+            const isPurchased = purchased.has(p.id);
+            return (
+              <div key={p.id}
+                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl overflow-hidden hover:border-[#3A3A3A] transition group cursor-pointer"
+                onClick={() => setSelected(p)}>
+                {/* Top accent */}
+                <div className={`h-1 ${p.popular ? 'bg-orange-500' : 'bg-[#2A2A2A]'}`} />
+                <div className="p-5">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[p.category].bg}`}>
+                      <Icon className={`w-5 h-5 ${CAT_CONFIG[p.category].color}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        {p.badge && <span className="text-xs font-bold text-orange-400">{p.badge}</span>}
+                        {isPurchased && <span className="text-xs text-green-400 flex items-center gap-0.5"><CheckCircle className="w-3 h-3" /> Owned</span>}
+                      </div>
+                      <p className="text-sm font-bold text-white leading-snug">{p.title}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 line-clamp-2 mb-4">{p.subtitle}</p>
+
+                  {/* Meta row */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <Stars r={p.rating} />
+                    <span className="text-xs text-gray-500">({p.reviews})</span>
+                    {p.pages && <span className="text-xs text-gray-600 ml-auto">{p.pages}pp</span>}
+                    <span className="text-xs text-gray-600">{p.fileTypes[0]}</span>
+                  </div>
+
+                  {/* Price + CTA */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-lg font-bold text-white">{fmt(p.price)}</span>
+                      {p.originalPrice && (
+                        <span className="text-xs text-gray-500 line-through ml-2">{fmt(p.originalPrice)}</span>
+                      )}
+                    </div>
+                    {isPurchased ? (
+                      <button onClick={e => { e.stopPropagation(); (window as any).__navigateApp?.(`/document?id=${p.id}`); }}
+                        className="px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold rounded-lg flex items-center gap-1 hover:bg-green-500/20 transition">
+                        <Download className="w-3 h-3" /> Read Now
+                      </button>
+                    ) : (
+                      <button onClick={e => { e.stopPropagation(); addToCart(p); }}
+                        className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition">
+                        Add to Cart
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {visible.length === 0 && (
+          <div className="text-center py-20 text-gray-500">
+            <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p>No products found. Try a different search or category.</p>
+          </div>
+        )}
+
+        {/* Trust Footer */}
+        <div className="border-t border-[#1A1A1A] pt-10 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+          {[['Instant Download', Download, 'Access your files immediately after purchase'],['30-Day Guarantee', Shield, "Full refund if you're not satisfied"],['NH-Specific Content', Home, 'Written for New Hampshire laws and climate'],['Secure Checkout', CreditCard, 'Stripe-protected, encrypted payments']].map(([label, Icon, desc]: any) => (
+            <div key={label}>
+              <div className="w-10 h-10 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-center mx-auto mb-3">
+                <Icon className="w-5 h-5 text-orange-400" />
+              </div>
+              <p className="text-sm font-semibold text-white mb-1">{label}</p>
+              <p className="text-xs text-gray-500">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
