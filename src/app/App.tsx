@@ -377,6 +377,7 @@ const navigationSections: NavSection[] = [
       { name: "PermitAI", path: "permit-ai", badge: "NEW" },
       { name: "Unified Calendar", path: "unified-calendar" },
       { name: "Online Store", path: "dropshipper-admin" },
+      { name: "Zendrop", path: "zendrop", badge: "NEW" },
       { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
       { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
       { name: "Social Media Hub", path: "social-media-hub", badge: "NEW" },
@@ -477,6 +478,7 @@ const navigationSections: NavSection[] = [
         path: "vendors-admin-hub",
       },
       { name: "Dropshipper Admin", path: "dropshipper-admin" },
+      { name: "Zendrop Integration", path: "zendrop" },
       { name: "Public Store", path: "public-store" },
       { name: "Order Tracking", path: "order-tracking", badge: "Track" },
       { name: "Promotions Manager", path: "promotions-manager", badge: "NEW" },
@@ -1158,7 +1160,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // UNLESS they're trying to subscribe to a new plan (selected_cohort in localStorage)
     const hasSelectedCohort = localStorage.getItem('selected_cohort');
 
-    if (!loading && isAuthenticated && (currentPath === 'login' || currentPath === 'signup')) {
+    if (!loading && isAuthenticated && (currentPath === 'login' || currentPath === 'signup') && currentPath !== '' && currentPath !== 'landing') {
       // Allow signup if user is subscribing to a new plan
       if (currentPath === 'signup' && hasSelectedCohort) {
         console.log("✅ [ProtectedRoutes] Allowing signup - user subscribing to plan:", hasSelectedCohort);
@@ -1214,8 +1216,9 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     console.log('🔒 [ProtectedRoutes] No redirect needed, rendering children');
   }, [user, loading, currentPath, redirecting]);
 
-  // Show loading while checking auth
-  if (loading) {
+  // Show loading while checking auth ONLY on initial load (no user yet)
+  // If user is already set, skip the loading screen to prevent post-login blink
+  if (loading && !user) {
     console.log('🔒 [ProtectedRoutes] Showing loading state');
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">

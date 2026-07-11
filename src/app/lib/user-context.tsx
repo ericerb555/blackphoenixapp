@@ -25,21 +25,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const storedUser = localStorage.getItem('current_user');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
-      // Default to Platform Owner for demo
-      const defaultUser: User = {
-        id: 'user-platform-owner-001',
-        email: 'admin@platform.com',
-        name: 'Platform Owner',
-        role: UserRole.PLATFORM_OWNER,
-        tenant_id: null,
-        status: 'active',
-        created_at: new Date().toISOString(),
-      };
-      setUser(defaultUser);
-      localStorage.setItem('current_user', JSON.stringify(defaultUser));
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        setUser(null);
+      }
     }
+    // Don't create a fake default user — let AuthContext drive user state
     setIsLoading(false);
   }, []);
 

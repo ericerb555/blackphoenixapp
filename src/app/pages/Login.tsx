@@ -139,6 +139,32 @@ export default function Login({ onNavigate }: LoginProps) {
       userProfiles[email.toLowerCase()] = profile;
       localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
       localStorage.setItem(`currentUserProfile_${email.toLowerCase()}`, JSON.stringify(profile));
+      // Also set the shared key that ProtectedRoutes reads
+      localStorage.setItem('currentUserProfile', JSON.stringify(profile));
+
+      // Write current_user for UserContext/RoleSwitcher so it has the real role immediately
+      const roleMap: Record<string, string> = {
+        owner: 'PLATFORM_OWNER',
+        admin: 'ADMIN',
+        master_admin: 'PLATFORM_OWNER',
+        management: 'ADMIN',
+        customer: 'CUSTOMER',
+        vendor: 'VENDOR',
+        subcontractor: 'SUBCONTRACTOR',
+        employee: 'EMPLOYEE',
+        investor: 'INVESTOR',
+        advertiser: 'ADVERTISER',
+        property_manager: 'PROPERTY_MANAGER',
+      };
+      const existingCurrentUser = JSON.parse(localStorage.getItem('current_user') || '{}');
+      localStorage.setItem('current_user', JSON.stringify({
+        ...existingCurrentUser,
+        email,
+        name: userName,
+        role: roleMap[profile.accountType] || 'PLATFORM_OWNER',
+        tenant_id: profile.accountType === 'owner' || profile.accountType === 'master_admin' ? null : 'tenant-001',
+        status: 'active',
+      }));
 
       // Sync branding in background — don't await, don't block navigation
       autoSyncBranding().catch(() => {});
