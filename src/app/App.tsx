@@ -25,24 +25,10 @@ import { migrateUserProfiles } from "./utils/migrationHelper";
 // CRITICAL: Initialize owner profile on app load
 import { initializeOwnerProfile } from "./utils/initializeOwnerProfile";
 
-// DEBUG: Check logo data
-import "./utils/debugLogoData";
-// TEST: Work request testing utility
-import "./utils/createTestWorkRequest";
-// TEST: Reconciliation data seeder
-import "./utils/seedReconciliationData";
-// TEST: Completion report utilities
-import "./utils/generateCompletionReport";
-// TEST: Pipeline data seeder - generates demo projects for pipeline
+// Pipeline data seeder - generates demo projects for pipeline
 import { seedPipelineData } from "./utils/seedPipelineData";
-// VERIFY: Company data verification and auto-recovery
+// Company data verification and auto-recovery
 import { verifyCompanyData } from "./utils/verifyCompanyData";
-// DIAGNOSTIC: Check company data flow
-import "./utils/diagnosticCompanyFlow";
-// DIAGNOSTIC: Check logo loading issues
-import "./utils/diagnosticLogo";
-// DIAGNOSTIC: Complete logo flow debugging
-import "./utils/debugLogoFlow";
 // CRITICAL: Ensure default company exists in database
 import "./utils/ensureDefaultCompany";
 // CRITICAL: Initialize branding profile on app load
@@ -296,6 +282,7 @@ import OrderSuccess from "./pages/OrderSuccess";
 import DigitalStorefront from "./pages/DigitalStorefront";
 import AdCreator from "./pages/AdCreator";
 import DocumentViewer from "./pages/DocumentViewer";
+import PermitAI from "./pages/PermitAI";
 import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
 import Services from "./pages/Services";
 import PortalDemoHub from "./pages/PortalDemoHub";
@@ -322,6 +309,19 @@ import InvestmentCalculator from "./pages/InvestmentCalculator";
 import AdminPortalView from "./components/portals/AdminPortalView";
 import TerritoryPortalView from "./components/portals/TerritoryPortalView";
 import WorkOrderCompletionReports from "./pages/WorkOrderCompletionReports";
+import Messaging from "./pages/Messaging";
+import ExitIntentManager from "./pages/ExitIntentManager";
+import ExitIntentPopup from "./components/ExitIntentPopup";
+import LiveChatManager from "./pages/LiveChatManager";
+import LiveChatWidget from "./components/LiveChatWidget";
+import PhotoImporter from "./pages/PhotoImporter";
+import MarketingAutomation from "./pages/MarketingAutomation";
+import RetargetingPixelSetup from "./pages/RetargetingPixelSetup";
+import BlogManager from "./pages/BlogManager";
+import ReviewSurveyManager from "./pages/ReviewSurveyManager";
+import InfluencerTracker from "./pages/InfluencerTracker";
+import KeywordTracker from "./pages/KeywordTracker";
+import CustomerPortal from "./pages/CustomerPortal";
 
 // Create Navigation Context
 export const NavigationContext = createContext<{ navigate: (page: string) => void }>({
@@ -374,11 +374,22 @@ const navigationSections: NavSection[] = [
         badge: "NEW",
       },
       { name: "Master Scheduling", path: "master-scheduling" },
+      { name: "PermitAI", path: "permit-ai", badge: "NEW" },
       { name: "Unified Calendar", path: "unified-calendar" },
       { name: "Online Store", path: "dropshipper-admin" },
       { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
       { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
       { name: "Social Media Hub", path: "social-media-hub", badge: "NEW" },
+      { name: "Exit-Intent Popups", path: "exit-intent", badge: "NEW" },
+      { name: "Live Chat", path: "live-chat", badge: "NEW" },
+      { name: "Photo Importer", path: "photo-importer", badge: "NEW" },
+      { name: "Marketing Automation", path: "marketing-automation", badge: "NEW" },
+      { name: "Retargeting Pixels", path: "retargeting-pixels", badge: "NEW" },
+      { name: "Blog Manager", path: "blog-manager", badge: "NEW" },
+      { name: "Reviews & Surveys", path: "review-surveys", badge: "NEW" },
+      { name: "Influencer & Ambassadors", path: "influencer-tracker", badge: "NEW" },
+      { name: "Keyword Rank Tracker", path: "keyword-tracker", badge: "NEW" },
+      { name: "Customer Portal", path: "customer-portal", badge: "NEW" },
     ],
   },
   {
@@ -888,6 +899,11 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Customer portal (public view - allow visitors to explore features)
     'customer-portal',
     'customer-portal-app',
+
+    // PermitAI (public - useful for anyone researching permits)
+    'permit-ai',
+    'permits',
+    'building-codes',
 
     // Diagnostic pages (public - for debugging)
     'diagnostic-logos',
@@ -1637,6 +1653,18 @@ function AppContent() {
     "public-store": PublicStore,
     "order-tracking": OrderTracking,
     "promotions-manager": PromotionsManager,
+    "exit-intent": ExitIntentManager,
+    "exit-intent-manager": ExitIntentManager,
+    "live-chat": LiveChatManager,
+    "live-chat-manager": LiveChatManager,
+    "photo-importer": PhotoImporter,
+    "marketing-automation": MarketingAutomation,
+    "retargeting-pixels": RetargetingPixelSetup,
+    "blog-manager": BlogManager,
+    "review-surveys": ReviewSurveyManager,
+    "influencer-tracker": InfluencerTracker,
+    "keyword-tracker": KeywordTracker,
+    "customer-portal": CustomerPortal,
     "ai-ranking-engine": AIRankingEngine,
     "auto-product-pilot": AutoProductPilot,
     "social-media-hub": SocialMediaHub,
@@ -1801,11 +1829,12 @@ function AppContent() {
     "purchase-orders": PurchaseOrders,
 
     // Communication & Collaboration
-    // messaging: Messaging, // TODO: Create this page
+    messaging: Messaging,
+    messages: Messaging,
     "enterprise-email": EnterpriseEmailManagement,
 
     // Company & System Management
-    // "enterprise-invoicing": EnterpriseInvoicing, // TODO: Create this page
+    "enterprise-invoicing": InvoicesNew,
     "company-profile": BusinessProfilesHub,
     "landing-page-editor": LandingPageEditor,
     "website-settings": LandingPageEditor, // Alias
@@ -1838,6 +1867,9 @@ function AppContent() {
     "promotions-creator": AdCreator,
     "document": DocumentViewer,
     "doc": DocumentViewer,
+    "permit-ai": PermitAI,
+    "permits": PermitAI,
+    "building-codes": PermitAI,
 
     // Phase 5: Design & Content + Platform Management (FINAL)
     "design-studio-pro": DesignStudioPro,
@@ -2089,7 +2121,18 @@ function AppContent() {
     try {
       // CustomerPortalApp doesn't need onNavigate prop - it handles its own navigation
       const shouldPassNavigate = pageToRender !== 'customer-portal-app';
-      
+
+      // PermitAI: pass address/workType from URL query params
+      if (pageToRender === 'permit-ai' || pageToRender === 'permits' || pageToRender === 'building-codes') {
+        const qp = new URLSearchParams(window.location.search);
+        return <PageComponent
+          onNavigate={navigate}
+          initialAddress={qp.get('address') || ''}
+          initialWorkType={qp.get('workType') || ''}
+          initialWorkOrderId={qp.get('workOrderId') || undefined}
+        />;
+      }
+
       return shouldPassNavigate ? (
         <PageComponent onNavigate={navigate} />
       ) : (
@@ -2226,6 +2269,12 @@ function AppContent() {
 
                     {/* Toast Notifications */}
                     <Toaster />
+
+                    {/* Exit-Intent Popup — global, config-driven */}
+                    <ExitIntentPopup />
+
+                    {/* Live Chat Widget — global, config-driven */}
+                    <LiveChatWidget />
 
                     {/* Global Work Request Widget — visible on every page */}
                     <WorkRequestWidget />

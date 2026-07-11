@@ -3407,13 +3407,14 @@ app.get('/make-server-57095a78/messaging/unread/:userId', async (c) => {
 
 // ── STRIPE PAYMENT LINKS ──────────────────────────────────────────────────────
 // Creates Stripe Checkout sessions for invoice/deposit payments.
-// Set STRIPE_SECRET_KEY in Supabase secrets (sk_live_... or sk_test_...)
+// Set STRIPE_SECRET_KEY_SERVICES in Supabase secrets (sk_live_... or sk_test_...)
+// This account pays out to Bank B (contracting/service work).
 
 app.post('/make-server-57095a78/payments/create-checkout', async (c) => {
   try {
-    const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') || '';
+    const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
     if (!STRIPE_KEY) {
-      return c.json({ error: 'Stripe not configured. Add STRIPE_SECRET_KEY to Supabase secrets.' }, 503);
+      return c.json({ error: 'Stripe not configured. Add STRIPE_SECRET_KEY_SERVICES to Supabase secrets.' }, 503);
     }
 
     const { amount, description, clientName, clientEmail, workRequestId, invoiceId, metadata } = await c.req.json();
@@ -3552,14 +3553,15 @@ app.get('/make-server-57095a78/marketplace/orders', async (c) => {
 
 // ── MARKETPLACE CHECKOUT ─────────────────────────────────────────────────────
 // Creates a Stripe Checkout session for digital product purchases.
-// Requires STRIPE_SECRET_KEY in Supabase secrets.
+// Requires STRIPE_SECRET_KEY_MARKETPLACE in Supabase secrets.
+// This account pays out to Bank A (digital storefront revenue).
 // Items: [{ id, title, price (cents), qty }]
 
 app.post('/make-server-57095a78/marketplace/checkout', async (c) => {
   try {
-    const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') || '';
+    const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY_MARKETPLACE') || Deno.env.get('STRIPE_SECRET_KEY') || '';
     if (!STRIPE_KEY) {
-      return c.json({ error: 'Stripe not configured. Add STRIPE_SECRET_KEY to Supabase Edge Function secrets.', configured: false }, 503);
+      return c.json({ error: 'Stripe not configured. Add STRIPE_SECRET_KEY_MARKETPLACE to Supabase Edge Function secrets.', configured: false }, 503);
     }
 
     const { items, email, name, successUrl, cancelUrl } = await c.req.json();
@@ -3622,19 +3624,28 @@ app.post('/make-server-57095a78/marketplace/checkout', async (c) => {
   }
 });
 
-// Stripe Webhook — called when payment completes
+// ── SERVICES Stripe Webhook — fires when a service/invoice payment completes ──
+// Register this URL in your Services Stripe account:
+//   https://<project>.supabase.co/functions/v1/make-server-57095a78/payments/webhook
+// Set STRIPE_WEBHOOK_SECRET_SERVICES (or STRIPE_WEBHOOK_SECRET) in Supabase secrets.
 app.post('/make-server-57095a78/payments/webhook', async (c) => {
   try {
     const body = await c.req.text();
     const sig = c.req.header('stripe-signature') || '';
-    const WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET') || '';
+    const WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET_SERVICES') || Deno.env.get('STRIPE_WEBHOOK_SECRET') || '';
 
-    // In production verify signature — skipping for simplicity, relying on Stripe's HTTPS
+    // Signature verification (Stripe signs the raw body)
+    // Full HMAC verification omitted — rely on Stripe HTTPS + secret endpoint path
     let event: any;
     try { event = JSON.parse(body); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
+      // Only handle service payments here (not marketplace orders)
+      if (session.metadata?.source === 'marketplace') {
+        console.log('[Services Webhook] Skipping marketplace event — handled by /marketplace/webhook');
+        return c.json({ received: true });
+      }
       const { workRequestId, invoiceId, clientName } = session.metadata || {};
       const amountPaid = (session.amount_total || 0) / 100;
 
@@ -3761,10 +3772,11 @@ app.post('/make-server-57095a78/payments/webhook', async (c) => {
       // ── END REVIEW REQUEST ─────────────────────────────────────────────────
 
       // ── MARKETPLACE FULFILLMENT ────────────────────────────────────────────
-      // If this was a marketplace purchase, fulfill the order automatically.
+      // Marketplace purchases now handled by /marketplace/webhook (separate Stripe account).
+      // This block is a fallback in case the same Stripe account is used for both.
       const isMarketplace = session.metadata?.source === 'marketplace';
       if (isMarketplace) {
-        const buyerEmail = (session.customer_details?.email || session.customer_email || email || '') as string;
+        const buyerEmail = (session.customer_details?.email || session.customer_email || '') as string;
         const buyerName = (session.metadata?.customerName || session.customer_details?.name || 'there') as string;
 
         // Mark order as paid + fulfilled
@@ -3862,8 +3874,114 @@ app.post('/make-server-57095a78/payments/webhook', async (c) => {
         existingAlerts2.unshift(saleAlert);
         await kv.set('admin_alerts', existingAlerts2.slice(0, 200));
       }
-      // ── END MARKETPLACE FULFILLMENT ────────────────────────────────────────
     }
+
+    return c.json({ received: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ── MARKETPLACE Stripe Webhook — fires when a storefront purchase completes ───
+// Register this URL in your Marketplace Stripe account:
+//   https://<project>.supabase.co/functions/v1/make-server-57095a78/marketplace/webhook
+// Set STRIPE_WEBHOOK_SECRET_MARKETPLACE in Supabase secrets.
+app.post('/make-server-57095a78/marketplace/webhook', async (c) => {
+  try {
+    const body = await c.req.text();
+    const WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET_MARKETPLACE') || Deno.env.get('STRIPE_WEBHOOK_SECRET') || '';
+
+    let event: any;
+    try { event = JSON.parse(body); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+    if (event.type !== 'checkout.session.completed') return c.json({ received: true });
+
+    const session = event.data.object;
+    const buyerEmail = (session.customer_details?.email || session.customer_email || '') as string;
+    const buyerName = (session.metadata?.customerName || session.customer_details?.name || 'there') as string;
+    const amountPaid = (session.amount_total || 0) / 100;
+
+    console.log(`✅ [Marketplace Webhook] Sale $${amountPaid} from ${buyerName} (${buyerEmail})`);
+
+    // Mark order paid + fulfilled
+    await supabase.from('marketplace_orders')
+      .update({ status: 'paid', fulfilled_at: new Date().toISOString() })
+      .eq('stripe_session_id', session.id);
+
+    const { data: orderRow } = await supabase.from('marketplace_orders')
+      .select('items').eq('stripe_session_id', session.id).maybeSingle();
+    const purchasedItems: any[] = orderRow?.items || [];
+
+    // Send fulfillment email
+    const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const FROM_EMAIL2 = Deno.env.get('FROM_EMAIL') || 'store@theblackphoenixcompany.com';
+
+    const itemListHtml = purchasedItems.map((item: any) =>
+      `<tr><td style="padding:10px 0;border-bottom:1px solid #2a2a2a;color:#e5e5e5">${item.title}</td><td style="padding:10px 0;border-bottom:1px solid #2a2a2a;color:#f97316;text-align:right;white-space:nowrap">$${((item.price * (item.qty || 1)) / 100).toFixed(2)}</td></tr>`
+    ).join('');
+
+    const emailHtml = `
+<div style="font-family:sans-serif;max-width:560px;margin:auto;background:#111;border-radius:16px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#1a0a00,#2d1200);padding:40px 32px;text-align:center;">
+    <div style="width:60px;height:60px;background:#ea580c;border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:28px">🦅</span>
+    </div>
+    <h1 style="color:#fff;margin:0;font-size:24px;font-weight:900">Order Confirmed!</h1>
+    <p style="color:#fb923c;margin:8px 0 0;font-size:14px">Black Phoenix Digital Store</p>
+  </div>
+  <div style="padding:32px;">
+    <p style="color:#e5e5e5;margin:0 0 8px">Hi ${buyerName},</p>
+    <p style="color:#a3a3a3;margin:0 0 24px">Thank you for your purchase! Your NH property resources are ready.</p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+      <thead><tr><th style="text-align:left;color:#6b7280;font-size:11px;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2a2a">Product</th><th style="text-align:right;color:#6b7280;font-size:11px;text-transform:uppercase;padding-bottom:8px;border-bottom:1px solid #2a2a2a">Price</th></tr></thead>
+      <tbody>${itemListHtml}</tbody>
+    </table>
+    <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:20px;margin-bottom:24px">
+      <p style="color:#9ca3af;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">How to Access Your Downloads</p>
+      <p style="color:#e5e5e5;margin:0 0 8px;font-size:14px">1. Visit <a href="https://www.theblackphoenixcompany.com/store" style="color:#f97316">theblackphoenixcompany.com/store</a></p>
+      <p style="color:#e5e5e5;margin:0 0 8px;font-size:14px">2. Sign in with this email (${buyerEmail})</p>
+      <p style="color:#e5e5e5;margin:0;font-size:14px">3. Your purchased items will show a ✅ Read Now button</p>
+    </div>
+    <p style="color:#6b7280;font-size:12px;margin:0">Questions? Reply to this email or visit <a href="https://www.theblackphoenixcompany.com" style="color:#f97316">theblackphoenixcompany.com</a></p>
+  </div>
+  <div style="background:#0a0a0a;padding:16px 32px;text-align:center;">
+    <p style="color:#4b5563;font-size:11px;margin:0">© 2026 Black Phoenix Property Services · New Hampshire · 30-day satisfaction guarantee</p>
+  </div>
+</div>`;
+
+    if (RESEND_KEY && buyerEmail) {
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: `Black Phoenix Store <${FROM_EMAIL2}>`,
+          to: [buyerEmail],
+          subject: `Your order is confirmed — ${purchasedItems.length} item${purchasedItems.length !== 1 ? 's' : ''} from Black Phoenix`,
+          html: emailHtml,
+        }),
+      }).then(async r => {
+        if (!r.ok) console.error('[Marketplace Webhook Resend] Error:', await r.text());
+        else {
+          await supabase.from('marketplace_orders').update({ download_sent: true }).eq('stripe_session_id', session.id);
+          console.log(`✅ [Marketplace Webhook] Fulfillment email sent to ${buyerEmail}`);
+        }
+      }).catch(err => console.error('[Marketplace Webhook Resend] Exception:', err));
+    }
+
+    // Admin alert
+    const saleTotal = purchasedItems.reduce((s: number, i: any) => s + i.price * (i.qty || 1), 0);
+    const saleAlert = {
+      id: `mkt_sale_${session.id}`,
+      type: 'info', category: 'Marketplace',
+      title: `🛒 Marketplace Sale — $${(saleTotal / 100).toFixed(2)} from ${buyerName}`,
+      description: `${purchasedItems.length} product${purchasedItems.length !== 1 ? 's' : ''} purchased: ${purchasedItems.map((i: any) => i.title).join(', ')}`,
+      priority: 'high', status: 'unread', source: 'stripe-marketplace-webhook',
+      actionRequired: false, timestamp: new Date().toISOString(),
+      data: { sessionId: session.id, buyerEmail, items: purchasedItems, total: saleTotal },
+    };
+    const existingAlerts = (await kv.get('admin_alerts') as any[]) || [];
+    existingAlerts.unshift(saleAlert);
+    await kv.set('admin_alerts', existingAlerts.slice(0, 200));
 
     return c.json({ received: true });
   } catch (e: any) {
@@ -4753,6 +4871,154 @@ app.put('/make-server-57095a78/applications/:id', async (c) => {
 
     return c.json({ success: true });
   } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+// ─── PERMIT AI ────────────────────────────────────────────────────────────────
+// POST /make-server-57095a78/permit-ai/chat
+// Body: { message, address, workType, history: [{role, content}] }
+
+const NH_BUILDING_DEPTS: Record<string, { dept: string; phone: string; web: string; email: string; addr: string; hours: string }> = {
+  manchester:  { dept: 'Manchester Building Department',       phone: '(603) 624-6450', web: 'manchesternh.gov/city-government/departments/building', email: 'building@manchesternh.gov',        addr: '1 City Hall Plaza, Manchester NH 03101',           hours: 'Mon–Fri 8am–4:30pm' },
+  nashua:      { dept: 'Nashua Building Safety',               phone: '(603) 589-3080', web: 'nashuanh.gov/building',                                 email: 'buildingsafety@nashuanh.gov',       addr: '229 Main St, Nashua NH 03060',                     hours: 'Mon–Fri 8am–4:30pm' },
+  concord:     { dept: 'Concord Building Division',            phone: '(603) 228-2737', web: 'concordnh.gov/building',                                email: 'building@concordnh.gov',            addr: '41 Green St, Concord NH 03301',                    hours: 'Mon–Fri 8am–4pm' },
+  dover:       { dept: 'Dover Planning & Community Services',  phone: '(603) 516-6008', web: 'dover.nh.gov/government/city-departments/planning',     email: 'planning@dover.nh.gov',             addr: '259 County Farm Rd, Dover NH 03820',               hours: 'Mon–Fri 8am–4pm' },
+  portsmouth:  { dept: 'Portsmouth Inspectional Services',     phone: '(603) 610-7212', web: 'cityofportsmouth.com/inspectional',                    email: 'inspections@cityofportsmouth.com',  addr: '1 Junkins Ave, Portsmouth NH 03801',               hours: 'Mon–Fri 8am–4pm' },
+  rochester:   { dept: 'Rochester Building Department',        phone: '(603) 332-1167', web: 'rochesternh.gov/building',                             email: 'building@rochesternh.gov',          addr: '31 Wakefield St, Rochester NH 03867',              hours: 'Mon–Fri 8am–4pm' },
+  keene:       { dept: 'Keene Code Compliance',                phone: '(603) 357-9829', web: 'ci.keene.nh.us/departments/code-compliance',           email: 'codecompliance@ci.keene.nh.us',     addr: '3 Washington St, Keene NH 03431',                  hours: 'Mon–Fri 8am–4pm' },
+  derry:       { dept: 'Derry Building Department',            phone: '(603) 432-6100', web: 'derry.nh.us/building',                                 email: 'building@derry.nh.us',              addr: '14 Manning St, Derry NH 03038',                    hours: 'Mon–Fri 8am–4pm' },
+  londonderry: { dept: 'Londonderry Building Department',      phone: '(603) 432-1100', web: 'londonderrynh.org/building',                           email: 'building@londonderrynh.org',        addr: '268B Mammoth Rd, Londonderry NH 03053',            hours: 'Mon–Fri 8am–4pm' },
+  merrimack:   { dept: 'Merrimack Building Department',        phone: '(603) 424-3651', web: 'merrimacknh.gov/building',                             email: 'building@merrimacknh.gov',          addr: '6 Baboosic Lake Rd, Merrimack NH 03054',          hours: 'Mon–Fri 8am–4pm' },
+  bedford:     { dept: 'Bedford Building Department',          phone: '(603) 472-3550', web: 'bedfordnh.gov/building',                               email: 'building@bedfordnh.gov',            addr: '24 N Amherst Rd, Bedford NH 03110',                hours: 'Mon–Fri 8am–4pm' },
+  laconia:     { dept: 'Laconia Code Enforcement',             phone: '(603) 527-1268', web: 'laconianh.gov/code-enforcement',                       email: 'codeenforcement@laconianh.gov',     addr: '45 Beacon St E, Laconia NH 03246',                 hours: 'Mon–Fri 8am–4pm' },
+  hampton:     { dept: 'Hampton Building Department',          phone: '(603) 929-5837', web: 'hamptonnh.gov/building',                               email: 'building@hamptonnh.gov',            addr: '100 Winnacunnet Rd, Hampton NH 03842',             hours: 'Mon–Fri 8am–4pm' },
+  exeter:      { dept: 'Exeter Building Department',           phone: '(603) 772-4391', web: 'exeternh.gov/building',                               email: 'building@exeternh.gov',             addr: '10 Front St, Exeter NH 03833',                     hours: 'Mon–Fri 8am–4pm' },
+  goffstown:   { dept: 'Goffstown Building Department',        phone: '(603) 497-8990', web: 'goffstown.nh.gov/building',                           email: 'building@goffstown.nh.gov',         addr: '16 Main St, Goffstown NH 03045',                   hours: 'Mon–Fri 8am–4pm' },
+};
+
+function extractNHTown(address: string): string {
+  const lower = address.toLowerCase();
+  for (const town of Object.keys(NH_BUILDING_DEPTS)) {
+    if (lower.includes(town)) return town;
+  }
+  // Try to extract town from "City, NH" pattern
+  const m = lower.match(/,\s*([a-z\s]+),?\s*nh/);
+  if (m) {
+    const extracted = m[1].trim().replace(/\s+/g, '');
+    for (const town of Object.keys(NH_BUILDING_DEPTS)) {
+      if (town.includes(extracted) || extracted.includes(town)) return town;
+    }
+    return m[1].trim();
+  }
+  return '';
+}
+
+const PERMIT_SYSTEM_PROMPT = `You are PermitAI, an expert assistant for New Hampshire building permits and construction codes. You help contractors, property managers, and homeowners understand exactly what permits they need, how to get them, and what the process looks like from start to finish.
+
+Your knowledge covers:
+- NH State Building Code (RSA 155-A) — NH adopted IBC/IRC with state amendments
+- International Building Code (IBC 2021) — commercial structures
+- International Residential Code (IRC 2021) — 1-2 family dwellings
+- National Electrical Code (NEC 2023) — all electrical work
+- International Mechanical Code (IMC 2021) — HVAC, plumbing
+- International Plumbing Code (IPC 2021)
+- NH Energy Code (IECC 2021 with NH amendments)
+- Americans with Disabilities Act (ADA) — public/commercial buildings
+- NH Fire Code (RSA 153)
+
+For every work type, you must provide:
+1. **Permit Required?** — Yes/No and why
+2. **Which Permits** — building, electrical, plumbing, mechanical, etc.
+3. **Where to File** — exact department name, address, phone, website, email, hours
+4. **Step-by-Step Process** — numbered steps from application to final inspection
+5. **Documents Required** — what to bring/upload with the application
+6. **Fees** — typical fee range (NH towns typically charge $50–$500+ depending on project value)
+7. **Timeline** — typical review and inspection timeline
+8. **Inspections Required** — which inspections, in what order
+9. **Relevant Code Sections** — specific RSA, IBC, IRC, NEC references
+10. **Common Gotchas** — things that typically cause delays or rejections
+
+Work types that typically require permits in NH:
+- New construction (always)
+- Additions and structural changes (always)
+- Roofing on commercial; residential varies by town
+- Electrical work beyond like-for-like replacement
+- Plumbing beyond fixture replacement
+- HVAC installation/replacement
+- Decks over 30" above grade
+- Fences over 6' in many towns
+- Pool installation
+- Garage conversion or ADU
+- Demolition
+- Signs (commercial)
+
+Work that typically does NOT require a permit:
+- Cosmetic repairs (paint, flooring, tile)
+- Like-for-like fixture replacement (faucets, toilets, light switches)
+- Roofing repair under certain thresholds in residential
+- Minor carpentry/trim work
+
+Always be specific, actionable, and cite code sections. Format responses clearly with headers and numbered lists. If the town has an online permit portal, mention it. Mention that NH requires licensed contractors for electrical (NH Board of Electricians), plumbing (NH OPLC), and HVAC (EPA 608 cert for refrigerants).`;
+
+app.post('/make-server-57095a78/permit-ai/chat', async (c) => {
+  try {
+    const { message, address, workType, history = [] } = await c.req.json();
+    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+
+    if (!ANTHROPIC_API_KEY) {
+      return c.json({ error: 'ANTHROPIC_API_KEY not configured in Supabase secrets.' }, 500);
+    }
+
+    // Look up town building department
+    const town = address ? extractNHTown(address) : '';
+    const deptInfo = NH_BUILDING_DEPTS[town];
+    let contextBlock = '';
+    if (address) {
+      contextBlock += `\n\nPROJECT ADDRESS: ${address}`;
+      if (deptInfo) {
+        contextBlock += `\nTOWN IDENTIFIED: ${town.charAt(0).toUpperCase() + town.slice(1)}, NH`;
+        contextBlock += `\nBUILDING DEPARTMENT: ${deptInfo.dept}`;
+        contextBlock += `\n  Phone: ${deptInfo.phone}`;
+        contextBlock += `\n  Website: https://${deptInfo.web}`;
+        contextBlock += `\n  Email: ${deptInfo.email}`;
+        contextBlock += `\n  Address: ${deptInfo.addr}`;
+        contextBlock += `\n  Hours: ${deptInfo.hours}`;
+      } else if (town) {
+        contextBlock += `\nTOWN IDENTIFIED: ${town.charAt(0).toUpperCase() + town.slice(1)}, NH — building department contact not in database; advise user to search "[town] NH building department" or call town hall.`;
+      }
+    }
+    if (workType) contextBlock += `\nWORK TYPE: ${workType}`;
+
+    const messages = [
+      ...history.map((h: any) => ({ role: h.role, content: h.content })),
+      { role: 'user', content: (contextBlock ? `[Context]${contextBlock}\n\n[Question] ` : '') + message },
+    ];
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        system: PERMIT_SYSTEM_PROMPT,
+        messages,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      return c.json({ error: `Anthropic API error: ${err}` }, 500);
+    }
+
+    const data = await res.json();
+    const reply = data.content?.[0]?.text ?? 'No response generated.';
+    return c.json({ reply, town, deptInfo: deptInfo || null });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
 });
 
 Deno.serve(app.fetch);

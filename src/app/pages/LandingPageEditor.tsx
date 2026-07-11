@@ -2838,10 +2838,59 @@ function SectionEditor({ section, onUpdate, onAIAssist, onBrowseMedia }: any) {
       <p className="text-sm text-gray-400 mb-6 capitalize">{section.type} Section Editor</p>
       
       <div className="space-y-4">
-        <p className="text-gray-400">Editor for {section.type} section coming soon...</p>
-        <p className="text-sm text-gray-500">
-          This section type is being developed. Check back soon!
-        </p>
+        {section.content && typeof section.content === 'object' ? (
+          Object.entries(section.content).map(([key, val]) => (
+            <div key={key}>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 capitalize">
+                {key.replace(/_/g, ' ')}
+              </label>
+              {typeof val === 'string' && val.length > 80 ? (
+                <textarea
+                  value={val as string}
+                  onChange={e => {
+                    const updated = { ...section.content, [key]: e.target.value };
+                    onUpdate({ content: updated });
+                  }}
+                  rows={3}
+                  className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white resize-none focus:outline-none focus:border-purple-500 transition"
+                />
+              ) : typeof val === 'string' || typeof val === 'number' ? (
+                <input
+                  type="text"
+                  value={String(val)}
+                  onChange={e => {
+                    const updated = { ...section.content, [key]: e.target.value };
+                    onUpdate({ content: updated });
+                  }}
+                  className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 transition"
+                />
+              ) : typeof val === 'boolean' ? (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={val as boolean}
+                    onChange={e => onUpdate({ content: { ...section.content, [key]: e.target.checked } })}
+                    className="w-4 h-4 accent-purple-500"
+                  />
+                  <span className="text-sm text-gray-300">Enabled</span>
+                </label>
+              ) : (
+                <p className="text-xs text-gray-600 italic">Complex field — use JSON export to edit</p>
+              )}
+            </div>
+          ))
+        ) : (
+          <div>
+            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Content</label>
+            <textarea
+              value={typeof section.content === 'string' ? section.content : ''}
+              onChange={e => onUpdate({ content: e.target.value })}
+              rows={4}
+              placeholder="Enter section content..."
+              className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white resize-none focus:outline-none focus:border-purple-500 transition"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -14,16 +14,12 @@ import {
   Gift, Tag, Percent, DollarSign, Calendar, Users, TrendingUp, TrendingDown,
   Plus, Edit, Trash2, Eye, Copy, Search, Filter, Download, Settings,
   BarChart3, Activity, Clock, CheckCircle, XCircle, Sparkles, ArrowLeft,
-  Share2, Send, Target
+  Share2, Send, Target, X, Save
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { toast } from 'sonner@2.0.3';
 
-export default function PromotionsManager() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'coupons' | 'sales' | 'giveaways'>('all');
-
-  const promotions = [
+const DEFAULT_PROMOS = [
     {
       id: 'PROMO-001',
       name: 'Spring Sale 2026',
@@ -122,7 +118,61 @@ export default function PromotionsManager() {
       expires: '2026-08-31',
       status: 'expired'
     },
-  ];
+];
+
+const BLANK = { name: '', type: 'coupon' as 'coupon'|'sale'|'giveaway', code: '', discountType: 'percentage' as 'percentage'|'fixed'|'none', discountValue: 0, limit: 500, expires: '', status: 'active' as 'active'|'scheduled'|'expired' };
+
+export default function PromotionsManager() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'coupons' | 'sales' | 'giveaways'>('all');
+  const [promotions, setPromos] = useState<any[]>(() => {
+    try { return JSON.parse(localStorage.getItem('promotions_data') || 'null') || DEFAULT_PROMOS; } catch { return DEFAULT_PROMOS; }
+  });
+  const [showModal, setShowModal] = useState(false);
+  const [editingPromo, setEditingPromo] = useState<any | null>(null);
+  const [viewingPromo, setViewingPromo] = useState<any | null>(null);
+  const [form, setForm] = useState(BLANK);
+  const [createType, setCreateType] = useState<'coupon'|'sale'|'giveaway'>('coupon');
+
+  function savePromos(updated: any[]) { setPromos(updated); localStorage.setItem('promotions_data', JSON.stringify(updated)); }
+
+  function openCreate(type: 'coupon'|'sale'|'giveaway' = 'coupon') {
+    setCreateType(type);
+    setForm({ ...BLANK, type, code: type.toUpperCase() + Math.floor(Math.random() * 9000 + 1000), expires: new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0] });
+    setEditingPromo(null);
+    setShowModal(true);
+  }
+
+  function openEdit(promo: any) {
+    setForm({ name: promo.name, type: promo.type, code: promo.code, discountType: promo.discountType, discountValue: promo.discountValue, limit: promo.limit, expires: promo.expires, status: promo.status });
+    setEditingPromo(promo);
+    setShowModal(true);
+  }
+
+  function savePromo() {
+    if (!form.name || !form.code) { toast.error('Name and code are required'); return; }
+    if (editingPromo) {
+      savePromos(promotions.map(p => p.id === editingPromo.id ? { ...editingPromo, ...form, discount: form.discountType === 'percentage' ? `${form.discountValue}% OFF` : form.discountType === 'fixed' ? `$${form.discountValue} OFF` : 'Free Entry' } : p));
+      toast.success('Promotion updated');
+    } else {
+      const next = { id: `PROMO-${String(promotions.length + 1).padStart(3, '0')}`, ...form, discount: form.discountType === 'percentage' ? `${form.discountValue}% OFF` : form.discountType === 'fixed' ? `$${form.discountValue} OFF` : 'Free Entry', used: 0, revenue: 0 };
+      savePromos([...promotions, next]);
+      toast.success(`"${form.name}" promotion created`);
+    }
+    setShowModal(false);
+    setEditingPromo(null);
+  }
+
+  function deletePromo(id: string, name: string) {
+    savePromos(promotions.filter(p => p.id !== id));
+    toast.success(`"${name}" deleted`);
+  }
+
+  function exportReport() {
+    const csv = ['Name,Code,Type,Discount,Used,Limit,Revenue,Status,Expires', ...promotions.map(p => `"${p.name}","${p.code}","${p.type}","${p.discount}","${p.used}","${p.limit}","${p.revenue}","${p.status}","${p.expires}"`)].join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'promotions-report.csv'; a.click();
+    toast.success('Report exported');
+  }
 
   const filteredPromotions = promotions.filter(promo => {
     const matchesType = filterType === 'all' || promo.type === filterType;
@@ -194,8 +244,8 @@ export default function PromotionsManager() {
               <Gift className="w-6 h-6 text-pink-500" />
               <h3 className="text-xl font-bold">All Promotions</h3>
             </div>
-            <button 
-              onClick={() => toast.info('Create promotion modal opening...')}
+            <button
+              onClick={() => openCreate('coupon')}
               className="px-4 py-3 bg-gradient-to-r from-pink-600 to-pink-700 hover:from-pink-700 hover:to-pink-800 text-white rounded-lg font-bold flex items-center gap-2 transition-all shadow-lg shadow-pink-600/30"
             >
               <Plus className="w-5 h-5" />
@@ -307,29 +357,29 @@ export default function PromotionsManager() {
 
                   {/* Action Buttons */}
                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => toast.info(`Viewing details for ${promo.name}`)}
+                    <button
+                      onClick={() => setViewingPromo(promo)}
                       className="flex-1 px-3 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-zinc-800 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
                     >
                       <Eye className="w-3 h-3" />
                       View Details
                     </button>
-                    <button 
-                      onClick={() => toast.info(`Editing ${promo.name}`)}
+                    <button
+                      onClick={() => openEdit(promo)}
                       className="flex-1 px-3 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-zinc-800 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
                     >
                       <Edit className="w-3 h-3" />
                       Edit
                     </button>
-                    <button 
-                      onClick={() => toast.success(`Duplicated ${promo.name}`)}
+                    <button
+                      onClick={() => { const dup = { ...promo, id: `PROMO-${String(promotions.length + 1).padStart(3, '0')}`, name: promo.name + ' (Copy)', used: 0 }; savePromos([...promotions, dup]); toast.success(`Duplicated "${promo.name}"`); }}
                       className="flex-1 px-3 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-zinc-800 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
                     >
                       <Copy className="w-3 h-3" />
                       Duplicate
                     </button>
-                    <button 
-                      onClick={() => toast.error(`Deleted ${promo.name}`)}
+                    <button
+                      onClick={() => deletePromo(promo.id, promo.name)}
                       className="px-3 py-2 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-all flex items-center gap-2"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -399,8 +449,8 @@ export default function PromotionsManager() {
               <BarChart3 className="w-6 h-6 text-green-500" />
               <h3 className="text-xl font-bold">Promotion Performance</h3>
             </div>
-            <button 
-              onClick={() => toast.info('Exporting performance report...')}
+            <button
+              onClick={exportReport}
               className="px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg font-semibold flex items-center gap-2 transition-all"
             >
               <Download className="w-4 h-4" />
@@ -468,7 +518,7 @@ export default function PromotionsManager() {
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button
-            onClick={() => toast.info('Creating coupon code...')}
+            onClick={() => openCreate('coupon')}
             className="bg-gradient-to-br from-blue-600/10 to-blue-700/10 border border-blue-500/30 rounded-lg p-6 hover:border-blue-500/60 transition-all text-left group"
           >
             <div className="flex items-center gap-3 mb-3">
@@ -481,7 +531,7 @@ export default function PromotionsManager() {
           </button>
 
           <button
-            onClick={() => toast.info('Setting up sale event...')}
+            onClick={() => openCreate('sale')}
             className="bg-gradient-to-br from-pink-600/10 to-pink-700/10 border border-pink-500/30 rounded-lg p-6 hover:border-pink-500/60 transition-all text-left group"
           >
             <div className="flex items-center gap-3 mb-3">
@@ -494,7 +544,7 @@ export default function PromotionsManager() {
           </button>
 
           <button
-            onClick={() => toast.info('Creating giveaway campaign...')}
+            onClick={() => openCreate('giveaway')}
             className="bg-gradient-to-br from-purple-600/10 to-purple-700/10 border border-purple-500/30 rounded-lg p-6 hover:border-purple-500/60 transition-all text-left group"
           >
             <div className="flex items-center gap-3 mb-3">
@@ -507,6 +557,111 @@ export default function PromotionsManager() {
           </button>
         </div>
       </div>
+
+      {/* Create / Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowModal(false)} />
+          <div className="relative bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-[#2A2A2A]">
+              <h3 className="font-bold text-white">{editingPromo ? 'Edit Promotion' : 'Create Promotion'}</h3>
+              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              {[['Promotion Name', 'name', 'text'], ['Promo Code', 'code', 'text']].map(([label, key, type]) => (
+                <div key={key}>
+                  <label className="block text-xs text-gray-400 mb-1">{label}</label>
+                  <input type={type} value={(form as any)[key]} onChange={e => setForm(v => ({ ...v, [key]: e.target.value }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition" />
+                </div>
+              ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Type</label>
+                  <select value={form.type} onChange={e => setForm(v => ({ ...v, type: e.target.value as any }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition">
+                    <option value="coupon">Coupon</option>
+                    <option value="sale">Sale</option>
+                    <option value="giveaway">Giveaway</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Discount Type</label>
+                  <select value={form.discountType} onChange={e => setForm(v => ({ ...v, discountType: e.target.value as any }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition">
+                    <option value="percentage">Percentage %</option>
+                    <option value="fixed">Fixed Amount $</option>
+                    <option value="none">None (entry/giveaway)</option>
+                  </select>
+                </div>
+              </div>
+              {form.discountType !== 'none' && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Discount Value</label>
+                  <input type="number" min="0" value={form.discountValue} onChange={e => setForm(v => ({ ...v, discountValue: Number(e.target.value) }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition" />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Usage Limit</label>
+                  <input type="number" min="1" value={form.limit} onChange={e => setForm(v => ({ ...v, limit: Number(e.target.value) }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Expires</label>
+                  <input type="date" value={form.expires} onChange={e => setForm(v => ({ ...v, expires: e.target.value }))}
+                    className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Status</label>
+                <select value={form.status} onChange={e => setForm(v => ({ ...v, status: e.target.value as any }))}
+                  className="w-full bg-[#111] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-pink-500 transition">
+                  <option value="active">Active</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="expired">Expired</option>
+                </select>
+              </div>
+            </div>
+            <div className="p-5 border-t border-[#2A2A2A] flex gap-2">
+              <button onClick={() => setShowModal(false)} className="flex-1 py-2 border border-[#2A2A2A] text-gray-400 rounded-lg text-sm hover:text-white transition">Cancel</button>
+              <button onClick={savePromo} className="flex-1 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1.5">
+                <Save className="w-3.5 h-3.5" />{editingPromo ? 'Save Changes' : 'Create Promotion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Details Modal */}
+      {viewingPromo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setViewingPromo(null)} />
+          <div className="relative bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-[#2A2A2A]">
+              <h3 className="font-bold text-white">{viewingPromo.name}</h3>
+              <button onClick={() => setViewingPromo(null)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="text-center py-4">
+                <p className="text-3xl font-bold text-pink-400 mb-1">{viewingPromo.discount}</p>
+                <p className="text-sm font-mono text-white bg-[#111] px-4 py-2 rounded-lg inline-block mt-2">{viewingPromo.code}</p>
+              </div>
+              {[['Type', viewingPromo.type], ['Status', viewingPromo.status], ['Used', `${viewingPromo.used.toLocaleString()} / ${viewingPromo.limit.toLocaleString()}`], ['Revenue Generated', `$${viewingPromo.revenue.toLocaleString()}`], ['Expires', viewingPromo.expires]].map(([label, val]) => (
+                <div key={label} className="flex justify-between py-2 border-b border-[#2A2A2A]">
+                  <span className="text-xs text-gray-400">{label}</span>
+                  <span className="text-sm text-white font-medium capitalize">{val}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-5 border-t border-[#2A2A2A] flex gap-2">
+              <button onClick={() => { navigator.clipboard.writeText(viewingPromo.code); toast.success('Code copied to clipboard'); }} className="flex-1 py-2 border border-[#2A2A2A] text-gray-400 rounded-lg text-sm hover:text-white transition flex items-center justify-center gap-1.5"><Copy className="w-3.5 h-3.5" /> Copy Code</button>
+              <button onClick={() => { setViewingPromo(null); openEdit(viewingPromo); }} className="flex-1 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1.5"><Edit className="w-3.5 h-3.5" /> Edit</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

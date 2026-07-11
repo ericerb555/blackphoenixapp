@@ -3,7 +3,8 @@
  * Track construction waste, dump runs, recycling, hazardous materials, and costs
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import {
   Trash2, TruckIcon, Recycle, AlertTriangle, DollarSign, Calendar,
   MapPin, Plus, Search, Filter, Download, Eye, Edit, BarChart3,
@@ -641,10 +642,34 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
                 Export
               </StandardButton>
             </div>
-            <div className="text-center py-8 text-gray-400">
-              <BarChart3 className="w-12 h-12 mx-auto mb-3" />
-              <p>Chart visualization coming soon</p>
-            </div>
+            {(() => {
+              const monthlyData = wasteEntries.reduce((acc: Record<string, { month: string; cost: number; quantity: number }>, e) => {
+                const d = new Date(e.scheduledDate);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                if (!acc[key]) acc[key] = { month: label, cost: 0, quantity: 0 };
+                acc[key].cost += e.cost || 0;
+                acc[key].quantity += e.quantity || 0;
+                return acc;
+              }, {});
+              const chartData = Object.entries(monthlyData).sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([, v]) => v);
+              if (chartData.length === 0) {
+                return <div className="text-center py-8 text-gray-500 text-sm">No data yet — add waste entries to see trends</div>;
+              }
+              return (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
+                    <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                    <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff' }} formatter={(v: number, name: string) => [name === 'cost' ? `$${v.toLocaleString()}` : `${v} units`, name === 'cost' ? 'Cost' : 'Quantity']} />
+                    <Legend wrapperStyle={{ color: '#9ca3af', fontSize: 12 }} />
+                    <Bar dataKey="cost" fill="#ea580c" radius={[4, 4, 0, 0]} name="cost" />
+                    <Bar dataKey="quantity" fill="#3b82f6" radius={[4, 4, 0, 0]} name="quantity" />
+                  </BarChart>
+                </ResponsiveContainer>
+              );
+            })()}
           </div>
 
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">

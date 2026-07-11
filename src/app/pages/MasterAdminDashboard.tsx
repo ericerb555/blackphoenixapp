@@ -494,7 +494,7 @@ export default function MasterAdminDashboard({ onNavigate }: MasterAdminDashboar
                   <p className="text-sm text-zinc-400">Reports & analytics</p>
                 </button>
                 <button
-                  onClick={() => toast.info('System Settings - Coming Soon')}
+                  onClick={() => setActiveView('system')}
                   className="p-4 bg-red-600/10 border border-red-500/30 rounded-lg hover:bg-red-600/20 transition-colors text-left"
                 >
                   <Settings className="w-5 h-5 text-red-400 mb-2" />

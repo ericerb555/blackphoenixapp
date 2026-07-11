@@ -368,7 +368,11 @@ export default function JobFinancialTracker() {
             Jobs ({filteredJobs.length})
           </h2>
           <button
-            onClick={() => toast.info('Export functionality')}
+            onClick={() => {
+              const csv = ['Job Number,Customer,Project,Status,Est Revenue,Actual Revenue,Est Cost,Actual Cost,Margin %', ...filteredJobs.map((j: any) => `"${j.jobNumber}","${j.customerName}","${j.projectName}","${j.status}","${j.estimatedRevenue}","${j.actualRevenue}","${j.estimatedCosts}","${j.actualCosts}","${j.profitMargin}"`)].join('\n');
+              const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'job-financials.csv'; a.click();
+              toast.success('Job financials exported');
+            }}
             className="px-4 py-2 bg-gradient-to-r from-blue-600/10 to-cyan-600/10 text-gray-300 hover:from-blue-600/20 hover:to-cyan-600/20 hover:text-white border-2 border-blue-500/30 hover:border-blue-400/50 transition-all duration-300 rounded-lg font-semibold flex items-center gap-2"
           >
             <Download className="w-4 h-4" />

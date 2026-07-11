@@ -13,6 +13,7 @@ interface CreateInvoiceModalProps {
   customerId?: string;
   projectId?: string;
   projectData?: any;
+  invoice?: any; // pass existing invoice to edit it
 }
 
 export default function CreateInvoiceModal({
@@ -22,7 +23,9 @@ export default function CreateInvoiceModal({
   customerId,
   projectId,
   projectData,
+  invoice,
 }: CreateInvoiceModalProps) {
+  const isEditMode = !!invoice;
   const [loading, setLoading] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,6 +55,28 @@ export default function CreateInvoiceModal({
   useEffect(() => {
     if (isOpen && !customerId) {
       loadCustomers();
+    }
+    // Pre-fill form from existing invoice when editing
+    if (isOpen && invoice) {
+      setFormData({
+        customer_id: invoice.customer_id || '',
+        project_id: invoice.project_id || '',
+        customer_name: invoice.customer_name || '',
+        customer_email: invoice.customer_email || '',
+        status: invoice.status || 'draft',
+        is_draft: invoice.is_draft ?? false,
+        tax_rate: invoice.tax_rate || 0,
+        discount_amount: invoice.discount_amount || 0,
+        due_date: invoice.due_date || '',
+        issue_date: invoice.issue_date || new Date().toISOString().split('T')[0],
+        notes: invoice.notes || '',
+        terms: invoice.terms || companyInfo.legal.terms,
+        internal_notes: invoice.internal_notes || '',
+      });
+      if (invoice.line_items && invoice.line_items.length > 0) {
+        setLineItems(invoice.line_items);
+      }
+      setShowCustomerSearch(false);
     }
   }, [isOpen]);
 
@@ -192,11 +217,18 @@ export default function CreateInvoiceModal({
         line_items: lineItems,
       };
 
-      const { data, error } = await InvoiceService.createInvoice(invoiceData);
-      
+      let error: any;
+      if (isEditMode && invoice?.id) {
+        ({ error } = await InvoiceService.updateInvoice(invoice.id, invoiceData));
+      } else {
+        ({ error } = await InvoiceService.createInvoice(invoiceData));
+      }
+
       if (error) throw error;
 
-      if (isDraft) {
+      if (isEditMode) {
+        toast.success('Invoice updated successfully!');
+      } else if (isDraft) {
         toast.success('Draft invoice saved! You can assign a customer later.');
       } else {
         toast.success('Invoice created successfully!');
@@ -255,7 +287,7 @@ export default function CreateInvoiceModal({
               <FileText className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">Create Invoice</h2>
+              <h2 className="text-xl font-bold text-white">{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</h2>
               <p className="text-sm text-orange-100">Add line items and customer details</p>
             </div>
           </div>
@@ -592,7 +624,7 @@ export default function CreateInvoiceModal({
               disabled={loading}
               className="px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white rounded-xl font-semibold transition shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating...' : 'Create Invoice'}
+              {loading ? (isEditMode ? 'Saving...' : 'Creating...') : (isEditMode ? 'Save Changes' : 'Create Invoice')}
             </button>
           </div>
         </form>

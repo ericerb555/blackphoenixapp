@@ -51,6 +51,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import UnifiedPaymentService from '../lib/services/unifiedPaymentService';
 import type {
   UnifiedPayment,
@@ -703,21 +704,141 @@ export default function UnifiedPaymentCenter() {
     </div>
   );
 
-  const renderAnalytics = () => (
-    <Card className="p-6 bg-[#1a1a1a] border-[#2a2a2a]">
-      <div className="text-center py-12">
-        <BarChart3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-        <h3 className="text-xl font-bold text-white mb-2">Advanced Analytics</h3>
-        <p className="text-gray-400 mb-6">Detailed payment analytics and reports coming soon</p>
-        <div className="flex justify-center gap-4">
-          <SecondaryButton>
-            <Download className="w-4 h-4 mr-2" />
-            Export Report
-          </SecondaryButton>
+  const renderAnalytics = () => {
+    // Build monthly revenue from payments list
+    const monthlyMap: Record<string, number> = {};
+    payments.forEach(p => {
+      if (p.status !== 'completed') return;
+      const month = new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      monthlyMap[month] = (monthlyMap[month] || 0) + (p.amount || 0);
+    });
+    const monthlyData = Object.entries(monthlyMap).map(([month, revenue]) => ({ month, revenue })).slice(-6);
+
+    // Status breakdown
+    const statusMap: Record<string, number> = {};
+    payments.forEach(p => { statusMap[p.status] = (statusMap[p.status] || 0) + 1; });
+    const statusData = Object.entries(statusMap).map(([name, value]) => ({ name, value }));
+    const STATUS_COLORS: Record<string, string> = { completed: '#22c55e', pending: '#f97316', failed: '#ef4444', refunded: '#6b7280' };
+
+    // Gateway breakdown
+    const gatewayData = Object.entries(stats?.by_gateway || {}).map(([name, value]) => ({ name, value: Number(value) }));
+
+    // Top payers
+    const payerMap: Record<string, number> = {};
+    payments.forEach(p => {
+      if (p.customer_name && p.status === 'completed') {
+        payerMap[p.customer_name] = (payerMap[p.customer_name] || 0) + (p.amount || 0);
+      }
+    });
+    const topPayers = Object.entries(payerMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, total]) => ({ name, total }));
+
+    const exportCSV = () => {
+      const rows = [['Date', 'Customer', 'Amount', 'Status', 'Type', 'Gateway']];
+      payments.forEach(p => rows.push([
+        new Date(p.created_at).toLocaleDateString(), p.customer_name || '', `$${p.amount}`, p.status, p.payment_type || '', p.gateway || '',
+      ]));
+      const csv = rows.map(r => r.join(',')).join('\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `payments-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+      toast.success('Report exported');
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-bold text-lg">Payment Analytics</h3>
+          <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2 bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/40 text-gray-400 hover:text-white text-sm rounded-xl transition">
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
         </div>
+
+        {/* Monthly revenue chart */}
+        <Card className="p-5 bg-[#1a1a1a] border-[#2a2a2a]">
+          <p className="text-sm font-semibold text-white mb-4">Monthly Revenue (last 6 months)</p>
+          {monthlyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={monthlyData}>
+                <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                <Tooltip contentStyle={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff' }} formatter={(v: any) => [`$${Number(v).toLocaleString()}`, 'Revenue']} />
+                <Bar dataKey="revenue" fill="#f97316" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-gray-600 text-sm">No payment data yet</div>
+          )}
+        </Card>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Status breakdown */}
+          <Card className="p-5 bg-[#1a1a1a] border-[#2a2a2a]">
+            <p className="text-sm font-semibold text-white mb-4">Payment Status Breakdown</p>
+            {statusData.length > 0 ? (
+              <div className="flex items-center gap-4">
+                <PieChart width={120} height={120}>
+                  <Pie data={statusData} cx={55} cy={55} innerRadius={30} outerRadius={50} dataKey="value" paddingAngle={2}>
+                    {statusData.map((entry, i) => <Cell key={i} fill={STATUS_COLORS[entry.name] || '#6b7280'} />)}
+                  </Pie>
+                </PieChart>
+                <div className="space-y-2 flex-1">
+                  {statusData.map(d => (
+                    <div key={d.name} className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-gray-400 capitalize">
+                        <span className="w-2 h-2 rounded-full" style={{ background: STATUS_COLORS[d.name] || '#6b7280' }} />
+                        {d.name}
+                      </span>
+                      <span className="text-white font-semibold">{d.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <div className="h-32 flex items-center justify-center text-gray-600 text-sm">No data</div>}
+          </Card>
+
+          {/* Top payers */}
+          <Card className="p-5 bg-[#1a1a1a] border-[#2a2a2a]">
+            <p className="text-sm font-semibold text-white mb-4">Top Customers by Revenue</p>
+            {topPayers.length > 0 ? (
+              <div className="space-y-3">
+                {topPayers.map((p, i) => (
+                  <div key={p.name} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-orange-400 font-bold text-xs w-4">#{i + 1}</span>
+                      <span className="text-gray-300 truncate">{p.name}</span>
+                    </div>
+                    <span className="text-white font-semibold flex-shrink-0 ml-2">${p.total.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="h-32 flex items-center justify-center text-gray-600 text-sm">No completed payments yet</div>}
+          </Card>
+        </div>
+
+        {/* Gateway breakdown */}
+        {gatewayData.length > 0 && (
+          <Card className="p-5 bg-[#1a1a1a] border-[#2a2a2a]">
+            <p className="text-sm font-semibold text-white mb-4">Revenue by Payment Gateway</p>
+            <div className="space-y-3">
+              {gatewayData.map(g => {
+                const pct = stats?.total_revenue > 0 ? Math.round((g.value / stats.total_revenue) * 100) : 0;
+                return (
+                  <div key={g.name}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400 capitalize">{g.name}</span>
+                      <span className="text-white">${Number(g.value).toLocaleString()} <span className="text-gray-500">({pct}%)</span></span>
+                    </div>
+                    <div className="h-2 bg-[#2A2A2A] rounded-full overflow-hidden">
+                      <div className="h-full bg-orange-500 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
       </div>
-    </Card>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white p-8">

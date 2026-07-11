@@ -635,6 +635,20 @@ function WorkRequestDetailsSection({ wr }: { wr: any }) {
           {wr.year_built && <Row label="Year Built" value={wr.year_built} />}
           {wr.total_floors && <Row label="Floors" value={wr.total_floors} />}
           {wr.total_square_feet > 0 && <Row label="Sq Ft" value={`${wr.total_square_feet?.toLocaleString()} sqft`} />}
+          {wr.site_address && (
+            <button
+              onClick={() => {
+                const addr = [wr.site_address, wr.city, wr.state || 'NH', wr.zip_code].filter(Boolean).join(', ');
+                const wt = wr.serviceType || wr.project_type || '';
+                const url = `/permit-ai?address=${encodeURIComponent(addr)}&workType=${encodeURIComponent(wt)}`;
+                (window as any).__navigateApp?.(url);
+              }}
+              className="mt-2 flex items-center gap-2 w-full px-3 py-2 bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/30 hover:border-violet-500/50 rounded-lg text-xs text-violet-300 hover:text-violet-200 transition-all font-semibold"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Check Permit Requirements with AI
+            </button>
+          )}
         </div>
 
         {/* Design Preferences */}

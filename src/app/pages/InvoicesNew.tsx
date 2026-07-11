@@ -27,6 +27,7 @@ export default function InvoicesNew() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [invoiceToPreview, setInvoiceToPreview] = useState<Invoice | null>(null);
+  const [invoiceToEdit, setInvoiceToEdit] = useState<Invoice | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [pendingProjectData, setPendingProjectData] = useState<any>(null);
   const [stats, setStats] = useState({
@@ -541,7 +542,7 @@ export default function InvoicesNew() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      toast.info('Edit coming soon!');
+                      setInvoiceToEdit(invoice); setShowCreateModal(true);
                     }}
                     className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"
                   >
@@ -672,7 +673,7 @@ export default function InvoicesNew() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      toast.info('Edit coming soon!');
+                      setInvoiceToEdit(invoice); setShowCreateModal(true);
                     }}
                     className="p-2 hover:bg-blue-600/10 rounded-lg transition border border-transparent hover:border-blue-500/20"
                     title="Edit invoice"
@@ -723,9 +724,10 @@ export default function InvoicesNew() {
       {/* Create Invoice Modal */}
       <CreateInvoiceModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => { setShowCreateModal(false); setInvoiceToEdit(null); }}
         onSuccess={handleCreateSuccess}
         projectData={pendingProjectData}
+        invoice={invoiceToEdit}
       />
 
       {/* Invoice Preview Modal */}

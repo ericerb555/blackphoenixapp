@@ -15,7 +15,8 @@
  * - Analytics: Material usage & cost tracking
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   Search, Package, Filter, Star, TrendingUp, ShoppingCart,
   Zap, CheckCircle, DollarSign, Truck, Award, BarChart3,
@@ -25,7 +26,7 @@ import {
   Download, Edit2, Trash2, AlertTriangle, Receipt, FileText,
   Database, ChevronRight, Upload, Store, Users, TrendingDown,
   ArrowLeft, ExternalLink, Copy, Link as LinkIcon, Crown,
-  Medal, Trophy, Archive, RefreshCw, Calculator, ClipboardList
+  Medal, Trophy, Archive, RefreshCw, Calculator, ClipboardList, Send
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useNavigate } from '../hooks/useNavigate';
@@ -53,6 +54,94 @@ interface VendorMaterialSubmission {
   specifications: Record<string, string>;
   status: 'pending' | 'approved' | 'rejected';
   submittedAt: string;
+}
+
+// ─── Materials AI Chat ────────────────────────────────────────────────────────
+
+const MATERIALS_PROMPTS = [
+  'What materials do I need for a deck build?',
+  'Compare pressure-treated vs composite decking',
+  'Estimate lumber for a 12x16 addition',
+  'What\'s the best insulation for NH winters?',
+  'How much concrete for a 10x10 slab?',
+  'Roofing materials for New England climate',
+];
+
+function MaterialsAIChat({ onClose }: { onClose: () => void }) {
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
+
+  async function send(text?: string) {
+    const msg = (text || input).trim();
+    if (!msg || loading) return;
+    setInput('');
+    const history = [...messages, { role: 'user' as const, content: msg }];
+    setMessages(history);
+    setLoading(true);
+    try {
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/permit-ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({
+          message: msg,
+          address: '',
+          workType: 'Materials & Procurement',
+          history: messages,
+          systemOverride: 'You are a construction materials expert for New England / New Hampshire projects. Help the user select the right materials, estimate quantities, compare options, understand building codes for materials, and find cost-effective solutions. Be specific, practical, and reference NH climate and local supplier context where relevant.',
+        }),
+      });
+      const data = await res.json();
+      if (data.reply) setMessages([...history, { role: 'assistant', content: data.reply }]);
+      else if (data.error?.includes('ANTHROPIC_API_KEY')) {
+        setMessages([...history, { role: 'assistant', content: '⚠️ **Setup Required** — Add `ANTHROPIC_API_KEY` to Supabase Edge Function secrets to activate AI assistance.' }]);
+      }
+    } catch { toast.error('Connection error'); }
+    setLoading(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-4" style={{ minHeight: 320 }}>
+      {messages.length === 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {MATERIALS_PROMPTS.map(p => (
+            <button key={p} onClick={() => send(p)}
+              className="text-left px-3 py-2.5 bg-[#111] border border-[#2A2A2A] hover:border-purple-500/40 text-xs text-gray-400 hover:text-white rounded-xl transition">
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-3 max-h-64 overflow-y-auto">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm ${m.role === 'user' ? 'bg-purple-600 text-white rounded-tr-sm' : 'bg-[#111] border border-[#2A2A2A] text-gray-200 rounded-tl-sm'}`}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex gap-1.5 px-3 py-2">
+            {[0,1,2].map(i => <div key={i} className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: `${i*0.15}s` }} />)}
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div className="flex gap-2 bg-[#111] border border-[#2A2A2A] focus-within:border-purple-500/50 rounded-xl p-2 transition">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Ask about materials, quantities, costs…"
+          className="flex-1 bg-transparent text-white text-sm placeholder-gray-600 outline-none px-2" />
+        <button onClick={() => send()} disabled={loading || !input.trim()}
+          className="w-8 h-8 bg-purple-600 hover:bg-purple-500 disabled:bg-[#2A2A2A] disabled:text-gray-600 text-white rounded-lg flex items-center justify-center flex-shrink-0 transition">
+          <Send className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function MaterialsCenter() {
@@ -386,7 +475,7 @@ export default function MaterialsCenter() {
               </button>
             </div>
             <div className="p-6">
-              <p className="text-gray-400 text-center py-8">AI Assistant coming soon...</p>
+              <MaterialsAIChat onClose={() => setShowAIAssistant(false)} />
             </div>
           </div>
         </div>
