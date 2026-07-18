@@ -1,0 +1,65 @@
+✅ [useUserProfile] Loaded from userProfiles: null
+CompanyContext.tsx:674 [CompanyContext] useEffect triggered, calling restoreSession
+CompanyContext.tsx:436 [CompanyContext] restoreSession called
+App.tsx:597 🔒 [ProtectedRoutes] useEffect running
+App.tsx:598 🔒 [ProtectedRoutes] redirecting: false
+App.tsx:599 🔒 [ProtectedRoutes] loading: false
+App.tsx:600 🔒 [ProtectedRoutes] user: true
+App.tsx:601 🔒 [ProtectedRoutes] isDemoMode: false
+App.tsx:602 🔒 [ProtectedRoutes] currentPath: customer-portal-app
+App.tsx:612 🔐 [ProtectedRoutes] Auth check - Real user: true Demo mode: false Authenticated: Object
+App.tsx:613 📍 [ProtectedRoutes] Current path: customer-portal-app Is public: true
+App.tsx:761 👑 [ProtectedRoutes] Elevated permissions: false
+App.tsx:785 🔒 [ProtectedRoutes] Public route, no restrictions
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+customer-portal-app:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/invoices?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9' from origin 'https://blackphoenixapp.vercel.app' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/invoices?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9:1  Failed to load resource: net::ERR_FAILED
+CustomerPortalView.tsx:171 ℹ️ Invoices API unavailable - using empty state
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+customer-portal-app:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/quotes?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9' from origin 'https://blackphoenixapp.vercel.app' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/quotes?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9:1  Failed to load resource: net::ERR_FAILED
+CustomerPortalView.tsx:131 ℹ️ Quotes API unavailable - using empty state
+customer-portal-app:1 Access to fetch at 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/work-requests?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9' from origin 'https://blackphoenixapp.vercel.app' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: It does not have HTTP ok status.
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/server/make-server-824f083c/work-requests?userId=1a9f3ae4-0d46-4824-8d13-05c2193ca5e9:1  Failed to load resource: net::ERR_FAILED
+CustomerPortalView.tsx:91 ℹ️ Work requests API unavailable - using empty state
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/health:1  Failed to load resource: the server responded with a status of 404 ()
+CompanyContext.tsx:442 [CompanyContext] ⏱️ Loading timeout reached (3s), completing with current state
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+backup:1  Failed to load resource: the server responded with a status of 404 ()
+dataPersistence.ts:214 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+backup:1  Failed to load resource: the server responded with a status of 404 ()
+dataPersistence.ts:214 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+backup:1  Failed to load resource: the server responded with a status of 404 ()
+dataPersistence.ts:214 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+dataPersistence.ts:194  POST https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup 404 (Not Found)
+backupToDatabase @ dataPersistence.ts:194
+(anonymous) @ dataPersistence.ts:245
+dataPersistence.ts:214 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 fullName: undefined
+useUserProfile.ts:93 👤 [useUserProfile] displayName: ericerb555 
