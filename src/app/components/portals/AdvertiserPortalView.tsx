@@ -8,7 +8,7 @@ import {
   FileText, Percent, Zap, Activity, Monitor, Megaphone, Filter,
   UserCheck, UserPlus, UserMinus, Clock, Star, ShoppingBag, Repeat,
   PieChart, LineChart as LineChartIcon, AlertCircle, CheckCircle2,
-  Palette, Lock, Crown, ExternalLink, Tag
+  Palette, Lock, Crown, ExternalLink, Tag, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -27,12 +27,13 @@ import SubmitReelForApproval from '../SubmitReelForApproval';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 
 export default function AdvertiserPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'performance' | 'referrals' | 'deals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'messages'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -205,6 +206,7 @@ export default function AdvertiserPortalView() {
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'billing', label: 'Billing', icon: DollarSign },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
+    { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: TrendingUp },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
@@ -589,6 +591,7 @@ export default function AdvertiserPortalView() {
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="advertiser" ownerName={advertiserInfo.accountManager} />}
+        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="advertiser" ownerName={advertiserInfo.name} currentTier={subscriptionTier} />}
         {activeTab === 'performance' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
             <h2 className="text-lg font-bold text-white mb-4">Performance Reports</h2>

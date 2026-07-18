@@ -10,6 +10,13 @@
  */
 
 import { projectId, publicAnonKey } from './supabase/info';
+import LZString from 'lz-string';
+import { migrateLocalImages } from './migrateLocalImages';
+import { stripDataUrlsDeep } from './imageStorage';
+
+// Marker key used inside backup.data when the real payload is compressed.
+// The server stores this envelope verbatim; only the client understands it.
+const COMPRESSED_MARKER = '__lz_compressed__';
 
 // IMPORTANT: Use the correct server prefix for this project
 const SERVER_PREFIX = '/make-server-57095a78';
@@ -39,6 +46,8 @@ class DataPersistenceManager {
   private storageListener: ((e: StorageEvent) => void) | null = null;
   private serverDeployed: boolean | null = null; // Track if server is deployed
   private hasLoggedDeploymentStatus = false; // Only log once
+  private consecutiveFailures = 0; // Circuit breaker counter
+  private pausedUntil = 0; // Timestamp; skip backups until this time
 
   /**
    * Initialize the persistence system
@@ -48,7 +57,15 @@ class DataPersistenceManager {
 
     // 1. Restore data from Supabase if localStorage is empty
     await this.restoreFromDatabase();
-    
+
+    // 1b. Move any base64 images out of localStorage into Supabase Storage so
+    // the footprint (and the backup payload) stays small. Non-blocking-safe.
+    try {
+      await migrateLocalImages();
+    } catch (e) {
+      console.warn('[DataPersistence] Image migration skipped:', e);
+    }
+
     // 2. Create initial backup
     await this.backupToDatabase();
     
@@ -115,12 +132,24 @@ class DataPersistenceManager {
       }
 
       const backup: BackupData = await response.json();
-      
+
       if (backup && backup.data) {
-        console.log(`📥 [DataPersistence] Restoring ${Object.keys(backup.data).length} items from database backup`);
-        
+        // Decompress if this backup was stored in compressed form (version 2).
+        let restoreData: Record<string, any> = backup.data;
+        if (backup.data[COMPRESSED_MARKER]) {
+          try {
+            const json = LZString.decompressFromBase64(backup.data[COMPRESSED_MARKER]);
+            restoreData = json ? JSON.parse(json) : {};
+          } catch (e) {
+            console.error('[DataPersistence] Failed to decompress backup:', e);
+            restoreData = {};
+          }
+        }
+
+        console.log(`📥 [DataPersistence] Restoring ${Object.keys(restoreData).length} items from database backup`);
+
         // Restore all data to localStorage
-        Object.entries(backup.data).forEach(([key, value]) => {
+        Object.entries(restoreData).forEach(([key, value]) => {
           try {
             localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
           } catch (e) {
@@ -153,6 +182,12 @@ class DataPersistenceManager {
       return; // Silent skip if too soon
     }
 
+    // Circuit breaker: if the server has been failing (timeouts/5xx), back off
+    // for a while instead of hammering it. This lets an in-progress deploy land.
+    if (now < this.pausedUntil) {
+      return; // Silent skip during cooldown
+    }
+
     this.isBackingUp = true;
     this.lastBackupTime = now;
 
@@ -162,29 +197,67 @@ class DataPersistenceManager {
         console.log('💾 [DataPersistence] Starting backup to database...');
       }
       
-      // Collect all localStorage data
+      // Collect ONLY critical keys (not all of localStorage).
+      // Backing up the entire localStorage produced multi-MB payloads that
+      // exceeded the KV row / edge memory / storage size limits and caused
+      // statement timeouts. We only need the critical app data.
       const data: Record<string, any> = {};
-      
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key) {
-          const value = localStorage.getItem(key);
-          if (value) {
-            try {
-              // Try to parse as JSON, if it fails, store as string
-              data[key] = JSON.parse(value);
-            } catch {
-              data[key] = value;
-            }
+
+      for (const key of CRITICAL_KEYS) {
+        const value = localStorage.getItem(key);
+        if (value && value !== 'null' && value !== 'undefined') {
+          try {
+            data[key] = JSON.parse(value);
+          } catch {
+            data[key] = value;
           }
         }
       }
 
-      const backup: BackupData = {
+      // Safety-net: never ship base64 images to the server backup. If migration
+      // hasn't moved them to Storage yet, strip them so the payload stays small.
+      // (The images themselves remain safe in localStorage until migrated.)
+      for (const key of Object.keys(data)) {
+        const asStr = JSON.stringify(data[key]);
+        if (asStr && asStr.includes('data:image')) {
+          data[key] = stripDataUrlsDeep(data[key]);
+        }
+      }
+
+      let backup: BackupData = {
         timestamp: new Date().toISOString(),
         data,
         version: 1,
       };
+
+      const MAX_BACKUP_BYTES = 2 * 1024 * 1024; // 2 MB (matches server cap)
+      // Below this, send uncompressed; above it, compress to shrink the write.
+      const COMPRESS_THRESHOLD = 400 * 1024; // 400 KB
+
+      // If the raw payload is large, compress it so big datasets can still be
+      // backed up instead of being skipped. The compressed blob is wrapped in a
+      // tiny envelope the server stores verbatim; restore decompresses it.
+      let serialized = JSON.stringify(backup);
+      if (serialized.length > COMPRESS_THRESHOLD) {
+        const compressed = LZString.compressToBase64(JSON.stringify(data));
+        backup = {
+          timestamp: backup.timestamp,
+          data: { [COMPRESSED_MARKER]: compressed },
+          version: 2, // version 2 = compressed payload
+        };
+        serialized = JSON.stringify(backup);
+        console.log(
+          `🗜️ [DataPersistence] Compressed backup ${(JSON.stringify(data).length / 1024).toFixed(0)} KB → ${(serialized.length / 1024).toFixed(0)} KB`
+        );
+      }
+
+      // Only skip if even the compressed payload exceeds the server cap.
+      if (serialized.length > MAX_BACKUP_BYTES) {
+        console.warn(
+          `⚠️ [DataPersistence] Backup still too large after compression (${(serialized.length / 1024).toFixed(0)} KB) — skipping server backup. Data remains safe in localStorage.`
+        );
+        return;
+      }
 
       // Send to database with 5-second timeout
       const controller = new AbortController();
@@ -198,7 +271,7 @@ class DataPersistenceManager {
             'Authorization': `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(backup),
+          body: serialized,
           signal: controller.signal,
         }
       );
@@ -206,6 +279,7 @@ class DataPersistenceManager {
       clearTimeout(timeoutId);
 
       if (response.ok) {
+        this.consecutiveFailures = 0; // Reset breaker on success
         console.log(`✅ [DataPersistence] Backed up ${Object.keys(data).length} items to database`);
       } else {
         // 404/503 means server not deployed yet - this is expected, not an error
@@ -217,13 +291,15 @@ class DataPersistenceManager {
           this.serverDeployed = false;
           return;
         }
-        // Only log actual errors (not expected unavailability)
+        // Real error (e.g. 5xx / timeout) — trip the circuit breaker.
         const errorText = await response.text();
         console.warn(`⚠️ [DataPersistence] Backup failed (${response.status}):`, errorText);
+        this.registerFailure();
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('ℹ️ [DataPersistence] Backup request timeout - will retry later');
+        this.registerFailure();
       } else if (error.message?.includes('Failed to fetch')) {
         // Network error or server not available - this is expected if backend not deployed
         console.log('ℹ️ [DataPersistence] Backup server unavailable (data safe in localStorage)');
@@ -237,6 +313,22 @@ class DataPersistenceManager {
   }
 
   /**
+   * Trip the circuit breaker after repeated failures so we stop hammering a
+   * struggling/deploying server. Data always remains safe in localStorage.
+   */
+  private registerFailure() {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= 3) {
+      const COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+      this.pausedUntil = Date.now() + COOLDOWN_MS;
+      console.warn(
+        `⏸️ [DataPersistence] Pausing server backups for 10 min after ${this.consecutiveFailures} failures (data safe in localStorage)`
+      );
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  /**
    * Start automatic backup every 30 seconds
    */
   private startAutoBackup() {
@@ -246,9 +338,9 @@ class DataPersistenceManager {
 
     this.backupInterval = window.setInterval(() => {
       this.backupToDatabase();
-    }, 30000); // 30 seconds
+    }, 300000); // 5 minutes (reduced from 30s to avoid overloading the DB)
 
-    console.log('⏰ [DataPersistence] Auto-backup started (every 30 seconds)');
+    console.log('⏰ [DataPersistence] Auto-backup started (every 5 minutes)');
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   ArrowLeft, User, Mail, Lock, Phone, MapPin, Building2, 
   CreditCard, Crown, Star, CheckCircle2, Eye, EyeOff, Sparkles
 } from 'lucide-react';
+import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -790,6 +791,13 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
                   <p className="text-sm text-red-400">{errors.submit}</p>
                 </div>
               )}
+
+              <div className="mt-6">
+                <ApplicationPlanBuilderSection
+                  portalType="customer"
+                  ownerName={`${formData.firstName} ${formData.lastName}`.trim()}
+                />
+              </div>
             </motion.div>
           )}
 

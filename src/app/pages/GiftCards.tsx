@@ -175,7 +175,7 @@ export default function GiftCards() {
   return (
     <div className="min-h-screen bg-[#050505] text-white p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div>
+      <div className="max-w-lg mx-auto">
         <h1 className="text-2xl font-black text-white flex items-center gap-2">
           <Gift className="w-6 h-6 text-pink-400" /> Gift Cards
         </h1>
@@ -183,7 +183,7 @@ export default function GiftCards() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
+      <div className="flex gap-1 p-1 rounded-xl max-w-lg mx-auto" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
         {([['buy', '🎁 Buy a Card'], ['redeem', '💳 Redeem'], ['mine', '📋 My Cards']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setActiveTab(id)}
             className="flex-1 py-2 rounded-lg text-xs font-bold transition"
@@ -200,7 +200,7 @@ export default function GiftCards() {
         <>
           {/* Step indicator */}
           {step !== 'done' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-w-lg mx-auto">
               {(['pick', 'personalize', 'pay'] as Step[]).map((s, i) => (
                 <div key={s} className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition"
@@ -218,7 +218,7 @@ export default function GiftCards() {
 
           {/* Step 1 — Pick amount & design */}
           {step === 'pick' && (
-            <div className="space-y-5 max-w-lg">
+            <div className="space-y-5 max-w-lg mx-auto">
               <div>
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Choose Amount</p>
                 <div className="grid grid-cols-3 gap-2 mb-3">
@@ -268,7 +268,7 @@ export default function GiftCards() {
 
           {/* Step 2 — Personalize */}
           {step === 'personalize' && (
-            <div className="space-y-5 max-w-lg">
+            <div className="space-y-5 max-w-lg mx-auto">
               {/* Live preview */}
               <div className="max-w-xs mx-auto">
                 <GiftCardVisual card={{ design, amount: finalAmount, to: recipientName, code: '••••-••••-••••-••••' }} />
@@ -309,7 +309,7 @@ export default function GiftCards() {
 
           {/* Step 3 — Pay */}
           {step === 'pay' && (
-            <div className="space-y-5 max-w-lg">
+            <div className="space-y-5 max-w-lg mx-auto">
               <div className="max-w-xs mx-auto">
                 <GiftCardVisual card={{ design, amount: finalAmount, to: recipientName, code: '••••-••••-••••-••••' }} />
               </div>
@@ -353,7 +353,7 @@ export default function GiftCards() {
           {/* Step done */}
           {step === 'done' && issued && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-              className="space-y-5 max-w-lg">
+              className="space-y-5 max-w-lg mx-auto">
               <div className="text-center">
                 <div className="text-5xl mb-3">🎉</div>
                 <h2 className="text-2xl font-black text-white">Gift Card Sent!</h2>
@@ -387,7 +387,7 @@ export default function GiftCards() {
 
       {/* ── REDEEM TAB ────────────────────────────────────────────────────── */}
       {activeTab === 'redeem' && (
-        <div className="space-y-5 max-w-lg">
+        <div className="space-y-5 max-w-lg mx-auto">
           <div>
             <h2 className="text-lg font-black text-white mb-1">Redeem a Gift Card</h2>
             <p className="text-sm text-gray-500">Enter your gift card code to check balance or apply at checkout.</p>
@@ -440,7 +440,7 @@ export default function GiftCards() {
 
       {/* ── MY CARDS TAB ──────────────────────────────────────────────────── */}
       {activeTab === 'mine' && (
-        <div className="space-y-4 max-w-lg">
+        <div className={myCards.length === 0 ? 'max-w-lg mx-auto' : 'max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-4'}>
           {myCards.length === 0 ? (
             <div className="text-center py-16">
               <Gift className="w-12 h-12 text-gray-700 mx-auto mb-3" />

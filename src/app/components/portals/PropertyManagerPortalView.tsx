@@ -3,7 +3,7 @@ import { toast } from 'sonner@2.0.3';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, CreditCard, ChevronRight, ArrowUpRight, CheckCircle, Tag, BarChart3, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Wifi,
+  TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -11,6 +11,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -50,13 +51,14 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'crm' | 'deals' | 'payments' | 'revenue-ai' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'revenue-ai' | 'messages' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'properties', label: 'Properties', icon: Building2 },
   { id: 'work-requests', label: 'Work Requests', icon: Wrench },
   { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
+  { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'deals', label: 'Deals & Reels', icon: Tag },
   { id: 'payments', label: 'Payments', icon: CreditCard },
@@ -255,6 +257,7 @@ export default function PropertyManagerPortalView() {
         )}
 
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="property_manager" ownerName={name} />}
+        {tab === 'plan-builder' && <PlanBuilderTab portalType="property_manager" ownerName={name} />}
         {tab === 'crm' && <CRMSection portalType="property-manager" />}
         {tab === 'deals' && (<>
           <FeaturedDealsReels portalType="property_manager" />

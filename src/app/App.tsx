@@ -109,7 +109,6 @@ import StoreAccessButton from "./components/StoreAccessButton";
 import { ThemeManager, ThemeProvider } from "./components/ThemeManager";
 import { RoleSwitcher } from "./components/RoleSwitcher";
 import DataInitializer from "./components/DataInitializer";
-import "./utils/companyDataRecovery"; // Load recovery tools globally
 
 // Simple loading component
 const LoadingFallback = () => (
@@ -146,392 +145,18 @@ const LoadingFallback = () => (
   </div>
 );
 
-// Critical Pages - Immediate imports
-import Login from "./pages/Login";
-import SignUp from "./pages/SignUp";
-import DirectoryLandingPage from "./pages/DirectoryLandingPage";
-import BuildsLandingPage from "./pages/BuildsLandingPage";
-import HandymanLandingPage from "./pages/HandymanLandingPage";
-import DemoLandingPage from "./pages/DemoLandingPage";
-import PropertyManagementLandingPage from "./pages/PropertyManagementLandingPage";
-import ContractorNetworkLandingPage from "./pages/ContractorNetworkLandingPage";
-import TerritoryLandingPage from "./pages/TerritoryLandingPage";
-import EmergencyServicesLandingPage from "./pages/EmergencyServicesLandingPage";
-import MarketingHubLandingPage from "./pages/MarketingHubLandingPage";
-import SubcontractorApplication from "./pages/SubcontractorApplication";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-
-// Import all pages directly instead of lazy loading to avoid suspension errors
-import UnifiedDashboard from "./pages/UnifiedDashboard";
-import CustomerPortalApp from "./components/portals/CustomerPortalView";
-import AdminAlerts from "./pages/AdminAlerts";
-import CustomersNew from "./pages/CustomersNew";
-import InvoicesNew from "./pages/InvoicesNew";
-import ProjectsNew from "./pages/ProjectsNew";
-import DesignStudioPro from "./pages/DesignStudioPro";
-import StructuralDesign from "./pages/StructuralDesign";
-import VendorsAdminHub from "./pages/VendorsAdminHub";
-import VendorApplication from "./pages/VendorApplication";
-import InvestorApplication from "./pages/InvestorApplication";
-import AdvertiserApplication from "./pages/AdvertiserApplication";
-import ServiceProviderApplication from "./pages/ServiceProviderApplication";
-import TerritoryApplication from "./pages/TerritoryApplication";
-import InvestmentOpportunities from "./pages/InvestmentOpportunities";
-import InvestmentManagement from "./pages/InvestmentManagement";
-import DropshipperAdmin from "./components/DropshipperAdminPanel";
-import PublicStore from "./pages/PublicStore";
-import OrderTracking from "./components/OrderTracking";
-import PromotionsManager from "./pages/PromotionsManager";
-import AIRankingEngine from "./pages/AIRankingEngine";
-import AutoProductPilot from "./pages/AutoProductPilot";
-import SocialMediaHub from "./pages/SocialMediaHub";
-import EmailLeadGen from "./pages/EmailLeadGen";
-import LocalLeadsLanding from "./pages/LocalLeadsLanding";
-import LoyaltyProgram from "./pages/LoyaltyProgram";
-import QRCodeGenerator from "./pages/QRCodeGenerator";
-import RevenueAnalytics from "./pages/RevenueAnalytics";
-import SMSMarketing from "./pages/SMSMarketing";
-import AffiliateProgram from "./pages/AffiliateProgram";
-import ServiceBooking from "./pages/ServiceBooking";
-import InvoiceBuilder from "./pages/InvoiceBuilder";
-import FlashSaleManager from "./pages/FlashSaleManager";
-import GiftCards from "./pages/GiftCards";
-import SubscribeAndSave from "./pages/SubscribeAndSave";
-import ReviewsDashboard from "./pages/ReviewsDashboard";
-import AbandonedCart from "./pages/AbandonedCart";
-import CouponManager from "./pages/CouponManager";
-import LeadCRM from "./pages/LeadCRM";
-import AnalyticsDashboard from "./pages/AnalyticsDashboard";
-import OrderManager from "./pages/OrderManager";
-// Hub Pages - Consolidated Navigation
-import JobTrackingHub from "./pages/JobTrackingHub";
-import RevenueMonetizationHub from "./pages/RevenueMonetizationHub";
-import CustomerRegistrationForm from "./pages/CustomerRegistrationForm";
-import SupplierManagementHub from "./pages/SupplierManagementHub";
-import HREmployeeHub from "./pages/HREmployeeHub";
-import DesignStructuralHub from "./pages/DesignStructuralHub";
-import CustomerQuoteApproval from "./pages/CustomerQuoteApproval";
-// Old portal apps removed - replaced by new PortalView-based portals
-// Portal Creation and Management removed - now handled by PortalsHub
-import UserManagementHub from "./pages/UserManagementHub";
-import SubscriptionHub from "./pages/SubscriptionHub";
-import CohortManagement from "./pages/CohortManagement";
-import MasterAdminDashboard from "./pages/MasterAdminDashboard";
-import UnifiedProjectPipeline from "./pages/UnifiedProjectPipeline";
-import WorkOrderManager from "./components/WorkOrderManager";
-import RequestServicePage from "./pages/RequestServicePage";
-import MaterialsCenter from "./pages/MaterialsCenter";
-import PricingSettings from "./pages/PricingSettings";
-import LaborRatesConfig from "./components/LaborRatesConfig";
-import BidRoomV2 from "./pages/BidRoomV2";
-import ServiceScheduling from "./pages/ServiceScheduling";
-import UnifiedCRMHub from "./pages/UnifiedCRMHub";
-import PropertyManagementHub from "./pages/PropertyManagementHub";
-import PropertyManagementTest from "./components/PropertyManagementTest";
-import CalendarScheduleView from "./components/CalendarScheduleView";
-// REMOVED: WorkRequestIntake, WorkRequestFormEditor - Use UnifiedProjectPipeline instead
-import ApplicationSubmissions from "./pages/ApplicationSubmissions";
-import BusinessProfilesHub from "./components/BusinessProfilesHub";
-import OwnersDashboard from "./pages/OwnersDashboard";
-import PortalsHub from "./pages/PortalsHub";
-import SubcontractorPortal from "./components/portals/SubcontractorPortal";
-import VendorPortalView from "./components/portals/VendorPortalView";
-import AdvertiserPortalView from "./components/portals/AdvertiserPortalView";
-import InvestorPortalView from "./components/portals/InvestorPortalView";
-import PropertyManagerPortalView from "./components/portals/PropertyManagerPortalView";
-import CondoManagerPortalView from "./components/portals/CondoManagerPortalView";
-import LandlordPortalView from "./components/portals/LandlordPortalView";
-import PortalDemoSelector from "./pages/PortalDemoSelector";
-import TradesWorkerMarketing from "./pages/marketing/TradesWorkerMarketing";
-import VendorMarketing from "./pages/marketing/VendorMarketing";
-import SubcontractorMarketing from "./pages/marketing/SubcontractorMarketing";
-// Additional pages from filesystem
-import CompanyDataRestoration from "./pages/CompanyDataRestoration";
-import CompanyRecovery from "./pages/CompanyRecovery";
-import CompanySetup from "./pages/CompanySetup";
-import NotificationSettings from "./pages/NotificationSettings";
-import UnifiedPaymentCenter from "./pages/UnifiedPaymentCenter";
-import JobFinancialTracker from "./pages/JobFinancialTracker";
-import FinancialReconciliation from "./pages/FinancialReconciliation";
-import EnterpriseReporting from "./pages/EnterpriseReporting";
-import ChangeOrderCameraApp from "./pages/ChangeOrderCameraApp";
-import WasteDisposalTracking from "./pages/WasteDisposalTracking";
-import WeatherJobSiteMonitor from "./pages/WeatherJobSiteMonitor";
-import CodeTracker from "./pages/CodeTracker";
-import ProductDataSources from "./pages/ProductDataSources";
-import PurchaseOrders from "./pages/PurchaseOrders";
-import EnterpriseEmailManagement from "./pages/EnterpriseEmailManagement";
-import LandingPageEditor from "./pages/LandingPageEditor";
-import SocialMediaManager from "./pages/SocialMediaManager";
-import ModuleManager from "./pages/ModuleManager";
-import ReferralRewards from "./pages/ReferralRewards";
-import AIDiagnostics from "./pages/AIDiagnostics";
-import DiagnosticLogos from "./pages/DiagnosticLogos";
-import DiagnosticLogosDebug from "./pages/DiagnosticLogosDebug";
-import UploadMyLogo from "./pages/UploadMyLogo";
-import CheckMyCompanies from "./pages/CheckMyCompanies";
-import PublishMyBranding from "./pages/PublishMyBranding";
-import FixMyLogo from "./pages/FixMyLogo";
-import DobaIntegration from "./pages/DobaIntegration";
-import SpocketIntegration from "./pages/SpocketIntegration";
-import ZendropIntegration from "./pages/ZendropIntegration";
-import PropertyRevenueHub from "./pages/PropertyRevenueHub";
-import PropertyAIEnterprise from "./pages/PropertyAIEnterprise";
-import OrderSuccess from "./pages/OrderSuccess";
-import DigitalStorefront from "./pages/DigitalStorefront";
-import AdCreator from "./pages/AdCreator";
-import DocumentViewer from "./pages/DocumentViewer";
-import PermitAI from "./pages/PermitAI";
-import SubcontractorEnterprise from "./pages/SubcontractorEnterprise";
-import Services from "./pages/Services";
-import PortalDemoHub from "./pages/PortalDemoHub";
-import PortalGlobalSettings from "./pages/PortalGlobalSettings";
-import MasterScheduling from "./pages/MasterScheduling";
-import EnterpriseContentCenter from "./pages/EnterpriseContentCenter";
-import PortalCreation from "./pages/PortalCreation";
-import PortalManagement from "./pages/PortalManagement";
-import PortalAccess from "./pages/PortalAccess";
-import QuoteResponseHub from "./pages/QuoteResponseHub";
-import WorkRequestHub from "./pages/WorkRequestHub";
-import WorkRequestIntake from "./pages/WorkRequestIntake";
-import WorkRequestFormEditor from "./pages/WorkRequestFormEditor";
-import EnterpriseQuoteWorkflow from "./pages/EnterpriseQuoteWorkflow";
-import QuoteToContractWorkflow from "./pages/QuoteToContractWorkflow";
-import WorkRequestTracking from "./pages/WorkRequestTracking";
-import EmployeeMobileApp from "./pages/EmployeeMobileApp";
-import MobileHub from "./pages/MobileHub";
-import EmployeePortalView from "./components/portals/EmployeePortalView";
-import OnCallEmergencyPortal from "./components/portals/OnCallEmergencyPortal";
-import PricingPage from "./pages/PricingPage";
-import CustomerDocs from "./pages/CustomerDocs";
-import InvestmentCalculator from "./pages/InvestmentCalculator";
-import AdminPortalView from "./components/portals/AdminPortalView";
-import TerritoryPortalView from "./components/portals/TerritoryPortalView";
-import WorkOrderCompletionReports from "./pages/WorkOrderCompletionReports";
-import Messaging from "./pages/Messaging";
-import ExitIntentManager from "./pages/ExitIntentManager";
+// Page imports and route map live in routes.tsx — edit that file to add new pages
+import { pageMap, Login, SignUp, ForgotPassword, ResetPassword, DirectoryLandingPage } from "./routes";
 import ExitIntentPopup from "./components/ExitIntentPopup";
-import LiveChatManager from "./pages/LiveChatManager";
 import LiveChatWidget from "./components/LiveChatWidget";
-import PhotoImporter from "./pages/PhotoImporter";
-import MarketingAutomation from "./pages/MarketingAutomation";
-import RetargetingPixelSetup from "./pages/RetargetingPixelSetup";
-import BlogManager from "./pages/BlogManager";
-import ReviewSurveyManager from "./pages/ReviewSurveyManager";
-import InfluencerTracker from "./pages/InfluencerTracker";
-import KeywordTracker from "./pages/KeywordTracker";
-import CustomerPortal from "./pages/CustomerPortal";
 
 // Create Navigation Context
 export const NavigationContext = createContext<{ navigate: (page: string) => void }>({
   navigate: () => {},
 });
 
-// Navigation menu structure
-interface NavSection {
-  name: string;
-  icon: any;
-  items: { name: string; path: string; badge?: string }[];
-}
-
-const navigationSections: NavSection[] = [
-  {
-    name: "Control Center",
-    icon: LayoutDashboard,
-    items: [
-      { name: "Unified Dashboard", path: "unified-dashboard" },
-    ],
-  },
-  {
-    name: "Customers & Contacts",
-    icon: Users,
-    items: [{ name: "Customers", path: "customers" }],
-  },
-  {
-    name: "Projects & Work",
-    icon: Wrench,
-    items: [
-      { name: "Project Pipeline", path: "unified-project-pipeline" },
-      { name: "Bid Room", path: "bid-room", badge: "NEW" },
-      {
-        name: "Change Order Camera",
-        path: "change-order-camera",
-        badge: "NEW",
-      },
-      {
-        name: "Service Scheduling",
-        path: "service-scheduling",
-      },
-      {
-        name: "Waste & Disposal",
-        path: "waste-disposal-tracking",
-        badge: "NEW",
-      },
-      {
-        name: "Weather Monitor",
-        path: "weather-job-site-monitor",
-        badge: "NEW",
-      },
-      { name: "Master Scheduling", path: "master-scheduling" },
-      { name: "PermitAI", path: "permit-ai", badge: "NEW" },
-      { name: "Unified Calendar", path: "unified-calendar" },
-      { name: "Online Store", path: "dropshipper-admin" },
-      { name: "Zendrop", path: "zendrop", badge: "NEW" },
-      { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
-      { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
-      { name: "Social Media Hub", path: "social-media-hub", badge: "NEW" },
-      { name: "Exit-Intent Popups", path: "exit-intent", badge: "NEW" },
-      { name: "Live Chat", path: "live-chat", badge: "NEW" },
-      { name: "Photo Importer", path: "photo-importer", badge: "NEW" },
-      { name: "Marketing Automation", path: "marketing-automation", badge: "NEW" },
-      { name: "Retargeting Pixels", path: "retargeting-pixels", badge: "NEW" },
-      { name: "Blog Manager", path: "blog-manager", badge: "NEW" },
-      { name: "Reviews & Surveys", path: "review-surveys", badge: "NEW" },
-      { name: "Influencer & Ambassadors", path: "influencer-tracker", badge: "NEW" },
-      { name: "Keyword Rank Tracker", path: "keyword-tracker", badge: "NEW" },
-      { name: "Customer Portal", path: "customer-portal", badge: "NEW" },
-    ],
-  },
-  {
-    name: "Team & HR",
-    icon: UserCog,
-    items: [
-      { name: "Employees", path: "employee-management" },
-      { name: "HR Management", path: "enterprise-hr" },
-      {
-        name: "Subcontractors",
-        path: "subcontractor-enterprise",
-      },
-      { name: "Time Tracking", path: "time-tracking" },
-      { name: "Payroll", path: "payroll" },
-    ],
-  },
-  {
-    name: "Financial",
-    icon: DollarSign,
-    items: [
-      { name: "Invoices", path: "invoices" },
-      {
-        name: "Payments",
-        path: "unified-payment-center",
-        badge: "NEW",
-      },
-      {
-        name: "Job Financial Tracker",
-        path: "job-financial-tracker",
-      },
-    ],
-  },
-  {
-    name: "Operations",
-    icon: Workflow,
-    items: [
-      {
-        name: "Materials Center",
-        path: "materials-center",
-        badge: "NEW",
-      },
-      {
-        name: "Purchase Orders",
-        path: "purchase-orders",
-        badge: "NEW",
-      },
-      {
-        name: "Product Data Sources",
-        path: "product-data-sources",
-      },
-      { name: "Services", path: "services" },
-      { name: "Vendor Management", path: "vendor-management" },
-      { name: "Vendor API Management", path: "vendor-api-management" },
-    ],
-  },
-  {
-    name: "Design & Content",
-    icon: Palette,
-    items: [
-      {
-        name: "Design Studio Pro",
-        path: "design-studio-pro",
-        badge: "NEW",
-      },
-      {
-        name: "Structural Design",
-        path: "structural-design",
-        badge: "NEW",
-      },
-      {
-        name: "Enterprise Content Center",
-        path: "enterprise-content-center",
-      },
-      { name: "Social Media Manager", path: "social-media" },
-      { name: "Module Manager", path: "module-manager" },
-      { name: "Referral Rewards", path: "referral-rewards" },
-    ],
-  },
-  {
-    name: "Vendors & eCommerce",
-    icon: Store,
-    items: [
-      {
-        name: "Vendors Admin Hub",
-        path: "vendors-admin-hub",
-      },
-      { name: "Dropshipper Admin", path: "dropshipper-admin" },
-      { name: "Zendrop Integration", path: "zendrop" },
-      { name: "Public Store", path: "public-store" },
-      { name: "Order Tracking", path: "order-tracking", badge: "Track" },
-      { name: "Promotions Manager", path: "promotions-manager", badge: "NEW" },
-      // Portal routes - All individual portal pages deleted in Phase 1, use PortalAccess instead
-      { name: "Customer App", path: "customer-app" },  // Redirect to new CustomerPortal
-      { name: "Investor App", path: "investor-app" },  // Redirect to new InvestorPortal
-      { name: "Advertiser App", path: "advertiser-app" },  // Redirect to new AdvertiserPortal
-      { name: "Portal Creation", path: "portal-creation" },
-      { name: "Portal Management", path: "portal-management" },
-    ],
-  },
-  {
-    name: "Communication",
-    icon: MessageSquare,
-    items: [
-      { name: "Enterprise Email", path: "enterprise-email" },
-    ],
-  },
-  {
-    name: "Platform Management",
-    icon: Shield,
-    items: [
-      { name: "User Management", path: "user-management-hub" },
-      { name: "Role Management", path: "user-management-hub?tab=roles" },
-      { name: "Module Manager", path: "module-manager" },
-      {
-        name: "Landing Page Editor",
-        path: "landing-page-editor",
-        badge: "NEW",
-      },
-      { name: "AI Diagnostics", path: "ai-diagnostics" },
-    ],
-  },
-  {
-    name: "Reports & Analytics",
-    icon: BarChart3,
-    items: [
-      { name: "Analytics Dashboard", path: "reports" },
-      {
-        name: "Enterprise Reporting",
-        path: "enterprise-reporting",
-      },
-    ],
-  },
-  {
-    name: "Growth & Visibility",
-    icon: TrendingUp,
-    items: [
-      { name: "AI Ranking Engine", path: "ai-ranking-engine", badge: "NEW" },
-      { name: "Auto-Product Pilot", path: "auto-product-pilot", badge: "NEW" },
-    ],
-  },
-];
+// Nav structure lives in nav.ts — edit that file to change the sidebar
+import { navigationSections } from "./nav";
 
 // Sign Out Button Component
 function SignOutButton() {
@@ -803,6 +428,33 @@ const getPageFromPath = (pathname: string): string => {
   const pathWithoutQuery = pathname.split('?')[0].split('#')[0];
   return pathWithoutQuery.slice(1) || "landing";
 };
+
+// Full-bleed pages render edge-to-edge (public marketing/landing + auth screens)
+// and must NOT be constrained by the standard app content container.
+const FULL_BLEED_PAGES = new Set<string>([
+  "landing",
+  "landing-page",
+  "directory",
+  "directory-landing-page",
+  "builds-landing-page",
+  "handyman-landing-page",
+  "demo-landing-page",
+  "property-management-landing-page",
+  "contractor-network-landing-page",
+  "territory-landing-page",
+  "emergency-services-landing-page",
+  "marketing-hub-landing-page",
+  "login",
+  "signup",
+  "join-us",
+  "join",
+  "create-account",
+  "get-started",
+  "forgot-password",
+  "reset-password",
+]);
+
+const isFullBleedPage = (page: string): boolean => FULL_BLEED_PAGES.has(page);
 
 // Protected Route Wrapper Component
 function ProtectedRoutes({ children }: { children: React.ReactNode }) {
@@ -1283,15 +935,36 @@ export default function App() {
     // CRITICAL: If no one is logged in, auto-login the owner
     if (!currentUserProfile) {
       console.log('👑 [APP INIT] No user logged in - checking for owner profile');
-      const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
+      let userProfiles: Record<string, any> = {};
+      try {
+        userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
+      } catch {
+        userProfiles = {};
+      }
       const ownerProfile = userProfiles[OWNER_EMAIL.toLowerCase()];
 
-      if (ownerProfile) {
+      // GUARD: Only ever attempt this reload ONCE per session. On mobile
+      // (e.g. iOS Safari private mode) localStorage writes may not persist,
+      // which would leave currentUserProfile null on every load and cause an
+      // infinite reload loop (the "blinking" screen). The sessionStorage flag
+      // breaks that loop.
+      const alreadyAttempted = sessionStorage.getItem('owner_autologin_attempted') === 'true';
+
+      if (ownerProfile && !alreadyAttempted) {
         console.log('👑 [APP INIT] Found owner profile - auto-logging in');
-        ownerProfile.accountType = 'owner'; // Ensure correct type
-        localStorage.setItem('currentUserProfile', JSON.stringify(ownerProfile));
-        // Reload to apply the new profile
-        window.location.reload();
+        try {
+          ownerProfile.accountType = 'owner'; // Ensure correct type
+          localStorage.setItem('currentUserProfile', JSON.stringify(ownerProfile));
+          sessionStorage.setItem('owner_autologin_attempted', 'true');
+          // Verify the write actually persisted before triggering a reload.
+          if (localStorage.getItem('currentUserProfile')) {
+            window.location.reload();
+          } else {
+            console.warn('👑 [APP INIT] Profile write did not persist (private mode?) - skipping reload to avoid blink loop');
+          }
+        } catch (err) {
+          console.warn('👑 [APP INIT] Could not persist owner profile - skipping reload:', err);
+        }
         return;
       }
     }
@@ -1420,8 +1093,16 @@ export default function App() {
     return <LoadingFallback />;
   }
 
-  // Only render the main app content when ready
-  return <AppContent />;
+  // Only render the main app content when ready.
+  // Wrap in a TOP-LEVEL ErrorBoundary: the boundary inside AppContent's JSX
+  // cannot catch a throw in AppContent's own function body (it lives in the
+  // same subtree). Without this outer boundary, such a throw escapes React's
+  // root and blanks the page (white screen) instead of showing an error.
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
 }
 
 // Navigation Header Component - Must be inside UserProvider
@@ -1583,352 +1264,9 @@ function AppContent() {
   console.log("📄 Current page:", currentPage);
   console.log("🌐 Online status:", isOnline);
 
-  // Define page mapping once at top level so it can be accessed by navigate
-  const pageMap: Record<string, any> = {
-    // Landing Pages
-    "landing": DirectoryLandingPage,
-    "landing-page": DirectoryLandingPage,
-    "directory": DirectoryLandingPage,
-    "directory-landing-page": DirectoryLandingPage,
+  // ── pageMap lives in routes.tsx — imported at top of this file ──────────────
 
-    // Section Landing Pages
-    "builds-landing-page": BuildsLandingPage,
-    "handyman-landing-page": HandymanLandingPage,
-    "demo-landing-page": DemoLandingPage,
-    "property-management-landing-page": PropertyManagementLandingPage,
-    "territory-landing-page": TerritoryLandingPage,
-    "emergency-services-landing-page": EmergencyServicesLandingPage,
-    "marketing-hub-landing-page": MarketingHubLandingPage,
 
-    // Authentication pages
-    "sign-up": SignUp,
-    signup: SignUp,
-
-    // Dashboards
-    dashboard: UnifiedDashboard,
-    "unified-dashboard": UnifiedDashboard,
-    "master-admin-dashboard": MasterAdminDashboard,
-    "admin-dashboard": OwnersDashboard,
-    "admin-advanced-dashboard": OwnersDashboard,
-    "owners-dashboard": OwnersDashboard,
-    "company-data-restoration": CompanyDataRestoration,
-    "company-recovery": CompanyRecovery,
-    "company-setup": CompanySetup,
-    settings: OwnersDashboard, // Settings page routes to Owner's Dashboard
-    "admin-alerts": AdminAlerts,
-    "notification-settings": NotificationSettings,
-
-    // Business Management
-    customers: CustomersNew,
-    invoices: InvoicesNew,
-    "invoices-new": InvoicesNew, // Alias for invoices
-    projects: ProjectsNew,
-    "projects-new": ProjectsNew,
-
-    // Production
-    payroll: HREmployeeHub, // Payroll features are in HREmployeeHub
-
-    // Hub Pages - Consolidated Views
-    "job-tracking-hub": JobTrackingHub,
-    "revenue-monetization-hub": RevenueMonetizationHub,
-    "customer-management-hub": UnifiedCRMHub, // Redirect to new CRM Hub
-    "customer-registration": CustomerRegistrationForm,
-    "materials-estimating-hub": MaterialsCenter,
-    "supplier-management-hub": SupplierManagementHub,
-    "hr-employee-hub": HREmployeeHub,
-    // REMOVED: DesignStructuralHub - file deleted, redirecting to DesignStudioPro
-    "design-structural-hub": DesignStudioPro,
-    "customer-quote-approval": CustomerQuoteApproval,
-
-    // Vendors & eCommerce
-    "vendors-admin-hub": VendorsAdminHub, // NEW: Consolidated vendor admin management
-    "vendor-advertising-hub": VendorsAdminHub, // Legacy redirect to Vendors Admin Hub
-    "vendor-management": VendorsAdminHub, // Legacy redirect to Vendors Admin Hub
-    "vendor-api-management": VendorsAdminHub, // Legacy redirect to Vendors Admin Hub
-    "vendor-application": VendorApplication, // NEW: Vendor application/signup form
-    "subcontractor-application": SubcontractorApplication, // NEW: Subcontractor application/signup form
-    "investor-application": InvestorApplication, // NEW: Investor application/signup form
-    "advertiser-application": AdvertiserApplication, // NEW: Advertiser application/signup form
-    "service-provider-application": ServiceProviderApplication, // NEW: Service Provider application/signup form
-    "territory-application": TerritoryApplication, // NEW: Territory application/signup form
-    "contractor-network-landing-page": ContractorNetworkLandingPage, // NEW: Contractor network landing page
-    "dropshipper-admin": DropshipperAdmin,
-    "public-store": PublicStore,
-    "order-tracking": OrderTracking,
-    "promotions-manager": PromotionsManager,
-    "exit-intent": ExitIntentManager,
-    "exit-intent-manager": ExitIntentManager,
-    "live-chat": LiveChatManager,
-    "live-chat-manager": LiveChatManager,
-    "photo-importer": PhotoImporter,
-    "marketing-automation": MarketingAutomation,
-    "retargeting-pixels": RetargetingPixelSetup,
-    "blog-manager": BlogManager,
-    "review-surveys": ReviewSurveyManager,
-    "influencer-tracker": InfluencerTracker,
-    "keyword-tracker": KeywordTracker,
-    "customer-portal": CustomerPortal,
-    "ai-ranking-engine": AIRankingEngine,
-    "auto-product-pilot": AutoProductPilot,
-    "social-media-hub": SocialMediaHub,
-    "email-lead-gen": EmailLeadGen,
-
-    // Geo-targeted ad landing page
-    "local": LocalLeadsLanding,
-    "offer": LocalLeadsLanding,
-    "nearby": LocalLeadsLanding,
-
-    // Loyalty & Rewards
-    "loyalty": LoyaltyProgram,
-    "rewards": LoyaltyProgram,
-
-    // QR Code Generator
-    "qr-codes": QRCodeGenerator,
-    "qr-generator": QRCodeGenerator,
-
-    // Revenue Analytics
-    "revenue-analytics": RevenueAnalytics,
-    "analytics": RevenueAnalytics,
-
-    // SMS Marketing
-    "sms-marketing": SMSMarketing,
-    "text-marketing": SMSMarketing,
-
-    // Subscribe & Save
-    "subscribe": SubscribeAndSave,
-    "subscribe-and-save": SubscribeAndSave,
-    "subscriptions": SubscribeAndSave,
-
-    // Gift Cards
-    "gift-cards": GiftCards,
-    "gift-card": GiftCards,
-    "gifts": GiftCards,
-
-    // Product Reviews
-    "reviews": ReviewsDashboard,
-    "product-reviews": ReviewsDashboard,
-
-    // Abandoned Cart Recovery
-    "abandoned-carts": AbandonedCart,
-    "abandoned-cart": AbandonedCart,
-    "cart-recovery": AbandonedCart,
-
-    // Coupon Manager
-    "coupons": CouponManager,
-    "coupon-manager": CouponManager,
-    "promo-codes": CouponManager,
-
-    // Lead CRM
-    "crm": LeadCRM,
-    "leads": LeadCRM,
-    "lead-crm": LeadCRM,
-    "pipeline": LeadCRM,
-
-    // Analytics Dashboard
-    "analytics": AnalyticsDashboard,
-    "business-analytics": AnalyticsDashboard,
-    "insights": AnalyticsDashboard,
-
-    // Order Manager
-    "orders": OrderManager,
-    "order-manager": OrderManager,
-    "order-history": OrderManager,
-
-    // Flash Sale Manager
-    "flash-sales": FlashSaleManager,
-    "flash-sale": FlashSaleManager,
-    "promotions": FlashSaleManager,
-
-    // Invoice & Estimate Builder
-    "invoices": InvoiceBuilder,
-    "invoice": InvoiceBuilder,
-    "estimates": InvoiceBuilder,
-
-    // Service Booking
-    "book": ServiceBooking,
-    "booking": ServiceBooking,
-    "services": ServiceBooking,
-    "quote": ServiceBooking,
-
-    // Affiliate Program
-    "affiliate": AffiliateProgram,
-    "referral": AffiliateProgram,
-    "refer": AffiliateProgram,
-
-    // CUSTOMER PORTAL - All customer interactions consolidated into single CustomerPortalView
-    "customer-app": CustomerPortalApp,
-    "customer-portal": CustomerPortalApp,
-    "customer-portal-app": CustomerPortalApp,
-    "customer-subscription-portal": CustomerPortalApp, // Subscription features built into main portal
-    
-    // System Management
-    "user-management-hub": UserManagementHub,
-    "user-management": UserManagementHub, // Redirect to hub with users tab
-    "user-management-admin": UserManagementHub, // Redirect to hub with admin-users tab
-    "role-management": UserManagementHub, // Redirect to hub with roles tab
-    "subscription-hub": SubscriptionHub,
-    "cohort-management": CohortManagement, // Direct access to Advanced Cohort Management
-    "pricing": PricingPage, // Customer-facing pricing page
-    "plans": PricingPage, // Alias for pricing page
-    "investment-opportunities": InvestmentOpportunities, // Public investment opportunities browsing (everyone can view)
-    "investment-management": InvestmentManagement, // Owner-only investment management dashboard
-    "investment-calculator": InvestmentCalculator, // Detailed investment calculator with ROI breakdown
-
-    // UNIFIED PROJECT PIPELINE - The ONE workflow for everything
-    "work-order-management": WorkOrderManager,
-    "unified-project-pipeline": UnifiedProjectPipeline,
-    "enterprise-quote-workflow": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "quote-to-contract-workflow": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "work-request-tracking": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "quote-response-hub": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "work-request-hub": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "work-request-intake": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "work-request-form-editor": UnifiedProjectPipeline, // REDIRECT to unified pipeline
-    "quote-prep": UnifiedProjectPipeline, // REDIRECT to unified pipeline - Quote preparation
-    "project-pipeline": UnifiedProjectPipeline, // Alias
-    "workflow": UnifiedProjectPipeline, // Alias
-    "pipeline": UnifiedProjectPipeline, // Alias
-
-    // REQUEST SERVICE - Combined Signup + Work Request Form for new customers
-    "request-service": RequestServicePage,
-    "get-quote": RequestServicePage, // Alias for "Get a Free Quote" buttons
-    
-    // MATERIALS CENTER - New unified materials management hub (Option 3)
-    "materials-center": MaterialsCenter,
-    "materials-hub": MaterialsCenter, // Redirect to new Materials Center
-    "materials-database": MaterialsCenter, // Redirect with ?tab=database
-    "materials-procurement-hub": MaterialsCenter, // Redirect with ?tab=procurement
-    "material-estimating": MaterialsCenter, // Redirect with ?tab=estimating
-    
-    "pricing-settings": PricingSettings,
-    "labor-rates-config": LaborRatesConfig,
-    "bid-room": BidRoomV2,
-    "service-scheduling": ServiceScheduling,
-    "unified-calendar": CalendarScheduleView,
-    "application-submissions": ApplicationSubmissions,
-
-    // Phase 1: Financial & Payroll Systems
-    "unified-payment-center": UnifiedPaymentCenter,
-    "payment-center": UnifiedPaymentCenter, // Alias for unified-payment-center
-    "financial-reconciliation": FinancialReconciliation,
-    "job-financial-tracker": JobFinancialTracker,
-    "work-order-completion-reports": WorkOrderCompletionReports,
-    "completion-reports": WorkOrderCompletionReports, // Alias
-    "customer-docs": CustomerDocs,
-    "customer-documents": CustomerDocs,
-    reports: EnterpriseReporting,
-
-    // Phase 3: Project & Work Management
-    "change-order-camera": ChangeOrderCameraApp,
-    "waste-disposal-tracking": WasteDisposalTracking,
-    "weather-job-site-monitor": WeatherJobSiteMonitor,
-    "code-tracker": CodeTracker,
-    "enterprise-coding-tracking": CodeTracker, // Legacy redirect to Code Tracker
-    "master-scheduling": MasterScheduling,
-    "master-schedule": MasterScheduling, // Alias for master-scheduling
-
-    // Phase 4: Operations & Tools
-    "product-data-sources": ProductDataSources,
-    "purchase-orders": PurchaseOrders,
-
-    // Communication & Collaboration
-    messaging: Messaging,
-    messages: Messaging,
-    "enterprise-email": EnterpriseEmailManagement,
-
-    // Company & System Management
-    "enterprise-invoicing": InvoicesNew,
-    "company-profile": BusinessProfilesHub,
-    "landing-page-editor": LandingPageEditor,
-    "website-settings": LandingPageEditor, // Alias
-    "domain-management": LandingPageEditor, // Alias - domain management can be in landing page editor
-    "theme-manager": LandingPageEditor, // Alias - theme manager can be in landing page editor
-    "diagnostic-logos": DiagnosticLogos, // Logo diagnostic tool
-    "diagnostic-logos-debug": DiagnosticLogosDebug, // Logo debug diagnostic tool
-    "upload-my-logo": UploadMyLogo, // Simple logo uploader
-    "check-my-companies": CheckMyCompanies, // Database company checker
-    "publish-my-branding": PublishMyBranding, // Publish branding for public visitors
-    "fix-my-logo": FixMyLogo, // One-click logo sync fix
-    "doba-integration": DobaIntegration, // Doba dropshipping integration
-    "spocket": SpocketIntegration,
-    "spocket-integration": SpocketIntegration,
-    "zendrop": ZendropIntegration,
-    "zendrop-integration": ZendropIntegration,
-    "property-revenue": PropertyRevenueHub,
-    "property-revenue-intel": PropertyRevenueHub,
-    "revenue-intel": PropertyRevenueHub,
-    "property-ai-enterprise": PropertyAIEnterprise,
-    "property-ai": PropertyAIEnterprise,
-    "pai": PropertyAIEnterprise,
-    "order-success": OrderSuccess,
-    "store": DigitalStorefront,
-    "digital-store": DigitalStorefront,
-    "shop": DigitalStorefront,
-    "digital-products": DigitalStorefront,
-    "ad-creator": AdCreator,
-    "ads": AdCreator,
-    "promotions-creator": AdCreator,
-    "document": DocumentViewer,
-    "doc": DocumentViewer,
-    "permit-ai": PermitAI,
-    "permits": PermitAI,
-    "building-codes": PermitAI,
-
-    // Phase 5: Design & Content + Platform Management (FINAL)
-    "design-studio-pro": DesignStudioPro,
-    "structural-design": StructuralDesign,
-    "social-media": SocialMediaManager,
-    "social-media-manager": SocialMediaManager,
-    "module-manager": ModuleManager,
-    "module-access-control": ModuleManager,
-    "referral-rewards": ReferralRewards,
-    "employee-management": UserManagementHub,
-    "ai-diagnostics": AIDiagnostics,
-    "crm": UnifiedCRMHub, // Redirect to new CRM Hub
-    "unified-crm": UnifiedCRMHub,
-    "customer-management": UnifiedCRMHub, // Alias for unified CRM
-    "property-management-hub": PropertyManagementHub,
-    "property-management-test": PropertyManagementTest,
-    "enterprise-hr": HREmployeeHub,
-    "subcontractor-enterprise": SubcontractorEnterprise,
-    "enterprise-reporting": EnterpriseReporting,
-    services: Services,
-
-    // Portal Pages - Role-specific portal views
-    "portal-demo-hub": PortalDemoHub,
-    "mobile-hub": MobileHub, // Mobile Hub - Portal Control Panel
-    "employee-portal": EmployeePortalView, // Employee Portal - Direct access to employee features
-    "on-call-portal": OnCallEmergencyPortal, // On-Call Emergency Portal - 24/7 emergency management
-
-    // Role-specific portals with access-controlled features
-    "vendor-portal": VendorPortalView,
-    "advertiser-portal": AdvertiserPortalView,
-    "subcontractor-portal": SubcontractorPortal,
-    "investor-portal": InvestorPortalView,
-    "admin-portal": AdminPortalView, // Platform Owner Admin Portal
-    "enterprise-content-center": EnterpriseContentCenter,
-    "territory-portal": TerritoryPortalView, // Territory Admin Portal
-    "territory-admin-portal": PortalsHub,
-
-    "property-manager-portal": PropertyManagerPortalView,
-    "condo-manager-portal": CondoManagerPortalView,
-    "landlord-portal": LandlordPortalView,
-    "portal-demo-selector": PortalDemoSelector,
-    "marketing-trades-worker": TradesWorkerMarketing,
-    "marketing-vendor": VendorMarketing,
-    "marketing-subcontractor": SubcontractorMarketing,
-    "employee-mobile-app": EmployeeMobileApp,
-    "owners-portal-v2": PortalDemoHub,
-    "portal-access": PortalsHub,
-    "portals-hub": PortalsHub,
-    "portal-global-settings": PortalGlobalSettings,
-
-    // Legacy portal routes - redirect to modern portals
-    "condo-association-portal": PortalDemoHub,
-    "vendor-portal-new": VendorPortalView,
-    "stakeholder-hub": UnifiedDashboard,
-    "mobile-app-hub": PortalsHub,
-  };
 
   const navigate = (page: string) => {
     console.log("🧭 Navigating to:", page);
@@ -1953,6 +1291,9 @@ function AppContent() {
       // But push the full URL with query params to history
       window.history.pushState({}, '', `/${basePath}${queryString}`);
       window.scrollTo(0, 0);
+      // Notify hub pages that share a base path (e.g. ?tab=) so they can
+      // re-sync their active tab even when the component doesn't remount.
+      try { window.dispatchEvent(new Event('app:navigate')); } catch { /* ignore */ }
       console.log("🧭 State set complete");
     });
     console.log("🧭 Navigate function complete");
@@ -2207,22 +1548,7 @@ function AppContent() {
                   <DataInitializer />
                   <div className="min-h-screen bg-[#0A0A0A]" style={{ display: 'flex', flexDirection: 'column', width: '100vw', margin: 0, padding: 0 }}>
                     {/* Fixed Navigation Header */}
-                    {currentPage !== "landing" &&
-                      currentPage !== "landing-page" &&
-                      currentPage !== "directory" &&
-                      currentPage !== "directory-landing-page" &&
-                      currentPage !== "builds-landing-page" &&
-                      currentPage !== "handyman-landing-page" &&
-                      currentPage !== "demo-landing-page" &&
-                      currentPage !== "property-management-landing-page" &&
-                      currentPage !== "contractor-network-landing-page" &&
-                      currentPage !== "territory-landing-page" &&
-                      currentPage !== "emergency-services-landing-page" &&
-                      currentPage !== "marketing-hub-landing-page" &&
-                      currentPage !== "login" &&
-                      currentPage !== "signup" &&
-                      currentPage !== "forgot-password" &&
-                      currentPage !== "reset-password" && (
+                    {!isFullBleedPage(currentPage) && (
                         <NavigationHeader currentPage={currentPage} navigate={navigate} />
                       )}
 
@@ -2248,9 +1574,20 @@ function AppContent() {
                         )}
                       {/* Wrap page rendering in additional Suspense to handle lazy loading during navigation */}
                       <Suspense fallback={<LoadingFallback />}>
-                        <div className="w-full flex justify-center">
-                          {renderPage()}
-                        </div>
+                        {isFullBleedPage(deferredPage) ? (
+                          // Marketing / auth pages render edge-to-edge.
+                          <div className="w-full flex justify-center">
+                            {renderPage()}
+                          </div>
+                        ) : (
+                          // Standard app pages share ONE responsive content width so
+                          // every tab looks uniform on phone, tablet, laptop & desktop.
+                          <div className="w-full flex justify-center">
+                            <div className="w-full max-w-[1440px] px-3 sm:px-5 lg:px-8">
+                              {renderPage()}
+                            </div>
+                          </div>
+                        )}
                       </Suspense>
 
                       {/* Return to Landing Page Footer */}

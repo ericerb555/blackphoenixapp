@@ -94,6 +94,10 @@ export default function ZendropIntegration() {
   const [importedIds, setImported] = useState<Set<string>>(loadImported);
   const [apiError, setApiError]   = useState('');
 
+  // Real products pulled from store inventory (what actually went live)
+  const [liveProducts, setLiveProducts] = useState<ZendropProduct[]>([]);
+  const [loadingLive, setLoadingLive]   = useState(false);
+
   // Settings
   const [markupType, setMarkupType]   = useState<'percent' | 'fixed'>(cfg.markupType || 'percent');
   const [markupValue, setMarkupValue] = useState<number>(cfg.markupValue || 75);
@@ -105,75 +109,135 @@ export default function ZendropIntegration() {
     localStorage.setItem('bp_zendrop_config', JSON.stringify(data));
   }
 
-  async function testConnection() {
-    if (!apiKey.trim()) { toast.error('Enter your Zendrop API key first.'); return; }
+  async function testConnection(opts: { silent?: boolean } = {}) {
+    // No manual key needed — the server falls back to the ZENDROP_API_KEY
+    // secret. Only pass a UI key if the user actually typed one.
+    const { silent = false } = opts;
     setTesting(true);
     setApiError('');
 
     try {
-      // Try real Zendrop API via our Supabase proxy
+      // Verify + auto-import top products server-side (Zendrop blocks browser CORS,
+      // so all Zendrop API calls run on our Supabase Edge Function).
       const res = await fetch(`${SERVER}/zendrop/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ apiKey: apiKey.trim(), storeId: storeId.trim() }),
+        body: JSON.stringify({
+          apiKey: apiKey.trim(),
+          storeId: storeId.trim(),
+          markupType,
+          markupValue,
+          autoImport: true,
+          limit: 25,
+        }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const count = data.productCount || 1240;
-        setConnected(true);
-        setProductCount(count);
-        const now = new Date().toLocaleString();
-        setLastSync(now);
-        saveConfig({ productCount: count, lastSync: now });
-        toast.success(`Zendrop connected — ${count.toLocaleString()} products available`);
-        setTab('catalog');
-        return;
-      }
-    } catch {
-      // Proxy not available — fall through to direct attempt
-    }
+      const data = await res.json().catch(() => ({}));
 
-    // Direct Zendrop API attempt (may be blocked by CORS in browser)
-    try {
-      const res = await fetch('https://api.zendrop.com/api/v1/products?limit=1', {
-        headers: { 'Authorization': `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const count = data.total || 1240;
-        setConnected(true);
-        setProductCount(count);
-        const now = new Date().toLocaleString();
-        setLastSync(now);
-        saveConfig({ productCount: count, lastSync: now });
-        toast.success(`Zendrop connected — ${count.toLocaleString()} products available`);
-        setTab('catalog');
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Connection failed (HTTP ${res.status}). Check your API key.`;
+        console.error('[Zendrop] Verify failed:', msg, data);
+        setApiError(msg);
+        if (!silent) toast.error('Could not connect to Zendrop.');
         return;
       }
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.message || `HTTP ${res.status}`);
+
+      const count = data.productCount || data.imported || 0;
+      const now = new Date().toLocaleString();
+      setConnected(true);
+      setProductCount(count);
+      setLastSync(now);
+      saveConfig({ productCount: count, lastSync: now });
+
+      if (data.imported > 0) {
+        toast.success(`Zendrop connected & live — ${data.imported} top products imported to your store.`);
+      } else if (!silent) {
+        toast.success(`Zendrop connected — ${count.toLocaleString()} products available. Use "Sync Catalog" to import.`);
+      }
+      loadLiveProducts();
+      if (!silent) setTab('catalog');
     } catch (e: any) {
-      // If it's a CORS/network error, the key may still be valid — activate with mock count
-      if (e.message?.includes('Failed to fetch') || e.message?.includes('CORS') || e.message?.includes('NetworkError')) {
-        // Key saved, assume valid — Zendrop CORS blocks browser direct calls
-        const count = 1240;
-        setConnected(true);
-        setProductCount(count);
-        const now = new Date().toLocaleString();
-        setLastSync(now);
-        saveConfig({ productCount: count, lastSync: now });
-        toast.success('Zendrop API key saved. Catalog ready — fulfillment runs server-side.');
-        setTab('catalog');
-      } else {
-        setApiError(e.message || 'Connection failed. Check your API key and try again.');
-        toast.error('Could not connect to Zendrop. Check your API key.');
-        setTesting(false);
-      }
+      const msg = `Could not reach the server to connect Zendrop: ${e?.message || e}`;
+      console.error('[Zendrop] Verify request error:', e);
+      setApiError(msg);
+      if (!silent) toast.error('Could not connect to Zendrop. Please try again.');
     } finally {
       setTesting(false);
     }
   }
+
+  async function loadLiveProducts() {
+    setLoadingLive(true);
+    try {
+      const res = await fetch(`${SERVER}/dropshipper/inventory`, {
+        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      const items = (data.inventory || data.products || []) as any[];
+      const mapped: ZendropProduct[] = items
+        .filter(p => (p.providerId || '').toLowerCase() === 'zendrop')
+        .map(p => ({
+          id: String(p.providerProductId || p.sku),
+          name: p.name || 'Untitled Product',
+          category: p.category || 'General',
+          cost: Number(p.cost ?? 0),
+          msrp: Number(p.price ?? p.cost ?? 0),
+          shipsFrom: 'USA',
+          eta: '3–5 days',
+          rating: Number(p.rating ?? 0),
+          reviews: 0,
+          stock: Number(p.stock ?? 0),
+          img: (p.images && p.images[0]) || '📦',
+          sku: p.sku || '',
+          description: p.description || '',
+        }));
+      setLiveProducts(mapped);
+      // Mark all live products as "in store" so cards show the imported state
+      if (mapped.length > 0) {
+        setImported(new Set(mapped.map(m => m.id)));
+      }
+    } catch (e) {
+      console.error('[Zendrop] Failed to load live inventory:', e);
+    } finally {
+      setLoadingLive(false);
+    }
+  }
+
+  // Load real imported products whenever connected / viewing the catalog
+  useEffect(() => {
+    if (isConnected) loadLiveProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected]);
+
+  // Auto-connect on load using the server-side ZENDROP_API_KEY secret. This is
+  // what makes the store "go live automatically" — if Zendrop isn't connected
+  // yet, we verify + auto-import silently. Checks server status first so we
+  // don't re-import on every visit.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/zendrop/status`, {
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        });
+        const status = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (status.connected && (status.productsInStore || 0) > 0) {
+          // Already live — just reflect state and show the imported products.
+          setConnected(true);
+          setProductCount(status.productCount || status.productsInStore || 0);
+          loadLiveProducts();
+          return;
+        }
+        // Not live yet — try to connect + import using the server secret.
+        await testConnection({ silent: true });
+      } catch (e) {
+        console.log('[Zendrop] Auto-connect check skipped:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function disconnect() {
     setConnected(false);
@@ -187,18 +251,28 @@ export default function ZendropIntegration() {
   async function syncProducts() {
     setSyncing(true);
     try {
-      await fetch(`${SERVER}/zendrop/sync`, {
+      const res = await fetch(`${SERVER}/zendrop/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ apiKey, limit: 25 }),
       });
-    } catch {}
-    await new Promise(r => setTimeout(r, 1400));
-    const now = new Date().toLocaleString();
-    setLastSync(now);
-    saveConfig({ lastSync: now });
-    setSyncing(false);
-    toast.success('Zendrop catalog synced.');
+      const data = await res.json().catch(() => ({}));
+      const now = new Date().toLocaleString();
+      setLastSync(now);
+      saveConfig({ lastSync: now });
+      if (res.ok && data.success) {
+        toast.success(`Synced — ${data.imported} top products refreshed in your store.`);
+        loadLiveProducts();
+      } else {
+        console.error('[Zendrop] Sync failed:', data);
+        toast.error(data.error || 'Zendrop sync failed. Check your API key.');
+      }
+    } catch (e: any) {
+      console.error('[Zendrop] Sync request error:', e);
+      toast.error(`Could not reach the server to sync: ${e?.message || e}`);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   function importProduct(p: ZendropProduct) {
@@ -237,12 +311,16 @@ export default function ZendropIntegration() {
     toast.success('API key copied.');
   }
 
-  const cats = ['All', ...Array.from(new Set(MOCK_PRODUCTS.map(p => p.category)))];
-  const filtered = useMemo(() => MOCK_PRODUCTS.filter(p => {
+  // Show real imported products once they exist; otherwise the sample catalog.
+  const showingLive = liveProducts.length > 0;
+  const sourceProducts = showingLive ? liveProducts : MOCK_PRODUCTS;
+
+  const cats = ['All', ...Array.from(new Set(sourceProducts.map(p => p.category)))];
+  const filtered = useMemo(() => sourceProducts.filter(p => {
     if (catFilter !== 'All' && p.category !== catFilter) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.category.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  }), [catFilter, search]);
+  }), [catFilter, search, sourceProducts]);
 
   const totalRevenue = [...importedIds].length * 45; // rough estimate
 
@@ -429,8 +507,8 @@ export default function ZendropIntegration() {
                 )}
 
                 <button
-                  onClick={testConnection}
-                  disabled={isTesting || !apiKey.trim()}
+                  onClick={() => testConnection()}
+                  disabled={isTesting}
                   className="w-full py-3.5 rounded-xl font-black text-sm text-white flex items-center justify-center gap-2 transition hover:brightness-110 disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg, #059669, #047857)' }}
                 >
@@ -499,7 +577,19 @@ export default function ZendropIntegration() {
               </div>
             </div>
 
-            <p className="text-xs text-gray-600">{filtered.length} products shown · {importedIds.size} imported to your store</p>
+            {showingLive ? (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex items-center gap-1.5 px-2 py-1 rounded-full font-bold"
+                  style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live in your store
+                </span>
+                <span className="text-gray-600">{filtered.length} products imported from Zendrop{loadingLive ? ' · refreshing…' : ''}</span>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-600">
+                {loadingLive ? 'Loading your imported products…' : `Sample catalog · ${filtered.length} products · click Connect or Sync to import your real Zendrop top products`}
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {filtered.map(p => {
@@ -511,9 +601,11 @@ export default function ZendropIntegration() {
                   <div key={p.id} className="rounded-2xl p-4 transition"
                     style={{ background: '#111', border: `1px solid ${imported ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.07)'}` }}>
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 overflow-hidden"
                         style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        {p.img}
+                        {typeof p.img === 'string' && /^https?:\/\//.test(p.img)
+                          ? <img src={p.img} alt={p.name} className="w-full h-full object-cover" />
+                          : p.img}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm text-white leading-tight truncate">{p.name}</p>

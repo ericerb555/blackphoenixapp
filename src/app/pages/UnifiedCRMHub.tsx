@@ -4,8 +4,9 @@ import {
   Download, Upload, Send, CheckSquare, Tag, UserCheck, Home,
   Briefcase, TrendingUp, Store, Construction, Megaphone, DollarSign,
   ArrowLeft, Phone, Calendar, MapPin, Eye, Edit, Trash2, MoreVertical,
-  X, ChevronDown, Map
+  X, ChevronDown, Map, RefreshCw
 } from 'lucide-react';
+import { fetchAccountContacts } from '../utils/crmContactsApi';
 
 // Contact Types
 type ContactType =
@@ -129,10 +130,20 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [contactToDelete, setContactToDelete] = useState<string | null>(null);
 
+  const [syncing, setSyncing] = useState(false);
+  const [accountCount, setAccountCount] = useState(0);
+
   // Load companies and saved contacts on mount
   useEffect(() => {
-    const loadData = () => {
+    // Contacts the user has explicitly deleted — so server-synced accounts don't reappear.
+    const getHiddenIds = (): Set<string> => {
+      try { return new Set(JSON.parse(localStorage.getItem('crm_hidden_ids') || '[]')); }
+      catch { return new Set(); }
+    };
+
+    const loadData = async () => {
       console.log('[CRM Hub] Loading data...');
+      setSyncing(true);
 
       // Load saved CRM contacts from localStorage
       const savedContacts = localStorage.getItem('crm_contacts');
@@ -183,17 +194,49 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
         }
       }
 
+      // Pull real signed-in customers/users from the server and merge them in.
+      let accountContacts: Contact[] = [];
+      try {
+        const hidden = getHiddenIds();
+        const existingKeys = new Set(
+          loadedContacts.flatMap(c => [
+            (c.email || '').toLowerCase(),
+            c.id.toLowerCase(),
+          ].filter(Boolean)),
+        );
+        const fetched = await fetchAccountContacts();
+        accountContacts = fetched
+          .filter(c => !hidden.has(c.id) && !hidden.has((c.email || '').toLowerCase()))
+          .filter(c => {
+            const email = (c.email || '').toLowerCase();
+            if (email && existingKeys.has(email)) return false;
+            if (existingKeys.has(c.id.toLowerCase())) return false;
+            return true;
+          })
+          .map(c => ({ ...c } as Contact));
+        setAccountCount(fetched.length);
+        console.log(`[CRM Hub] Synced ${accountContacts.length} signed-in accounts into CRM`);
+      } catch (error) {
+        console.error('[CRM Hub] Error syncing account contacts:', error);
+      }
+
+      const finalContacts = [...loadedContacts, ...accountContacts];
+
       // If we have loaded contacts, use them; otherwise use mock data
-      if (loadedContacts.length > 0) {
-        setContacts(loadedContacts);
-        console.log(`[CRM Hub] Total contacts loaded: ${loadedContacts.length}`);
+      if (finalContacts.length > 0) {
+        setContacts(finalContacts);
+        console.log(`[CRM Hub] Total contacts loaded: ${finalContacts.length}`);
       } else {
         console.log('[CRM Hub] No saved data, using mock contacts');
         setContacts(mockContacts);
       }
+      setSyncing(false);
     };
 
     loadData();
+
+    // Real-time refresh so newly signed-in customers appear automatically.
+    const interval = setInterval(loadData, 15000);
 
     // Listen for storage changes
     const handleStorageChange = (e: StorageEvent) => {
@@ -213,6 +256,7 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
     window.addEventListener('companiesUpdated', handleCompanyUpdate);
 
     return () => {
+      clearInterval(interval);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('companiesUpdated', handleCompanyUpdate);
     };
@@ -380,6 +424,7 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
   // Handle delete contact
   const handleDeleteContact = () => {
     if (contactToDelete) {
+      const removed = contacts.find(c => c.id === contactToDelete);
       const updatedContacts = contacts.filter(c => c.id !== contactToDelete);
       setContacts(updatedContacts);
       setContactToDelete(null);
@@ -387,6 +432,18 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
 
       // Save to localStorage
       localStorage.setItem('crm_contacts', JSON.stringify(updatedContacts));
+
+      // Remember deletions of server-synced accounts so they don't reappear on refresh.
+      if (removed) {
+        try {
+          const hidden = new Set<string>(JSON.parse(localStorage.getItem('crm_hidden_ids') || '[]'));
+          hidden.add(removed.id);
+          if (removed.email) hidden.add(removed.email.toLowerCase());
+          localStorage.setItem('crm_hidden_ids', JSON.stringify([...hidden]));
+        } catch (err) {
+          console.error('[CRM Hub] Error saving hidden ids:', err);
+        }
+      }
     }
   };
 
@@ -464,8 +521,12 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white">CRM Hub</h1>
-              <p className="text-sm text-gray-400 mt-1">
+              <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
                 Manage all contacts, relationships, and communications
+                <span className="inline-flex items-center gap-1 text-xs text-green-400">
+                  <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
+                  {accountCount} signed-in account{accountCount === 1 ? '' : 's'} synced
+                </span>
               </p>
             </div>
           </div>

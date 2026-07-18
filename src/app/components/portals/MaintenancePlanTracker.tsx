@@ -3,8 +3,9 @@
  * Shows subscription plan hours, usage, remaining balance, overages, and amounts owed.
  * Terminology adapts per portal type.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { listPlans, logPlanUsage } from '../../utils/plansApi';
 import {
   Clock, CheckCircle, AlertTriangle, DollarSign, TrendingUp,
   Plus, ChevronDown, ChevronUp, CreditCard, FileText, Wrench,
@@ -246,6 +247,14 @@ interface Props {
   ownerName?: string;
 }
 
+// Map a tracker portal role to the plan record's portalType (territory has no
+// plan portalType, so it's filtered by owner only).
+const ROLE_TO_PORTAL: Partial<Record<PortalRole, string>> = {
+  landlord: 'landlord', condo_manager: 'condo_manager', property_manager: 'property_manager',
+  vendor: 'vendor', advertiser: 'advertiser', subcontractor: 'subcontractor',
+  customer: 'customer', employee: 'employee', investor: 'investor',
+};
+
 export default function MaintenancePlanTracker({ portalRole, ownerName }: Props) {
   const cfg = ROLE_CONFIG[portalRole];
   const [plans, setPlans] = useState<Plan[]>(() => demoPlan(portalRole));
@@ -258,6 +267,57 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
   const [selectedPlan, setSelectedPlan] = useState<string>(plans[0]?.id || '');
   const [showLogModal, setShowLogModal] = useState(false);
   const [expandedSection, setExpandedSection] = useState<'usage' | 'payments' | null>('usage');
+  // Ids of plans backed by the server (real, persisted) vs. local demo plans.
+  const [serverPlanIds, setServerPlanIds] = useState<Set<string>>(new Set());
+
+  // Pull real plans (built via the AI plan builder) and merge them in, polling so
+  // hour usage stays in sync with the portal live panel and the command center.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const params: { owner?: string; portalType?: string } = {};
+        if (ownerName) params.owner = ownerName;
+        const pt = ROLE_TO_PORTAL[portalRole];
+        if (pt) params.portalType = pt;
+        const sp = await listPlans(params);
+        if (cancelled || sp.length === 0) return;
+
+        const mapped: Plan[] = sp.map(p => ({
+          id: p.id,
+          name: p.planName,
+          hoursIncluded: p.hours?.included || 0,
+          hoursUsed: p.hours?.used || 0,
+          overageRate: p.hours?.overageRate || 95,
+          monthlyFee: p.monthlyTotal,
+          billingCycle: p.frequencyId === 'annual' ? 'annual' : 'monthly',
+          status: (p.status as Plan['status']) || 'active',
+          renewsOn: new Date(new Date(p.createdAt).getTime() + 30 * 864e5).toISOString().slice(0, 10),
+          property: p.owner || undefined,
+        }));
+
+        if (cancelled) return;
+        setServerPlanIds(new Set(mapped.map(m => m.id)));
+        setPlans(prev => {
+          // Keep local demo plans that aren't server-backed; put real plans first.
+          const demo = prev.filter(x => !x.id.startsWith('PLAN-'));
+          return [...mapped, ...demo];
+        });
+        setUsage(prev => {
+          const next = { ...prev };
+          for (const m of mapped) if (!next[m.id]) next[m.id] = [];
+          return next;
+        });
+        // If nothing meaningful is selected yet, focus the newest real plan.
+        setSelectedPlan(cur => (cur && !cur.startsWith('plan-') ? cur : mapped[0].id));
+      } catch (err) {
+        console.error('[MaintenancePlanTracker] Failed to load server plans:', err);
+      }
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [portalRole, ownerName]);
 
   const plan = plans.find(p => p.id === selectedPlan) || plans[0];
   if (!plan) return null;
@@ -278,6 +338,19 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
     setPlans(prev => prev.map(p =>
       p.id === plan.id ? { ...p, hoursUsed: +(p.hoursUsed + entry.hours).toFixed(2) } : p
     ));
+    // For real (server-backed) plans, persist usage to the shared source of truth
+    // so it reflects in the live portal panel and the command center.
+    if (serverPlanIds.has(plan.id)) {
+      logPlanUsage(plan.id, {
+        hours: entry.hours,
+        description: entry.description,
+        tech: entry.tech,
+        date: entry.date,
+      }).catch(err => {
+        console.error('[MaintenancePlanTracker] Failed to persist usage:', err);
+        toast.error('Logged locally, but could not sync hours to the server.');
+      });
+    }
   }
 
   function markPaid(paymentId: string) {

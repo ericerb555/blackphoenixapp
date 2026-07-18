@@ -171,7 +171,8 @@ export default function AffiliateProgram() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-4 sm:p-6 space-y-6">
+    <div className="min-h-screen bg-[#050505] text-white p-4 sm:p-6">
+      <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -319,7 +320,7 @@ export default function AffiliateProgram() {
 
       {/* ── HOW IT WORKS ──────────────────────────────────────────────────── */}
       {tab === 'how' && (
-        <div className="space-y-4 max-w-lg">
+        <div className="space-y-4 max-w-lg mx-auto">
           {HOW_IT_WORKS.map(h => (
             <div key={h.step} className="flex gap-4 p-5 rounded-2xl" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: h.color + '18' }}>
@@ -358,7 +359,7 @@ export default function AffiliateProgram() {
 
       {/* ── ACTIVITY ──────────────────────────────────────────────────────── */}
       {tab === 'history' && (
-        <div className="space-y-3 max-w-lg">
+        <div className="space-y-3 max-w-lg mx-auto">
           {stats.history.length === 0 && (
             <div className="text-center py-12 text-gray-600">
               <Share2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -385,6 +386,7 @@ export default function AffiliateProgram() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

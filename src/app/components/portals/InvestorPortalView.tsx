@@ -9,7 +9,8 @@ import {
   Calendar, Target, Award, ArrowUpRight, ArrowDownRight, Download,
   Home, MessageSquare, Settings, Bell, ChevronRight, Briefcase,
   Activity, Clock, CheckCircle, AlertCircle, Percent, Wallet, X,
-  Users, MapPin, TrendingDown, Calculator, Shield, Info, ExternalLink
+  Users, MapPin, TrendingDown, Calculator, Shield, Info, ExternalLink,
+  Megaphone, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -21,12 +22,13 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import ReferralRewards from '../ReferralRewards';
 import InvestmentApplication from './InvestmentApplication';
 import InvestmentContract from './InvestmentContract';
+import PlanBuilderTab from './PlanBuilderTab';
 
 export default function InvestorPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'opportunities' | 'reports' | 'distributions' | 'documents' | 'plan-tracker' | 'referrals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'opportunities' | 'reports' | 'distributions' | 'documents' | 'plan-tracker' | 'plan-builder' | 'referrals' | 'messages'>('dashboard');
   const [opportunityFilter, setOpportunityFilter] = useState<'all' | 'company' | 'property'>('all');
   const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
   const [showOpportunityModal, setShowOpportunityModal] = useState(false);
@@ -596,6 +598,7 @@ export default function InvestorPortalView() {
     { id: 'distributions', label: 'Distributions', icon: DollarSign },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'plan-tracker', label: 'Fee Tracker', icon: BarChart3 },
+    { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
     { id: 'referrals', label: 'Referral Rewards', icon: Award }
   ];
@@ -1608,6 +1611,7 @@ export default function InvestorPortalView() {
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="investor" ownerName={investorInfo.name} />}
+        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="investor" ownerName={investorInfo.name} />}
         {activeTab === 'referrals' && (
           <ReferralRewards />
         )}

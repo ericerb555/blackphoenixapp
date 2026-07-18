@@ -17,6 +17,7 @@ import {
   type CustomerFilters 
 } from '../lib/services/customerService';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'lead' | 'active' | 'vip' | 'inactive';
@@ -47,11 +48,44 @@ export default function CustomersNew() {
     avgDeal: 0,
   });
 
-  // Load customers
+  // Load customers (backfill existing signups into the CRM first, once)
   useEffect(() => {
-    loadCustomers();
-    loadStats();
+    (async () => {
+      await backfillCrmOnce();
+      await loadCustomers();
+      await loadStats();
+    })();
   }, []);
+
+  // One-time recovery: pull any existing auth users (people who signed up
+  // before CRM sync existed) into the CRM. Guarded so it only runs once.
+  const backfillCrmOnce = async () => {
+    try {
+      if (localStorage.getItem('crm_backfill_done') === 'true') return;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/admin/backfill-crm`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+      if (res.ok) {
+        const result = await res.json();
+        localStorage.setItem('crm_backfill_done', 'true');
+        if (result.created > 0) {
+          console.log(`✅ [CRM] Backfilled ${result.created} existing users into the CRM`);
+          toast.success(`Imported ${result.created} existing user${result.created === 1 ? '' : 's'} into the CRM`);
+        }
+      } else {
+        console.warn('[CRM] Backfill request failed:', res.status, await res.text());
+      }
+    } catch (err) {
+      console.error('[CRM] Backfill error (non-blocking):', err);
+    }
+  };
 
   // Read tab from URL on mount
   useEffect(() => {

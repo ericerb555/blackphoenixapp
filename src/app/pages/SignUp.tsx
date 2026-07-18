@@ -55,8 +55,12 @@ export default function SignUp({ onNavigate }: SignUpProps) {
     try {
       console.log('🔐 Attempting signup with:', formData.email);
       
-      // Use Supabase built-in auth (works without server deployment)
-      const { error } = await signUp(formData.email, formData.password);
+      // Use Supabase built-in auth (works without server deployment).
+      // Pass profile details so the user is immediately added to the CRM.
+      const { error } = await signUp(formData.email, formData.password, {
+        fullName: formData.fullName.trim(),
+        phone: formData.phone || undefined,
+      });
 
       if (error) {
         console.error('❌ Sign up error:', error);

@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { motion } from 'motion/react';
 import {
   Building2, Wrench, ShoppingCart, Trash2, Users, Megaphone,
   Building, TrendingUp, ArrowRight, CheckCircle, Sparkles,
-  Clock, User, CheckCircle2, Store, Briefcase, X, Tag, ExternalLink, Play
+  Clock, User, CheckCircle2, Store, Briefcase, X, Tag, ExternalLink, Play, UserPlus
 } from 'lucide-react';
 import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
+import PhoenixLogo from '../components/PhoenixLogo';
 import { DIRECTORY_SECTIONS } from '../config/directoryLandingSections';
 import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ReviewsSection from '../components/ReviewsSection';
@@ -23,7 +23,10 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   console.log('🎯 [DirectoryLandingPage] Component mounting/rendering');
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
-  const [companyLogo, setCompanyLogo] = useState<string>(phoenixLogo);
+  // Default to '' so the inline PhoenixLogo SVG renders immediately (no dependency
+  // on a bundled PNG that can fail to load in production). Only an http(s) Storage
+  // URL from branding will replace it with an <img>.
+  const [companyLogo, setCompanyLogo] = useState<string>('');
   const [companyName, setCompanyName] = useState('The Black Phoenix Company');
 
   // Live signup counters
@@ -377,15 +380,19 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
       >
         <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-          {companyLogo ? (
+          {companyLogo && companyLogo.startsWith('http') ? (
             <img
               src={companyLogo}
               alt={companyName}
               className="w-full h-full object-contain p-4"
               style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+              onError={() => setCompanyLogo('')}
             />
           ) : (
-            <Building2 className="w-20 h-20 text-orange-400" />
+            <PhoenixLogo
+              className="w-full h-full p-3"
+              title={companyName || 'Black Phoenix'}
+            />
           )}
         </div>
       </motion.div>
@@ -476,15 +483,19 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             >
               <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900 rounded-full blur-2xl opacity-50 group-hover:opacity-75 transition-opacity" />
               <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-                {companyLogo ? (
+                {companyLogo && companyLogo.startsWith('http') ? (
                   <img
                     src={companyLogo}
                     alt={companyName}
                     className="w-full h-full object-contain p-4"
                     style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+                    onError={() => setCompanyLogo('')}
                   />
                 ) : (
-                  <Building2 className="w-20 h-20 text-orange-400" />
+                  <PhoenixLogo
+                    className="w-full h-full p-3"
+                    title={companyName || 'Black Phoenix'}
+                  />
                 )}
               </div>
             </motion.div>
@@ -772,7 +783,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       `}</style>
 
       <div className="w-full px-4 pt-10 pb-6 flex justify-center">
-        <div className="w-full max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="w-full max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
           {/* ── SHOP THE STORE ── */}
           <motion.button
@@ -1001,6 +1012,123 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
                 <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-black text-sm text-white group-hover:gap-3 transition-all"
                   style={{ background: 'linear-gradient(90deg, #3b82f6, #60a5fa)' }}>
                   Get a Free Quote
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </div>
+          </motion.button>
+
+          {/* ── JOIN / CREATE ACCOUNT ── */}
+          <motion.button
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            onClick={() => setShowSignUpModal(true)}
+            className="group relative overflow-hidden text-left"
+            style={{
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #0a0a0a 0%, #021206 50%, #0a0a0a 100%)',
+              border: '1px solid rgba(34,197,94,0.35)',
+              boxShadow: '0 0 0 0 rgba(34,197,94,0), inset 0 0 60px rgba(34,197,94,0.04)',
+              transition: 'box-shadow 0.4s ease',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 60px rgba(34,197,94,0.25), 0 0 120px rgba(34,197,94,0.1), inset 0 0 60px rgba(34,197,94,0.08)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 0 rgba(34,197,94,0), inset 0 0 60px rgba(34,197,94,0.04)';
+            }}
+          >
+            {/* Animated grid bg */}
+            <div className="cta-grid absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: 'linear-gradient(rgba(34,197,94,1) 1px, transparent 1px), linear-gradient(90deg, rgba(34,197,94,1) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
+                opacity: 0.05,
+                animationDelay: '1s',
+              }} />
+
+            {/* Scan line */}
+            <div className="cta-scanline absolute left-0 right-0 h-16 pointer-events-none"
+              style={{ background: 'linear-gradient(to bottom, transparent, rgba(34,197,94,0.06), transparent)', animationDelay: '0.75s' }} />
+
+            {/* Corner brackets */}
+            <div className="cta-corner absolute top-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #22c55e', borderLeft: '2px solid #22c55e' }} />
+            <div className="cta-corner absolute top-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderTop: '2px solid #22c55e', borderRight: '2px solid #22c55e', animationDelay: '0.5s' }} />
+            <div className="cta-corner absolute bottom-3 left-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #22c55e', borderLeft: '2px solid #22c55e', animationDelay: '1s' }} />
+            <div className="cta-corner absolute bottom-3 right-3 w-5 h-5 pointer-events-none"
+              style={{ borderBottom: '2px solid #22c55e', borderRight: '2px solid #22c55e', animationDelay: '1.5s' }} />
+
+            {/* Background team image */}
+            <div className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: "url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=900&q=70')",
+                backgroundSize: 'cover', backgroundPosition: 'center',
+                opacity: 0.12,
+                mixBlendMode: 'luminosity',
+              }} />
+
+            {/* Diagonal accent slash */}
+            <div className="absolute -right-8 top-0 bottom-0 w-32 pointer-events-none"
+              style={{
+                background: 'linear-gradient(135deg, transparent 40%, rgba(34,197,94,0.08) 40%, rgba(34,197,94,0.12) 60%, transparent 60%)',
+                transform: 'skewX(-8deg)',
+              }} />
+
+            {/* Content */}
+            <div className="relative z-10 p-8 pb-7">
+              {/* Top label */}
+              <div className="flex items-center gap-2 mb-5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-green-500/40" />
+                <span className="text-[10px] font-black tracking-[0.25em] text-green-400 uppercase">Join The Network</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-green-500/40" />
+              </div>
+
+              <div className="flex items-start gap-5 mb-5">
+                {/* Icon */}
+                <div className="relative flex-shrink-0">
+                  <div className="w-16 h-16 rounded-xl flex items-center justify-center"
+                    style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.05))', border: '1px solid rgba(34,197,94,0.4)' }}>
+                    <UserPlus className="w-8 h-8 text-green-400 group-hover:scale-110 transition-transform duration-300" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
+                    <span className="text-[7px] font-black text-white">JOIN</span>
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <h2 className="text-3xl font-black text-white leading-none mb-1"
+                    style={{ textShadow: '0 0 30px rgba(34,197,94,0.3)' }}>
+                    Create Account
+                  </h2>
+                  <p className="text-green-400/80 text-xs font-mono tracking-widest uppercase">Subs · Vendors · Advertisers</p>
+                </div>
+              </div>
+
+              <p className="text-gray-300 text-sm leading-relaxed mb-6">
+                Subs, vendors, advertisers, and service providers — pick how you want to join and start earning with us.
+              </p>
+
+              {/* Stat chips */}
+              <div className="flex gap-3 mb-6 flex-wrap">
+                {['Free to Join', 'Fast Onboarding', 'Grow With Us'].map(t => (
+                  <span key={t} className="text-[11px] font-semibold text-green-300 px-2.5 py-1 rounded-md"
+                    style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+
+              {/* CTA strip */}
+              <div className="flex items-center justify-between pt-4"
+                style={{ borderTop: '1px solid rgba(34,197,94,0.2)' }}>
+                <span className="text-xs font-mono text-green-500/60 tracking-widest">[ CHOOSE PATH ]</span>
+                <div className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-black text-sm text-black group-hover:gap-3 transition-all"
+                  style={{ background: 'linear-gradient(90deg, #16a34a, #22c55e)' }}>
+                  Create Account
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>

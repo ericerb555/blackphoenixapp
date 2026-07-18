@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { GenericApplicationForm, ApplicationConfig } from '../components/GenericApplicationForm';
-import { 
-  User, Mail, Phone, MapPin, Building2, DollarSign, 
-  Megaphone, Target, FileText, Briefcase, Calendar, 
+import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
+import {
+  User, Mail, Phone, MapPin, Building2, DollarSign,
+  Megaphone, Target, FileText, Briefcase, Calendar,
   TrendingUp, BarChart3, Users
 } from 'lucide-react';
 
@@ -342,10 +343,15 @@ export default function AdvertiserApplication() {
 
   if (view === 'form') {
     return (
-      <GenericApplicationForm 
-        config={advertiserConfig} 
-        onNavigate={(page) => setView('landing')}
-      />
+      <>
+        <GenericApplicationForm
+          config={advertiserConfig}
+          onNavigate={(page) => setView('landing')}
+        />
+        <div className="max-w-6xl mx-auto px-6 pb-12">
+          <ApplicationPlanBuilderSection portalType="advertiser" />
+        </div>
+      </>
     );
   }
 

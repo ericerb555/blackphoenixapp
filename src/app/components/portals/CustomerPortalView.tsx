@@ -2,6 +2,7 @@ import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 import { useState, useEffect, useRef, Component, ReactNode } from 'react';
 
 // Error boundary so SponsoredMarquee can't crash the portal
@@ -57,7 +58,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'payments' | 'plan-tracker' | 'messages' | 'shopping' | 'referrals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals'>('dashboard');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -599,6 +600,7 @@ export default function CustomerPortalView() {
     { id: 'quotes', label: 'Quotes & Invoices', icon: FileText },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'plan-tracker', label: 'My Plan', icon: BarChart3 },
+    { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'shopping', label: 'Shop', icon: ShoppingCart },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
@@ -1457,6 +1459,7 @@ export default function CustomerPortalView() {
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="customer" ownerName={customerInfo.name} />}
+        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="customer" ownerName={customerInfo.name} />}
         {activeTab === 'shopping' && (
           <div>
             <CustomerMarketplace />

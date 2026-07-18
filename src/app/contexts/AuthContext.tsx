@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import type { CompanyScope, CompanyContext } from '../lib/companyScope';
 
 interface UserRole {
@@ -38,7 +39,11 @@ interface AuthContextType {
   needsOnboarding: boolean;
   hasPermission: (permission: string) => boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    profile?: { fullName?: string; phone?: string; accountType?: string }
+  ) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   companyContext: CompanySessionContext;
   switchCompany: (companyId: string) => Promise<{ success: boolean; error?: string }>;
@@ -277,13 +282,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    profile?: { fullName?: string; phone?: string; accountType?: string }
+  ) => {
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
       });
-      return { error };
+      if (error) {
+        return { error };
+      }
+
+      // Immediately add the new user to the CRM and persist their profile
+      // server-side. Best-effort: never block signup if this fails.
+      try {
+        await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/register-crm`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${publicAnonKey}`,
+            },
+            body: JSON.stringify({
+              email,
+              fullName: profile?.fullName,
+              phone: profile?.phone,
+              accountType: profile?.accountType,
+              userId: data?.user?.id,
+            }),
+          }
+        );
+        console.log('✅ [Auth] New signup synced to CRM:', email);
+      } catch (crmError) {
+        console.error('⚠️ [Auth] Failed to sync signup to CRM (non-blocking):', crmError);
+      }
+
+      return { error: null };
     } catch (error) {
       return { error: error as Error };
     }

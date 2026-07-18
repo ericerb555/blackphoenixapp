@@ -154,7 +154,7 @@ export default function LoyaltyProgram() {
   return (
     <div className="min-h-screen bg-[#080808] text-white p-4 sm:p-6">
       {/* Header */}
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-3 mb-8">
           <img src={companyLogo} alt="Black Phoenix" style={{ height: 44, width: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 0 12px rgba(234,88,12,0.5))' }} />
           <div>
@@ -165,7 +165,7 @@ export default function LoyaltyProgram() {
 
         {/* Not logged in */}
         {!user && (
-          <div className="rounded-3xl p-8 text-center" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="rounded-3xl p-8 text-center max-w-xl mx-auto" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div className="text-5xl mb-4">🔥</div>
             <h2 className="text-2xl font-black text-white mb-2">Join Phoenix Rewards</h2>
             <p className="text-gray-400 text-sm mb-6">Sign in to start earning points on every purchase.</p>
@@ -176,7 +176,7 @@ export default function LoyaltyProgram() {
 
         {/* Not enrolled */}
         {user && !account && (
-          <div className="rounded-3xl overflow-hidden" style={{ border: '1px solid rgba(234,88,12,0.25)' }}>
+          <div className="rounded-3xl overflow-hidden max-w-xl mx-auto" style={{ border: '1px solid rgba(234,88,12,0.25)' }}>
             <div className="p-8 text-center" style={{ background: 'linear-gradient(135deg, #111, #1a0800)' }}>
               <div className="text-5xl mb-4">🎁</div>
               <h2 className="text-2xl font-black text-white mb-2">Join & Get 50 Free Points</h2>
@@ -245,6 +245,8 @@ export default function LoyaltyProgram() {
               </div>
             </div>
 
+            {/* Two-column detail grid on desktop */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             {/* Tier perks */}
             <div className="rounded-2xl p-4" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Your {tier.label} Perks</p>
@@ -318,9 +320,10 @@ export default function LoyaltyProgram() {
                 </div>
               </div>
             )}
+            </div>{/* end two-column detail grid */}
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
               {[
                 { label: 'Lifetime Points', value: account.lifetimePoints.toLocaleString() },
                 { label: 'Total Spent', value: `$${account.lifetimeSpend.toFixed(0)}` },

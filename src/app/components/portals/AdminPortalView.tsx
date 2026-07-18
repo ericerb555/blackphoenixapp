@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
+import PlansRecordsPanel from './PlansRecordsPanel';
 
 interface Alert {
   id: string;
@@ -51,7 +52,7 @@ interface AdminPortalViewProps {
 }
 
 export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'dispatch' | 'alerts' | 'customer-service' | 'employee-support'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support'>('overview');
 
   // ── Dispatch Center Data ───────────────────────────────────────────────────
   const [workOrders, setWorkOrders] = useState([
@@ -342,6 +343,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
             {[
               { id: 'overview', label: 'Overview', icon: Activity },
               { id: 'dispatch', label: 'Dispatch Center', icon: ClipboardList, badge: workOrders.filter(w => w.status === 'unassigned').length },
+              { id: 'plans', label: 'Maintenance Plans', icon: Wrench },
               { id: 'alerts', label: 'System Alerts', icon: Bell },
               { id: 'customer-service', label: 'Customer Service', icon: MessageSquare },
               { id: 'employee-support', label: 'Employee Support', icon: HeadphonesIcon },
@@ -370,6 +372,9 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Maintenance Plans Tab — searchable records tied to hours, gift cards, promos & offers */}
+        {activeTab === 'plans' && <PlansRecordsPanel />}
+
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">

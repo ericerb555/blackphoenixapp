@@ -9,7 +9,7 @@ import {
   Truck, Receipt, Award, Wrench, Zap, Code, Key, Link as LinkIcon,
   Globe, Info, Copy, RefreshCw, CheckCircle2, AlertCircle, Palette,
   Lock, Crown, ExternalLink, Eye, EyeOff, Save,
-  Percent, BadgePercent, Video, Play, ToggleLeft, ToggleRight, PlusCircle, Pencil
+  Percent, BadgePercent, Video, Play, ToggleLeft, ToggleRight, PlusCircle, Pencil, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -25,6 +25,7 @@ import SubmitReelForApproval from '../SubmitReelForApproval';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 
 interface Order {
   id: string;
@@ -49,7 +50,7 @@ export default function VendorPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'performance' | 'referrals' | 'api-settings' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'messages'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -175,6 +176,7 @@ export default function VendorPortalView() {
     { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'payments', label: 'Payments', icon: DollarSign },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
+    { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'api-settings', label: 'API Settings', icon: Code },
@@ -599,6 +601,7 @@ export default function VendorPortalView() {
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.accountManager} />}
+        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="vendor" ownerName={vendorInfo.name} currentTier={subscriptionTier} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">
             <SubmitReelForApproval submitterName={vendorInfo?.name || 'Vendor'} submitterType="vendor" />

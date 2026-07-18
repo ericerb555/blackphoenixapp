@@ -26,7 +26,7 @@ import {
   FileAudio, File, Crown, Zap as ZapIcon, AlertTriangle, 
   TrendingUp as TrendingUpIcon, Package as PackageIcon, Shield,
   AlertCircle, Briefcase, Link as LinkIcon, Unlink, ExternalLink,
-  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User
+  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
@@ -37,6 +37,8 @@ import { ContentDistributionManager } from '../components/ContentDistributionMan
 import UserContextSelector from '../components/UserContextSelector';
 import MusicTimelineEditor from '../components/MusicTimelineEditor';
 import { useNavigate } from '../hooks/useNavigate';
+import AdStudio from '../components/adstudio/AdStudio';
+import MarketingCommandCenter from '../components/adstudio/MarketingCommandCenter';
 import {
   UserContext,
   getMockUserContext,
@@ -148,7 +150,32 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence'>('library');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence'>('command');
+
+  // Deep-link support: open a specific tab via ?tab=ad-studio etc.
+  useEffect(() => {
+    try {
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence'];
+      const tab = new URLSearchParams(window.location.search).get('tab');
+      if (tab && valid.includes(tab)) {
+        setActiveTab(tab as any);
+      } else if (window.location.pathname.includes('ad-studio')) {
+        setActiveTab('ad-studio');
+      } else if (window.location.pathname.includes('marketing-command')) {
+        setActiveTab('command');
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Navigation that also handles self-links back into this hub's tabs.
+  const hubNavigate = (page: string) => {
+    if (page.startsWith('enterprise-content-center')) {
+      const q = page.split('?')[1] || '';
+      const tab = new URLSearchParams(q).get('tab');
+      if (tab) { setActiveTab(tab as any); return; }
+    }
+    navigate(page);
+  };
   const [studioPreloadedProduct, setStudioPreloadedProduct] = useState<any>(null);
   const [contentPieces, setContentPieces] = useState<ContentPiece[]>([]);
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
@@ -214,11 +241,9 @@ export default function EnterpriseContentCenter() {
 
   const currentLimit = storagePackages[currentPackage].storage;
 
-  // Social Media Connection State
-  const [connectedAccounts, setConnectedAccounts] = useState<any[]>([]);
-  const [showOAuthModal, setShowOAuthModal] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('');
-  const [showOAuthInstructions, setShowOAuthInstructions] = useState(false);
+  // Social Media accounts are managed by the real SocialMediaHub component
+  // (rendered in the "Social Accounts" tab) — it connects via Facebook/Instagram
+  // OAuth and stores accounts server-side. No demo/placeholder state here.
   const usagePercentage = (usedStorage / currentLimit) * 100;
   const isNearLimit = usagePercentage >= 80;
   const isAtLimit = usagePercentage >= 95;
@@ -273,7 +298,6 @@ export default function EnterpriseContentCenter() {
 
   useEffect(() => {
     loadData();
-    loadDemoConnectedAccounts();
   }, []);
 
   // Separate effect for creating demo ads when company is available
@@ -285,36 +309,6 @@ export default function EnterpriseContentCenter() {
     createDemoAds(companyId);
   }, [currentCompany?.id]);
 
-  const loadDemoConnectedAccounts = () => {
-    // Load demo connected accounts for demonstration
-    const demoAccounts = [
-      {
-        id: 'facebook-demo-1',
-        platform: 'facebook',
-        name: `${companyInfo.name} - Facebook`,
-        handle: 'company_official',
-        connectedAt: '2 days ago',
-        lastSync: '10 min ago'
-      },
-      {
-        id: 'instagram-demo-1',
-        platform: 'instagram',
-        name: `${companyInfo.name} - Instagram`,
-        handle: 'company_insta',
-        connectedAt: '5 days ago',
-        lastSync: '15 min ago'
-      },
-      {
-        id: 'twitter-demo-1',
-        platform: 'twitter',
-        name: `${companyInfo.name} - Twitter`,
-        handle: 'company_tweets',
-        connectedAt: '1 week ago',
-        lastSync: '5 min ago'
-      }
-    ];
-    setConnectedAccounts(demoAccounts);
-  };
 
   const createDemoAds = async (companyId: string) => {
     // Only create demo ads once per session
@@ -1631,6 +1625,8 @@ export default function EnterpriseContentCenter() {
         {/* Tabs */}
         <div className="flex items-center gap-1 px-6 pt-4 border-b border-[#2A2A2A]">
           {[
+            { id: 'command', label: '🎯 Command Center', icon: Target },
+            { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
             { id: 'library', label: 'Content Library', icon: FileText },
             { id: 'create', label: 'AI Generator', icon: Sparkles },
             { id: 'storage', label: 'Storage', icon: HardDrive },
@@ -1664,6 +1660,16 @@ export default function EnterpriseContentCenter() {
         </div>
 
         <div className="p-6">
+          {/* Marketing Command Center Tab */}
+          {activeTab === 'command' && (
+            <MarketingCommandCenter onNavigate={hubNavigate} onOpenTab={(t) => setActiveTab(t as any)} />
+          )}
+
+          {/* Ad Studio Tab */}
+          {activeTab === 'ad-studio' && (
+            <AdStudio onNavigate={hubNavigate} />
+          )}
+
           {/* Library Tab */}
           {activeTab === 'library' && (
             <div className="space-y-6">

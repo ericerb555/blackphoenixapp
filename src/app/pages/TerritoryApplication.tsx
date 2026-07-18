@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { PageHeader } from '../components/PageHeader';
+import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface TerritoryApplicationProps {
@@ -669,6 +670,13 @@ export default function TerritoryApplication({ onNavigate }: TerritoryApplicatio
                     </p>
                   </div>
                 </label>
+              </div>
+
+              <div className="mt-6">
+                <ApplicationPlanBuilderSection
+                  portalType="property_manager"
+                  ownerName={formData.companyName || `${formData.firstName} ${formData.lastName}`.trim()}
+                />
               </div>
 
               <div className="flex justify-between">

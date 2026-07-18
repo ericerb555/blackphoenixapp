@@ -5,6 +5,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
 class MarqueeSafe extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -18,7 +19,7 @@ import {
   MessageSquare, Settings, Bell, Home, Briefcase, Megaphone,
   Plus, Download, ChevronRight, ArrowUpRight, CheckCircle,
   Clock, TrendingUp, Target, Send, AlertCircle, Building2,
-  Image, Video, X, Paperclip, Play,
+  Image, Video, X, Paperclip, Play, Sparkles,
 } from 'lucide-react';
 
 // Static bid room data — no hooks to cause loops
@@ -69,7 +70,7 @@ function badge(s: string) {
   return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
 
-type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'plan-tracker' | 'performance' | 'messages';
+type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages';
 
 function getDemoProfile() {
   try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
@@ -158,6 +159,7 @@ export default function SubcontractorPortal() {
     { id: 'bids', label: 'My Bids', icon: FileText },
     { id: 'payments', label: 'Payments', icon: DollarSign },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
+    { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
   ];
@@ -476,6 +478,7 @@ export default function SubcontractorPortal() {
 
         {/* PERFORMANCE */}
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="subcontractor" ownerName={subName} />}
+        {tab === 'plan-builder' && <PlanBuilderTab portalType="subcontractor" ownerName={subCompany} />}
         {tab === 'performance' && (
           <div className="space-y-6">
             <h2 className="text-xl font-bold">Performance Metrics</h2>

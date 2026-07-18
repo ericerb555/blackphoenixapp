@@ -172,33 +172,13 @@ interface InventoryItem {
 
 type ManagerTab = 'suppliers' | 'inventory' | 'orders' | 'settings';
 
-// ── Mock connected suppliers ───────────────────────────────────────────────────
-
-const MOCK_CONNECTED: ConnectedSupplier[] = [
-  {
-    id: 'cs1', supplierId: 'doba', name: 'Doba',
-    status: 'connected', productCount: 1247, lastSync: '12 min ago',
-    markupType: 'percent', markupValue: 35, autoForwardOrders: true,
-    credentials: { api_key: '••••••••••••', api_secret: '••••••••••••' },
-    syncInterval: 4, categories: ['Tools', 'Hardware', 'Electrical'],
-    totalRevenue: 12400, pendingOrders: 3,
-  },
-  {
-    id: 'cs2', supplierId: 'printful', name: 'Printful',
-    status: 'connected', productCount: 89, lastSync: '2 hours ago',
-    markupType: 'percent', markupValue: 50, autoForwardOrders: true,
-    credentials: { api_key: '••••••••••••' },
-    syncInterval: 12, categories: ['Branded Merch', 'Apparel'],
-    totalRevenue: 3200, pendingOrders: 1,
-  },
-];
-
 export default function MultiDropshipperManager() {
   const { session } = useAuth();
   const token = session?.access_token || publicAnonKey;
 
   const [activeTab, setActiveTab] = useState<ManagerTab>('suppliers');
-  const [connected, setConnected] = useState<ConnectedSupplier[]>(MOCK_CONNECTED);
+  const [connected, setConnected] = useState<ConnectedSupplier[]>([]);
+  const [loadingConnected, setLoadingConnected] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDef | null>(null);
   const [isCustom, setIsCustom] = useState(false);
@@ -220,16 +200,78 @@ export default function MultiDropshipperManager() {
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [importingToStore, setImportingToStore] = useState<string | null>(null);
 
-  // Mock inventory
+  // Load REAL connected providers + inventory from the server so this tab
+  // reflects the actual connection state (e.g. Zendrop connected on the
+  // integration page must show here too). Previously this used mock data,
+  // which is why connected providers never appeared.
+  async function loadConnected() {
+    setLoadingConnected(true);
+    try {
+      const [cfgRes, invRes] = await Promise.all([
+        fetch(`${SERVER}/dropshipper/config`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${SERVER}/dropshipper/inventory`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const cfgData = await cfgRes.json().catch(() => ({}));
+      const invData = await invRes.json().catch(() => ({}));
+
+      const providers = (cfgData?.config?.providers || []) as any[];
+      const inventoryItems = (invData?.inventory || invData?.products || []) as any[];
+
+      // Count products + revenue per provider from real inventory.
+      const countByProvider: Record<string, number> = {};
+      for (const it of inventoryItems) {
+        const pid = String(it.providerId || '').toLowerCase();
+        if (pid) countByProvider[pid] = (countByProvider[pid] || 0) + 1;
+      }
+
+      const mapped: ConnectedSupplier[] = providers
+        .filter((p) => p.enabled)
+        .map((p) => {
+          const def = SUPPLIERS.find((s) => s.id === p.id);
+          return {
+            id: p.id,
+            supplierId: p.id,
+            name: p.name || def?.name || p.id,
+            status: 'connected' as const,
+            productCount: countByProvider[String(p.id).toLowerCase()] || 0,
+            lastSync: cfgData?.config?.lastSync
+              ? new Date(cfgData.config.lastSync).toLocaleString()
+              : 'synced',
+            markupType: 'percent' as const,
+            markupValue: p.settings?.markupPercentage ?? 35,
+            autoForwardOrders: !!p.autoForwardOrders,
+            credentials: { api_key: '••••••••••••' },
+            syncInterval: p.syncInterval ? Math.max(1, Math.round(p.syncInterval / 60)) : 4,
+            categories: def?.categories || ['General'],
+            totalRevenue: 0,
+            pendingOrders: 0,
+          };
+        });
+
+      setConnected(mapped);
+
+      // Map real inventory into the inventory tab.
+      const invMapped: InventoryItem[] = inventoryItems.map((it: any, idx: number) => ({
+        id: String(it.sku || it.providerProductId || idx),
+        name: it.name || 'Untitled Product',
+        price: Number(it.price ?? it.cost ?? 0),
+        supplier: (SUPPLIERS.find((s) => s.id === String(it.providerId).toLowerCase())?.name) || it.providerId || 'Supplier',
+        category: it.category || 'General',
+        inStock: Number(it.stock ?? 0) > 0,
+        image: (it.images && it.images[0]) || 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=120&q=80',
+        sku: it.sku || '',
+      }));
+      setInventory(invMapped);
+    } catch (e) {
+      console.error('[DropshipperManager] Failed to load connected providers:', e);
+    } finally {
+      setLoadingConnected(false);
+    }
+  }
+
   useEffect(() => {
-    setInventory([
-      { id: 'i1', name: 'Heavy Duty Drill Kit', price: 89.99, supplier: 'Doba', category: 'Tools', inStock: true, image: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=120&q=80', sku: 'DOB-DRL-001' },
-      { id: 'i2', name: 'Smart LED Switch Pack', price: 49.99, supplier: 'Doba', category: 'Electrical', inStock: true, image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=120&q=80', sku: 'DOB-ELC-042' },
-      { id: 'i3', name: 'Pipe Repair Clamp Set', price: 34.99, supplier: 'Doba', category: 'Plumbing', inStock: true, image: 'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=120&q=80', sku: 'DOB-PLM-007' },
-      { id: 'i4', name: 'BP Logo Contractor Tee', price: 22.00, supplier: 'Printful', category: 'Apparel', inStock: true, image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=120&q=80', sku: 'PRF-APR-001' },
-      { id: 'i5', name: 'Cordless Screwdriver Set', price: 54.99, supplier: 'Doba', category: 'Tools', inStock: false, image: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=120&q=80', sku: 'DOB-DRL-015' },
-      { id: 'i6', name: 'Weatherproof Outlet Box', price: 18.99, supplier: 'Doba', category: 'Electrical', inStock: true, image: 'https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=120&q=80', sku: 'DOB-ELC-089' },
-    ]);
+    loadConnected();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function connectSupplier() {

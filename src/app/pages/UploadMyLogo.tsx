@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Upload, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { uploadImageDataUrl } from '../utils/imageStorage';
 
 export default function UploadMyLogo() {
   const [uploading, setUploading] = useState(false);
@@ -35,7 +36,7 @@ export default function UploadMyLogo() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!logoPreview) {
       toast.error('Please upload a logo first');
       return;
@@ -46,15 +47,26 @@ export default function UploadMyLogo() {
       return;
     }
 
+    setUploading(true);
     try {
+      // Upload the logo to Supabase Storage and keep only the URL in
+      // localStorage (base64 in localStorage bloats storage and backups).
+      let logoUrl = logoPreview;
+      try {
+        logoUrl = await uploadImageDataUrl(logoPreview, 'company/logo');
+      } catch (e) {
+        console.warn('Logo storage upload failed, saving locally as fallback:', e);
+        toast.message('Saved locally — image server was unavailable.');
+      }
+
       // Save to localStorage in the exact format DirectoryLandingPage expects
       const brandingProfile = {
         company_name: companyName,
         brandName: companyName,
         businessName: companyName,
-        logo_url: logoPreview,
-        logo_primary: logoPreview,
-        logoPrimary: logoPreview,
+        logo_url: logoUrl,
+        logo_primary: logoUrl,
+        logoPrimary: logoUrl,
         primary_color: '#ea580c',
         secondary_color: '#f97316'
       };
@@ -63,7 +75,6 @@ export default function UploadMyLogo() {
 
       console.log('✅ Logo saved to localStorage');
       console.log('✅ Company name:', companyName);
-      console.log('✅ Logo size:', (logoPreview.length / 1024).toFixed(1) + 'KB');
 
       // Dispatch event to update the landing page
       window.dispatchEvent(new Event('brandingUpdated'));
@@ -77,6 +88,8 @@ export default function UploadMyLogo() {
     } catch (error) {
       toast.error('Failed to save logo');
       console.error('Save error:', error);
+    } finally {
+      setUploading(false);
     }
   };
 

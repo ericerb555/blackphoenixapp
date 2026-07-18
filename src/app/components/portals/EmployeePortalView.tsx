@@ -1,11 +1,12 @@
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import PlanBuilderTab from './PlanBuilderTab';
 import { useState } from 'react';
 import {
   Briefcase, Bell, MessageSquare, Settings, Clock, Star,
   ArrowUpRight, ClipboardList, CheckCircle, Calendar,
   Target, FileText, Download, ChevronRight, Search, Filter,
-  Home, BarChart3, Award
+  Home, BarChart3, Award, Sparkles
 } from 'lucide-react';
 import { ChartContainer } from '../ChartContainer';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
@@ -20,7 +21,7 @@ export default function EmployeePortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'performance' | 'referrals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'messages'>('dashboard');
 
   // Mock employee data — pulled from RoleSwitcher demo profile if present
   const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
@@ -249,6 +250,7 @@ export default function EmployeePortalView() {
               { id: 'timesheet', label: 'Timesheet', icon: Clock },
               { id: 'documents', label: 'Documents', icon: FileText },
               { id: 'plan-tracker', label: 'Hour Banking', icon: BarChart3 },
+              { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
               { id: 'performance', label: 'Performance', icon: BarChart3 },
               { id: 'referrals', label: 'Referrals', icon: Award }
             ].map((tab) => {
@@ -669,6 +671,7 @@ export default function EmployeePortalView() {
 
         {/* Performance Tab */}
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="employee" ownerName={employeeInfo.name} />}
+        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="employee" ownerName={employeeInfo.name} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">
             <div>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
+import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
@@ -486,6 +487,10 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ApplicationPlanBuilderSection portalType="subcontractor" ownerName={formData.companyName} />
       </div>
     </div>
   );

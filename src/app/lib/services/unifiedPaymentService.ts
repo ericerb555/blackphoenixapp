@@ -375,8 +375,46 @@ class UnifiedPaymentService {
     config: any,
     data: any
   ): Promise<{ success: boolean; transaction_id?: string; error?: string }> {
-    // In production, this would integrate with Stripe API
-    // For now, simulate successful payment
+    // Route real Stripe charges through the Stripe Connect server module so the
+    // funds land in the correct company's connected bank account and the charge
+    // is tagged with the company code. A companyId in metadata selects which
+    // company/bank receives the money.
+    const companyId = data?.metadata?.companyId || data?.metadata?.company_id;
+    if (companyId) {
+      try {
+        const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/stripe/charge`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              companyId,
+              amount: data.amount,
+              currency: (data.currency || 'usd').toLowerCase(),
+              description: data.metadata?.description || 'Payment',
+              paymentMethodId: data.payment_method_id,
+              customerEmail: data.metadata?.customer_email,
+              metadata: data.metadata,
+            }),
+          }
+        );
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok || result.success === false) {
+          return { success: false, error: result.error || `Stripe charge failed (${res.status})` };
+        }
+        return { success: true, transaction_id: result.payment?.stripePaymentIntentId || result.payment?.id };
+      } catch (error: any) {
+        console.error('Stripe Connect charge error:', error);
+        return { success: false, error: `Stripe Connect charge error: ${error.message}` };
+      }
+    }
+
+    // No company context provided — fall back to a simulated success so existing
+    // flows that don't yet pass a companyId keep working.
     return {
       success: true,
       transaction_id: `stripe_${Date.now()}`,

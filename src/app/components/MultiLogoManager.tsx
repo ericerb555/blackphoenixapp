@@ -8,6 +8,7 @@ import { Image as ImageIcon, Upload, Trash2, CheckCircle, AlertCircle, Eye } fro
 import { toast } from 'sonner';
 import { BrandingService } from '../lib/services/brandingService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { uploadImageDataUrl } from '../utils/imageStorage';
 
 interface LogoVariant {
   id: string;
@@ -147,48 +148,43 @@ export default function MultiLogoManager() {
     try {
       setUploading(fieldName);
 
-      // Convert to base64 then upload to permanent storage
+      // Convert to base64 for an instant preview, then upload EVERY variant to
+      // permanent Storage and keep only the URL (base64 in localStorage bloats
+      // storage and backups).
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
 
         // Show local preview immediately
-        const updatedLogos = { ...logos, [fieldName]: base64 };
-        setLogos(updatedLogos);
-        localStorage.setItem('company_logo_variants', JSON.stringify(updatedLogos));
+        const previewLogos = { ...logos, [fieldName]: base64 };
+        setLogos(previewLogos);
 
-        // For the primary logo, upload to Supabase Storage for permanent cross-device access
-        if (fieldName === 'logo_primary') {
-          toast.loading('Saving logo permanently...', { id: 'logo-upload' });
-          try {
-            const res = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/logo/upload`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-                body: JSON.stringify({ logo_base64: base64, filename: file.name }),
-              }
-            );
-            const data = await res.json();
-            if (res.ok && data.logo_url) {
-              const withUrl = { ...updatedLogos, logo_primary: data.logo_url };
-              setLogos(withUrl);
-              localStorage.setItem('company_logo_variants', JSON.stringify(withUrl));
-              window.dispatchEvent(new Event('brandingUpdated'));
-              toast.success('Logo saved permanently! Visible on all devices.', { id: 'logo-upload' });
-            } else {
-              toast.error('Logo saved locally only — storage upload failed', { id: 'logo-upload' });
+        toast.loading('Saving logo permanently...', { id: 'logo-upload' });
+        try {
+          const url = await uploadImageDataUrl(base64, 'company/logos');
+          const withUrl = { ...logos, [fieldName]: url };
+          setLogos(withUrl);
+          localStorage.setItem('company_logo_variants', JSON.stringify(withUrl));
+
+          if (fieldName === 'logo_primary') {
+            window.dispatchEvent(new Event('brandingUpdated'));
+          } else {
+            const { data: profile } = await BrandingService.getBrandingProfile();
+            if (profile) {
+              await BrandingService.updateBrandingProfile(profile);
             }
-          } catch (err) {
-            toast.error('Logo saved locally only — network error', { id: 'logo-upload' });
           }
-        } else {
-          // For non-primary logos, still save via the branding service (base64 is fine for variants)
-          const { data: profile } = await BrandingService.getBrandingProfile();
-          if (profile) {
-            await BrandingService.updateBrandingProfile(profile);
-          }
-          toast.success(`${logoVariants.find(v => v.fieldName === fieldName)?.name} uploaded successfully!`);
+          toast.success(
+            `${logoVariants.find(v => v.fieldName === fieldName)?.name || 'Logo'} saved permanently! Visible on all devices.`,
+            { id: 'logo-upload' },
+          );
+        } catch (err) {
+          console.error('Logo storage upload failed:', err);
+          // Fallback: keep base64 locally so the user doesn't lose their logo.
+          localStorage.setItem('company_logo_variants', JSON.stringify(previewLogos));
+          toast.error('Logo saved locally only — storage upload failed', { id: 'logo-upload' });
+        } finally {
+          setUploading(null);
         }
       };
 
