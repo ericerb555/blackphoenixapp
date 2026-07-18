@@ -58,11 +58,16 @@ async function initializeBucket() {
     
     if (!bucketExists) {
       console.log(`📦 Creating blueprint storage bucket: ${BUCKET_NAME}`);
-      await supabase.storage.createBucket(BUCKET_NAME, {
+      const { error } = await supabase.storage.createBucket(BUCKET_NAME, {
         public: false,
         fileSizeLimit: 52428800, // 50MB limit
       });
-      console.log("✅ Blueprint bucket created successfully");
+      // Ignore 409 / "already exists" from a concurrent init or prior deploy.
+      if (error && (error as any).statusCode !== "409" && !/already exists/i.test(error.message || "")) {
+        console.error("❌ Failed to create blueprint bucket:", error);
+      } else {
+        console.log("✅ Blueprint bucket ready");
+      }
     } else {
       console.log("✅ Blueprint bucket already exists");
     }

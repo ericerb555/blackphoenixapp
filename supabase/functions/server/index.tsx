@@ -35,7 +35,12 @@ import emailSmsNotificationsRouter from "./email-sms-notifications.tsx";
 import quoteRouter from "./quote-generator.tsx";
 import planBuilderRouter from "./plan-builder.tsx";
 import plansRouter from "./plans.tsx";
+import designProjectsRouter from "./design-projects.tsx";
+import designStandardsRouter from "./design-standards.tsx";
 import techRosterRouter from "./tech-roster.tsx";
+import quotesRouter from "./quotes.tsx";
+import projectVisionRouter from "./project-vision.tsx";
+import deliverablesRouter from "./deliverables.tsx";
 import pipelineRouter from "./pipeline.tsx";
 import companiesRouter from "./companies.tsx";
 import brandsRouter from "./brands.tsx";
@@ -9286,9 +9291,18 @@ app.route("/make-server-57095a78/plan-builder", planBuilderRouter);
 // PLANS - PERSISTENCE, REAL-TIME TRACKING, SEARCH, CROSS-SYSTEM LINKING
 // ============================================================================
 app.route("/", plansRouter);
+app.route("/", designProjectsRouter);
+app.route("/", designStandardsRouter);
 
 // Tech roster & tier rates (full route prefixes declared inside the router)
 app.route("/", techRosterRouter);
+
+// Quotes / estimates & invoices (persistence + assign-customer-later)
+app.route("/", quotesRouter);
+// Project Vision — GPT-4o analysis of job-site photos → structured quote
+app.route("/", projectVisionRouter);
+// Deliverables — plans & renderings attached to a quote (Supabase Storage)
+app.route("/", deliverablesRouter);
 
 // ============================================================================
 // TIME TRACKING - EMPLOYEE PUNCH IN/OUT WITH GPS

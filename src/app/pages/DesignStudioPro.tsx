@@ -1,5 +1,6 @@
 // Design Studio Pro - AI-Powered Floor Plan Design Center (Phase 1)
 import { useState, useRef, useEffect } from 'react';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import FloorPlan3DViewer from '../components/FloorPlan3DViewer';
 import AIVideoUpload from '../components/AIVideoUpload';
 import ExportFloorPlanModal from '../components/ExportFloorPlanModal';
@@ -44,6 +45,14 @@ import {
   exportUserData,
   DESIGN_STUDIO_KEYS
 } from '../lib/userStorageManager';
+import {
+  saveDesignProject,
+  ownerKeyFor,
+  listDesignProjects,
+  getDesignProject,
+  restoreDesignProjectVersion,
+  type VersionMeta,
+} from '../lib/designProjectService';
 import type { RenderSettings, Material } from '../components/RenderingPanel';
 import type { AdvancedTool, AdvancedAction } from '../components/AdvancedCanvasTools';
 import type { ContextMenuAction } from '../components/CanvasContextMenu';
@@ -93,7 +102,10 @@ import {
   Shield,
   Calendar,
   FileUp,
-  User
+  User,
+  History,
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 
 interface DesignStudioProProps {
@@ -159,7 +171,7 @@ interface Project {
   lastModified: Date;
 }
 
-export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
+function DesignStudioProInner({ onNavigate }: DesignStudioProProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
@@ -392,6 +404,46 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
     }
   }, []); // Run once on mount
 
+  // Save a plan/rendering image to the active quote as a buildable deliverable.
+  const [savingDeliverable, setSavingDeliverable] = useState(false);
+  const saveDeliverableToQuote = async (dataUrl: string, name: string, kind: 'plan' | 'rendering') => {
+    if (!activeQuote?.quoteId) {
+      toast.error('Open this design from a quote first to attach deliverables.');
+      return;
+    }
+    if (!dataUrl) {
+      toast.error('Nothing to capture yet — draw or render something first.');
+      return;
+    }
+    setSavingDeliverable(true);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${activeQuote.quoteId}/deliverables`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({ name, kind, dataUrl }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Save failed with ${res.status}`);
+      toast.success(`${kind === 'plan' ? 'Plan' : 'Rendering'} attached to quote ${activeQuote.quoteNumber || ''}`.trim());
+    } catch (error) {
+      console.error('[DesignStudio] Error saving deliverable:', error);
+      toast.error(`Could not attach ${kind}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    } finally {
+      setSavingDeliverable(false);
+    }
+  };
+
+  // Capture the current 2D floor-plan canvas and attach it as a plan.
+  const savePlanToQuote = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) { toast.error('Canvas not ready.'); return; }
+    const dataUrl = canvas.toDataURL('image/png');
+    saveDeliverableToQuote(dataUrl, `${activeQuote?.projectTitle || 'floor-plan'}`, 'plan');
+  };
+
   // Convert decimal inches to architectural format (feet-inches-sixteenths)
   const inchesToArchitectural = (totalInches: number): string => {
     const feet = Math.floor(totalInches / 12);
@@ -507,7 +559,39 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
   // Get current floor elements
   const currentFloor = floors.find(f => f.id === currentFloorId);
   const elements = currentFloor ? currentFloor.elements : [];
-  
+
+  // Resolve which layer an element belongs to. Falls back to a sensible layer by
+  // element type when the element has no explicit layerId, so the Layers panel
+  // governs every element on the canvas — not just ones tagged at creation.
+  const layerForElement = (el?: CanvasElement | null): Layer | undefined => {
+    if (!el) return undefined;
+    if (el.layerId) {
+      const found = layers.find(l => l.id === el.layerId);
+      if (found) return found;
+    }
+    const byType =
+      el.type === 'wall' ? 'layer-walls' :
+      el.type === 'furniture' ? 'layer-furniture' :
+      (el.type === 'electrical' || el.type === 'plumbing') ? 'layer-mep' :
+      'layer-default';
+    return layers.find(l => l.id === byType) || layers.find(l => l.id === 'layer-default');
+  };
+  // Layer enforcement: an element is locked if its layer (or the floor) is locked.
+  const isElementLocked = (el?: CanvasElement | null) => {
+    if (!el) return false;
+    if (currentFloor?.locked) return true;
+    const layer = layerForElement(el);
+    return !!(layer && layer.locked);
+  };
+  // An element is hidden if its layer is not visible.
+  const isElementHidden = (el?: CanvasElement | null) => {
+    if (!el) return false;
+    const layer = layerForElement(el);
+    return !!(layer && !layer.visible);
+  };
+  // Elements available for interaction (hit-testing / selection): visible & unlocked.
+  const selectableElements = () => elements.filter(el => !isElementHidden(el) && !isElementLocked(el));
+
   // Helper to update current floor elements
   const updateFloorElements = (updater: (elements: CanvasElement[]) => CanvasElement[]) => {
     setFloors(floors.map(f => 
@@ -515,6 +599,57 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
         ? { ...f, elements: updater(f.elements) }
         : f
     ));
+  };
+
+  // Snap a door/window opening into the nearest wall: align it to the wall's
+  // centerline, match the wall's orientation & thickness, and clamp the opening
+  // so it stays within the wall span. Returns a partial update or null.
+  const snapOpeningToWall = (opening: CanvasElement): Partial<CanvasElement> | null => {
+    if (opening.type !== 'door' && opening.type !== 'window') return null;
+    const walls = elements.filter(el => el.type === 'wall');
+    if (walls.length === 0) return null;
+
+    const ocx = opening.x + opening.width / 2;
+    const ocy = opening.y + opening.height / 2;
+    const SNAP_DIST = 40; // inches
+
+    let best: CanvasElement | null = null;
+    let bestDist = Infinity;
+    walls.forEach(w => {
+      // distance from opening center to wall rectangle
+      const dx = Math.max(w.x - ocx, 0, ocx - (w.x + w.width));
+      const dy = Math.max(w.y - ocy, 0, ocy - (w.y + w.height));
+      const dist = Math.hypot(dx, dy);
+      if (dist < bestDist) { bestDist = dist; best = w; }
+    });
+    if (!best || bestDist > SNAP_DIST) return null;
+
+    const wall = best;
+    const horizontal = wall.width >= wall.height;
+    const span = horizontal ? wall.width : wall.height;
+    const openingLen = Math.min(opening.width, span); // opening cannot exceed wall
+
+    if (horizontal) {
+      let nx = ocx - openingLen / 2;
+      nx = Math.max(wall.x, Math.min(nx, wall.x + wall.width - openingLen));
+      return {
+        x: nx,
+        y: wall.y,
+        width: openingLen,
+        height: wall.height,
+        rotation: 0,
+      };
+    } else {
+      let ny = ocy - openingLen / 2;
+      ny = Math.max(wall.y, Math.min(ny, wall.y + wall.height - openingLen));
+      return {
+        x: wall.x,
+        y: ny,
+        width: wall.width,
+        height: openingLen,
+        rotation: 0,
+      };
+    }
   };
 
   // Smart snapping function
@@ -627,12 +762,9 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
 
     // Draw elements (respecting layer visibility)
     elements.forEach((element) => {
-      // Check if element's layer is visible
-      if (element.layerId) {
-        const layer = layers.find(l => l.id === element.layerId);
-        if (layer && !layer.visible) return; // Skip hidden layers
-      }
-      
+      // Check if element's layer is visible (resolves by type when untagged)
+      if (isElementHidden(element)) return; // Skip hidden layers
+
       ctx.save();
       ctx.translate(
         element.x * zoom + panOffset.x,
@@ -1558,12 +1690,9 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
     });
     
     sortedElements.forEach((element) => {
-      // Check layer visibility
-      if (element.layerId) {
-        const layer = layers.find(l => l.id === element.layerId);
-        if (layer && !layer.visible) return;
-      }
-      
+      // Check layer visibility (resolves by type when untagged)
+      if (isElementHidden(element)) return;
+
       const isSelected = element.id === selectedElement || selectedElements.includes(element.id);
       
       ctx.save();
@@ -1957,8 +2086,8 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
       setLastWallEndPoint(null);
     }
 
-    // Check if clicking on existing element
-    const clickedElement = elements.find((el) => {
+    // Check if clicking on existing element (skip hidden/locked layers)
+    const clickedElement = selectableElements().find((el) => {
       return (
         x >= el.x &&
         x <= el.x + el.width &&
@@ -2232,7 +2361,7 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
     // Check if clicking on a resize handle
     if (selectedElement) {
       const selected = elements.find(el => el.id === selectedElement);
-      if (selected) {
+      if (selected && !isElementLocked(selected)) {
         const handleSize = 10 / zoom;
         const ex = selected.x;
         const ey = selected.y;
@@ -2317,8 +2446,8 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
       }
     }
 
-    // Check if clicking on an element to select it
-    const clickedElement = elements.find((el) => {
+    // Check if clicking on an element to select it (skip hidden/locked layers)
+    const clickedElement = selectableElements().find((el) => {
       return (
         x >= el.x &&
         x <= el.x + el.width &&
@@ -2400,10 +2529,23 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
   };
 
   const handleCanvasMouseUp = () => {
+    // If we just finished dragging a door/window, snap it into the nearest wall.
+    if (isDraggingElement && selectedElement) {
+      const dragged = elements.find(el => el.id === selectedElement);
+      if (dragged && (dragged.type === 'door' || dragged.type === 'window')) {
+        const snap = snapOpeningToWall(dragged);
+        if (snap) {
+          updateFloorElements(els =>
+            els.map(el => (el.id === selectedElement ? { ...el, ...snap } : el))
+          );
+        }
+      }
+    }
+
     setIsDraggingElement(false);
     setIsResizing(false);
     setIsRotating(false);
-    
+
     // Complete box selection
     if (isBoxSelecting && selectionBoxStart && selectionBoxEnd) {
       const floor = floors.find(f => f.id === currentFloorId);
@@ -2739,29 +2881,142 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
     console.log(`Ungrouped ${affectedGroupIds.size} group(s)`);
   };
 
-  const handleSaveProject = () => {
+  // Stable id for the project currently being edited, so repeated saves version
+  // the same server record instead of creating a new project each time.
+  const [serverProjectId, setServerProjectId] = useState<string | null>(null);
+
+  // Version History panel state.
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [versionList, setVersionList] = useState<VersionMeta[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+
+  // Remember the last project this user opened so we can reload it (from the
+  // server) on their next visit — even on a different device.
+  const lastProjectKey = (ownerKey: string) => `bpc_ds_last_project_${ownerKey}`;
+
+  /** Load a server project record into the live editor state. */
+  const hydrateFromProject = (project: any) => {
+    if (!project) return;
+    if (Array.isArray(project.floors) && project.floors.length > 0) {
+      setFloors(project.floors);
+      setCurrentFloorId(project.floors[0].id);
+    }
+    if (Array.isArray(project.layers) && project.layers.length > 0) {
+      setLayers(project.layers);
+    }
+    setServerProjectId(project.id);
+    setCurrentProject({
+      id: project.id,
+      name: project.name,
+      elements: Array.isArray(project.floors) && project.floors[0]?.elements ? project.floors[0].elements : [],
+      lastModified: new Date(project.updatedAt || Date.now()),
+    });
+    try { localStorage.setItem(lastProjectKey(ownerKeyFor(userContext)), project.id); } catch {}
+  };
+
+  // On open, hydrate from the server (source of truth) so the studio reflects
+  // the latest saved state across devices — unless a quote/work-request/floor
+  // plan is being loaded via URL params, which takes priority.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('quote') || params.get('workRequest') || params.get('floorPlan')) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ownerKey = ownerKeyFor(userContext);
+        let targetId = localStorage.getItem(lastProjectKey(ownerKey));
+        if (!targetId) {
+          const projects = await listDesignProjects(ownerKey);
+          if (projects.length > 0) targetId = projects[0].id; // most recently updated
+        }
+        if (!targetId || cancelled) return;
+        const { project } = await getDesignProject(ownerKey, targetId);
+        if (cancelled || !project) return;
+        hydrateFromProject(project);
+        toast.success(`☁️ Synced "${project.name}" from cloud (v${project.version}).`);
+      } catch (err) {
+        console.warn('Server hydration skipped (using blank/local state):', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Open the Version History panel and load this project's snapshots. */
+  const openVersionHistory = async () => {
+    if (!serverProjectId) {
+      toast.info('Save this project first to start a version history.');
+      return;
+    }
+    setShowVersionHistory(true);
+    setLoadingVersions(true);
+    try {
+      const { versions } = await getDesignProject(ownerKeyFor(userContext), serverProjectId);
+      setVersionList(versions);
+    } catch (err) {
+      console.error('Failed to load version history:', err);
+      toast.error('Could not load version history.');
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+
+  /** Restore a snapshot into the editor (the restore itself creates a new version). */
+  const handleRestoreVersion = async (versionId: string, versionNum: number) => {
+    if (!serverProjectId) return;
+    setRestoringVersionId(versionId);
+    try {
+      const ownerKey = ownerKeyFor(userContext);
+      const project = await restoreDesignProjectVersion(serverProjectId, ownerKey, versionId);
+      hydrateFromProject(project);
+      const { versions } = await getDesignProject(ownerKey, serverProjectId);
+      setVersionList(versions);
+      toast.success(`Restored v${versionNum}. Saved as v${project.version}.`);
+    } catch (err) {
+      console.error('Restore failed:', err);
+      toast.error('Could not restore this version.');
+    } finally {
+      setRestoringVersionId(null);
+    }
+  };
+
+  const handleSaveProject = async () => {
+    const localId = serverProjectId || `project-${Date.now()}`;
+    const name = currentProject?.name || `Design ${new Date().toLocaleDateString()}`;
     const project: Project = {
-      id: `project-${Date.now()}`,
-      name: `Design ${new Date().toLocaleDateString()}`,
+      id: localId,
+      name,
       elements,
       lastModified: new Date(),
     };
 
-    // Load existing projects from user-specific storage
+    // Local cache/offline fallback (fast, always succeeds).
     const existingProjects = loadFromUserStorage<Project[]>(
       userContext,
       DESIGN_STUDIO_KEYS.PROJECTS,
       []
     );
-    
-    // Save to user-specific storage
-    saveToUserStorage(
-      userContext,
-      DESIGN_STUDIO_KEYS.PROJECTS,
-      [...existingProjects, project]
-    );
-    
-    toast.success(`✅ Project saved to your ${userContext.userType} folder!`);
+    const merged = [...existingProjects.filter(p => p.id !== localId), project];
+    saveToUserStorage(userContext, DESIGN_STUDIO_KEYS.PROJECTS, merged);
+
+    // Server persistence + versioning (source of truth across devices).
+    try {
+      const { project: saved } = await saveDesignProject({
+        id: serverProjectId || undefined,
+        name,
+        ownerKey: ownerKeyFor(userContext),
+        floors,
+        layers,
+        quoteId: activeQuote?.quoteId || null,
+        note: serverProjectId ? 'Auto-saved' : 'Created',
+      });
+      setServerProjectId(saved.id);
+      try { localStorage.setItem(lastProjectKey(ownerKeyFor(userContext)), saved.id); } catch {}
+      toast.success(`✅ Saved to cloud (v${saved.version}) — synced across your devices.`);
+    } catch (err) {
+      console.error('Design project cloud save failed, kept local copy:', err);
+      toast.warning(`Saved locally to your ${userContext.userType} folder — cloud sync failed, will retry on next save.`);
+    }
   };
 
   const handleLoadProject = () => {
@@ -3025,6 +3280,7 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
               >
                 <Sparkles className="w-4 h-4" />
                 <span className="text-sm font-medium">AI Generate</span>
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">BETA</span>
               </button>
 
               <button
@@ -3034,6 +3290,7 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
               >
                 <FileUp className="w-4 h-4 text-purple-400" />
                 <span className="text-sm font-medium">Import</span>
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">BETA</span>
               </button>
 
               <button
@@ -3044,6 +3301,7 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
               >
                 <Wand2 className="w-4 h-4 text-indigo-400" />
                 <span className="text-sm font-medium">Auto</span>
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">BETA</span>
               </button>
 
               <div className="w-px h-8 bg-[#2A2A2A]" />
@@ -3056,6 +3314,7 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
               >
                 <Package className="w-4 h-4 text-orange-400" />
                 <span className="text-sm font-medium">Kitchen</span>
+                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">BETA</span>
               </button>
 
               <button
@@ -3160,6 +3419,15 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
               </button>
 
               <button
+                onClick={openVersionHistory}
+                className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-white rounded-lg transition border border-[#2A2A2A] flex items-center gap-2"
+                title="Version History"
+              >
+                <History className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-medium">History</span>
+              </button>
+
+              <button
                 onClick={() => setShowExportModal(true)}
                 disabled={elements.length === 0}
                 className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-white rounded-lg transition border border-[#2A2A2A] hover:border-green-500 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2"
@@ -3168,6 +3436,19 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
                 <Download className="w-4 h-4 text-green-400" />
                 <span className="text-sm font-medium">Export</span>
               </button>
+
+              {/* Attach the current plan to the originating quote as a buildable deliverable */}
+              {activeQuote?.quoteId && (
+                <button
+                  onClick={savePlanToQuote}
+                  disabled={elements.length === 0 || savingDeliverable}
+                  className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-white rounded-lg transition border border-[#2A2A2A] hover:border-blue-500 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2"
+                  title="Save this floor plan to the quote as a buildable deliverable"
+                >
+                  <Save className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm font-medium">{savingDeliverable ? 'Saving…' : 'Save to Quote'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -3617,7 +3898,58 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
                       {selected.type.toUpperCase()}
                     </p>
                   </div>
-                  
+
+                  {/* Precise numeric geometry (inches) */}
+                  <div className="p-3 bg-[#2A2A2A] rounded-lg">
+                    <p className="text-sm text-gray-400 mb-2">Position &amp; Size (in)</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        { key: 'x', label: 'X' },
+                        { key: 'y', label: 'Y' },
+                        { key: 'width', label: 'W' },
+                        { key: 'height', label: 'H' },
+                      ] as const).map(({ key, label }) => (
+                        <div key={key} className="flex items-center gap-1">
+                          <span className="text-xs text-gray-500 w-4">{label}</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={Math.round((selected[key] as number) * 100) / 100}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (isNaN(v)) return;
+                              if ((key === 'width' || key === 'height') && v <= 0) return;
+                              updateFloorElements(els =>
+                                els.map(el => (el.id === selectedElement ? { ...el, [key]: v } : el))
+                              );
+                            }}
+                            className="flex-1 min-w-0 p-2 bg-[#3A3A3A] text-white rounded-lg text-sm"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1 mt-2">
+                      <span className="text-xs text-gray-500 w-12">Rotate</span>
+                      <input
+                        type="number"
+                        step="1"
+                        value={Math.round((selected.rotation || 0) * 10) / 10}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (isNaN(v)) return;
+                          updateFloorElements(els =>
+                            els.map(el => (el.id === selectedElement ? { ...el, rotation: ((v % 360) + 360) % 360 } : el))
+                          );
+                        }}
+                        className="flex-1 min-w-0 p-2 bg-[#3A3A3A] text-white rounded-lg text-sm"
+                      />
+                      <span className="text-gray-400 text-sm">°</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {inchesToArchitectural(selected.width)} × {inchesToArchitectural(selected.height)}
+                    </p>
+                  </div>
+
                   {selected.type === 'wall' && (
                     <div className="p-3 bg-[#2A2A2A] rounded-lg">
                       <p className="text-sm text-gray-400 mb-2">Wall Thickness</p>
@@ -4245,6 +4577,82 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
         />
       )}
 
+      {/* Version History Panel */}
+      {showVersionHistory && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0d0d0d] border border-[#2A2A2A] rounded-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-[#2A2A2A] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <History className="w-6 h-6 text-amber-400" />
+                <div>
+                  <h2 className="text-lg font-bold text-white">Version History</h2>
+                  <p className="text-xs text-gray-400">
+                    {currentProject?.name || 'Current project'} · every save is a restorable snapshot
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVersionHistory(false)}
+                className="p-2 hover:bg-[#2A2A2A] rounded-lg transition-colors text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {loadingVersions && (
+                <div className="flex items-center justify-center gap-3 py-10 text-gray-400">
+                  <Loader2 className="w-5 h-5 animate-spin" /> Loading history…
+                </div>
+              )}
+
+              {!loadingVersions && versionList.length === 0 && (
+                <div className="text-center py-10 text-gray-500">
+                  No snapshots yet. Save the project to create the first version.
+                </div>
+              )}
+
+              {!loadingVersions && versionList.map((v, idx) => (
+                <div
+                  key={v.versionId}
+                  className={`flex items-center gap-3 p-3 rounded-lg border ${
+                    idx === 0 ? 'bg-amber-500/5 border-amber-500/30' : 'bg-[#1A1A1A] border-[#2A2A2A]'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-lg bg-[#2A2A2A] flex items-center justify-center text-sm font-bold text-white shrink-0">
+                    v{v.version}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium truncate">
+                      {v.note || 'Saved'}
+                      {idx === 0 && <span className="ml-2 text-[10px] text-amber-300 font-bold">CURRENT</span>}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(v.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleRestoreVersion(v.versionId, v.version)}
+                    disabled={restoringVersionId !== null || idx === 0}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                    title={idx === 0 ? 'This is the current version' : 'Restore this version'}
+                  >
+                    {restoringVersionId === v.versionId
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <RotateCcw className="w-3.5 h-3.5" />}
+                    Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-[#2A2A2A] bg-[#1A1A1A]/50 text-xs text-gray-500">
+              Restoring a version loads it into the editor and saves it as a new version, so you never lose history.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MEPLibrary Modal */}
       {showMEPLibrary && (
         <MEPLibrary
@@ -4445,6 +4853,10 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
             setShowRenderEngine(false);
             setRenderSettings(null);
           }}
+          savingToQuote={savingDeliverable}
+          onSaveToQuote={activeQuote?.quoteId
+            ? (dataUrl: string) => saveDeliverableToQuote(dataUrl, `${activeQuote?.projectTitle || 'render'}`, 'rendering')
+            : undefined}
         />
       )}
 
@@ -4765,8 +5177,64 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
 
               // Update local state
               setActiveQuote(updatedQuote);
-              
-              toast.success('Design saved to quote!', {
+
+              // Auto-push into the sales Pipeline so a designed quote becomes a
+              // tracked opportunity (non-fatal if it fails).
+              try {
+                const mats = Array.isArray(updatedQuote.materials) ? updatedQuote.materials : [];
+                const materialsSubtotal = mats.reduce(
+                  (s: number, m: any) => s + (Number(m.totalCost) || (Number(m.quantity) || 0) * (Number(m.unitCost) || 0)),
+                  0
+                );
+                const estValue = Number(updatedQuote.total) || materialsSubtotal;
+                const pipelineItem = {
+                  id: `PIPE-${activeQuote.quoteId}`,
+                  itemNumber: updatedQuote.quoteNumber || activeQuote.quoteId,
+                  stage: 'quote-draft',
+                  customerName: updatedQuote.customerName || 'Unassigned',
+                  location: '',
+                  serviceType: 'Design Studio',
+                  title: `${updatedQuote.quoteNumber || activeQuote.quoteId} — ${updatedQuote.projectTitle || 'Design'}`,
+                  description: `Design saved from Design Studio (${mats.length} materials)`,
+                  estimatedValue: estValue,
+                  priority: 'medium',
+                  createdDate: new Date().toISOString(),
+                  lastModified: new Date().toISOString(),
+                  customerId: updatedQuote.customerId || '',
+                  source: 'design-studio',
+                  quote: {
+                    id: activeQuote.quoteId,
+                    quoteNumber: updatedQuote.quoteNumber || activeQuote.quoteId,
+                    materials: mats.map((m: any) => ({
+                      id: `${activeQuote.quoteId}-${Math.random().toString(36).slice(2, 8)}`,
+                      name: m.name, quantity: m.quantity, unit: 'each',
+                      unitCost: m.unitCost, totalCost: m.totalCost, category: 'Design', visible: true,
+                    })),
+                    labor: [],
+                    processSteps: [],
+                    materialsSubtotal,
+                    laborSubtotal: 0,
+                    taxRate: 0.08,
+                    taxAmount: materialsSubtotal * 0.08,
+                    totalCost: estValue,
+                    generatedAt: new Date().toISOString(),
+                    approvalStatus: 'pending',
+                  },
+                };
+                const pipeRes = await fetch(
+                  `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/pipeline/items`,
+                  {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(pipelineItem),
+                  }
+                );
+                if (!pipeRes.ok) console.error('[DesignStudio] Pipeline push failed with', pipeRes.status);
+              } catch (pipeErr) {
+                console.error('[DesignStudio] Error pushing design quote to pipeline:', pipeErr);
+              }
+
+              toast.success('Design saved to quote & pipeline!', {
                 description: 'Quote updated successfully'
               });
             } catch (error) {
@@ -4795,5 +5263,40 @@ export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
         />
       )}
     </div>
+  );
+}
+
+// Wrap the editor so a rendering crash inside the design tool never takes down
+// the whole application — the user gets a recoverable fallback instead.
+export default function DesignStudioPro({ onNavigate }: DesignStudioProProps) {
+  return (
+    <ErrorBoundary
+      onNavigate={onNavigate}
+      fallback={
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#0A0A0A] text-white p-8 text-center">
+          <h1 className="text-2xl font-bold text-[#ea580c] mb-3">Design Studio hit a snag</h1>
+          <p className="text-gray-400 max-w-md mb-6">
+            The floor plan editor ran into an unexpected error. Your saved projects are safe — try
+            reopening the studio or head back to the dashboard.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 bg-[#ea580c] hover:bg-orange-600 text-white rounded-lg font-semibold"
+            >
+              Reload Studio
+            </button>
+            <button
+              onClick={() => onNavigate?.('unified-dashboard')}
+              className="px-5 py-2.5 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg font-semibold"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <DesignStudioProInner onNavigate={onNavigate} />
+    </ErrorBoundary>
   );
 }

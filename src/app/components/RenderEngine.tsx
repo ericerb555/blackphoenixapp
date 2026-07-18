@@ -7,6 +7,9 @@ interface RenderEngineProps {
   elements: any[];
   settings: RenderSettings;
   onClose: () => void;
+  // Optional: attach the finished render to a quote as a buildable deliverable.
+  onSaveToQuote?: (dataUrl: string) => void | Promise<void>;
+  savingToQuote?: boolean;
 }
 
 interface Light {
@@ -16,7 +19,7 @@ interface Light {
   type: 'sun' | 'ambient' | 'point';
 }
 
-export default function RenderEngine({ elements, settings, onClose }: RenderEngineProps) {
+export default function RenderEngine({ elements, settings, onClose, onSaveToQuote, savingToQuote }: RenderEngineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isRendering, setIsRendering] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -635,6 +638,16 @@ export default function RenderEngine({ elements, settings, onClose }: RenderEngi
                   <Download className="w-4 h-4" />
                   Download
                 </button>
+                {onSaveToQuote && (
+                  <button
+                    onClick={() => canvasRef.current && onSaveToQuote(canvasRef.current.toDataURL('image/png'))}
+                    disabled={savingToQuote}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    {savingToQuote ? 'Saving…' : 'Save to Quote'}
+                  </button>
+                )}
               </>
             )}
             <button

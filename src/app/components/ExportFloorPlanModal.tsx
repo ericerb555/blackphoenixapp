@@ -1,6 +1,7 @@
 // Professional Floor Plan Export System - Phase 8: Advanced Export Capabilities
 import { useState } from 'react';
 import { Download, FileText, Image as ImageIcon, File, Loader2, CheckCircle, FileJson, Layers, Camera, Package } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 interface CanvasElement {
   id: string;
@@ -247,6 +248,167 @@ export default function ExportFloorPlanModal({
     return canvas.toDataURL('image/png');
   };
 
+  // Architectural drawing constant: the editor uses 12 px = 1 foot
+  const PX_PER_FOOT = 12;
+  const scaleInchesPerFoot: Record<typeof scale, number> = {
+    '1/4': 0.25,
+    '1/8': 0.125,
+    '1/16': 0.0625,
+    '1/32': 0.03125,
+  };
+
+  // Produce a REAL, to-scale PDF (returns a Blob). The floor plan is drawn to a
+  // high-resolution offscreen canvas and placed on the sheet at its true physical
+  // size according to the selected architectural scale (e.g. 1/4" = 1'-0").
+  const generatePDFBlob = async (): Promise<Blob> => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: paperSize });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 54; // 0.75"
+
+    // Title block
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.setTextColor('#111111');
+    doc.text(projectName, margin, margin);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor('#666666');
+    doc.text(new Date().toLocaleDateString(), margin, margin + 16);
+    doc.text(`Scale: ${scale}" = 1'-0"`, pageW - margin, margin, { align: 'right' });
+
+    // Bounds of the floor plan (px)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    elements.forEach(el => {
+      if (el.type === 'furniture' && !includeFurniture) return;
+      if ((el.type === 'annotation' || el.type === 'dimension') && !includeAnnotations) return;
+      minX = Math.min(minX, el.x);
+      minY = Math.min(minY, el.y);
+      maxX = Math.max(maxX, el.x + el.width);
+      maxY = Math.max(maxY, el.y + el.height);
+    });
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 1; maxY = 1; }
+
+    const fpW = maxX - minX || 1;
+    const fpH = maxY - minY || 1;
+
+    // True physical size on paper (points). ptPerPx = (feet/px) * (inchesPerFoot) * 72
+    const ipf = scaleInchesPerFoot[scale];
+    const ptPerPx = (1 / PX_PER_FOOT) * ipf * 72;
+
+    const drawTop = margin + 34;
+    const availW = pageW - margin * 2;
+    const availH = pageH - drawTop - margin - 70; // leave room for legend
+
+    let planWpt = fpW * ptPerPx;
+    let planHpt = fpH * ptPerPx;
+    let fittedNote = '';
+
+    // If the true-scale drawing overflows the sheet, fit-to-page and report the
+    // effective scale so the sheet is never silently clipped.
+    if (planWpt > availW || planHpt > availH) {
+      const fit = Math.min(availW / planWpt, availH / planHpt);
+      planWpt *= fit;
+      planHpt *= fit;
+      const effIpf = ipf * fit;
+      fittedNote = `Fitted to sheet (≈ ${effIpf.toFixed(4)}" = 1'-0")`;
+    }
+
+    // Render the plan to an offscreen canvas at ~2x the placed size for crispness
+    const dpi = 2;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(planWpt * dpi));
+    cv.height = Math.max(1, Math.round(planHpt * dpi));
+    const ctx = cv.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not available for PDF');
+    const s = cv.width / fpW; // px(editor) -> px(canvas)
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+
+    if (includeGrid) {
+      ctx.strokeStyle = '#e5e5e5';
+      ctx.lineWidth = 1;
+      const grid = PX_PER_FOOT * s; // 1-foot grid
+      for (let gx = 0; gx <= cv.width; gx += grid) {
+        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, cv.height); ctx.stroke();
+      }
+      for (let gy = 0; gy <= cv.height; gy += grid) {
+        ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(cv.width, gy); ctx.stroke();
+      }
+    }
+
+    elements.forEach(element => {
+      if (element.type === 'furniture' && !includeFurniture) return;
+      if ((element.type === 'annotation' || element.type === 'dimension') && !includeAnnotations) return;
+      const x = (element.x - minX) * s;
+      const y = (element.y - minY) * s;
+      const w = element.width * s;
+      const h = element.height * s;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((element.rotation * Math.PI) / 180);
+      switch (element.type) {
+        case 'wall':
+          ctx.fillStyle = '#4A4A4A'; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, w, h);
+          break;
+        case 'door':
+          ctx.fillStyle = '#8B4513'; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, w, h);
+          break;
+        case 'window':
+          ctx.fillStyle = '#87CEEB'; ctx.globalAlpha = 0.3; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, w, h);
+          break;
+        case 'room':
+          ctx.fillStyle = element.color || '#f5f5f5'; ctx.globalAlpha = 0.2; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, w, h);
+          if (includeLabels && element.label) {
+            ctx.fillStyle = '#000'; ctx.font = `${Math.max(10, 12 * s / 4)}px Arial`;
+            ctx.fillText(element.label, 6, 18);
+          }
+          break;
+        case 'furniture':
+          ctx.fillStyle = '#6B7280'; ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(0, 0, w, h);
+          break;
+      }
+      ctx.restore();
+    });
+
+    const img = cv.toDataURL('image/png');
+    doc.addImage(img, 'PNG', margin, drawTop, planWpt, planHpt);
+
+    // Border around drawing
+    doc.setDrawColor('#000000');
+    doc.setLineWidth(0.75);
+    doc.rect(margin, drawTop, planWpt, planHpt);
+
+    // Legend / measurements
+    if (includeMeasurements) {
+      const totalArea = elements
+        .filter(el => el.type === 'room')
+        .reduce((sum, el) => sum + (el.width * el.height) / 144, 0);
+      let ly = drawTop + planHpt + 24;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor('#111111');
+      doc.text('Measurements', margin, ly);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor('#333333');
+      ly += 14;
+      doc.text(`Total Area: ${totalArea.toFixed(2)} sq ft`, margin, ly); ly += 12;
+      doc.text(`Rooms: ${elements.filter(el => el.type === 'room').length}   Walls: ${elements.filter(el => el.type === 'wall').length}`, margin, ly); ly += 12;
+      doc.text(`Overall: ${(fpW / PX_PER_FOOT).toFixed(1)}' × ${(fpH / PX_PER_FOOT).toFixed(1)}'`, margin, ly);
+      if (fittedNote) { ly += 12; doc.setTextColor('#b45309'); doc.text(fittedNote, margin, ly); }
+    }
+
+    if (includeWatermark) {
+      doc.setTextColor('#dddddd'); doc.setFontSize(48); doc.setFont('helvetica', 'bold');
+      doc.text('THE BLACK PHOENIX COMPANY', pageW / 2, pageH / 2, { align: 'center', angle: 30 });
+    }
+
+    return doc.output('blob');
+  };
+
   const generateHighResPNG = async () => {
     const { width, height } = getResolutionDimensions();
     const qualityMultiplier = getQualityMultiplier();
@@ -423,49 +585,100 @@ export default function ExportFloorPlanModal({
   };
 
   const generateDXF = () => {
+    // Editor units: 12px = 1ft = 12in, therefore 1px == 1 inch. We emit DXF in
+    // inches (real-world) with a proper header, a LAYER table, and a flipped
+    // Y-axis (DXF is Y-up, the editor is Y-down) so CAD imports are not mirrored.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    elements.forEach(el => {
+      minX = Math.min(minX, el.x);
+      minY = Math.min(minY, el.y);
+      maxX = Math.max(maxX, el.x + el.width);
+      maxY = Math.max(maxY, el.y + el.height);
+    });
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 1; maxY = 1; }
+
+    // AutoCAD Color Index per layer
+    const layerDefs: { name: string; color: number }[] = [
+      { name: 'WALLS', color: 8 },
+      { name: 'ROOMS', color: 5 },
+      { name: 'DOORS', color: 30 },
+      { name: 'WINDOWS', color: 4 },
+      { name: 'FURNITURE', color: 3 },
+      { name: 'ELECTRICAL', color: 2 },
+      { name: 'PLUMBING', color: 6 },
+      { name: 'LABELS', color: 7 },
+    ];
+    const layerFor = (t: string) => {
+      switch (t) {
+        case 'wall': return 'WALLS';
+        case 'room': return 'ROOMS';
+        case 'door': return 'DOORS';
+        case 'window': return 'WINDOWS';
+        case 'furniture': return 'FURNITURE';
+        case 'electrical': return 'ELECTRICAL';
+        case 'plumbing': return 'PLUMBING';
+        default: return '0';
+      }
+    };
+
+    // HEADER — inches, drawing extents
     let dxf = `0\nSECTION\n2\nHEADER\n`;
     dxf += `9\n$ACADVER\n1\nAC1015\n`;
+    dxf += `9\n$INSUNITS\n70\n1\n`; // 1 = inches
+    dxf += `9\n$MEASUREMENT\n70\n0\n`; // 0 = imperial
+    dxf += `9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n`;
+    dxf += `9\n$EXTMAX\n10\n${(maxX - minX).toFixed(3)}\n20\n${(maxY - minY).toFixed(3)}\n30\n0.0\n`;
     dxf += `0\nENDSEC\n`;
-    
+
+    // TABLES — layer definitions
+    dxf += `0\nSECTION\n2\nTABLES\n`;
+    dxf += `0\nTABLE\n2\nLAYER\n70\n${layerDefs.length}\n`;
+    layerDefs.forEach(l => {
+      dxf += `0\nLAYER\n2\n${l.name}\n70\n0\n62\n${l.color}\n6\nCONTINUOUS\n`;
+    });
+    dxf += `0\nENDTAB\n0\nENDSEC\n`;
+
+    // ENTITIES
     dxf += `0\nSECTION\n2\nENTITIES\n`;
+    const P = (xPx: number, yPx: number) => `10\n${(xPx - minX).toFixed(3)}\n20\n${(maxY - yPx).toFixed(3)}\n`;
 
     elements.forEach((element) => {
+      const layer = layerFor(element.type);
       switch (element.type) {
         case 'wall':
         case 'room':
-          dxf += `0\nLWPOLYLINE\n`;
-          dxf += `8\n${element.type}\n`;
-          dxf += `90\n5\n`;
-          dxf += `70\n1\n`;
-          
-          dxf += `10\n${element.x}\n20\n${element.y}\n`;
-          dxf += `10\n${element.x + element.width}\n20\n${element.y}\n`;
-          dxf += `10\n${element.x + element.width}\n20\n${element.y + element.height}\n`;
-          dxf += `10\n${element.x}\n20\n${element.y + element.height}\n`;
-          dxf += `10\n${element.x}\n20\n${element.y}\n`;
+        case 'furniture':
+          dxf += `0\nLWPOLYLINE\n8\n${layer}\n90\n4\n70\n1\n`;
+          dxf += P(element.x, element.y);
+          dxf += P(element.x + element.width, element.y);
+          dxf += P(element.x + element.width, element.y + element.height);
+          dxf += P(element.x, element.y + element.height);
           break;
 
         case 'door':
         case 'window':
-          dxf += `0\nLINE\n`;
-          dxf += `8\n${element.type}\n`;
-          dxf += `10\n${element.x}\n20\n${element.y}\n30\n0.0\n`;
-          dxf += `11\n${element.x + element.width}\n21\n${element.y}\n31\n0.0\n`;
+          dxf += `0\nLINE\n8\n${layer}\n`;
+          dxf += `10\n${(element.x - minX).toFixed(3)}\n20\n${(maxY - element.y).toFixed(3)}\n30\n0.0\n`;
+          dxf += `11\n${(element.x + element.width - minX).toFixed(3)}\n21\n${(maxY - element.y).toFixed(3)}\n31\n0.0\n`;
+          break;
+
+        case 'electrical':
+        case 'plumbing':
+          // symbol marker as a small circle at the element center
+          dxf += `0\nCIRCLE\n8\n${layer}\n`;
+          dxf += `10\n${(element.x + element.width / 2 - minX).toFixed(3)}\n20\n${(maxY - (element.y + element.height / 2)).toFixed(3)}\n30\n0.0\n`;
+          dxf += `40\n${(Math.max(element.width, element.height) / 2 || 6).toFixed(3)}\n`;
           break;
       }
 
       if (element.label) {
-        dxf += `0\nTEXT\n`;
-        dxf += `8\nlabels\n`;
-        dxf += `10\n${element.x + element.width / 2}\n20\n${element.y + element.height / 2}\n30\n0.0\n`;
-        dxf += `40\n12.0\n`;
-        dxf += `1\n${element.label}\n`;
+        dxf += `0\nTEXT\n8\nLABELS\n`;
+        dxf += `10\n${(element.x + element.width / 2 - minX).toFixed(3)}\n20\n${(maxY - (element.y + element.height / 2)).toFixed(3)}\n30\n0.0\n`;
+        dxf += `40\n9.0\n1\n${element.label}\n`;
       }
     });
 
-    dxf += `0\nENDSEC\n`;
-    dxf += `0\nEOF\n`;
-
+    dxf += `0\nENDSEC\n0\nEOF\n`;
     return dxf;
   };
 
@@ -608,8 +821,9 @@ export default function ExportFloorPlanModal({
 
       switch (format) {
         case 'pdf':
-          dataUrl = await generatePDF();
-          filename = `${projectName}.pdf.png`;
+          const pdfBlob = await generatePDFBlob();
+          dataUrl = URL.createObjectURL(pdfBlob);
+          filename = `${projectName}.pdf`;
           break;
 
         case 'dxf':
@@ -658,7 +872,7 @@ export default function ExportFloorPlanModal({
       link.click();
       document.body.removeChild(link);
 
-      if (['dxf', 'svg', 'json'].includes(format)) {
+      if (['dxf', 'svg', 'json', 'pdf'].includes(format)) {
         setTimeout(() => URL.revokeObjectURL(dataUrl), 100);
       }
 

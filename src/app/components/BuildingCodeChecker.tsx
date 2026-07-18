@@ -15,6 +15,30 @@ import {
   FileText
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+
+/**
+ * Local fallback ruleset — mirrors the server's IRC 2021 defaults so the checker
+ * still works offline. The server (design-standards) is the source of truth.
+ */
+const FALLBACK_RULESET = {
+  jurisdiction: 'IRC2021',
+  label: 'IRC 2021 · ICC A117.1 · ADA 2010 (local)',
+  thresholds: {
+    minDoorWidthIn: 32, stdDoorWidthIn: 36, adaClearWidthIn: 32,
+    egressWindowMinSqFt: 5.7, naturalLightMinPct: 8,
+    bedroomMinSqFt: 70, habitableMinDimIn: 84, bathroomMinSqFt: 35,
+    ceilingMinFt: 7, ceilingStdFt: 7.5, loadBearingMinSpacingIn: 48,
+  },
+  references: {
+    minDoorWidth: 'IRC R311.2', adaClearWidth: 'ADA Std. 404.2.3',
+    egressWindow: 'IRC R310.2.1', naturalLight: 'IRC R303.1',
+    loadBearing: 'IRC R602', bedroomSize: 'IRC R304.2',
+    habitableDim: 'IRC R304.3', bathroomSize: 'IRC R307', ceilingHeight: 'IRC R305.1',
+  },
+};
 
 interface CanvasElement {
   id: string;
@@ -46,257 +70,208 @@ export default function BuildingCodeChecker({ elements, onClose }: BuildingCodeC
   const [checking, setChecking] = useState(false);
   const [checks, setChecks] = useState<ComplianceCheck[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [rulesetLabel, setRulesetLabel] = useState<string>('');
 
-  const runComplianceCheck = () => {
+  const runComplianceCheck = async () => {
     setChecking(true);
-    
-    setTimeout(() => {
-      const results: ComplianceCheck[] = [];
-      
-      const walls = elements.filter(el => el.type === 'wall');
-      const doors = elements.filter(el => el.type === 'door');
-      const windows = elements.filter(el => el.type === 'window');
-      const rooms = elements.filter(el => el.type === 'room');
-      
-      // EGRESS REQUIREMENTS
-      // Minimum door width (IRC R311.2)
-      doors.forEach(door => {
-        const widthInches = door.width;
-        if (widthInches < 32) {
-          results.push({
-            id: `door-width-${door.id}`,
-            category: 'egress',
-            rule: 'Minimum Door Width',
-            status: 'fail',
-            details: `Door ${door.label || 'unlabeled'} is ${Math.round(widthInches)}" wide. Minimum required: 32" (2'-8")`,
-            reference: 'IRC R311.2'
-          });
-        } else if (widthInches < 36) {
-          results.push({
-            id: `door-width-${door.id}`,
-            category: 'egress',
-            rule: 'Door Width Standard',
-            status: 'warning',
-            details: `Door ${door.label || 'unlabeled'} is ${Math.round(widthInches)}" wide. Standard: 36" recommended`,
-            reference: 'IRC R311.2'
-          });
-        } else {
-          results.push({
-            id: `door-width-${door.id}`,
-            category: 'egress',
-            rule: 'Minimum Door Width',
-            status: 'pass',
-            details: `Door ${door.label || 'unlabeled'} meets minimum width requirement (${Math.round(widthInches)}")`,
-            reference: 'IRC R311.2'
-          });
-        }
+
+    // Pull the live, citable ruleset from the design-standards data source.
+    // Fall back to the bundled IRC 2021 defaults if the server is unreachable.
+    let ruleset = FALLBACK_RULESET;
+    try {
+      const res = await fetch(`${SERVER}/design-standards/code-rules?jurisdiction=IRC2021`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}` },
       });
-      
-      // ACCESSIBILITY (ADA Compliance)
-      // Doorway clear width should be 32" minimum
-      const accessibleDoors = doors.filter(d => d.width >= 32);
-      if (doors.length > 0) {
-        results.push({
-          id: 'ada-doors',
-          category: 'accessibility',
-          rule: 'ADA Doorway Clearance',
-          status: accessibleDoors.length === doors.length ? 'pass' : 'warning',
-          details: `${accessibleDoors.length}/${doors.length} doors meet ADA clearance requirements`,
-          reference: 'ADA Standards 404.2.3'
-        });
+      const data = await res.json();
+      if (res.ok && data.success && data.ruleset) {
+        ruleset = data.ruleset;
+      } else {
+        console.warn('Code-rules fetch returned no ruleset, using local fallback:', data?.error);
       }
-      
-      // STRUCTURAL REQUIREMENTS
-      // Check for proper wall spacing (load-bearing consideration)
-      if (walls.length >= 2) {
-        const parallelWalls = walls.filter(w => Math.abs(w.rotation % 180) < 5);
-        if (parallelWalls.length >= 2) {
-          // Check if any walls are extremely close together
-          let structuralIssue = false;
-          parallelWalls.forEach((w1, i) => {
-            parallelWalls.slice(i + 1).forEach(w2 => {
-              const distance = Math.abs(w1.y - w2.y) + Math.abs(w1.x - w2.x);
-              if (distance < 48) { // Less than 4 feet apart
-                structuralIssue = true;
-              }
-            });
-          });
-          
-          results.push({
-            id: 'wall-spacing',
-            category: 'structural',
-            rule: 'Load-Bearing Wall Spacing',
-            status: structuralIssue ? 'warning' : 'pass',
-            details: structuralIssue 
-              ? 'Some walls may be too close together. Verify load-bearing requirements.'
-              : 'Wall spacing appears adequate for structural integrity',
-            reference: 'IRC R602'
-          });
-        }
-      }
-      
-      // FIRE SAFETY
-      // Egress windows requirement for bedrooms
-      const bedrooms = rooms.filter(r => r.label?.toLowerCase().includes('bed'));
-      bedrooms.forEach(bedroom => {
-        const bedroomWindows = windows.filter(w => {
-          return w.x >= bedroom.x && w.x <= bedroom.x + bedroom.width &&
-                 w.y >= bedroom.y && w.y <= bedroom.y + bedroom.height;
-        });
-        
-        if (bedroomWindows.length === 0) {
-          results.push({
-            id: `egress-window-${bedroom.id}`,
-            category: 'fire',
-            rule: 'Emergency Egress Window',
-            status: 'fail',
-            details: `${bedroom.label} requires an emergency egress window`,
-            reference: 'IRC R310.1'
-          });
-        } else {
-          // Check window size (5.7 sq ft minimum opening)
-          const adequateWindow = bedroomWindows.some(w => {
-            const sqFt = (w.width * w.height) / 144;
-            return sqFt >= 5.7;
-          });
-          
-          results.push({
-            id: `egress-window-${bedroom.id}`,
-            category: 'fire',
-            rule: 'Emergency Egress Window',
-            status: adequateWindow ? 'pass' : 'warning',
-            details: adequateWindow 
-              ? `${bedroom.label} has adequate egress window`
-              : `${bedroom.label} window may not meet minimum 5.7 sq ft opening requirement`,
-            reference: 'IRC R310.1'
-          });
-        }
-      });
-      
-      // VENTILATION & NATURAL LIGHT
-      rooms.forEach(room => {
-        const roomWindows = windows.filter(w => {
-          return w.x >= room.x && w.x <= room.x + room.width &&
-                 w.y >= room.y && w.y <= room.y + room.height;
-        });
-        
-        const roomSqFt = (room.width * room.height) / 144;
-        const totalWindowArea = roomWindows.reduce((sum, w) => sum + (w.width * w.height) / 144, 0);
-        const windowRatio = roomSqFt > 0 ? (totalWindowArea / roomSqFt) * 100 : 0;
-        
-        // Natural light requirement: 8% of floor area (IRC R303.1)
-        if (windowRatio < 8) {
-          results.push({
-            id: `ventilation-${room.id}`,
-            category: 'ventilation',
-            rule: 'Natural Light & Ventilation',
-            status: 'warning',
-            details: `${room.label || 'Room'} window area is ${windowRatio.toFixed(1)}% of floor area. Minimum 8% recommended`,
-            reference: 'IRC R303.1'
-          });
-        } else {
-          results.push({
-            id: `ventilation-${room.id}`,
-            category: 'ventilation',
-            rule: 'Natural Light & Ventilation',
-            status: 'pass',
-            details: `${room.label || 'Room'} meets natural light requirements (${windowRatio.toFixed(1)}%)`,
-            reference: 'IRC R303.1'
-          });
-        }
-      });
-      
-      // MINIMUM ROOM SIZES
-      rooms.forEach(room => {
-        const sqFt = (room.width * room.height) / 144;
-        const widthFt = room.width / 12;
-        const lengthFt = room.height / 12;
-        
-        // Bedroom minimum: 70 sq ft, 7' min dimension
-        if (room.label?.toLowerCase().includes('bed')) {
-          if (sqFt < 70 || widthFt < 7 || lengthFt < 7) {
-            results.push({
-              id: `room-size-${room.id}`,
-              category: 'size',
-              rule: 'Bedroom Minimum Size',
-              status: 'fail',
-              details: `${room.label} is ${sqFt.toFixed(0)} sq ft. Minimum: 70 sq ft with 7' minimum dimension`,
-              reference: 'IRC R304.2'
-            });
-          } else {
-            results.push({
-              id: `room-size-${room.id}`,
-              category: 'size',
-              rule: 'Bedroom Minimum Size',
-              status: 'pass',
-              details: `${room.label} meets minimum size requirements (${sqFt.toFixed(0)} sq ft)`,
-              reference: 'IRC R304.2'
-            });
-          }
-        }
-        
-        // Bathroom minimum: typical 5' x 8' (40 sq ft)
-        if (room.label?.toLowerCase().includes('bath')) {
-          if (sqFt < 35) {
-            results.push({
-              id: `room-size-${room.id}`,
-              category: 'size',
-              rule: 'Bathroom Size',
-              status: 'warning',
-              details: `${room.label} is ${sqFt.toFixed(0)} sq ft. Typical minimum: 35-40 sq ft`,
-              reference: 'IRC R307'
-            });
-          }
-        }
-      });
-      
-      // CEILING HEIGHTS
-      const avgCeilingHeight = walls.filter(w => w.wallHeight).reduce((sum, w) => sum + (w.wallHeight || 96), 0) / Math.max(walls.filter(w => w.wallHeight).length, 1);
-      const ceilingHeightFeet = avgCeilingHeight / 12;
-      
-      if (ceilingHeightFeet < 7) {
+    } catch (err) {
+      console.warn('Code-rules fetch failed, using local fallback:', err);
+    }
+    setRulesetLabel(ruleset.label || ruleset.jurisdiction || 'IRC 2021');
+
+    const t = ruleset.thresholds;
+    const ref = ruleset.references;
+    const results: ComplianceCheck[] = [];
+
+    const walls = elements.filter(el => el.type === 'wall');
+    const doors = elements.filter(el => el.type === 'door');
+    const windows = elements.filter(el => el.type === 'window');
+    const rooms = elements.filter(el => el.type === 'room');
+
+    // EGRESS — minimum door width
+    doors.forEach(door => {
+      const widthInches = door.width;
+      if (widthInches < t.minDoorWidthIn) {
         results.push({
-          id: 'ceiling-height',
-          category: 'size',
-          rule: 'Minimum Ceiling Height',
-          status: 'fail',
-          details: `Average ceiling height is ${ceilingHeightFeet.toFixed(1)}'. Minimum required: 7'`,
-          reference: 'IRC R305.1'
+          id: `door-width-${door.id}`, category: 'egress', rule: 'Minimum Door Width', status: 'fail',
+          details: `Door ${door.label || 'unlabeled'} is ${Math.round(widthInches)}" wide. Minimum required: ${t.minDoorWidthIn}"`,
+          reference: ref.minDoorWidth,
         });
-      } else if (ceilingHeightFeet < 7.5) {
+      } else if (widthInches < t.stdDoorWidthIn) {
         results.push({
-          id: 'ceiling-height',
-          category: 'size',
-          rule: 'Standard Ceiling Height',
-          status: 'warning',
-          details: `Average ceiling height is ${ceilingHeightFeet.toFixed(1)}'. Standard: 8' recommended`,
-          reference: 'IRC R305.1'
+          id: `door-width-${door.id}`, category: 'egress', rule: 'Door Width Standard', status: 'warning',
+          details: `Door ${door.label || 'unlabeled'} is ${Math.round(widthInches)}" wide. Standard: ${t.stdDoorWidthIn}" recommended`,
+          reference: ref.minDoorWidth,
         });
       } else {
         results.push({
-          id: 'ceiling-height',
-          category: 'size',
-          rule: 'Ceiling Height',
-          status: 'pass',
-          details: `Ceiling height meets requirements (${ceilingHeightFeet.toFixed(1)}')`,
-          reference: 'IRC R305.1'
+          id: `door-width-${door.id}`, category: 'egress', rule: 'Minimum Door Width', status: 'pass',
+          details: `Door ${door.label || 'unlabeled'} meets minimum width requirement (${Math.round(widthInches)}")`,
+          reference: ref.minDoorWidth,
         });
       }
-      
-      setChecks(results);
-      setChecking(false);
-      
-      const failCount = results.filter(r => r.status === 'fail').length;
-      const warnCount = results.filter(r => r.status === 'warning').length;
-      
-      if (failCount === 0 && warnCount === 0) {
-        toast.success('All building code checks passed!');
-      } else if (failCount > 0) {
-        toast.error(`${failCount} code violations found`);
-      } else {
-        toast.warning(`${warnCount} warnings found`);
+    });
+
+    // ACCESSIBILITY — ADA clear width
+    const accessibleDoors = doors.filter(d => d.width >= t.adaClearWidthIn);
+    if (doors.length > 0) {
+      results.push({
+        id: 'ada-doors', category: 'accessibility', rule: 'ADA Doorway Clearance',
+        status: accessibleDoors.length === doors.length ? 'pass' : 'warning',
+        details: `${accessibleDoors.length}/${doors.length} doors meet the ${t.adaClearWidthIn}" ADA clear-width requirement`,
+        reference: ref.adaClearWidth,
+      });
+    }
+
+    // STRUCTURAL — load-bearing wall spacing
+    if (walls.length >= 2) {
+      const parallelWalls = walls.filter(w => Math.abs(w.rotation % 180) < 5);
+      if (parallelWalls.length >= 2) {
+        let structuralIssue = false;
+        parallelWalls.forEach((w1, i) => {
+          parallelWalls.slice(i + 1).forEach(w2 => {
+            const distance = Math.abs(w1.y - w2.y) + Math.abs(w1.x - w2.x);
+            if (distance < t.loadBearingMinSpacingIn) structuralIssue = true;
+          });
+        });
+        results.push({
+          id: 'wall-spacing', category: 'structural', rule: 'Load-Bearing Wall Spacing',
+          status: structuralIssue ? 'warning' : 'pass',
+          details: structuralIssue
+            ? `Some walls are closer than ${t.loadBearingMinSpacingIn}". Verify load-bearing requirements.`
+            : 'Wall spacing appears adequate for structural integrity',
+          reference: ref.loadBearing,
+        });
       }
-    }, 2500); // Simulate processing time
+    }
+
+    // FIRE SAFETY — emergency egress windows for bedrooms
+    const bedrooms = rooms.filter(r => r.label?.toLowerCase().includes('bed'));
+    bedrooms.forEach(bedroom => {
+      const bedroomWindows = windows.filter(w =>
+        w.x >= bedroom.x && w.x <= bedroom.x + bedroom.width &&
+        w.y >= bedroom.y && w.y <= bedroom.y + bedroom.height);
+      if (bedroomWindows.length === 0) {
+        results.push({
+          id: `egress-window-${bedroom.id}`, category: 'fire', rule: 'Emergency Egress Window', status: 'fail',
+          details: `${bedroom.label} requires an emergency egress window`, reference: ref.egressWindow,
+        });
+      } else {
+        const adequateWindow = bedroomWindows.some(w => (w.width * w.height) / 144 >= t.egressWindowMinSqFt);
+        results.push({
+          id: `egress-window-${bedroom.id}`, category: 'fire', rule: 'Emergency Egress Window',
+          status: adequateWindow ? 'pass' : 'warning',
+          details: adequateWindow
+            ? `${bedroom.label} has an adequate egress window`
+            : `${bedroom.label} window may not meet the minimum ${t.egressWindowMinSqFt} sq ft opening`,
+          reference: ref.egressWindow,
+        });
+      }
+    });
+
+    // VENTILATION & NATURAL LIGHT
+    rooms.forEach(room => {
+      const roomWindows = windows.filter(w =>
+        w.x >= room.x && w.x <= room.x + room.width &&
+        w.y >= room.y && w.y <= room.y + room.height);
+      const roomSqFt = (room.width * room.height) / 144;
+      const totalWindowArea = roomWindows.reduce((sum, w) => sum + (w.width * w.height) / 144, 0);
+      const windowRatio = roomSqFt > 0 ? (totalWindowArea / roomSqFt) * 100 : 0;
+      if (windowRatio < t.naturalLightMinPct) {
+        results.push({
+          id: `ventilation-${room.id}`, category: 'ventilation', rule: 'Natural Light & Ventilation', status: 'warning',
+          details: `${room.label || 'Room'} window area is ${windowRatio.toFixed(1)}% of floor area. Minimum ${t.naturalLightMinPct}% required`,
+          reference: ref.naturalLight,
+        });
+      } else {
+        results.push({
+          id: `ventilation-${room.id}`, category: 'ventilation', rule: 'Natural Light & Ventilation', status: 'pass',
+          details: `${room.label || 'Room'} meets natural light requirements (${windowRatio.toFixed(1)}%)`,
+          reference: ref.naturalLight,
+        });
+      }
+    });
+
+    // MINIMUM ROOM SIZES
+    const minDimFt = t.habitableMinDimIn / 12;
+    rooms.forEach(room => {
+      const sqFt = (room.width * room.height) / 144;
+      const widthFt = room.width / 12;
+      const lengthFt = room.height / 12;
+      if (room.label?.toLowerCase().includes('bed')) {
+        if (sqFt < t.bedroomMinSqFt || widthFt < minDimFt || lengthFt < minDimFt) {
+          results.push({
+            id: `room-size-${room.id}`, category: 'size', rule: 'Bedroom Minimum Size', status: 'fail',
+            details: `${room.label} is ${sqFt.toFixed(0)} sq ft. Minimum: ${t.bedroomMinSqFt} sq ft with ${minDimFt}' minimum dimension`,
+            reference: ref.bedroomSize,
+          });
+        } else {
+          results.push({
+            id: `room-size-${room.id}`, category: 'size', rule: 'Bedroom Minimum Size', status: 'pass',
+            details: `${room.label} meets minimum size requirements (${sqFt.toFixed(0)} sq ft)`,
+            reference: ref.bedroomSize,
+          });
+        }
+      }
+      if (room.label?.toLowerCase().includes('bath') && sqFt < t.bathroomMinSqFt) {
+        results.push({
+          id: `room-size-${room.id}`, category: 'size', rule: 'Bathroom Size', status: 'warning',
+          details: `${room.label} is ${sqFt.toFixed(0)} sq ft. Typical minimum: ${t.bathroomMinSqFt} sq ft`,
+          reference: ref.bathroomSize,
+        });
+      }
+    });
+
+    // CEILING HEIGHTS
+    const measuredWalls = walls.filter(w => w.wallHeight);
+    const avgCeilingHeight = measuredWalls.reduce((sum, w) => sum + (w.wallHeight || 96), 0) / Math.max(measuredWalls.length, 1);
+    const ceilingHeightFeet = avgCeilingHeight / 12;
+    if (ceilingHeightFeet < t.ceilingMinFt) {
+      results.push({
+        id: 'ceiling-height', category: 'size', rule: 'Minimum Ceiling Height', status: 'fail',
+        details: `Average ceiling height is ${ceilingHeightFeet.toFixed(1)}'. Minimum required: ${t.ceilingMinFt}'`,
+        reference: ref.ceilingHeight,
+      });
+    } else if (ceilingHeightFeet < t.ceilingStdFt) {
+      results.push({
+        id: 'ceiling-height', category: 'size', rule: 'Standard Ceiling Height', status: 'warning',
+        details: `Average ceiling height is ${ceilingHeightFeet.toFixed(1)}'. Standard: 8' recommended`,
+        reference: ref.ceilingHeight,
+      });
+    } else {
+      results.push({
+        id: 'ceiling-height', category: 'size', rule: 'Ceiling Height', status: 'pass',
+        details: `Ceiling height meets requirements (${ceilingHeightFeet.toFixed(1)}')`,
+        reference: ref.ceilingHeight,
+      });
+    }
+
+    setChecks(results);
+    setChecking(false);
+
+    const failCount = results.filter(r => r.status === 'fail').length;
+    const warnCount = results.filter(r => r.status === 'warning').length;
+    if (failCount === 0 && warnCount === 0) {
+      toast.success('All building code checks passed!');
+    } else if (failCount > 0) {
+      toast.error(`${failCount} code violations found`);
+    } else {
+      toast.warning(`${warnCount} warnings found`);
+    }
   };
 
   const filteredChecks = selectedCategory === 'all' 
@@ -336,7 +311,9 @@ export default function BuildingCodeChecker({ elements, onClose }: BuildingCodeC
           </div>
           
           <p className="text-gray-400 mb-4">
-            Automated compliance checking against IRC (International Residential Code) and ADA standards
+            Automated compliance checking against{' '}
+            {rulesetLabel || 'IRC (International Residential Code) and ADA standards'}
+            {rulesetLabel && <span className="text-green-400"> · live ruleset</span>}
           </p>
 
           {!checking && checks.length === 0 && (

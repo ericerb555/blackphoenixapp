@@ -86,6 +86,7 @@ export const navigationSections: NavSection[] = [
     name: "Financial",
     icon: "DollarSign",
     items: [
+      { name: "Quotes & Estimates",   path: "estimates", badge: "NEW" },
       { name: "Invoices",             path: "invoices" },
       { name: "Payments",             path: "unified-payment-center", badge: "NEW" },
       { name: "Company Bank Routing", path: "company-payment-routing", badge: "NEW" },

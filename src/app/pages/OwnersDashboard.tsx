@@ -185,7 +185,8 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         { name: 'Customers', path: 'customers', icon: Users },
         { name: 'CRM', path: 'customers', icon: UserCheck },
         { name: 'Invoices', path: 'invoices', icon: FileText },
-        { name: 'Quotes', path: 'quote-to-contract-workflow', icon: FileText },
+        { name: 'Quick Quote / Estimate', path: 'estimates', icon: FileText },
+        { name: 'Quotes Workflow', path: 'quote-to-contract-workflow', icon: FileText },
         { name: 'Bid Room', path: 'bid-room', icon: Award }
       ]
     },

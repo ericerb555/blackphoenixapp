@@ -60,3 +60,46 @@ export function Button({
     </button>
   );
 }
+
+// ── Convenience wrappers ────────────────────────────────────────────────────
+
+export function PrimaryButton(props: Omit<ButtonProps, 'variant'>) {
+  return <Button variant="primary" {...props} />;
+}
+
+export function SecondaryButton(props: Omit<ButtonProps, 'variant'>) {
+  return <Button variant="secondary" {...props} />;
+}
+
+interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+  icon: ReactNode;
+  variant?: ButtonProps['variant'];
+  size?: ButtonProps['size'];
+  loading?: boolean;
+  /** Accessible label / native title shown on hover. */
+  tooltip?: string;
+}
+
+export function IconButton({
+  icon,
+  variant = 'ghost',
+  size = 'md',
+  loading = false,
+  tooltip,
+  className = '',
+  ...props
+}: IconButtonProps) {
+  const iconSizes = { sm: 'p-1.5', md: 'p-2.5', lg: 'p-3' };
+  return (
+    <Button
+      variant={variant}
+      loading={loading}
+      title={tooltip}
+      aria-label={tooltip}
+      className={`!px-0 !py-0 ${iconSizes[size]} ${className}`}
+      {...props}
+    >
+      {icon}
+    </Button>
+  );
+}

@@ -32,7 +32,7 @@ import {
   Building2, Phone, Mail, Wrench, ChevronRight, Star, CircleDot,
   Maximize2, Image, Video, FileCheck, ChevronDown, ChevronUp,
   XCircle, MoveRight, ExternalLink, Settings, Percent, Database,
-  Loader2, RefreshCw, Zap
+  Loader2, RefreshCw, Zap, Camera, PenTool
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
@@ -196,6 +196,7 @@ export default function UnifiedProjectPipeline() {
   const [isSeeding, setIsSeeding] = useState(false);
 
   const [filterStage, setFilterStage] = useState<'all' | PipelineStage>('all');
+  const [filterSource, setFilterSource] = useState<'all' | 'camera' | 'design-studio' | 'other'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState<PipelineItem | null>(null);
   const [showQuoteEditor, setShowQuoteEditor] = useState(false);
@@ -554,7 +555,16 @@ export default function UnifiedProjectPipeline() {
   // Filter items
   const filteredItems = items.filter(item => {
     if (filterStage !== 'all' && item.stage !== filterStage) return false;
-    
+
+    if (filterSource !== 'all') {
+      const src = (item as any).source;
+      if (filterSource === 'other') {
+        if (src === 'camera' || src === 'design-studio') return false;
+      } else if (src !== filterSource) {
+        return false;
+      }
+    }
+
     if (searchQuery) {
       const search = searchQuery.toLowerCase();
       return (
@@ -1482,9 +1492,69 @@ export default function UnifiedProjectPipeline() {
                 className="w-full pl-10 pr-4 py-2.5 bg-black/60 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ea580c] focus:border-transparent"
               />
             </div>
+
+            {/* Source filter */}
+            <div className="flex items-center gap-1 bg-black/60 border border-gray-700 rounded-lg p-1">
+              {([
+                { key: 'all', label: 'All Sources', Icon: Filter },
+                { key: 'camera', label: 'Camera', Icon: Camera },
+                { key: 'design-studio', label: 'Design', Icon: PenTool },
+                { key: 'other', label: 'Other', Icon: CircleDot },
+              ] as const).map(({ key, label, Icon }) => {
+                const active = filterSource === key;
+                const count = key === 'all'
+                  ? items.length
+                  : key === 'other'
+                  ? items.filter(i => { const s = (i as any).source; return s !== 'camera' && s !== 'design-studio'; }).length
+                  : items.filter(i => (i as any).source === key).length;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setFilterSource(key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition ${
+                      active ? 'bg-[#ea580c] text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                    title={label}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">{label}</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${active ? 'bg-black/25' : 'bg-white/10'}`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Per-source value rollup */}
+      {(() => {
+        const valOf = (i: any) => Number(i.quote?.totalCost || i.estimatedValue) || 0;
+        const rollup = (pred: (i: any) => boolean) => {
+          const list = items.filter(pred);
+          return { count: list.length, value: list.reduce((s, i) => s + valOf(i), 0) };
+        };
+        const cards = [
+          { key: 'total', label: 'Total Pipeline', Icon: TrendingUp, color: '#ea580c', ...rollup(() => true) },
+          { key: 'camera', label: 'From Camera', Icon: Camera, color: '#fb923c', ...rollup(i => (i as any).source === 'camera') },
+          { key: 'design-studio', label: 'From Design Studio', Icon: PenTool, color: '#60a5fa', ...rollup(i => (i as any).source === 'design-studio') },
+          { key: 'other', label: 'Other Sources', Icon: CircleDot, color: '#94a3b8', ...rollup(i => { const s = (i as any).source; return s !== 'camera' && s !== 'design-studio'; }) },
+        ];
+        return (
+          <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {cards.map(({ key, label, Icon, color, count, value }) => (
+              <div key={key} className="bg-[#1a1a1a] border border-gray-700 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Icon className="w-4 h-4" style={{ color }} />
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
+                </div>
+                <div className="text-2xl font-bold" style={{ color }}>${value.toLocaleString()}</div>
+                <div className="text-xs text-gray-500 mt-1">{count} {count === 1 ? 'opportunity' : 'opportunities'}</div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Stage Progress Indicator */}
       <div className="mb-6 bg-[#1a1a1a] border border-gray-700 rounded-xl p-6">
@@ -1602,7 +1672,30 @@ export default function UnifiedProjectPipeline() {
                         <div className="p-3">
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1 min-w-0">
-                              <div className="text-xs font-mono text-[#ea580c] mb-1">{item.itemNumber}</div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-mono text-[#ea580c]">{item.itemNumber}</span>
+                                {(item as any).source && (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                                    style={
+                                      (item as any).source === 'camera'
+                                        ? { background: 'rgba(234,88,12,0.15)', borderColor: 'rgba(234,88,12,0.4)', color: '#fb923c' }
+                                        : (item as any).source === 'design-studio'
+                                        ? { background: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.4)', color: '#60a5fa' }
+                                        : { background: 'rgba(148,163,184,0.15)', borderColor: 'rgba(148,163,184,0.4)', color: '#94a3b8' }
+                                    }
+                                    title={`Source: ${(item as any).source}`}
+                                  >
+                                    {(item as any).source === 'camera' ? (
+                                      <><Camera className="w-2.5 h-2.5" /> Camera</>
+                                    ) : (item as any).source === 'design-studio' ? (
+                                      <><PenTool className="w-2.5 h-2.5" /> Design Studio</>
+                                    ) : (
+                                      (item as any).source
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                               <h4 className="font-bold text-white text-sm mb-1 leading-tight">{item.title}</h4>
                               <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">{item.description}</p>
                             </div>

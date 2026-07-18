@@ -72,10 +72,12 @@ async function initializeBucket() {
         fileSizeLimit: MAX_FILE_SIZE
       });
       
-      if (error) {
+      // A 409 / "already exists" means another init call (or a prior deploy)
+      // created it first — that's fine, treat it as success.
+      if (error && (error as any).statusCode !== "409" && !/already exists/i.test(error.message || "")) {
         console.error(`❌ Failed to create bucket ${BUCKET_NAME}:`, error);
       } else {
-        console.log(`✅ Created bucket: ${BUCKET_NAME}`);
+        console.log(`✅ Bucket ready: ${BUCKET_NAME}`);
       }
     } else {
       console.log(`✅ Bucket ${BUCKET_NAME} already exists`);

@@ -11,7 +11,7 @@ import {
   AlertCircle, CheckCircle, Clock, User, MapPin, Calendar, Phone,
   MessageSquare, Pencil, Square, Circle, ArrowRight, ChevronLeft,
   Sparkles, TrendingUp, Package, Wrench, Home, Plus, Minus, ArrowLeft,
-  Video, Play, Pause, StopCircle
+  Video, Play, Pause, StopCircle, Mail
 } from 'lucide-react';
 import { StandardButton } from '../components/ui/button/StandardButton';
 import { TextInput } from '../components/ui/input/TextInput';
@@ -424,43 +424,263 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
     }
   };
 
-  const generateAIQuote = async () => {
-    setIsGeneratingQuote(true);
-    try {
-      // In production, send photos and description to AI service
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const suggestions = {
-        estimatedCost: 2850,
-        laborHours: 16,
-        materials: [
-          { name: 'Moisture-resistant drywall (5/8")', quantity: 4, unitCost: 18.50, totalCost: 74 },
-          { name: 'Joint compound', quantity: 2, unitCost: 15.99, totalCost: 31.98 },
-          { name: 'Drywall tape', quantity: 1, unitCost: 8.99, totalCost: 8.99 },
-          { name: 'Paint (premium)', quantity: 2, unitCost: 42.00, totalCost: 84 },
-          { name: 'Insulation R-19', quantity: 50, unitCost: 0.85, totalCost: 42.50 }
-        ],
-        breakdown: {
-          materials: 241.47,
-          labor: 2400,
-          disposal: 150,
-          overhead: 58.53
-        }
+  // Convert a captured photo Blob into base64 (no data: prefix) for the vision API.
+  const blobToBase64 = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = String(reader.result || '');
+        resolve(result.includes(',') ? result.split(',')[1] : result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+  // Grab `count` still frames evenly spaced through a recorded/uploaded video so
+  // the AI can "watch" the walkthrough. Returns base64 JPEGs (no data: prefix).
+  const extractVideoFrames = (blob: Blob, count = 3): Promise<string[]> =>
+    new Promise((resolve) => {
+      const frames: string[] = [];
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      const url = URL.createObjectURL(blob);
+      video.src = url;
+
+      const cleanup = () => { URL.revokeObjectURL(url); };
+
+      const grabAt = (times: number[], i: number) => {
+        if (i >= times.length) { cleanup(); resolve(frames); return; }
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          try {
+            const c = document.createElement('canvas');
+            c.width = video.videoWidth || 1280;
+            c.height = video.videoHeight || 720;
+            const ctx = c.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, c.width, c.height);
+              const dataUrl = c.toDataURL('image/jpeg', 0.8);
+              frames.push(dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl);
+            }
+          } catch (e) {
+            console.error('[Camera] Failed to grab video frame:', e);
+          }
+          grabAt(times, i + 1);
+        };
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = times[i];
       };
 
-      setAiSuggestions(suggestions);
-      setFormData({
-        ...formData,
-        estimatedCost: suggestions.estimatedCost.toString(),
-        laborHours: suggestions.laborHours.toString(),
-        materials: suggestions.materials
+      video.onloadedmetadata = () => {
+        const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        // Evenly spaced timestamps, skipping the very start/end.
+        const times = dur > 0
+          ? Array.from({ length: count }, (_, k) => (dur * (k + 1)) / (count + 1))
+          : [0];
+        grabAt(times, 0);
+      };
+      video.onerror = () => { cleanup(); resolve(frames); };
+    });
+
+  const generateAIQuote = async () => {
+    if (photos.length === 0 && videos.length === 0) {
+      toast.error('Capture at least one photo or video first so the AI can see the project.');
+      return;
+    }
+    setIsGeneratingQuote(true);
+    try {
+      // Send the actual captured photos AND sampled video frames to GPT-4o Vision.
+      // The API caps at 6 images, so budget: photos first, then fill with frames.
+      const MAX_IMAGES = 6;
+      const images: string[] = [];
+      for (const p of photos) {
+        if (images.length >= MAX_IMAGES) break;
+        if (p.blob) {
+          try { images.push(await blobToBase64(p.blob)); }
+          catch (e) { console.error('[Camera] Failed to encode photo:', e); }
+        }
+      }
+      // Sample frames from each video to spread the remaining budget across clips.
+      if (videos.length > 0 && images.length < MAX_IMAGES) {
+        const remaining = MAX_IMAGES - images.length;
+        const perVideo = Math.max(1, Math.floor(remaining / videos.length));
+        for (const v of videos) {
+          if (images.length >= MAX_IMAGES) break;
+          if (v.blob) {
+            try {
+              const frames = await extractVideoFrames(v.blob, perVideo);
+              for (const f of frames) {
+                if (images.length >= MAX_IMAGES) break;
+                images.push(f);
+              }
+            } catch (e) { console.error('[Camera] Failed to extract video frames:', e); }
+          }
+        }
+      }
+      if (images.length === 0) throw new Error('Could not read the captured photos or video frames.');
+
+      const res = await fetch(`${API_BASE}/project-vision/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({
+          images,
+          notes: `${formData.title ? formData.title + '. ' : ''}${formData.description || transcription || ''}`.trim(),
+          serviceType: selectedProject?.serviceType || '',
+        }),
       });
-      toast.success('AI quote generated successfully');
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `Vision request failed with ${res.status}`);
+      }
+
+      const a = data.analysis;
+      const materials = (a.materials || []).map((m: any) => ({
+        name: m.name,
+        quantity: Number(m.quantity) || 1,
+        unitCost: Number(m.unitCost) || 0,
+        totalCost: Number(m.totalCost) || (Number(m.quantity) || 1) * (Number(m.unitCost) || 0),
+      }));
+
+      setAiSuggestions({
+        estimatedCost: a.estimatedCost,
+        laborHours: a.laborHours,
+        materials,
+        summary: a.summary,
+        scope: a.scope || [],
+        labor: a.labor || [],
+        confidence: a.confidence,
+        assumptions: a.assumptions || [],
+        breakdown: { materials: a.materialsCost, labor: a.laborCost },
+      });
+      setFormData(prev => ({
+        ...prev,
+        // Fill an AI description if the field is empty.
+        description: prev.description || a.summary || '',
+        estimatedCost: String(a.estimatedCost ?? ''),
+        laborHours: String(a.laborHours ?? ''),
+        materials,
+      }));
+      const frameCount = images.length - Math.min(photos.length, images.length);
+      const sourceLabel = videos.length > 0 && frameCount > 0
+        ? `${images.length} image(s) (incl. ${frameCount} video frame(s))`
+        : `${images.length} photo(s)`;
+      toast.success(`AI analyzed ${sourceLabel} — ${materials.length} materials, ~${a.laborHours}h labor`);
     } catch (error) {
-      console.error('Error generating quote:', error);
-      toast.error('Failed to generate quote');
+      console.error('Error generating AI quote from photos:', error);
+      toast.error(`AI analysis failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     } finally {
       setIsGeneratingQuote(false);
+    }
+  };
+
+  // Hand the AI-analyzed scope off to the Quote Builder as a real saved quote.
+  const sendToQuoteBuilder = async () => {
+    try {
+      const materials = formData.materials || [];
+      if (materials.length === 0 && !formData.estimatedCost) {
+        toast.error('Generate the AI quote first.');
+        return;
+      }
+      const quoteId = `Q-CAM-${Date.now().toString(36)}`;
+      const items = materials.map(m => ({
+        id: `${quoteId}-${Math.random().toString(36).slice(2, 8)}`,
+        description: m.name,
+        qty: m.quantity,
+        rate: m.unitCost,
+      }));
+      // Fold labor in as line items too, if the AI broke it out.
+      const laborLines = (aiSuggestions?.labor || []).map((l: any) => ({
+        id: `${quoteId}-${Math.random().toString(36).slice(2, 8)}`,
+        description: `Labor — ${l.role}`,
+        qty: Number(l.hours) || 1,
+        rate: Number(l.hourlyRate) || 0,
+      }));
+      const quote = {
+        id: quoteId,
+        type: 'estimate',
+        number: `EST-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
+        clientName: selectedProject?.customerName || '',
+        clientEmail: selectedProject?.email || '',
+        clientPhone: selectedProject?.phone || '',
+        clientAddress: selectedProject?.address || '',
+        customerId: selectedProject?.customerId || '',
+        issueDate: new Date().toISOString().slice(0, 10),
+        dueDate: '',
+        items: [...items, ...laborLines],
+        notes: `${formData.title ? formData.title + '\n' : ''}${formData.description || ''}${aiSuggestions?.scope?.length ? '\n\nScope:\n- ' + aiSuggestions.scope.join('\n- ') : ''}`.trim(),
+        taxRate: 8,
+        status: 'draft',
+        createdAt: new Date().toISOString(),
+      };
+      const res = await fetch(`${API_BASE}/quotes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ quote }),
+      });
+      if (!res.ok) throw new Error(`Saving quote failed with ${res.status}`);
+
+      // Auto-push into the sales Pipeline as a quote-draft opportunity so nothing
+      // captured in the field falls through the cracks.
+      try {
+        const materialsSubtotal = items.reduce((s, i) => s + i.qty * i.rate, 0);
+        const laborSubtotal = laborLines.reduce((s, i) => s + i.qty * i.rate, 0);
+        const estValue = Number(formData.estimatedCost) || (materialsSubtotal + laborSubtotal);
+        const pipelineItem = {
+          id: `PIPE-${quoteId}`,
+          itemNumber: quote.number,
+          stage: 'quote-draft',
+          customerName: quote.clientName || 'Unassigned',
+          customerEmail: quote.clientEmail || '',
+          customerPhone: quote.clientPhone || '',
+          location: quote.clientAddress || '',
+          serviceType: selectedProject?.serviceType || 'Field Capture',
+          title: `${quote.number} — ${quote.clientName || 'Unassigned'}`,
+          description: formData.title || formData.description || 'Captured via Camera App',
+          estimatedValue: estValue,
+          priority: formData.priority || 'medium',
+          createdDate: new Date().toISOString(),
+          lastModified: new Date().toISOString(),
+          customerId: quote.customerId || '',
+          source: 'camera',
+          quote: {
+            id: quoteId,
+            quoteNumber: quote.number,
+            materials: (formData.materials || []).map(m => ({
+              id: `${quoteId}-${Math.random().toString(36).slice(2, 8)}`,
+              name: m.name, quantity: m.quantity, unit: 'each',
+              unitCost: m.unitCost, totalCost: m.totalCost, category: 'Field', visible: true,
+            })),
+            labor: [],
+            processSteps: [],
+            materialsSubtotal,
+            laborSubtotal,
+            taxRate: 0.08,
+            taxAmount: (materialsSubtotal + laborSubtotal) * 0.08,
+            totalCost: estValue,
+            generatedAt: new Date().toISOString(),
+            approvalStatus: 'pending',
+          },
+        };
+        const pipeRes = await fetch(`${API_BASE}/pipeline/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify(pipelineItem),
+        });
+        if (!pipeRes.ok) console.error('[Camera] Pipeline push failed with', pipeRes.status);
+      } catch (pipeErr) {
+        console.error('[Camera] Error pushing camera quote to pipeline:', pipeErr);
+        // Non-fatal — the quote itself was saved.
+      }
+
+      // Tell the Quote Builder to auto-open this one.
+      try { localStorage.setItem('invoice_open_id', quoteId); } catch { /* ignore */ }
+      toast.success('Quote created & added to the pipeline — opening the Quote Builder…');
+      if (onNavigate) onNavigate('estimates');
+    } catch (error) {
+      console.error('Error sending to quote builder:', error);
+      toast.error('Could not send to the Quote Builder.');
     }
   };
 
@@ -1167,11 +1387,30 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
                   <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-2">
                       <CheckCircle className="w-5 h-5 text-green-400" />
-                      <span className="font-semibold text-green-400">AI Quote Generated</span>
+                      <span className="font-semibold text-green-400">AI Vision Analysis Complete</span>
+                      {aiSuggestions.confidence && (
+                        <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-white/5 text-gray-400 capitalize">
+                          {aiSuggestions.confidence} confidence
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-300">
-                      Based on photo analysis and description, here's the estimated quote:
+                      {aiSuggestions.summary || "Based on the photos, here's the estimated quote:"}
                     </p>
+                    {Array.isArray(aiSuggestions.scope) && aiSuggestions.scope.length > 0 && (
+                      <ul className="mt-3 space-y-1">
+                        {aiSuggestions.scope.map((s: string, i: number) => (
+                          <li key={i} className="text-xs text-gray-400 flex gap-2">
+                            <span className="text-[#ea580c]">•</span><span>{s}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {Array.isArray(aiSuggestions.assumptions) && aiSuggestions.assumptions.length > 0 && (
+                      <p className="mt-3 text-[11px] text-gray-500 italic">
+                        Assumptions: {aiSuggestions.assumptions.join('; ')}
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -1240,33 +1479,44 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-400">Materials</span>
-                        <span>${aiSuggestions.breakdown.materials.toFixed(2)}</span>
+                        <span>${Number(aiSuggestions.breakdown?.materials || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Labor ({formData.laborHours}hrs @ $150/hr)</span>
-                        <span>${aiSuggestions.breakdown.labor.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Disposal</span>
-                        <span>${aiSuggestions.breakdown.disposal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Overhead & Profit</span>
-                        <span>${aiSuggestions.breakdown.overhead.toFixed(2)}</span>
+                        <span className="text-gray-400">Labor ({formData.laborHours || 0} hrs)</span>
+                        <span>${Number(aiSuggestions.breakdown?.labor || 0).toFixed(2)}</span>
                       </div>
                       <div className="border-t border-[#2A2A2A] pt-2 mt-2 flex justify-between font-bold text-[#ea580c]">
-                        <span>Total</span>
+                        <span>Estimated Total</span>
                         <span>${formData.estimatedCost}</span>
                       </div>
                     </div>
                   </div>
 
+                  <div className="flex gap-2">
+                    <StandardButton
+                      onClick={generateAIQuote}
+                      variant="secondary"
+                      disabled={isGeneratingQuote}
+                      leftIcon={<Sparkles className="w-4 h-4" />}
+                    >
+                      {isGeneratingQuote ? 'Re-analyzing…' : 'Re-run'}
+                    </StandardButton>
+                    <StandardButton
+                      onClick={sendToQuoteBuilder}
+                      leftIcon={<FileText className="w-4 h-4" />}
+                      className="flex-1"
+                    >
+                      Send to Quote Builder
+                    </StandardButton>
+                  </div>
+
                   <StandardButton
                     onClick={() => setCurrentStep('review')}
+                    variant="secondary"
                     leftIcon={<ArrowRight className="w-4 h-4" />}
                     className="w-full"
                   >
-                    Continue to Review
+                    Continue to Change Order Review
                   </StandardButton>
                 </div>
               )}

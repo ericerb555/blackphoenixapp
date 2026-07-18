@@ -11,8 +11,11 @@
  */
 
 import { useState } from 'react';
-import { X, Plus, Calendar, Clock, Users, Package, FileText, Download, Save, AlertCircle } from 'lucide-react';
+import { X, Plus, Calendar, Clock, Users, Package, FileText, Download, Save, AlertCircle, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface ScheduleTask {
   id: string;
@@ -64,9 +67,13 @@ export default function ConstructionScheduleGenerator({
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [activeView, setActiveView] = useState<'gantt' | 'tasks' | 'materials' | 'inspections'>('gantt');
   const [projectStartDate, setProjectStartDate] = useState(new Date());
+  const [generating, setGenerating] = useState(false);
+  const [templateSource, setTemplateSource] = useState<string>('');
 
-  // Standard construction phases and tasks
-  const standardPhases = [
+  // Local fallback templates (used if the design-standards data source is
+  // unreachable). Materials here are plain names; the server provides the same
+  // structure enriched with per-material lead times and crew sizes.
+  const [standardPhases, setStandardPhases] = useState<any[]>([
     {
       name: 'Pre-Construction',
       tasks: [
@@ -150,19 +157,49 @@ export default function ConstructionScheduleGenerator({
         { name: 'Punch List Completion', duration: 3, materials: [] },
       ]
     }
-  ];
+  ]);
 
-  const generateFullSchedule = () => {
+  /** Normalize a material entry (string or {item, leadDays}) to a common shape. */
+  const normalizeMaterial = (m: any): { item: string; leadDays: number } =>
+    typeof m === 'string' ? { item: m, leadDays: 2 } : { item: m.item, leadDays: m.leadDays ?? 2 };
+
+  const generateFullSchedule = async () => {
+    setGenerating(true);
+
+    // Pull live construction templates (durations, crews, per-material lead
+    // times, required inspections) from the design-standards data source.
+    let phases = standardPhases;
+    try {
+      const res = await fetch(`${SERVER}/design-standards/schedule-templates`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.phases) && data.phases.length > 0) {
+        phases = data.phases;
+        setStandardPhases(data.phases);
+        setTemplateSource('live');
+      } else {
+        setTemplateSource('local');
+        console.warn('Schedule-templates fetch returned nothing, using local fallback:', data?.error);
+      }
+    } catch (err) {
+      setTemplateSource('local');
+      console.warn('Schedule-templates fetch failed, using local fallback:', err);
+    }
+
     const allTasks: ScheduleTask[] = [];
+    const deliveryList: MaterialDelivery[] = [];
     let currentDate = new Date(projectStartDate);
     let previousTaskId = '';
 
-    standardPhases.forEach((phase) => {
-      phase.tasks.forEach((task, idx) => {
+    phases.forEach((phase: any) => {
+      phase.tasks.forEach((task: any, idx: number) => {
         const taskId = `task-${phase.name}-${idx}`;
         const startDate = new Date(currentDate);
         const endDate = new Date(currentDate);
         endDate.setDate(endDate.getDate() + task.duration);
+
+        const mats = (task.materials || []).map(normalizeMaterial);
 
         allTasks.push({
           id: taskId,
@@ -172,11 +209,28 @@ export default function ConstructionScheduleGenerator({
           startDate,
           endDate,
           dependencies: previousTaskId ? [previousTaskId] : [],
-          assignedTo: 'TBD',
-          materials: task.materials || [],
+          assignedTo: phase.crew || 'TBD',
+          materials: mats.map(m => m.item),
           inspectionRequired: task.inspectionRequired || false,
           status: 'not-started',
           progress: 0
+        });
+
+        // Schedule each material's delivery by its real procurement lead time
+        // (ordered leadDays before the task that needs it).
+        mats.forEach((m) => {
+          const deliveryDate = new Date(startDate);
+          deliveryDate.setDate(deliveryDate.getDate() - m.leadDays);
+          deliveryList.push({
+            id: `del-${taskId}-${m.item}`,
+            material: m.item,
+            quantity: 'As per estimate',
+            supplier: 'TBD',
+            scheduledDate: deliveryDate,
+            requiredFor: [taskId],
+            cost: 0,
+            status: 'scheduled'
+          });
         });
 
         currentDate = new Date(endDate);
@@ -186,35 +240,11 @@ export default function ConstructionScheduleGenerator({
     });
 
     setTasks(allTasks);
-    generateMaterialDeliveries(allTasks);
-    generateInspections(allTasks);
-    
-    toast.success(`Generated ${allTasks.length}-task schedule`);
-  };
-
-  const generateMaterialDeliveries = (taskList: ScheduleTask[]) => {
-    const deliveryList: MaterialDelivery[] = [];
-    
-    taskList.forEach((task) => {
-      task.materials.forEach((material) => {
-        // Schedule delivery 2 days before task starts
-        const deliveryDate = new Date(task.startDate);
-        deliveryDate.setDate(deliveryDate.getDate() - 2);
-
-        deliveryList.push({
-          id: `del-${task.id}-${material}`,
-          material,
-          quantity: 'As per estimate',
-          supplier: 'TBD',
-          scheduledDate: deliveryDate,
-          requiredFor: [task.id],
-          cost: 0,
-          status: 'scheduled'
-        });
-      });
-    });
-
     setDeliveries(deliveryList);
+    generateInspections(allTasks);
+    setGenerating(false);
+
+    toast.success(`Generated ${allTasks.length}-task schedule`);
   };
 
   const generateInspections = (taskList: ScheduleTask[]) => {
@@ -325,10 +355,11 @@ export default function ConstructionScheduleGenerator({
               <p className="text-gray-400 mb-6">Click below to generate a comprehensive construction schedule</p>
               <button
                 onClick={generateFullSchedule}
-                className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition flex items-center gap-3 mx-auto"
+                disabled={generating}
+                className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition flex items-center gap-3 mx-auto disabled:opacity-50"
               >
-                <Sparkles className="w-5 h-5" />
-                Generate Full Schedule
+                {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {generating ? 'Building from live templates…' : 'Generate Full Schedule'}
               </button>
             </div>
           )}
@@ -476,15 +507,18 @@ export default function ConstructionScheduleGenerator({
         <div className="bg-[#1A1A1A] border-t border-[#2A2A2A] p-6 flex items-center justify-between">
           <div className="text-sm text-gray-400">
             {tasks.length} tasks • {deliveries.length} deliveries • {inspections.length} inspections
+            {templateSource === 'live' && <span className="text-green-400"> • live templates</span>}
+            {templateSource === 'local' && <span className="text-yellow-400"> • local templates</span>}
           </div>
           <div className="flex gap-3">
             {tasks.length === 0 && (
               <button
                 onClick={generateFullSchedule}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition flex items-center gap-2"
+                disabled={generating}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition flex items-center gap-2 disabled:opacity-50"
               >
-                <Sparkles className="w-4 h-4" />
-                Generate Schedule
+                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {generating ? 'Generating…' : 'Generate Schedule'}
               </button>
             )}
             {tasks.length > 0 && (
