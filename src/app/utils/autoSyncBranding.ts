@@ -6,9 +6,12 @@
  */
 
 import { supabase } from '../lib/supabase';
+// The real logo, bundled with the app so it survives deploys AND is always the
+// correct artwork (the previous GitHub-hosted URL pointed at the wrong image).
+import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
-// Permanent logo URL — stored in GitHub, always accessible, survives all deploys
-const PERMANENT_LOGO_URL = 'https://raw.githubusercontent.com/ericerb555/blackphoenixapp/main/public/phoenix-logo.png';
+// Permanent logo URL — the bundled phoenix asset (hashed & served by the build).
+const PERMANENT_LOGO_URL = phoenixLogo;
 
 function applyLogoImmediately() {
   // ALWAYS write the phoenix logo — no conditions, no skipping

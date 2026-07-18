@@ -309,8 +309,15 @@ function CompanySelector() {
             alt="Logo"
             className="w-8 h-8 object-contain rounded-lg relative z-[9999]"
             onError={(e) => {
-              console.error('❌ Logo failed to load:', logo);
-              e.currentTarget.style.display = 'none';
+              // A stored Storage URL can go stale/404. Never leave the header
+              // logo-less — fall back to the bundled phoenix instead of hiding.
+              console.error('❌ Logo failed to load, reverting to bundled logo:', logo);
+              if (e.currentTarget.src !== phoenixLogo) {
+                e.currentTarget.src = phoenixLogo;
+              } else {
+                e.currentTarget.style.display = 'none';
+              }
+              if (logo !== phoenixLogo) setLogo(phoenixLogo);
             }}
           />
         ) : (

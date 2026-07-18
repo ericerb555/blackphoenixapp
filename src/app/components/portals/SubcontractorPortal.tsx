@@ -6,6 +6,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import phoenixLogo from '../../../imports/BPB_phoenix_full_color_logo.png';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
 class MarqueeSafe extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -61,7 +62,7 @@ const PAYMENTS = [
   { id: 'INV-2024-142', project: 'Retail Lighting', amount: 3200, due: '2024-01-25', status: 'paid' },
 ];
 
-const LOGO_URL = 'https://raw.githubusercontent.com/ericerb555/blackphoenixapp/main/public/phoenix-logo.png';
+const LOGO_URL = phoenixLogo;
 
 function badge(s: string) {
   if (s === 'paid' || s === 'completed') return 'bg-green-500/10 text-green-400 border-green-500/20';
