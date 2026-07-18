@@ -1,0 +1,214 @@
+Full formData: {name: 'Black Phoenix Custom Builds LLC', dba: '', slug: '', website: '', email: '', …}
+ 🚨🚨🚨 CREATE COMPANY BUTTON CLICKED! 🚨🚨🚨
+ User: {id: '1a9f3ae4-0d46-4824-8d13-05c2193ca5e9', aud: 'authenticated', role: 'authenticated', email: 'ericerb555@proton.me', email_confirmed_at: '2026-02-14T21:20:22.21004Z', …}
+ Form data: {name: 'Black Phoenix Custom Builds LLC', dba: '', slug: '', website: '', email: '', …}
+ ✅ localStorage is working correctly
+ 🔘 handleAddCompany called - START
+ ✅ User is logged in: ericerb555@proton.me
+ ✅ Company name provided: Black Phoenix Custom Builds LLC
+ ✅ Slug generated: black-phoenix-custom-builds-llc
+ ✅ Company ID generated: company_1777585038942_g0yap296z
+ 📝 Processing logos, count: 0
+ ✅ Logos processed, count: 0 Primary: false
+ 📝 Processing documents, count: 0
+ ✅ Documents processed, count: 0
+ ✅ New company object created: Black Phoenix Custom Builds LLC ID: company_1777585038942_g0yap296z
+ 💾 Calling CompanyStore.addCompany...
+vendor-core-229ba1ea832d24ba.min.js.br:63  GET https://www.figma.com/api/integrations/supabase/Vev7kox3WWVZdleAay9TbR/edge_functions/make-server/logs 429 (Too Many Requests)
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+h @ vendor-d8a7622aeef5d7d1.min.js.br:3
+(anonymous) @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+k @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+await in k
+N @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+R @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+(anonymous) @ figma_app-3b73ff3af9d36ba9.min.js.br:204
+validate @ 7440-4d1f9e863ddb7bcf.min.js.br:1375
+getFunctionLogs @ figma_app-3b73ff3af9d36ba9.min.js.br:204
+fetch @ figma_app-3b73ff3af9d36ba9.min.js.br:467
+p @ 7440-4d1f9e863ddb7bcf.min.js.br:347
+await in p
+d @ vendor-d8a7622aeef5d7d1.min.js.br:296
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+  POST https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-824f083c/data/backup 404 (Not Found)
+backupToDatabase @ app-aejwj4j27qq7m5n4…aPersistence.ts:134
+(anonymous) @ app-aejwj4j27qq7m5n4…aPersistence.ts:182
+vendor-core-229ba1ea832d24ba.min.js.br:63  GET https://www.figma.com/api/integrations/supabase/Vev7kox3WWVZdleAay9TbR/edge_functions/make-server/logs 429 (Too Many Requests)
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+h @ vendor-d8a7622aeef5d7d1.min.js.br:3
+(anonymous) @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+k @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+await in k
+N @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+await in N
+R @ 7440-4d1f9e863ddb7bcf.min.js.br:1395
+(anonymous) @ figma_app-3b73ff3af9d36ba9.min.js.br:204
+validate @ 7440-4d1f9e863ddb7bcf.min.js.br:1375
+getFunctionLogs @ figma_app-3b73ff3af9d36ba9.min.js.br:204
+fetch @ figma_app-3b73ff3af9d36ba9.min.js.br:467
+p @ 7440-4d1f9e863ddb7bcf.min.js.br:347
+await in p
+d @ vendor-d8a7622aeef5d7d1.min.js.br:296
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
+setInterval
+(anonymous) @ vendor-core-229ba1ea832d24ba.min.js.br:63
+updateRefetchInterval @ vendor-d8a7622aeef5d7d1.min.js.br:296
+updateTimers @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onQueryUpdate @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+batch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+dispatch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+setData @ vendor-d8a7622aeef5d7d1.min.js.br:296
+onSuccess @ vendor-d8a7622aeef5d7d1.min.js.br:296
+b @ vendor-d8a7622aeef5d7d1.min.js.br:296
+Promise.then
+_ @ vendor-d8a7622aeef5d7d1.min.js.br:296
+h @ vendor-d8a7622aeef5d7d1.min.js.br:296
+fetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+executeFetch @ vendor-d8a7622aeef5d7d1.min.js.br:296
+(anonymous) @ vendor-d8a7622aeef5d7d1.min.js.br:296
+u @ vendor-core-229ba1ea832d24ba.min.js.br:54
