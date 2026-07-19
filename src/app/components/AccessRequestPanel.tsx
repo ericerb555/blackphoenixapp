@@ -8,6 +8,19 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, User, Clock, Send } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const AR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const arAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+function persistAccessRequests(requests: any[]) {
+  localStorage.setItem('accessRequests', JSON.stringify(requests));
+  fetch(`${AR_SERVER}/access-requests`, {
+    method: 'POST',
+    headers: arAuthHeaders,
+    body: JSON.stringify({ requests }),
+  }).catch((err) => console.error('[AccessRequestPanel] server sync failed:', err));
+}
 
 interface AccessRequest {
   id: string;
@@ -31,8 +44,20 @@ export default function AccessRequestPanel() {
     loadRequests();
   }, []);
 
-  const loadRequests = () => {
+  const loadRequests = async () => {
     try {
+      // Server is authoritative so approvals sync across admins/devices.
+      try {
+        const res = await fetch(`${AR_SERVER}/access-requests`, { headers: arAuthHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.requests)) {
+          localStorage.setItem('accessRequests', JSON.stringify(json.requests));
+          setRequests(json.requests);
+          return;
+        }
+      } catch (err) {
+        console.error('[AccessRequestPanel] Error loading requests from server:', err);
+      }
       const accessRequests = JSON.parse(localStorage.getItem('accessRequests') || '[]');
       setRequests(accessRequests);
     } catch (e) {
@@ -54,7 +79,7 @@ export default function AccessRequestPanel() {
             }
           : req
       );
-      localStorage.setItem('accessRequests', JSON.stringify(updatedRequests));
+      persistAccessRequests(updatedRequests);
       setRequests(updatedRequests);
 
       // Grant access to the user
@@ -111,7 +136,7 @@ export default function AccessRequestPanel() {
             }
           : req
       );
-      localStorage.setItem('accessRequests', JSON.stringify(updatedRequests));
+      persistAccessRequests(updatedRequests);
       setRequests(updatedRequests);
 
       // Send notification to user

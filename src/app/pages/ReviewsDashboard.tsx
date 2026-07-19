@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { Star, ThumbsUp, Trash2, Eye, CheckCircle, XCircle, Search, Filter, TrendingUp, MessageSquare, Award, BarChart2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getStoreReviews, type StoreReview } from '../components/StoreReviews';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const ALL_PRODUCT_IDS = ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10'];
 
@@ -28,23 +32,37 @@ export default function ReviewsDashboard() {
     const deduped = Array.from(new Map(reviews.map(r => [r.id, r])).values());
     deduped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setAllReviews(deduped);
-    const a = localStorage.getItem('bp_reviews_approved');
-    const h = localStorage.getItem('bp_reviews_hidden');
-    if (a) setApproved(JSON.parse(a));
-    if (h) setHidden(JSON.parse(h));
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/reviews/moderation`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success) { setApproved(json.approved || []); setHidden(json.hidden || []); }
+        else console.error('Failed to load review moderation:', json.error);
+      } catch (err) { console.error('Network error loading review moderation:', err); }
+    })();
   }, []);
+
+  // Persist moderation state to the server so it's shared across admins/devices.
+  async function persistModeration(nextApproved: string[], nextHidden: string[]) {
+    try {
+      await fetch(`${SERVER}/reviews/moderation`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ approved: nextApproved, hidden: nextHidden }),
+      });
+    } catch (err) { console.error('Failed to persist review moderation:', err); }
+  }
 
   function approve(id: string) {
     const next = [...approved, id];
     setApproved(next);
-    localStorage.setItem('bp_reviews_approved', JSON.stringify(next));
+    persistModeration(next, hidden);
     toast.success('Review approved and published');
   }
 
   function hide(id: string) {
     const next = [...hidden, id];
     setHidden(next);
-    localStorage.setItem('bp_reviews_hidden', JSON.stringify(next));
+    persistModeration(approved, next);
     toast('Review hidden from store');
   }
 
@@ -53,8 +71,7 @@ export default function ReviewsDashboard() {
     const nextA = approved.filter(x => x !== id);
     setHidden(nextH);
     setApproved(nextA);
-    localStorage.setItem('bp_reviews_hidden', JSON.stringify(nextH));
-    localStorage.setItem('bp_reviews_approved', JSON.stringify(nextA));
+    persistModeration(nextA, nextH);
     toast('Review restored to pending');
   }
 

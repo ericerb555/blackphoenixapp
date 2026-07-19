@@ -53,6 +53,19 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import UnifiedPaymentService from '../lib/services/unifiedPaymentService';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const PC_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const pcAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+// Persist only non-secret gateway state to the server; API keys/secrets stay local.
+function pushGatewayState(configs: Record<string, any>) {
+  fetch(`${PC_SERVER}/payment-gateways`, {
+    method: 'POST',
+    headers: pcAuthHeaders,
+    body: JSON.stringify({ configs }),
+  }).catch((err) => console.error('[UnifiedPaymentCenter] gateway state sync failed:', err));
+}
 import type {
   UnifiedPayment,
   UnifiedSubscription,
@@ -176,7 +189,7 @@ export default function UnifiedPaymentCenter() {
     }
   };
 
-  const loadGatewayConfigs = () => {
+  const loadGatewayConfigs = async () => {
     const configs: Record<string, GatewayConfig> = {};
     PAYMENT_GATEWAYS.forEach(gateway => {
       const saved = localStorage.getItem(`gateway_config_${gateway.id}`);
@@ -192,6 +205,29 @@ export default function UnifiedPaymentCenter() {
         };
       }
     });
+
+    // Server holds the authoritative non-secret state (active/test mode). Merge it
+    // over the local config so enable/disable persists and is shared across devices.
+    try {
+      const res = await fetch(`${PC_SERVER}/payment-gateways`, { headers: pcAuthHeaders });
+      const json = await res.json();
+      if (json.success && json.configs) {
+        for (const [id, remote] of Object.entries<any>(json.configs)) {
+          if (configs[id]) {
+            configs[id] = {
+              ...configs[id],
+              is_active: remote.is_active,
+              test_mode: remote.test_mode,
+              updated_at: remote.updated_at || configs[id].updated_at,
+            };
+            localStorage.setItem(`gateway_config_${id}`, JSON.stringify(configs[id]));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[UnifiedPaymentCenter] Error loading gateway state from server:', err);
+    }
+
     setGatewayConfigs(configs);
   };
 
@@ -208,7 +244,9 @@ export default function UnifiedPaymentCenter() {
     };
 
     localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(config));
-    setGatewayConfigs(prev => ({ ...prev, [gateway]: config }));
+    const next = { ...gatewayConfigs, [gateway]: config };
+    setGatewayConfigs(next);
+    pushGatewayState(next);
     setEditingGateway(null);
     toast.success(`${gateway} configuration saved`);
   };
@@ -217,7 +255,9 @@ export default function UnifiedPaymentCenter() {
     const config = gatewayConfigs[gateway];
     const updated = { ...config, is_active: !config.is_active, updated_at: new Date().toISOString() };
     localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(updated));
-    setGatewayConfigs(prev => ({ ...prev, [gateway]: updated }));
+    const next = { ...gatewayConfigs, [gateway]: updated };
+    setGatewayConfigs(next);
+    pushGatewayState(next);
     toast.success(`${gateway} ${updated.is_active ? 'enabled' : 'disabled'}`);
   };
 

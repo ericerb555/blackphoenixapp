@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { saveDual, loadDual } from '../lib/database';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -53,8 +55,43 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Employee> | null>(null);
 
-  useEffect(() => { localStorage.setItem('hr_employees', JSON.stringify(employees)); }, [employees]);
-  useEffect(() => { localStorage.setItem('hr_payroll', JSON.stringify(payroll)); }, [payroll]);
+  // Hydrate from the server on mount (falls back to the localStorage-seeded
+  // initial state if nothing is stored server-side yet).
+  useEffect(() => {
+    (async () => {
+      const [emp, pay] = await Promise.all([
+        loadDual('hr_employees'),
+        loadDual('hr_payroll'),
+      ]);
+      const base: Employee[] = (Array.isArray(emp) && emp.length) ? emp : employees;
+      if (Array.isArray(pay) && pay.length) setPayroll(pay);
+
+      // Overlay real logged hours from the time-tracking system (matched by full name).
+      try {
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/time-tracking/hours-summary`,
+          { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+        );
+        const json = await res.json();
+        if (json.success && json.summary) {
+          const merged = base.map(e => {
+            const key = `${e.firstName} ${e.lastName}`.trim();
+            const h = json.summary[key];
+            return h ? { ...e, hoursThisWeek: h.hoursThisWeek, hoursThisPeriod: h.hoursThisPeriod } : e;
+          });
+          setEmployees(merged);
+        } else {
+          setEmployees(base);
+        }
+      } catch (err) {
+        console.error('Could not load real hours from time-tracking:', err);
+        setEmployees(base);
+      }
+    })();
+  }, []);
+
+  useEffect(() => { saveDual('hr_employees', employees); }, [employees]);
+  useEffect(() => { saveDual('hr_payroll', payroll); }, [payroll]);
 
   const active = employees.filter(e => e.status === 'active');
   const totalHours = active.reduce((s, e) => s + e.hoursThisWeek, 0);

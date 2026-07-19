@@ -6,6 +6,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, User, Bot, Phone, Mail, ChevronDown, Minimize2, Maximize2, CheckCircle } from 'lucide-react';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const chatAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface ChatConfig {
   enabled: boolean;
@@ -81,11 +85,18 @@ function aiReply(text: string): string {
 }
 
 function recordChatLead(email: string, name: string) {
+  const capturedAt = new Date().toISOString();
+  // Keep a localStorage copy as offline fallback…
   try {
     const leads = JSON.parse(localStorage.getItem('chat_leads') || '[]');
-    leads.push({ email, name, capturedAt: new Date().toISOString(), source: 'live-chat' });
+    leads.push({ email, name, capturedAt, source: 'live-chat' });
     localStorage.setItem('chat_leads', JSON.stringify(leads));
   } catch {}
+  // …and persist to the server so it shows up in the Live Chat Manager for all admins.
+  fetch(`${SERVER}/chat/leads`, {
+    method: 'POST', headers: chatAuthHeaders,
+    body: JSON.stringify({ email, name, source: 'live-chat', capturedAt }),
+  }).catch(err => console.error('Failed to persist chat lead to server:', err));
 }
 
 export default function LiveChatWidget() {

@@ -8,6 +8,10 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, ShoppingCart, Mail, Star, Users, QrCode, BarChart3, RefreshCw, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
 import { getLoyaltyAccount } from './LoyaltyProgram';
 import { useAuth } from '../contexts/AuthContext';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const RA_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const raAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -32,39 +36,48 @@ function getQRStats() {
   } catch { return { total: 0, types: [] }; }
 }
 
-const CHANNEL_DATA = [
-  { channel: '🛍️ Direct Store', visits: 340, leads: 28, revenue: 4200, color: '#ea580c' },
-  { channel: '📍 Local Ad Page', visits: 180, leads: 42, revenue: 2800, color: '#8b5cf6' },
-  { channel: '📧 Email Campaign', visits: 95,  leads: 15, revenue: 1950, color: '#3b82f6' },
-  { channel: '📱 QR Codes',      visits: 60,   leads: 8,  revenue: 720,  color: '#10b981' },
-  { channel: '🔗 Referral Links', visits: 45,  leads: 12, revenue: 890,  color: '#f59e0b' },
-];
-
-const TOP_PRODUCTS = [
-  { name: 'Pro Tool Kit Bundle',     sales: 34, revenue: 3740, trend: '+18%', up: true },
-  { name: 'Athletic Training Set',   sales: 28, revenue: 2240, trend: '+12%', up: true },
-  { name: 'Skincare Essentials Kit', sales: 22, revenue: 1540, trend: '+9%',  up: true },
-  { name: 'Work Boots — Steel Toe',  sales: 19, revenue: 1710, trend: '-3%',  up: false },
-  { name: 'Heavy Duty Extension Cord', sales: 17, revenue: 595, trend: '+22%', up: true },
-];
-
-const MONTHLY_TREND = [
-  { month: 'Feb', revenue: 3200 },
-  { month: 'Mar', revenue: 4100 },
-  { month: 'Apr', revenue: 3800 },
-  { month: 'May', revenue: 5200 },
-  { month: 'Jun', revenue: 6100 },
-  { month: 'Jul', revenue: 7400 },
-];
+const CHANNEL_COLORS = ['#ea580c', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#a78bfa', '#6b7280'];
 
 export default function RevenueAnalytics() {
   const { user } = useAuth();
   const [leadStats, setLeadStats] = useState(getLeadStats());
   const [cartStats] = useState(getCartRecoveries());
-  const [qrStats] = useState(getQRStats());
+  const [qrStats, setQrStats] = useState(getQRStats());
   const [loyaltyAcct, setLoyaltyAcct] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'channels' | 'products' | 'email'>('overview');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Real aggregates from the server (orders/leads/reviews). Empty until loaded.
+  const [channelData, setChannelData] = useState<{ channel: string; revenue: number; color: string }[]>([]);
+  const [topProductsData, setTopProductsData] = useState<{ name: string; sales: number; revenue: number; trend: string; up: boolean }[]>([]);
+  const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; revenue: number }[]>([]);
+  const [serverRevenue, setServerRevenue] = useState(0);
+  const [serverLeads, setServerLeads] = useState(0);
+
+  async function loadSummary() {
+    try {
+      const res = await fetch(`${RA_SERVER}/analytics/summary`, { headers: raAuthHeaders });
+      const json = await res.json();
+      if (!json.success) { console.error('[RevenueAnalytics] summary failed:', json.error); return; }
+      const totalRev = (json.revenueByMonth || []).reduce((s: number, m: any) => s + (m.revenue || 0), 0);
+      setServerRevenue(totalRev);
+      setServerLeads((json.revenueByMonth || []).reduce((s: number, m: any) => s + (m.leads || 0), 0));
+      setMonthlyTrend((json.revenueByMonth || []).slice(-6).map((m: any) => ({ month: m.month, revenue: m.revenue })));
+      setChannelData((json.sources || []).map((s: any, i: number) => ({
+        channel: s.name,
+        revenue: Math.round((s.value / 100) * totalRev),
+        color: s.color || CHANNEL_COLORS[i % CHANNEL_COLORS.length],
+      })));
+      setTopProductsData((json.topProducts || []).map((p: any, i: number, arr: any[]) => ({
+        name: p.name, sales: p.units, revenue: p.revenue,
+        up: i < Math.ceil(arr.length / 2), trend: i < Math.ceil(arr.length / 2) ? 'top' : 'lower',
+      })));
+    } catch (err) {
+      console.error('[RevenueAnalytics] Error loading summary:', err);
+    }
+  }
+
+  useEffect(() => { loadSummary(); }, []);
 
   useEffect(() => {
     if (user?.email) {
@@ -72,15 +85,32 @@ export default function RevenueAnalytics() {
     }
   }, [user]);
 
+  // Pull server-backed QR codes so analytics reflect real, cross-device data.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${RA_SERVER}/qr-codes`, { headers: raAuthHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.codes)) {
+          localStorage.setItem('bp_qr_codes', JSON.stringify(json.codes));
+          setQrStats({ total: json.codes.length, types: json.codes.map((c: any) => c.label) });
+        }
+      } catch (err) {
+        console.error('[RevenueAnalytics] Error loading QR codes from server:', err);
+      }
+    })();
+  }, []);
+
   async function refresh() {
     setRefreshing(true);
     setLeadStats(getLeadStats());
-    setTimeout(() => setRefreshing(false), 800);
+    await loadSummary();
+    setRefreshing(false);
   }
 
-  const totalRevenue = CHANNEL_DATA.reduce((s, c) => s + c.revenue, 0);
-  const totalLeads = CHANNEL_DATA.reduce((s, c) => s + c.leads, 0);
-  const maxRevenue = Math.max(...MONTHLY_TREND.map(m => m.revenue));
+  const totalRevenue = serverRevenue;
+  const totalLeads = serverLeads;
+  const maxRevenue = Math.max(1, ...monthlyTrend.map(m => m.revenue));
 
   const TABS = [
     { id: 'overview',  label: '📊 Overview' },
@@ -132,7 +162,7 @@ export default function RevenueAnalytics() {
             {/* KPI grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Est. Revenue', value: `$${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: '#ea580c', sub: '+24% vs last month' },
+                { label: 'Revenue (7mo)', value: `$${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: '#ea580c', sub: 'From real orders' },
                 { label: 'Total Leads', value: totalLeads + leadStats.total, icon: Users, color: '#8b5cf6', sub: `${leadStats.hot} hot leads` },
                 { label: 'Emails Sent', value: leadStats.emailsSent || 0, icon: Mail, color: '#3b82f6', sub: 'avg score ' + (leadStats.avgScore || 0) },
                 { label: 'QR Codes Live', value: qrStats.total, icon: QrCode, color: '#10b981', sub: qrStats.total > 0 ? `${qrStats.types[0]}` : 'None yet' },
@@ -153,11 +183,12 @@ export default function RevenueAnalytics() {
             {/* Revenue trend chart */}
             <div className="rounded-2xl p-5" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-4">Revenue Trend (6 months)</p>
+              {monthlyTrend.length === 0 && <p className="text-xs text-gray-600 py-6 text-center">No revenue data yet.</p>}
               <div className="flex items-end gap-3 h-36">
-                {MONTHLY_TREND.map((m, i) => (
+                {monthlyTrend.map((m, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1">
                     <div className="w-full rounded-t-lg transition-all duration-500 relative group"
-                      style={{ height: `${(m.revenue / maxRevenue) * 120}px`, background: i === MONTHLY_TREND.length - 1 ? '#ea580c' : 'rgba(234,88,12,0.3)' }}>
+                      style={{ height: `${(m.revenue / maxRevenue) * 120}px`, background: i === monthlyTrend.length - 1 ? '#ea580c' : 'rgba(234,88,12,0.3)' }}>
                       <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-bold px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
                         ${m.revenue.toLocaleString()}
                       </div>
@@ -199,18 +230,15 @@ export default function RevenueAnalytics() {
           <div className="space-y-4">
             <div className="rounded-2xl p-5" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-4">Traffic &amp; Revenue by Source</p>
+              {channelData.length === 0 && <p className="text-xs text-gray-600 py-6 text-center">No sales by source yet.</p>}
               <div className="space-y-4">
-                {CHANNEL_DATA.sort((a, b) => b.revenue - a.revenue).map((ch, i) => {
-                  const pct = Math.round((ch.revenue / totalRevenue) * 100);
+                {[...channelData].sort((a, b) => b.revenue - a.revenue).map((ch, i) => {
+                  const pct = totalRevenue > 0 ? Math.round((ch.revenue / totalRevenue) * 100) : 0;
                   return (
                     <div key={i}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-sm font-bold text-white">{ch.channel}</span>
-                        <div className="flex items-center gap-4 text-xs text-gray-400">
-                          <span>{ch.visits} visits</span>
-                          <span>{ch.leads} leads</span>
-                          <span className="font-black text-white">${ch.revenue.toLocaleString()}</span>
-                        </div>
+                        <span className="font-black text-white text-xs">${ch.revenue.toLocaleString()}</span>
                       </div>
                       <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                         <div className="h-full rounded-full transition-all duration-700"
@@ -225,12 +253,12 @@ export default function RevenueAnalytics() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl p-4 text-center" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <p className="text-2xl font-black text-white">{CHANNEL_DATA.reduce((s,c)=>s+c.visits,0)}</p>
-                <p className="text-xs text-gray-500 mt-1">Total Visitors</p>
+                <p className="text-2xl font-black text-white">${totalRevenue.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">Total Revenue</p>
               </div>
               <div className="rounded-2xl p-4 text-center" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <p className="text-2xl font-black" style={{ color: '#ea580c' }}>{Math.round((totalLeads / CHANNEL_DATA.reduce((s,c)=>s+c.visits,0)) * 100)}%</p>
-                <p className="text-xs text-gray-500 mt-1">Avg Conversion Rate</p>
+                <p className="text-2xl font-black" style={{ color: '#ea580c' }}>{totalLeads}</p>
+                <p className="text-xs text-gray-500 mt-1">Leads Captured</p>
               </div>
             </div>
           </div>
@@ -241,8 +269,9 @@ export default function RevenueAnalytics() {
           <div className="space-y-3">
             <div className="rounded-2xl p-5" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-4">Top Selling Products</p>
+              {topProductsData.length === 0 && <p className="text-xs text-gray-600 py-6 text-center">No product sales yet.</p>}
               <div className="space-y-3">
-                {TOP_PRODUCTS.map((p, i) => (
+                {topProductsData.map((p, i) => (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-xl"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs flex-shrink-0"
@@ -255,27 +284,25 @@ export default function RevenueAnalytics() {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-sm font-black text-white">${p.revenue.toLocaleString()}</p>
-                      <div className="flex items-center gap-0.5 justify-end">
-                        {p.up ? <ArrowUpRight className="w-3 h-3 text-green-400" /> : <ArrowDownRight className="w-3 h-3 text-red-400" />}
-                        <span className={`text-[10px] font-bold ${p.up ? 'text-green-400' : 'text-red-400'}`}>{p.trend}</span>
-                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-2xl p-4" style={{ background: 'rgba(234,88,12,0.07)', border: '1px solid rgba(234,88,12,0.2)' }}>
-              <div className="flex items-start gap-2">
-                <Zap className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#ea580c' }} />
-                <div>
-                  <p className="text-xs font-black text-orange-300 mb-1">AI Insight</p>
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    Your <strong className="text-white">Pro Tool Kit Bundle</strong> has the highest revenue and fastest growth. Consider creating an upsell bundle (tool kit + work boots + extension cord) — average order value could increase 40%.
-                  </p>
+            {topProductsData[0] && (
+              <div className="rounded-2xl p-4" style={{ background: 'rgba(234,88,12,0.07)', border: '1px solid rgba(234,88,12,0.2)' }}>
+                <div className="flex items-start gap-2">
+                  <Zap className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#ea580c' }} />
+                  <div>
+                    <p className="text-xs font-black text-orange-300 mb-1">AI Insight</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      Your <strong className="text-white">{topProductsData[0].name}</strong> is your top revenue driver at ${topProductsData[0].revenue.toLocaleString()}. Consider creating an upsell bundle around it to raise average order value.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 

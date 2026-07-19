@@ -37,6 +37,24 @@ import planBuilderRouter from "./plan-builder.tsx";
 import plansRouter from "./plans.tsx";
 import designProjectsRouter from "./design-projects.tsx";
 import designStandardsRouter from "./design-standards.tsx";
+import growthMarketingRouter from "./growth-marketing.tsx";
+import crmContentRouter from "./crm-content.tsx";
+import growthToolsRouter from "./growth-tools.tsx";
+import growthTools2Router from "./growth-tools2.tsx";
+import jobFinancialsRouter from "./job-financials.tsx";
+import growthTools3Router from "./growth-tools3.tsx";
+import growthTools4Router from "./growth-tools4.tsx";
+import maintenanceConfigRouter from "./maintenance-config.tsx";
+import investmentsRouter from "./investments.tsx";
+import growthCommerceRouter from "./growth-commerce.tsx";
+import marketplaceRouter from "./marketplace.tsx";
+import suppliersRouter from "./suppliers.tsx";
+import vendorPricingRouter from "./vendorPricing.tsx";
+import bidRoomRouter from "./bidRoom.tsx";
+import weatherRouter from "./weather.tsx";
+import portalSettingsRouter from "./portalSettings.tsx";
+import videoEditingRouter from "./videoEditing.tsx";
+import analyticsSummaryRouter from "./analytics-summary.tsx";
 import techRosterRouter from "./tech-roster.tsx";
 import quotesRouter from "./quotes.tsx";
 import projectVisionRouter from "./project-vision.tsx";
@@ -2855,6 +2873,74 @@ app.get("/make-server-57095a78/employees/count", async (c) => {
   }
 });
 
+// Real revenue metrics for the dashboard, computed from paid invoices and
+// successful payments. Returns a 7-day sparkline, all-time total, and a
+// month-over-month trend percentage.
+app.get("/make-server-57095a78/metrics/revenue", async (c) => {
+  try {
+    const [invoices, payments] = await Promise.all([
+      kv.getByPrefix("invoice:"),
+      kv.getByPrefix("payment:"),
+    ]);
+
+    const amountOf = (r: any): number =>
+      Number(r.amountPaid ?? r.total ?? r.amount ?? r.totalAmount ?? 0) || 0;
+    const dateOf = (r: any): Date => {
+      const d = r.paymentDate || r.paidAt || r.date || r.createdAt;
+      const parsed = d ? new Date(d) : null;
+      return parsed && !isNaN(parsed.getTime()) ? parsed : new Date(0);
+    };
+    const isPaid = (r: any): boolean => {
+      const s = String(r.status || "").toLowerCase();
+      return s === "paid" || s === "completed" || s === "succeeded";
+    };
+
+    // Only count revenue that was actually collected.
+    const records = [...invoices, ...payments].filter(isPaid);
+
+    const total = records.reduce((sum, r) => sum + amountOf(r), 0);
+
+    // 7-day sparkline (oldest → newest).
+    const now = new Date();
+    const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const chartData = Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(now);
+      day.setDate(now.getDate() - (6 - i));
+      day.setHours(0, 0, 0, 0);
+      const next = new Date(day);
+      next.setDate(day.getDate() + 1);
+      const revenue = records
+        .filter((r) => {
+          const d = dateOf(r);
+          return d >= day && d < next;
+        })
+        .reduce((sum, r) => sum + amountOf(r), 0);
+      return { day: dayLabels[day.getDay()], revenue };
+    });
+
+    // Month-over-month trend.
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const sumBetween = (start: Date, end: Date) =>
+      records
+        .filter((r) => {
+          const d = dateOf(r);
+          return d >= start && d < end;
+        })
+        .reduce((sum, r) => sum + amountOf(r), 0);
+    const thisMonth = sumBetween(monthStart, new Date(now.getFullYear(), now.getMonth() + 1, 1));
+    const lastMonth = sumBetween(prevMonthStart, monthStart);
+    const trend = lastMonth > 0
+      ? Math.round(((thisMonth - lastMonth) / lastMonth) * 1000) / 10
+      : (thisMonth > 0 ? 100 : 0);
+
+    return c.json({ success: true, total, trend, chartData });
+  } catch (error) {
+    console.error("Error computing revenue metrics:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // ============================================================================
 // WORK ORDERS
 // ============================================================================
@@ -5595,19 +5681,22 @@ app.post("/make-server-57095a78/materials/pricing/:vendor", async (c) => {
       return c.json({ success: false, error: 'Unknown vendor' }, 400);
     }
     
+    // Read the persisted vendor price book entry keyed by sku/productId.
+    const materialKey = (sku || productId || 'unknown').toString().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const stored = await kv.get(`vendor_price:${materialKey}:${vendor}`);
+
     const pricingData = {
       sku,
       productId,
       vendor: VENDOR_APIS[vendor].name,
-      price: (Math.random() * 500 + 50).toFixed(2),
+      price: stored ? Number(stored.price).toFixed(2) : null,
       currency: 'USD',
-      inStock: Math.random() > 0.2,
-      quantity: Math.floor(Math.random() * 500),
-      lastUpdated: new Date().toISOString(),
-      leadTime: Math.random() > 0.7 ? `${Math.floor(Math.random() * 14 + 1)} days` : 'In stock',
-      location: ['Warehouse A', 'Warehouse B', 'Warehouse C'][Math.floor(Math.random() * 3)],
+      inStock: stored ? !!stored.inStock : false,
+      lastUpdated: stored?.updatedAt || new Date().toISOString(),
+      leadTime: stored?.delivery || 'Unknown',
+      source: stored?.source || 'none',
     };
-    
+
     return c.json({ success: true, data: pricingData });
   } catch (error) {
     console.error('Error fetching pricing:', error);
@@ -5628,20 +5717,27 @@ app.post("/make-server-57095a78/materials/availability", async (c) => {
       { name: 'Grainger', key: 'grainger' },
     ];
     
-    const availabilityData = VENDOR_APIS.map(vendor => ({
-      vendor: vendor.name,
-      vendorKey: vendor.key,
-      available: Math.random() > 0.3,
-      price: (Math.random() * 500 + 50).toFixed(2),
-      quantity: Math.floor(Math.random() * 500),
-      leadTime: Math.random() > 0.7 ? `${Math.floor(Math.random() * 14 + 1)} days` : 'Same day',
-      shippingCost: (Math.random() * 50).toFixed(2),
-      lastChecked: new Date().toISOString(),
-    }));
-    
-    // Sort by price
-    availabilityData.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-    
+    // Read persisted price-book entries for this material across vendors.
+    const materialKey = (sku || materialName || 'unknown').toString().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const availabilityData = [];
+    for (const vendor of VENDOR_APIS) {
+      const stored = await kv.get(`vendor_price:${materialKey}:${vendor.key}`);
+      availabilityData.push({
+        vendor: vendor.name,
+        vendorKey: vendor.key,
+        available: stored ? !!stored.inStock : false,
+        price: stored ? Number(stored.price).toFixed(2) : null,
+        leadTime: stored?.delivery || 'Unknown',
+        lastChecked: stored?.updatedAt || new Date().toISOString(),
+        source: stored?.source || 'none',
+      });
+    }
+
+    // Sort by price (entries without a stored price sink to the bottom).
+    availabilityData.sort((a, b) =>
+      (a.price === null ? Infinity : parseFloat(a.price)) -
+      (b.price === null ? Infinity : parseFloat(b.price)));
+
     return c.json({ success: true, data: availabilityData });
   } catch (error) {
     console.error('Error checking availability:', error);
@@ -9293,6 +9389,24 @@ app.route("/make-server-57095a78/plan-builder", planBuilderRouter);
 app.route("/", plansRouter);
 app.route("/", designProjectsRouter);
 app.route("/", designStandardsRouter);
+app.route("/", growthMarketingRouter);
+app.route("/", crmContentRouter);
+app.route("/", growthToolsRouter);
+app.route("/", growthTools2Router);
+app.route("/", jobFinancialsRouter);
+app.route("/", growthTools3Router);
+app.route("/", growthTools4Router);
+app.route("/", maintenanceConfigRouter);
+app.route("/", investmentsRouter);
+app.route("/", growthCommerceRouter);
+app.route("/", marketplaceRouter);
+app.route("/", suppliersRouter);
+app.route("/", vendorPricingRouter);
+app.route("/", bidRoomRouter);
+app.route("/", weatherRouter);
+app.route("/", portalSettingsRouter);
+app.route("/", videoEditingRouter);
+app.route("/", analyticsSummaryRouter);
 
 // Tech roster & tier rates (full route prefixes declared inside the router)
 app.route("/", techRosterRouter);
@@ -10070,23 +10184,39 @@ app.post("/make-server-57095a78/quotes/:id/send-to-customer", async (c) => {
       return c.json({ error: 'Quote not found' }, 404);
     }
 
+    // Generate a shareable approval token so the customer can open the quote
+    // without logging in. The token record is what CustomerQuoteApproval reads.
+    const approvalToken = `qt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
     const updatedQuote = {
       ...quote,
       customerApprovalStatus: 'pending',
       sentToCustomerAt: new Date().toISOString(),
       customerEmail,
+      approvalToken,
       updatedAt: new Date().toISOString()
     };
 
     await kv.set(`quote_${quoteId}`, updatedQuote);
-    console.log(`Quote sent to customer for approval: ${quoteId}`);
 
-    // Here you would integrate with email service
-    // For now, just log it
+    const tokenRecord = {
+      token: approvalToken,
+      quoteId,
+      status: 'pending',
+      clientName: (quote as any).customerName || (quote as any).clientName || '',
+      clientEmail: customerEmail || (quote as any).customerEmail || (quote as any).clientEmail || '',
+      clientPhone: (quote as any).customerPhone || (quote as any).clientPhone || '',
+      quoteData: updatedQuote,
+      message: message || '',
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(`quote_token:${approvalToken}`, tokenRecord);
+
+    console.log(`Quote sent to customer for approval: ${quoteId} (token ${approvalToken})`);
     console.log(`Email would be sent to: ${customerEmail}`);
     console.log(`Message: ${message}`);
 
-    return c.json({ success: true, quote: updatedQuote });
+    return c.json({ success: true, quote: updatedQuote, approvalToken });
   } catch (error) {
     console.error('Error sending quote to customer:', error);
     return c.json({ error: 'Failed to send quote', details: String(error) }, 500);
@@ -10172,6 +10302,62 @@ app.post("/make-server-57095a78/quotes/:id/convert-to-contract", async (c) => {
   } catch (error) {
     console.error('Error converting to contract:', error);
     return c.json({ error: 'Failed to convert to contract', details: String(error) }, 500);
+  }
+});
+
+// GET /make-server-57095a78/quotes/by-token/:token - Customer fetches quote via approval link
+app.get("/make-server-57095a78/quotes/by-token/:token", async (c) => {
+  try {
+    const token = c.req.param('token');
+    const tokenRecord = await kv.get(`quote_token:${token}`);
+    if (!tokenRecord) {
+      return c.json({ error: 'Approval link is invalid or has expired' }, 404);
+    }
+    // Refresh the embedded quote data in case the quote was edited after sending.
+    const latest = await kv.get(`quote_${(tokenRecord as any).quoteId}`);
+    if (latest) (tokenRecord as any).quoteData = latest;
+    return c.json({ quote: tokenRecord });
+  } catch (error) {
+    console.error('Error loading quote by token:', error);
+    return c.json({ error: 'Failed to load quote', details: String(error) }, 500);
+  }
+});
+
+// POST /make-server-57095a78/quotes/by-token/:token/sign - Customer approves/rejects via link
+app.post("/make-server-57095a78/quotes/by-token/:token/sign", async (c) => {
+  try {
+    const token = c.req.param('token');
+    const { signatureData, signerName, signedAt, decision } = await c.req.json();
+    const tokenRecord: any = await kv.get(`quote_token:${token}`);
+    if (!tokenRecord) {
+      return c.json({ error: 'Approval link is invalid or has expired' }, 404);
+    }
+
+    const status = decision === 'rejected' ? 'rejected' : 'approved';
+    const now = signedAt || new Date().toISOString();
+
+    tokenRecord.status = status;
+    tokenRecord.signatureData = signatureData || null;
+    tokenRecord.signerName = signerName || tokenRecord.clientName || 'Customer';
+    tokenRecord.signedAt = now;
+    await kv.set(`quote_token:${token}`, tokenRecord);
+
+    // Reflect the decision on the underlying quote so internal views stay in sync.
+    const quote: any = await kv.get(`quote_${tokenRecord.quoteId}`);
+    if (quote) {
+      quote.customerApprovalStatus = status;
+      quote.customerSignature = signatureData || null;
+      quote.signerName = tokenRecord.signerName;
+      quote[status === 'approved' ? 'approvedAt' : 'rejectedAt'] = now;
+      quote.updatedAt = new Date().toISOString();
+      await kv.set(`quote_${tokenRecord.quoteId}`, quote);
+    }
+
+    console.log(`Quote ${tokenRecord.quoteId} ${status} by customer via token ${token}`);
+    return c.json({ success: true, status });
+  } catch (error) {
+    console.error('Error signing quote by token:', error);
+    return c.json({ error: 'Failed to submit decision', details: String(error) }, 500);
   }
 });
 

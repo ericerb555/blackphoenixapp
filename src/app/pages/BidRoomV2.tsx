@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   Target, Clock, DollarSign, Users, CheckCircle, XCircle, 
   AlertCircle, TrendingUp, Calendar, Search, Filter, 
@@ -175,145 +176,69 @@ export default function BidRoomV2() {
     }
   };
 
-  // Mock jobs data
-  const mockJobs: Job[] = [
-    {
-      id: 'j1',
-      title: 'Commercial HVAC System Installation',
-      description: 'Full HVAC replacement for 5,000 sq ft office building',
-      type: 'quote',
-      jobCategory: 'HVAC',
-      status: 'bidding',
-      customerName: 'Acme Corp',
-      customerLocation: '123 Business Blvd',
-      postedDate: '2024-01-15',
-      deadline: '2024-01-25',
-      budget: { min: 15000, max: 25000 },
-      priority: 'high',
-      requirements: ['Licensed HVAC contractor', '5+ years experience', 'Commercial insurance'],
-      attachments: ['blueprint.pdf', 'specs.pdf'],
-      quoteNumber: 'Q-2024-001',
-      viewCount: 24,
-      bids: [
-        {
-          id: 'b1',
-          contractorId: 'c1',
-          amount: 18500,
-          estimatedDuration: '2 weeks',
-          proposedStartDate: '2024-02-01',
-          notes: 'Includes premium Carrier units with 10-year warranty. We can start immediately.',
-          submittedAt: '2024-01-16T10:30:00',
-          status: 'pending_owner',
-          ownerStatus: 'pending',
-          materials: [
-            { name: 'Carrier HVAC Unit', cost: 12000 },
-            { name: 'Ductwork & Fittings', cost: 2500 },
-            { name: 'Controls & Sensors', cost: 1500 }
-          ],
-          labor: 2500,
-          warranty: '10 years parts, 2 years labor'
+  // Jobs (with embedded bids) loaded from the server; source of truth.
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+
+  useEffect(() => {
+    const loadJobs = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/bid-room/jobs`, {
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Failed to load bid room jobs (${res.status}): ${errText}`);
+        }
+        const data = await res.json();
+        setJobs(data.jobs || []);
+      } catch (error) {
+        console.error('[BidRoom] Error loading jobs:', error);
+        toast.error('Failed to load bid room jobs');
+      }
+    };
+    loadJobs();
+  }, []);
+
+  // Persist a job (with its updated bids) to the server and update local state.
+  const persistJob = async (updatedJob: Job) => {
+    setJobs(prev => prev.map(j => (j.id === updatedJob.id ? updatedJob : j)));
+    try {
+      const res = await fetch(`${API_BASE}/bid-room/jobs/${encodeURIComponent(updatedJob.id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
         },
-        {
-          id: 'b2',
-          contractorId: 'c2',
-          amount: 22000,
-          estimatedDuration: '3 weeks',
-          proposedStartDate: '2024-02-05',
-          notes: 'Premium Trane system with advanced climate control. Energy efficient.',
-          submittedAt: '2024-01-16T14:20:00',
-          status: 'pending_owner',
-          ownerStatus: 'pending',
-          materials: [
-            { name: 'Trane HVAC System', cost: 14000 },
-            { name: 'Smart Thermostat', cost: 800 },
-            { name: 'Installation Materials', cost: 3200 }
-          ],
-          labor: 4000,
-          warranty: '12 years parts, 3 years labor'
-        }
-      ]
-    },
-    {
-      id: 'j2',
-      title: 'Emergency Electrical Panel Upgrade',
-      description: 'Urgent electrical panel replacement due to safety concerns',
-      type: 'emergency',
-      jobCategory: 'Electrical',
-      status: 'bidding',
-      customerName: 'Smith Residence',
-      customerLocation: '456 Oak Street',
-      postedDate: '2024-01-16',
-      deadline: '2024-01-18',
-      budget: { min: 2000, max: 4000 },
-      priority: 'urgent',
-      requirements: ['Licensed electrician', 'Same-day availability', 'City permits'],
-      attachments: ['current_panel.jpg'],
-      quoteNumber: 'Q-2024-002',
-      viewCount: 18,
-      bids: [
-        {
-          id: 'b3',
-          contractorId: 'c2',
-          amount: 3200,
-          estimatedDuration: '1 day',
-          proposedStartDate: '2024-01-17',
-          notes: 'Can start tomorrow morning. Will handle all permits.',
-          submittedAt: '2024-01-16T16:45:00',
-          status: 'pending_owner',
-          ownerStatus: 'pending',
-          materials: [
-            { name: '200A Panel', cost: 800 },
-            { name: 'Breakers & Wiring', cost: 600 },
-            { name: 'Permits', cost: 300 }
-          ],
-          labor: 1500,
-          warranty: '5 years'
-        }
-      ]
-    },
-    {
-      id: 'j3',
-      title: 'Office Renovation - Complete Remodel',
-      description: 'Full office renovation including walls, flooring, and paint',
-      type: 'work-request',
-      jobCategory: 'General Contracting',
-      status: 'bidding',
-      customerName: 'Tech Startup Inc',
-      customerLocation: '789 Innovation Way',
-      postedDate: '2024-01-14',
-      deadline: '2024-01-28',
-      budget: { min: 30000, max: 45000 },
-      priority: 'medium',
-      requirements: ['General contractor license', 'Portfolio of similar work', 'References'],
-      attachments: ['floor_plan.pdf', 'inspiration.jpg'],
-      quoteNumber: 'Q-2024-003',
-      viewCount: 31,
-      bids: [
-        {
-          id: 'b4',
-          contractorId: 'c3',
-          amount: 38500,
-          estimatedDuration: '4 weeks',
-          proposedStartDate: '2024-02-10',
-          notes: 'Experienced in modern office design. Portfolio available.',
-          submittedAt: '2024-01-15T09:15:00',
-          status: 'pending_owner',
-          ownerStatus: 'pending',
-          materials: [
-            { name: 'Flooring Materials', cost: 8000 },
-            { name: 'Drywall & Paint', cost: 5000 },
-            { name: 'Fixtures & Hardware', cost: 4500 }
-          ],
-          labor: 21000,
-          warranty: '2 years workmanship'
-        }
-      ]
+        body: JSON.stringify(updatedJob),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Failed to save job ${updatedJob.id} (${res.status}): ${errText}`);
+      }
+    } catch (error) {
+      console.error('[BidRoom] Error persisting job:', error);
+      toast.error('Failed to save changes to server');
     }
-  ];
+  };
+
+  // Apply a mutation to a specific bid within a job and persist the result.
+  const updateBidInJob = (jobId: string, bidId: string, changes: Partial<Bid>) => {
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+    const updatedJob: Job = {
+      ...job,
+      bids: job.bids.map(b => (b.id === bidId ? { ...b, ...changes } : b)),
+    };
+    persistJob(updatedJob);
+    if (selectedJob?.id === jobId) setSelectedJob(updatedJob);
+    const updatedBid = updatedJob.bids.find(b => b.id === bidId) || null;
+    if (selectedBid?.id === bidId) setSelectedBid(updatedBid);
+  };
 
   // Filter and sort jobs
   const filteredAndSortedJobs = useMemo(() => {
-    let filtered = mockJobs.filter(job => {
+    let filtered = jobs.filter(job => {
       // Tab filter
       const tabMatch = 
         activeTab === 'all_jobs' ? true :
@@ -396,7 +321,7 @@ export default function BidRoomV2() {
     });
 
     return filtered;
-  }, [mockJobs, activeTab, searchQuery, filters, sortBy, contractors]);
+  }, [jobs, activeTab, searchQuery, filters, sortBy, contractors]);
 
   const handleViewBid = (bid: Bid, job: Job) => {
     setSelectedBid(bid);
@@ -417,21 +342,44 @@ export default function BidRoomV2() {
   };
 
   const handleSaveEdit = () => {
+    if (!selectedJob || !selectedBid) return;
+    updateBidInJob(selectedJob.id, selectedBid.id, {
+      amount: editedBid.amount ?? selectedBid.amount,
+      notes: editedBid.notes ?? selectedBid.notes,
+      materials: editedBid.materials ?? selectedBid.materials,
+      labor: editedBid.labor ?? selectedBid.labor,
+      ownerStatus: 'editing',
+      ownerEdits: {
+        amount: editedBid.amount,
+        notes: editedBid.notes,
+        materials: editedBid.materials,
+        labor: editedBid.labor,
+        editedAt: new Date().toISOString(),
+      },
+    });
     toast.success('Bid edits saved successfully');
     setIsEditingBid(false);
-    // In production, save to backend
   };
 
   const handleApproveBid = (sendTo: 'customer' | 'subcontractor') => {
+    if (!selectedJob || !selectedBid) return;
+    updateBidInJob(selectedJob.id, selectedBid.id, {
+      ownerStatus: 'approved',
+      status: 'sent_to_customer',
+      sendTo,
+    });
     toast.success(`Bid approved and sent to ${sendTo}`);
     setShowBidModal(false);
-    // In production, update backend
   };
 
   const handleRejectBid = () => {
+    if (!selectedJob || !selectedBid) return;
+    updateBidInJob(selectedJob.id, selectedBid.id, {
+      ownerStatus: 'rejected',
+      status: 'rejected',
+    });
     toast.error('Bid rejected');
     setShowBidModal(false);
-    // In production, update backend
   };
 
   const applyFilterPreset = (preset: FilterPreset) => {
@@ -471,11 +419,11 @@ export default function BidRoomV2() {
 
   // Stats
   const stats = {
-    pendingApproval: mockJobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'pending').length, 0),
-    approved: mockJobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'approved').length, 0),
-    sent: mockJobs.reduce((sum, job) => sum + job.bids.filter(b => b.status === 'sent_to_customer').length, 0),
-    editing: mockJobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'editing').length, 0),
-    totalBids: mockJobs.reduce((sum, job) => sum + job.bids.length, 0)
+    pendingApproval: jobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'pending').length, 0),
+    approved: jobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'approved').length, 0),
+    sent: jobs.reduce((sum, job) => sum + job.bids.filter(b => b.status === 'sent_to_customer').length, 0),
+    editing: jobs.reduce((sum, job) => sum + job.bids.filter(b => b.ownerStatus === 'editing').length, 0),
+    totalBids: jobs.reduce((sum, job) => sum + job.bids.length, 0)
   };
 
   return (

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { jobFinancialService, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
 
 type TabType = 'active-jobs' | 'projects' | 'job-financial' | 'master-schedule' | 'service-schedule' | 'change-orders' | 'weather';
@@ -23,18 +24,55 @@ export default function JobTrackingHub() {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string>('job_1');
+  const [jobs, setJobs] = useState<Array<{ id: string; name: string; status: string; budget: number; spent: number; progress: number }>>([]);
+  const [changeOrders, setChangeOrders] = useState<Array<{ id: string; job: string; description: string; amount: number; status: string }>>([]);
 
-  // Populate demo data on first load
+  // Hydrate from server, seed starter data only if empty, then load into view.
   useEffect(() => {
-    const hasTimeData = localStorage.getItem('time_entries_job_1');
-    if (!hasTimeData) {
-      console.log('📊 Populating demo financial data...');
-      jobFinancialService.populateDemoData('job_1');
-      toast.success('Demo financial data loaded!');
-    }
-    // Load the data
-    loadFinancialData('job_1');
+    (async () => {
+      await jobFinancialService.hydrateFromServer();
+      const hasTimeData = localStorage.getItem('time_entries_job_1');
+      if (!hasTimeData) {
+        console.log('📊 Populating starter financial data...');
+        jobFinancialService.populateDemoData('job_1');
+        toast.success('Starter financial data loaded!');
+      }
+      // Load the data
+      loadFinancialData('job_1');
+      // Populate the Active Jobs list from the server-synced financial service.
+      setJobs(jobFinancialService.getAllJobs().map((s) => ({
+        id: s.jobId,
+        name: s.jobName ? `${s.jobNumber} - ${s.jobName}` : s.jobNumber,
+        status: s.status,
+        budget: s.budgetedAmount || s.contractAmount || 0,
+        spent: s.totalCosts || 0,
+        progress: s.percentComplete || 0,
+      })));
+      loadChangeOrders();
+    })();
   }, []);
+
+  // Load change orders from the server.
+  const loadChangeOrders = async () => {
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/change-orders`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+      );
+      if (!res.ok) throw new Error(`change-orders ${res.status}`);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data.changeOrders || data.orders || []);
+      setChangeOrders(list.map((o: any) => ({
+        id: o.id,
+        job: o.job || o.jobName || o.projectName || o.jobNumber || '—',
+        description: o.description || o.title || '',
+        amount: o.amount ?? o.totalAmount ?? o.total ?? 0,
+        status: o.status || 'pending',
+      })));
+    } catch (err) {
+      console.error('Failed to load change orders:', err);
+    }
+  };
 
   // Read tab from URL on mount
   useEffect(() => {
@@ -69,17 +107,6 @@ export default function JobTrackingHub() {
     { id: 'service-schedule', label: 'Service Schedule', icon: Clock },
     { id: 'change-orders', label: 'Change Orders', icon: Edit2 },
     { id: 'weather', label: 'Weather Monitor', icon: Cloud }
-  ];
-
-  const mockJobs = [
-    { id: '1', name: 'Residential Remodel - 123 Main St', status: 'in-progress', budget: 85000, spent: 42500, progress: 50 },
-    { id: '2', name: 'Commercial Build - Downtown Plaza', status: 'in-progress', budget: 250000, spent: 175000, progress: 70 },
-    { id: '3', name: 'Kitchen Renovation - Oak Ave', status: 'planning', budget: 35000, spent: 0, progress: 10 }
-  ];
-
-  const mockChangeOrders = [
-    { id: 'CO-001', job: 'Residential Remodel', description: 'Add bathroom fixtures upgrade', amount: 3500, status: 'pending' },
-    { id: 'CO-002', job: 'Commercial Build', description: 'Change HVAC system specs', amount: 12000, status: 'approved' }
   ];
 
   return (
@@ -125,7 +152,7 @@ export default function JobTrackingHub() {
             </div>
 
             <div className="grid gap-4">
-              {mockJobs.map((job) => (
+              {jobs.map((job) => (
                 <div key={job.id} className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6 hover:border-orange-500/30 transition-all">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
@@ -233,7 +260,7 @@ export default function JobTrackingHub() {
             <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6">
               <h3 className="text-lg font-bold mb-4">Financial Breakdown by Job</h3>
               <div className="space-y-3">
-                {mockJobs.map((job) => (
+                {jobs.map((job) => (
                   <div key={job.id} className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                     <span className="font-semibold">{job.name}</span>
                     <div className="flex items-center gap-4">
@@ -411,7 +438,7 @@ export default function JobTrackingHub() {
             </div>
 
             <div className="grid gap-4">
-              {mockChangeOrders.map((co) => (
+              {changeOrders.map((co) => (
                 <div key={co.id} className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6 hover:border-orange-500/30 transition-all">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -477,7 +504,7 @@ export default function JobTrackingHub() {
             <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6">
               <h3 className="text-lg font-bold mb-4">Job Site Conditions</h3>
               <div className="space-y-3">
-                {mockJobs.map((job) => (
+                {jobs.map((job) => (
                   <div key={job.id} className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                     <div className="flex items-center gap-3">
                       <MapPin className="w-4 h-4 text-zinc-400" />

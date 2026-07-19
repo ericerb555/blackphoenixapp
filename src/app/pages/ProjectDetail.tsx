@@ -6,6 +6,7 @@ import {
   Building2, Target, Activity, BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -59,43 +60,16 @@ export default function ProjectDetail({ projectId, onBack, onEdit }: ProjectDeta
   const loadProject = async () => {
     try {
       setLoading(true);
-      // In a real app, fetch from API
-      // For now, using mock data
-      const mockProject: Project = {
-        id: projectId,
-        project_number: 'PRJ-2026-001',
-        customer_id: 'cust-001',
-        title: 'Luxury Kitchen Remodel - Modern Contemporary Design',
-        description: 'Complete kitchen renovation including custom cabinetry, quartz countertops, high-end appliances, and designer lighting. Premium finishes throughout with attention to detail.',
-        status: 'in_progress',
-        priority: 'high',
-        type: 'Remodel',
-        assigned_to: 'Mike Johnson',
-        scheduled_date: '2026-03-20T09:00:00Z',
-        start_date: '2026-03-15T08:00:00Z',
-        completion_date: '2026-04-30T17:00:00Z',
-        estimated_hours: 320,
-        actual_hours: 180,
-        estimated_cost: 85000,
-        actual_cost: 45000,
-        location_address: '456 Oak Avenue',
-        location_city: 'Austin',
-        location_state: 'TX',
-        location_zip: '78702',
-        special_instructions: 'Client prefers morning work hours. Premium materials only. Coordinate with interior designer Sarah Chen.',
-        materials_needed: ['Custom Cabinetry', 'Quartz Countertops', 'Stainless Appliances', 'LED Lighting', 'Hardwood Flooring'],
-        tags: ['Premium', 'Residential', 'Kitchen', 'High-Value'],
-        created_at: '2026-02-01T10:30:00Z',
-        updated_at: '2026-03-17T14:20:00Z',
-        customer: {
-          first_name: 'Sarah',
-          last_name: 'Williams',
-          email: 'sarah.williams@example.com',
-          phone: '(555) 234-5678',
-          company: 'Williams Residence',
-        },
-      };
-      setProject(mockProject);
+      const res = await fetch(
+        `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-57095a78/projects/${encodeURIComponent(projectId)}`,
+        { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Failed to load project ${projectId} (${res.status}): ${errText}`);
+      }
+      const data = await res.json();
+      setProject(data);
     } catch (error) {
       console.error('Error loading project:', error);
       toast.error('Failed to load project details');

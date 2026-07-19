@@ -37,61 +37,46 @@ export default function JobFinancialTracker() {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
 
-  // Populate demo data on first load
-  useEffect(() => {
-    const hasTimeData = localStorage.getItem('time_entries_job_1');
-    if (!hasTimeData) {
-      console.log('📊 Populating demo financial data...');
-      jobFinancialService.populateDemoData('job_1');
-      toast.success('Demo financial data loaded! Check job JOB-2026-001');
-    }
-  }, []);
+  // Server-synced jobs (via jobFinancialService). No hardcoded data.
+  const [jobs, setJobs] = useState<Job[]>([]);
 
-  // Clean sample data
-  const [jobs] = useState<Job[]>([
-    {
-      id: 'job1',
-      jobNumber: 'JOB-2026-001',
-      customerName: 'ABC Corporation',
-      projectName: 'Office HVAC Installation',
-      status: 'active',
-      startDate: '2026-02-15',
-      estimatedRevenue: 45000,
-      actualRevenue: 22500,
-      estimatedCosts: 30000,
-      actualCosts: 15000,
-      profitMargin: 33.3,
-      completionPercentage: 50
-    },
-    {
-      id: 'job2',
-      jobNumber: 'JOB-2026-002',
-      customerName: 'Tech Solutions Inc',
-      projectName: 'Commercial Plumbing Upgrade',
-      status: 'active',
-      startDate: '2026-02-18',
-      estimatedRevenue: 28000,
-      actualRevenue: 8400,
-      estimatedCosts: 18000,
-      actualCosts: 5400,
-      profitMargin: 35.7,
-      completionPercentage: 30
-    },
-    {
-      id: 'job3',
-      jobNumber: 'JOB-2026-003',
-      customerName: 'Retail Solutions LLC',
-      projectName: 'Store Electrical System',
-      status: 'completed',
-      startDate: '2026-01-10',
-      estimatedRevenue: 67500,
-      actualRevenue: 68200,
-      estimatedCosts: 45000,
-      actualCosts: 43800,
-      profitMargin: 35.8,
-      completionPercentage: 100
-    }
-  ]);
+  // Map a service JobFinancialSummary into this page's Job view model.
+  const mapSummaryToJob = (s: JobFinancialSummary): Job => {
+    const estimatedRevenue = s.contractAmount || s.budgetedAmount || 0;
+    const estimatedCosts = s.budgetedAmount
+      || ((s.budgetedLaborCost || 0) + (s.budgetedMaterialCost || 0) + (s.budgetedPurchases || 0));
+    return {
+      id: s.jobId,
+      jobNumber: s.jobNumber,
+      customerName: s.customer || '',
+      projectName: s.jobName || '',
+      status: (['active', 'completed', 'on-hold', 'cancelled'].includes(s.status as string)
+        ? s.status : 'active') as Job['status'],
+      startDate: s.startDate || '',
+      estimatedRevenue,
+      actualRevenue: Math.round(estimatedRevenue * ((s.percentComplete || 0) / 100)),
+      estimatedCosts,
+      actualCosts: s.totalCosts || 0,
+      profitMargin: s.profitMargin || 0,
+      completionPercentage: s.percentComplete || 0,
+    };
+  };
+
+  const refreshJobs = () => setJobs(jobFinancialService.getAllJobs().map(mapSummaryToJob));
+
+  // Hydrate from server, seed starter data only if nothing exists, then render.
+  useEffect(() => {
+    (async () => {
+      await jobFinancialService.hydrateFromServer();
+      const hasTimeData = localStorage.getItem('time_entries_job_1');
+      if (!hasTimeData) {
+        console.log('📊 Populating starter financial data...');
+        jobFinancialService.populateDemoData('job_1');
+        toast.success('Starter financial data loaded! Check job JOB-2026-001');
+      }
+      refreshJobs();
+    })();
+  }, []);
 
   const getStatusColor = (status: Job['status']) => {
     switch (status) {
@@ -112,10 +97,9 @@ export default function JobFinancialTracker() {
     console.log('📊 Loading financial details for job:', jobId);
     setSelectedJobId(jobId);
 
-    // Map job1 to job_1 for the service
-    const serviceJobId = jobId.replace('job', 'job_');
-    const timeData = jobFinancialService.getTimeEntries(serviceJobId);
-    const purchaseData = jobFinancialService.getPurchases(serviceJobId);
+    // jobId is the real service jobId (row.id === summary.jobId).
+    const timeData = jobFinancialService.getTimeEntries(jobId);
+    const purchaseData = jobFinancialService.getPurchases(jobId);
 
     setTimeEntries(timeData);
     setPurchases(purchaseData);

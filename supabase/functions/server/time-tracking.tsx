@@ -519,4 +519,107 @@ timeTrackingRouter.post("/reset-hours", async (c) => {
   }
 });
 
+// Aggregate real logged hours per employee (by name) for the current week and
+// pay period. Consumed by the HR hub so employee hours reflect actual timesheets
+// instead of static seed values.
+timeTrackingRouter.get("/hours-summary", async (c) => {
+  try {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const periodAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+    const entries = (await kv.getByPrefix("time_entry_history:")) || [];
+    // name -> { week, period }
+    const byName: Record<string, { hoursThisWeek: number; hoursThisPeriod: number }> = {};
+
+    for (const e of entries) {
+      const name = String(e?.employeeName || "").trim();
+      if (!name) continue;
+      const when = new Date(e?.punchOut || e?.completedAt || e?.punchIn || e?.createdAt);
+      if (isNaN(when.getTime())) continue;
+      const hrs = Number(e?.totalHours) || 0;
+      if (!byName[name]) byName[name] = { hoursThisWeek: 0, hoursThisPeriod: 0 };
+      if (when >= periodAgo) byName[name].hoursThisPeriod += hrs;
+      if (when >= weekAgo) byName[name].hoursThisWeek += hrs;
+    }
+
+    // Round to 2 decimals.
+    for (const k of Object.keys(byName)) {
+      byName[k].hoursThisWeek = Math.round(byName[k].hoursThisWeek * 100) / 100;
+      byName[k].hoursThisPeriod = Math.round(byName[k].hoursThisPeriod * 100) / 100;
+    }
+
+    return c.json({ success: true, summary: byName });
+  } catch (error) {
+    console.error("Error building hours summary:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ── Field tasks (the technician's daily schedule) ──────────────────────────────
+// Genuinely persistent, KV-backed tasks keyed by employee. Replaces the static
+// array that previously hardcoded the mobile app's "Today's Tasks".
+
+// List tasks for an employee
+timeTrackingRouter.get("/tasks/:employeeId", async (c) => {
+  try {
+    const employeeId = c.req.param("employeeId");
+    const tasks = (await kv.getByPrefix(`time_task:${employeeId}:`)) || [];
+    tasks.sort((a: any, b: any) => new Date(a?.scheduledAt || 0).getTime() - new Date(b?.scheduledAt || 0).getTime());
+    return c.json({ success: true, tasks });
+  } catch (error) {
+    console.error("Error fetching tasks:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Create a task for an employee
+timeTrackingRouter.post("/tasks/:employeeId", async (c) => {
+  try {
+    const employeeId = c.req.param("employeeId");
+    const body = await c.req.json();
+    const { title, location, scheduledAt, status } = body;
+    if (!title) {
+      return c.json({ success: false, error: "Task title is required" }, 400);
+    }
+    const id = `TASK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const task = {
+      id,
+      employeeId,
+      title,
+      location: location || "",
+      scheduledAt: scheduledAt || new Date().toISOString(),
+      status: status || "pending",
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(`time_task:${employeeId}:${id}`, task);
+    return c.json({ success: true, task });
+  } catch (error) {
+    console.error("Error creating task:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Update a task's status
+timeTrackingRouter.post("/tasks/:employeeId/:taskId/status", async (c) => {
+  try {
+    const employeeId = c.req.param("employeeId");
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json();
+    const { status } = body;
+    const key = `time_task:${employeeId}:${taskId}`;
+    const task = await kv.get(key);
+    if (!task) {
+      return c.json({ success: false, error: "Task not found" }, 404);
+    }
+    task.status = status || task.status;
+    task.updatedAt = new Date().toISOString();
+    await kv.set(key, task);
+    return c.json({ success: true, task });
+  } catch (error) {
+    console.error("Error updating task status:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 export default timeTrackingRouter;

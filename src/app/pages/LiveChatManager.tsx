@@ -9,6 +9,10 @@ import {
   CheckCircle, Phone, Mail, ArrowRight, AlertCircle, Play
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface ChatConfig {
   enabled: boolean;
@@ -56,16 +60,45 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
   const [leads, setLeads] = useState<Lead[]>([]);
   const [newQR, setNewQR] = useState('');
 
+  // Load the saved widget config from the server (falls back to the local copy).
   useEffect(() => {
-    try { setLeads(JSON.parse(localStorage.getItem('chat_leads') || '[]')); } catch {}
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/chat/config`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && json.config) {
+          setConfig(v => ({ ...v, ...json.config }));
+          localStorage.setItem('live_chat_config', JSON.stringify(json.config));
+        }
+      } catch (err) { console.error('Failed to load chat config:', err); }
+    })();
+  }, []);
+
+  // Load captured chat leads from the server whenever the tab changes.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/chat/leads`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success) setLeads(json.leads);
+        else console.error('Failed to load chat leads:', json.error);
+      } catch (err) { console.error('Network error loading chat leads:', err); }
+    })();
   }, [activeTab]);
 
   function update(patch: Partial<ChatConfig>) { setConfig(v => ({ ...v, ...patch })); setHasChanges(true); }
 
-  function save() {
+  async function save() {
+    // Mirror to localStorage so the on-page widget picks it up instantly…
     localStorage.setItem('live_chat_config', JSON.stringify(config));
     setHasChanges(false);
-    toast.success('Chat widget settings saved');
+    // …and persist to the server so it's shared across devices/admins.
+    try {
+      const res = await fetch(`${SERVER}/chat/config`, { method: 'POST', headers: authHeaders, body: JSON.stringify(config) });
+      const json = await res.json();
+      if (json.success) toast.success('Chat widget settings saved');
+      else toast.error(json.error || 'Save failed');
+    } catch (err) { console.error('Failed to save chat config:', err); toast.error('Network error saving settings'); }
   }
 
   function reset() { setConfig(DEFAULT_CONFIG); setHasChanges(true); }
@@ -87,7 +120,14 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
     toast.success('Leads exported');
   }
 
-  function clearLeads() { localStorage.removeItem('chat_leads'); setLeads([]); toast.success('Leads cleared'); }
+  async function clearLeads() {
+    localStorage.removeItem('chat_leads');
+    setLeads([]);
+    try {
+      await fetch(`${SERVER}/chat/leads`, { method: 'DELETE', headers: authHeaders });
+      toast.success('Leads cleared');
+    } catch (err) { console.error('Failed to clear chat leads:', err); toast.error('Network error clearing leads'); }
+  }
 
   const totalLeads = leads.length;
   const todayLeads = leads.filter(l => new Date(l.capturedAt).toDateString() === new Date().toDateString()).length;

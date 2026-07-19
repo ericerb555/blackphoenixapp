@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { saveDual, loadDual } from '../lib/database';
 import {
   Users, Store, Megaphone, Wrench, Briefcase, Home, Building2,
   Key, TrendingUp, Layout, Monitor, ArrowLeft, Sparkles,
@@ -188,10 +189,19 @@ export default function PortalsHub() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
 
-  // Save portals to localStorage whenever they change
+  // Hydrate portal config from the server on mount (falls back to the
+  // localStorage-seeded initial state if nothing is stored server-side yet).
+  useEffect(() => {
+    (async () => {
+      const saved = await loadDual('portals_hub_config');
+      if (Array.isArray(saved) && saved.length) setPortals(saved);
+    })();
+  }, []);
+
+  // Save portals to the server (and local cache) whenever they change
   const savePortals = (updatedPortals: Portal[]) => {
     setPortals(updatedPortals);
-    localStorage.setItem('portals_hub_config', JSON.stringify(updatedPortals));
+    saveDual('portals_hub_config', updatedPortals);
   };
 
   const handleCreatePortal = () => {

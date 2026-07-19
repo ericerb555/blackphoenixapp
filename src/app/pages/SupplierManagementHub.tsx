@@ -13,6 +13,7 @@ import {
   X, Save, Key, Globe, Phone, MapPin, Building2
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
 
 type TabType = 'connect' | 'respond' | 'audit' | 'purchase-orders';
@@ -22,6 +23,36 @@ export default function SupplierManagementHub() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [showAddPOModal, setShowAddPOModal] = useState(false);
+
+  interface Supplier { id: string; name: string; category: string; status: string; rating: number; totalOrders: number; totalSpend: number; lastOrder: string; contact: string; }
+  interface PurchaseOrder { id: string; supplier: string; items: number; total: number; status: string; orderDate: string; expectedDelivery: string; }
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+
+  // Load suppliers + purchase orders from the server.
+  useEffect(() => {
+    const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+    const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
+    (async () => {
+      try {
+        const res = await fetch(`${base}/suppliers`, { headers: authHeaders });
+        if (!res.ok) throw new Error(`suppliers ${res.status}`);
+        const data = await res.json();
+        setSuppliers(data.suppliers || []);
+      } catch (err) {
+        console.error('Failed to load suppliers:', err);
+        toast.error('Failed to load suppliers from server');
+      }
+      try {
+        const res = await fetch(`${base}/purchase-orders`, { headers: authHeaders });
+        if (!res.ok) throw new Error(`purchase-orders ${res.status}`);
+        const data = await res.json();
+        setPurchaseOrders(data.purchaseOrders || []);
+      } catch (err) {
+        console.error('Failed to load purchase orders:', err);
+      }
+    })();
+  }, []);
 
   // Read tab from URL on mount
   useEffect(() => {
@@ -47,73 +78,7 @@ export default function SupplierManagementHub() {
     { id: 'purchase-orders', label: 'Purchase Orders', icon: Receipt }
   ];
 
-  const mockSuppliers = [
-    {
-      id: 'SUP-001',
-      name: 'HD Supply Co',
-      category: 'General Hardware',
-      status: 'active',
-      rating: 4.8,
-      totalOrders: 127,
-      totalSpend: 45000,
-      lastOrder: '2026-03-12',
-      contact: 'sales@hdsupply.com'
-    },
-    {
-      id: 'SUP-002',
-      name: 'Ferguson Plumbing',
-      category: 'Plumbing Supplies',
-      status: 'active',
-      rating: 4.6,
-      totalOrders: 89,
-      totalSpend: 32000,
-      lastOrder: '2026-03-11',
-      contact: 'orders@ferguson.com'
-    },
-    {
-      id: 'SUP-003',
-      name: 'Grainger Industrial',
-      category: 'Industrial Equipment',
-      status: 'pending',
-      rating: 4.9,
-      totalOrders: 64,
-      totalSpend: 28000,
-      lastOrder: '2026-03-08',
-      contact: 'service@grainger.com'
-    }
-  ];
-
-  const mockPurchaseOrders = [
-    {
-      id: 'PO-001',
-      supplier: 'HD Supply Co',
-      items: 12,
-      total: 2450,
-      status: 'pending',
-      orderDate: '2026-03-13',
-      expectedDelivery: '2026-03-18'
-    },
-    {
-      id: 'PO-002',
-      supplier: 'Ferguson Plumbing',
-      items: 8,
-      total: 1875,
-      status: 'approved',
-      orderDate: '2026-03-12',
-      expectedDelivery: '2026-03-16'
-    },
-    {
-      id: 'PO-003',
-      supplier: 'Grainger Industrial',
-      items: 5,
-      total: 3200,
-      status: 'delivered',
-      orderDate: '2026-03-08',
-      expectedDelivery: '2026-03-13'
-    }
-  ];
-
-  const filteredSuppliers = mockSuppliers.filter(supplier => {
+  const filteredSuppliers = suppliers.filter(supplier => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -184,7 +149,7 @@ export default function SupplierManagementHub() {
                   <CheckCircle className="w-5 h-5 text-green-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {mockSuppliers.filter(s => s.status === 'active').length}
+                  {suppliers.filter(s => s.status === 'active').length}
                 </p>
               </div>
 
@@ -194,7 +159,7 @@ export default function SupplierManagementHub() {
                   <Package className="w-5 h-5 text-blue-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {mockSuppliers.reduce((sum, s) => sum + s.totalOrders, 0)}
+                  {suppliers.reduce((sum, s) => sum + s.totalOrders, 0)}
                 </p>
               </div>
 
@@ -204,7 +169,7 @@ export default function SupplierManagementHub() {
                   <DollarSign className="w-5 h-5 text-purple-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  ${mockSuppliers.reduce((sum, s) => sum + s.totalSpend, 0).toLocaleString()}
+                  ${suppliers.reduce((sum, s) => sum + s.totalSpend, 0).toLocaleString()}
                 </p>
               </div>
 
@@ -214,7 +179,7 @@ export default function SupplierManagementHub() {
                   <Star className="w-5 h-5 text-orange-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {(mockSuppliers.reduce((sum, s) => sum + s.rating, 0) / mockSuppliers.length).toFixed(1)}
+                  {(suppliers.reduce((sum, s) => sum + s.rating, 0) / (suppliers.length || 1)).toFixed(1)}
                 </p>
               </div>
             </div>
@@ -363,7 +328,7 @@ export default function SupplierManagementHub() {
                   <Clock className="w-5 h-5 text-yellow-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {mockPurchaseOrders.filter(po => po.status === 'pending').length}
+                  {purchaseOrders.filter(po => po.status === 'pending').length}
                 </p>
               </div>
 
@@ -373,7 +338,7 @@ export default function SupplierManagementHub() {
                   <CheckCircle className="w-5 h-5 text-blue-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {mockPurchaseOrders.filter(po => po.status === 'approved').length}
+                  {purchaseOrders.filter(po => po.status === 'approved').length}
                 </p>
               </div>
 
@@ -383,7 +348,7 @@ export default function SupplierManagementHub() {
                   <Truck className="w-5 h-5 text-green-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  {mockPurchaseOrders.filter(po => po.status === 'delivered').length}
+                  {purchaseOrders.filter(po => po.status === 'delivered').length}
                 </p>
               </div>
 
@@ -393,14 +358,14 @@ export default function SupplierManagementHub() {
                   <DollarSign className="w-5 h-5 text-purple-400" />
                 </div>
                 <p className="text-3xl font-bold text-white">
-                  ${mockPurchaseOrders.reduce((sum, po) => sum + po.total, 0).toLocaleString()}
+                  ${purchaseOrders.reduce((sum, po) => sum + po.total, 0).toLocaleString()}
                 </p>
               </div>
             </div>
 
             {/* Purchase Orders List */}
             <div className="grid gap-4">
-              {mockPurchaseOrders.map((po) => {
+              {purchaseOrders.map((po) => {
                 const statusBadge = getPOStatusBadge(po.status);
                 
                 return (

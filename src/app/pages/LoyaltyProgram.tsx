@@ -8,8 +8,29 @@ import { Star, Gift, Zap, Crown, TrendingUp, Copy, CheckCircle, ChevronRight } f
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const STORAGE_KEY = 'bp_loyalty';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const loyaltyAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+// Server is the source of truth; localStorage is a synchronous mirror for callers
+// like the store checkout that award points without awaiting a network round-trip.
+export async function loadLoyaltyFromServer(email: string): Promise<LoyaltyAccount | null> {
+  try {
+    const res = await fetch(`${SERVER}/loyalty/${encodeURIComponent(email)}`, { headers: loyaltyAuthHeaders });
+    const json = await res.json();
+    if (json.success && json.account) {
+      localStorage.setItem(`${STORAGE_KEY}_${email}`, JSON.stringify(json.account));
+      return json.account;
+    }
+    if (!json.success) console.error('Failed to load loyalty account:', json.error);
+    return null;
+  } catch (err) {
+    console.error('Network error loading loyalty account:', err);
+    return null;
+  }
+}
 
 export interface LoyaltyAccount {
   email: string;
@@ -57,6 +78,14 @@ export function getLoyaltyAccount(email: string): LoyaltyAccount | null {
 
 export function saveLoyaltyAccount(acct: LoyaltyAccount) {
   localStorage.setItem(`${STORAGE_KEY}_${acct.email}`, JSON.stringify(acct));
+  // Best-effort persistence to the server so accounts survive across devices.
+  fetch(`${SERVER}/loyalty/${encodeURIComponent(acct.email)}`, {
+    method: 'POST',
+    headers: loyaltyAuthHeaders,
+    body: JSON.stringify({ account: acct }),
+  }).then(res => res.json()).then(json => {
+    if (!json.success) console.error('Failed to save loyalty account:', json.error);
+  }).catch(err => console.error('Network error saving loyalty account:', err));
 }
 
 export function createLoyaltyAccount(email: string, name: string): LoyaltyAccount {
@@ -105,8 +134,12 @@ export default function LoyaltyProgram() {
 
   useEffect(() => {
     if (user?.email) {
-      const acct = getLoyaltyAccount(user.email);
-      setAccount(acct);
+      // Show any cached account instantly, then reconcile with the server.
+      const cached = getLoyaltyAccount(user.email);
+      if (cached) setAccount(cached);
+      loadLoyaltyFromServer(user.email).then(serverAcct => {
+        if (serverAcct) setAccount(serverAcct);
+      });
     }
   }, [user]);
 

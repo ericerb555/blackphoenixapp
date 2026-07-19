@@ -11,7 +11,8 @@
  * - Integration settings
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   ArrowLeft, Save, Settings, Palette, Bell, Mail, Image,
   Shield, Lock, Users, Globe, Zap, AlertCircle, Check,
@@ -356,6 +357,28 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
     }
   });
 
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+
+  // Load any previously saved settings from the server, merging over the defaults
+  // so newly-added setting fields still have sensible values.
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/portal-settings`, {
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        });
+        if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
+        const data = await res.json();
+        if (data.settings) {
+          setSettings(prev => ({ ...prev, ...data.settings }));
+        }
+      } catch (error) {
+        console.error('[PortalSettings] Error loading settings:', error);
+      }
+    };
+    loadSettings();
+  }, []);
+
   const updateSettings = (section: keyof GlobalSettings, updates: any) => {
     setSettings(prev => ({
       ...prev,
@@ -380,15 +403,26 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
   const saveSettings = async () => {
     try {
       setSaving(true);
-      // TODO: Save to Supabase
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const res = await fetch(`${API_BASE}/portal-settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({ settings }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Failed to save settings (${res.status}): ${errText}`);
+      }
+
       toast.success('Settings saved successfully', {
         description: 'Global portal settings have been updated'
       });
-      
+
       setHasUnsavedChanges(false);
     } catch (error) {
+      console.error('[PortalSettings] Error saving settings:', error);
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);

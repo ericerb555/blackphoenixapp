@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { User, FileText, DollarSign, Image, MessageSquare, CheckCircle, Clock, AlertCircle, ChevronRight, Search, Download, Eye, Star, Bell, Upload, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { saveDual, loadDual } from '../lib/database';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ function load(): PortalClient[] {
   try { return JSON.parse(localStorage.getItem('customer_portal_clients') || 'null') || DEFAULT_CLIENTS; } catch { return DEFAULT_CLIENTS; }
 }
 
-function persist(c: PortalClient[]) { localStorage.setItem('customer_portal_clients', JSON.stringify(c)); }
+function persist(c: PortalClient[]) { saveDual('customer_portal_clients', c); }
 
 function genCode() { return Math.random().toString(36).substring(2, 8).toUpperCase(); }
 
@@ -295,6 +296,15 @@ export default function CustomerPortal() {
   const [clients, setClients] = useState<PortalClient[]>(load);
   const [viewing, setViewing] = useState<PortalClient | null>(null);
   const [search, setSearch] = useState('');
+
+  // Hydrate from the server on mount (falls back to the localStorage-seeded
+  // initial state if nothing is stored server-side yet).
+  useEffect(() => {
+    (async () => {
+      const saved = await loadDual('customer_portal_clients');
+      if (Array.isArray(saved) && saved.length) setClients(saved);
+    })();
+  }, []);
 
   function save(c: PortalClient[]) { setClients(c); persist(c); }
 

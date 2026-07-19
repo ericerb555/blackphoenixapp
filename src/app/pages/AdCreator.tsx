@@ -13,6 +13,9 @@ import {
   Eye, Share2, Sparkles, X, Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -295,11 +298,28 @@ export default function AdCreator() {
   const [activeTab, setActiveTab] = useState<'visual' | 'copy'>('visual');
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const list: Product[] = raw ? JSON.parse(raw) : DEFAULT_PRODUCTS;
-      setProducts(list.filter(p => p.visible));
-    } catch { setProducts(DEFAULT_PRODUCTS); }
+    // Load the shared product catalog from the server (source of truth managed
+    // in Marketplace Admin), falling back to the local cache, then defaults.
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/marketplace/products`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        });
+        const data = await res.json();
+        if (Array.isArray(data.products) && data.products.length > 0) {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data.products)); } catch {}
+          setProducts(data.products.filter((p: Product) => p.visible));
+          return;
+        }
+      } catch (err) {
+        console.error('AdCreator: failed to load products from server, using cache:', err);
+      }
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const list: Product[] = raw ? JSON.parse(raw) : DEFAULT_PRODUCTS;
+        setProducts(list.filter(p => p.visible));
+      } catch { setProducts(DEFAULT_PRODUCTS); }
+    })();
   }, []);
 
   useEffect(() => {

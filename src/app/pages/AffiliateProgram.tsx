@@ -5,8 +5,11 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { getLoyaltyAccount } from './LoyaltyProgram';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const STORAGE_KEY = 'bp_affiliates';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const affiliateAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 const COMMISSION_RATE = 0.10; // 10% store credit per referred sale
 const SIGNUP_BONUS = 500; // points awarded when a referred person joins + buys
 
@@ -34,26 +37,55 @@ function makeCode(email: string) {
   return 'BP-' + email.split('@')[0].replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase() + Math.floor(Math.random() * 900 + 100);
 }
 
-function getOrCreateAffiliate(email: string, name: string): AffiliateStats {
-  const stored = localStorage.getItem(`${STORAGE_KEY}_${email}`);
-  if (stored) return JSON.parse(stored);
-  const fresh: AffiliateStats = {
+// New affiliates start at zero. Clicks, sign-ups, sales and credit accrue from
+// real referred activity (sales are attributed server-side when a customer
+// checks out using this affiliate's code).
+function buildFreshAffiliate(email: string): AffiliateStats {
+  return {
     email,
     code: makeCode(email),
-    clicks: Math.floor(Math.random() * 40),
-    signups: Math.floor(Math.random() * 8),
-    conversions: Math.floor(Math.random() * 4),
-    pendingCredit: parseFloat((Math.random() * 35).toFixed(2)),
-    paidCredit: parseFloat((Math.random() * 60).toFixed(2)),
-    history: [
-      { id: 'e1', type: 'signup', description: 'Marcus T. signed up via your link', credit: 0, date: 'Jul 3, 2026' },
-      { id: 'e2', type: 'sale', description: 'Sarah K. made a $79.99 purchase', credit: 8.00, date: 'Jul 5, 2026' },
-      { id: 'e3', type: 'sale', description: 'Jamie R. made a $49.99 purchase', credit: 5.00, date: 'Jul 7, 2026' },
-      { id: 'e4', type: 'payout', description: 'Store credit applied to your account', credit: 25.00, date: 'Jul 1, 2026' },
-    ],
+    clicks: 0,
+    signups: 0,
+    conversions: 0,
+    pendingCredit: 0,
+    paidCredit: 0,
+    history: [],
     joinedAt: new Date().toISOString(),
   };
-  localStorage.setItem(`${STORAGE_KEY}_${email}`, JSON.stringify(fresh));
+}
+
+function saveAffiliate(stats: AffiliateStats) {
+  localStorage.setItem(`${STORAGE_KEY}_${stats.email}`, JSON.stringify(stats));
+  fetch(`${SERVER}/affiliates/${encodeURIComponent(stats.email)}`, {
+    method: 'POST',
+    headers: affiliateAuthHeaders,
+    body: JSON.stringify({ stats }),
+  }).then(res => res.json()).then(json => {
+    if (!json.success) console.error('Failed to save affiliate stats:', json.error);
+  }).catch(err => console.error('Network error saving affiliate stats:', err));
+}
+
+// Server is source of truth; falls back to local cache, then creates a fresh account.
+async function loadAffiliate(email: string): Promise<AffiliateStats> {
+  try {
+    const res = await fetch(`${SERVER}/affiliates/${encodeURIComponent(email)}`, { headers: affiliateAuthHeaders });
+    const json = await res.json();
+    if (json.success && json.stats) {
+      localStorage.setItem(`${STORAGE_KEY}_${email}`, JSON.stringify(json.stats));
+      return json.stats;
+    }
+    if (!json.success) console.error('Failed to load affiliate stats:', json.error);
+  } catch (err) {
+    console.error('Network error loading affiliate stats:', err);
+  }
+  const local = localStorage.getItem(`${STORAGE_KEY}_${email}`);
+  if (local) {
+    const s = JSON.parse(local) as AffiliateStats;
+    saveAffiliate(s);
+    return s;
+  }
+  const fresh = buildFreshAffiliate(email);
+  saveAffiliate(fresh);
   return fresh;
 }
 
@@ -83,14 +115,13 @@ export default function AffiliateProgram() {
   const name = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
 
   useEffect(() => {
-    if (email) setStats(getOrCreateAffiliate(email, name));
+    if (email) loadAffiliate(email).then(setStats);
   }, [email]);
 
   async function joinAsGuest() {
     if (!guestEmail.includes('@')) { toast.error('Enter a valid email'); return; }
     setJoining(true);
-    await new Promise(r => setTimeout(r, 800));
-    const s = getOrCreateAffiliate(guestEmail, guestName || guestEmail.split('@')[0]);
+    const s = await loadAffiliate(guestEmail);
     setStats(s);
     setJoining(false);
     toast.success('Welcome to the affiliate program!');

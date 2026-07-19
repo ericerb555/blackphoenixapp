@@ -12,6 +12,10 @@ import {
   Flame, Activity, Database,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const autoProductAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -75,6 +79,12 @@ function loadSaved(): AutoProduct[] {
 }
 function saveToDB(products: AutoProduct[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+  // Mirror to server so imported products persist and are shared across devices.
+  fetch(`${SERVER}/auto-products`, {
+    method: 'POST',
+    headers: autoProductAuthHeaders,
+    body: JSON.stringify({ products }),
+  }).catch((err) => console.error('[AutoProductPilot] server save failed:', err));
 }
 
 function buildProduct(base: Omit<AutoProduct, 'id' | 'status' | 'importedAt'>, score: number): AutoProduct {
@@ -235,6 +245,22 @@ export default function AutoProductPilot() {
   }
 
   useEffect(() => () => clearInterval(autoRef.current), []);
+
+  // Load imported products from the server (falls back to the localStorage cache).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/auto-products`, { headers: autoProductAuthHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.products)) {
+          setProducts(json.products);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.products));
+        }
+      } catch (err) {
+        console.error('[AutoProductPilot] Error loading products from server:', err);
+      }
+    })();
+  }, []);
 
   const filteredProducts = products.filter(p => filterStatus === 'all' || p.status === filterStatus);
 

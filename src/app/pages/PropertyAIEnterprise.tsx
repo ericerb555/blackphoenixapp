@@ -23,6 +23,7 @@ import MarketplaceAdmin from './MarketplaceAdmin';
 import AdCreator from './AdCreator';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { saveDual, loadDual } from '../lib/database';
 import {
   RadialBarChart, RadialBar, ResponsiveContainer,
   AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, Cell,
@@ -449,8 +450,17 @@ export default function PropertyAIEnterprise() {
   const totalCapital5yr = capitalPlan.filter(c => c.estimatedYear <= new Date().getFullYear() + 5)
     .reduce((sum, c) => sum + (c.costMin + c.costMax) / 2, 0);
 
+  // Hydrate from the server on mount (falls back to the localStorage-seeded
+  // initial state above if nothing is stored server-side yet).
   useEffect(() => {
-    try { localStorage.setItem('bp_pai_profile', JSON.stringify(profile)); } catch {}
+    (async () => {
+      const saved = await loadDual('bp_pai_profile');
+      if (saved && typeof saved === 'object') setProfile(saved);
+    })();
+  }, []);
+
+  useEffect(() => {
+    saveDual('bp_pai_profile', profile);
   }, [profile]);
 
   function saveProfileDraft() {

@@ -71,12 +71,52 @@ export default function ApplicationSubmissions() {
 
       const data = await response.json();
       if (data.success) {
-        // Merge online and offline applications
-        const mergedApps = [...(data.applications || []), ...offlineVendorApps];
-        setApplications(mergedApps);
-        
+        // Server is reachable — sync any offline-queued vendor applications up
+        // to the server so they become real records, then clear the queue.
+        let syncedCount = 0;
         if (offlineVendorApps.length > 0) {
-          toast.warning(`${offlineVendorApps.length} offline applications pending sync`);
+          for (const app of offlineVendorApps) {
+            try {
+              const { _offline, id, status, submittedAt, updatedAt, ...payload } = app;
+              const res = await fetch(`${API_BASE}/applications`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${publicAnonKey}`,
+                },
+                body: JSON.stringify(payload),
+              });
+              if (res.ok) syncedCount++;
+            } catch (err) {
+              console.error('[ApplicationSubmissions] Failed to sync offline application:', err);
+            }
+          }
+          if (syncedCount === offlineVendorApps.length) {
+            localStorage.removeItem('vendor_applications_pending');
+          } else if (syncedCount > 0) {
+            // Keep only the ones that failed to sync
+            const remaining = offlineVendorApps.slice(syncedCount).map((a: any) => {
+              const { _offline, type, ...rest } = a;
+              return rest;
+            });
+            localStorage.setItem('vendor_applications_pending', JSON.stringify(remaining));
+          }
+        }
+
+        if (syncedCount > 0) {
+          toast.success(`${syncedCount} offline application${syncedCount !== 1 ? 's' : ''} synced to the server`);
+          // Re-fetch so the newly-synced records appear as real server records
+          const refreshed = await fetch(`${API_BASE}/applications`, {
+            headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+          }).then(r => r.json()).catch(() => null);
+          setApplications(refreshed?.applications || data.applications || []);
+        } else {
+          // Merge online and any still-unsynced offline applications
+          const mergedApps = [...(data.applications || []), ...offlineVendorApps];
+          setApplications(mergedApps);
+          if (offlineVendorApps.length > 0) {
+            toast.warning(`${offlineVendorApps.length} offline applications pending sync`);
+          }
         }
       } else {
         toast.error('Failed to load applications');

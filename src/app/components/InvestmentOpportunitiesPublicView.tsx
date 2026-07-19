@@ -7,6 +7,33 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentDataSheet } from './InvestmentDataSheet';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+
+// Server stores opportunities in snake_case; the view uses camelCase.
+function fromServer(opp: any): any {
+  return {
+    id: opp.id,
+    title: opp.title,
+    category: opp.category,
+    minInvestment: Number(opp.min_investment),
+    maxInvestment: Number(opp.max_investment),
+    projectedROI: Number(opp.projected_roi),
+    term: opp.term,
+    payoutFrequency: opp.payout_frequency,
+    status: opp.status,
+    investors: opp.investors,
+    funded: Number(opp.funded),
+    targetRaise: Number(opp.target_raise),
+    currentCommitments: Number(opp.current_commitments),
+    minimumToStart: opp.minimum_to_start != null ? Number(opp.minimum_to_start) : undefined,
+    highlight: opp.highlight,
+    silentInvestment: opp.silent_investment,
+    needsMoreFunding: opp.needs_more_funding,
+    projectDetails: opp.project_details,
+  };
+}
 
 interface Opportunity {
   id: string;
@@ -240,21 +267,35 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
     loadOpportunities();
   }, []);
 
-  const loadOpportunities = () => {
+  const loadOpportunities = async () => {
     setLoading(true);
+    // Server is the source of truth; fall back to the localStorage cache / defaults.
+    try {
+      const res = await fetch(`${SERVER}/investments/opportunities`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.opportunities) && data.opportunities.length > 0) {
+        const mapped = data.opportunities.map(fromServer);
+        setOpportunities(mapped);
+        try { localStorage.setItem('investmentOpportunities', JSON.stringify(mapped)); } catch {}
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      console.error('InvestmentOpportunitiesPublicView: failed to load from server, using cache:', err);
+    }
+
     const stored = localStorage.getItem('investmentOpportunities');
     if (stored) {
       try {
-        const data = JSON.parse(stored);
-        setOpportunities(data);
-        console.log(`✅ Loaded ${data.length} opportunities from localStorage`);
+        setOpportunities(JSON.parse(stored));
       } catch (e) {
         console.error('Error loading opportunities:', e);
         setOpportunities(DEFAULT_OPPORTUNITIES);
         localStorage.setItem('investmentOpportunities', JSON.stringify(DEFAULT_OPPORTUNITIES));
       }
     } else {
-      console.log(`✅ Loading ${DEFAULT_OPPORTUNITIES.length} default opportunities`);
       setOpportunities(DEFAULT_OPPORTUNITIES);
       localStorage.setItem('investmentOpportunities', JSON.stringify(DEFAULT_OPPORTUNITIES));
     }

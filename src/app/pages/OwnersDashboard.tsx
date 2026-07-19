@@ -55,6 +55,7 @@ import { CompanySwitcher } from '../components/CompanySwitcher';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
@@ -293,9 +294,26 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
   // Load pending access requests count
   useEffect(() => {
-    const loadPendingRequests = () => {
+    const loadPendingRequests = async () => {
       try {
-        const accessRequests = JSON.parse(localStorage.getItem('accessRequests') || '[]');
+        // Prefer the server-backed store so the count reflects requests handled
+        // on any device; fall back to the local cache if the server is unreachable.
+        let accessRequests: any[] = [];
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/access-requests`,
+            { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+          );
+          const json = await res.json();
+          if (json.success && Array.isArray(json.requests)) {
+            accessRequests = json.requests;
+            localStorage.setItem('accessRequests', JSON.stringify(json.requests));
+          } else {
+            accessRequests = JSON.parse(localStorage.getItem('accessRequests') || '[]');
+          }
+        } catch {
+          accessRequests = JSON.parse(localStorage.getItem('accessRequests') || '[]');
+        }
         const pending = accessRequests.filter((req: any) => req.status === 'pending').length;
         setPendingAccessRequests(pending);
       } catch (e) {

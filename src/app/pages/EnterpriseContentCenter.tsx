@@ -1073,10 +1073,6 @@ export default function EnterpriseContentCenter() {
         description: 'Analyzing video content for optimal editing...'
       });
 
-      // Prepare form data for video upload
-      const formData = new FormData();
-      formData.append('video', videoFile);
-
       setVideoProgress(25);
       await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -1086,41 +1082,45 @@ export default function EnterpriseContentCenter() {
 
       setVideoProgress(50);
 
-      // Call AI video editing API (replace with actual AI service endpoint)
-      // Note: User should configure their own AI video editing service URL
-      const apiEndpoint = 'https://api.example.com/ai-video-edit';
-      
-      try {
-        const response = await fetch(apiEndpoint, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('AI video editing service unavailable');
-        }
-
-        const aiResult = await response.json();
-        setAiVideoSuggestions(aiResult);
-        
-      } catch (apiError) {
-        // Demo mode - generate mock suggestions
-        console.log('Using demo AI suggestions (configure API endpoint for real processing)');
-        const mockSuggestions = {
-          trimPoints: [
-            { id: 1, start: 0, end: 10, reason: 'Opening sequence' },
-            { id: 2, start: 20, end: 30, reason: 'Key message segment' }
-          ],
-          effects: [
-            { id: 1, type: 'fade', start: 0, end: 2, intensity: 0.8 },
-            { id: 2, type: 'colorBoost', start: 5, end: 10, intensity: 1.2 }
-          ],
-          transitions: [
-            { id: 1, type: 'crossfade', between: [0, 1], duration: 1 }
-          ]
+      // Extract real metadata from the uploaded clip so the AI plan reflects the
+      // actual video (duration, resolution) rather than fixed placeholder values.
+      const metadata = await new Promise<{ duration: number; width: number; height: number }>((resolve) => {
+        const el = document.createElement('video');
+        el.preload = 'metadata';
+        el.onloadedmetadata = () => {
+          resolve({ duration: el.duration || 0, width: el.videoWidth || 0, height: el.videoHeight || 0 });
+          URL.revokeObjectURL(el.src);
         };
-        setAiVideoSuggestions(mockSuggestions);
+        el.onerror = () => resolve({ duration: 0, width: 0, height: 0 });
+        el.src = URL.createObjectURL(videoFile);
+      });
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/video/ai-edit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            name: videoFile.name,
+            size: videoFile.size,
+            type: videoFile.type,
+            duration: metadata.duration,
+            width: metadata.width,
+            height: metadata.height,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`AI video analysis failed (${response.status}): ${errText}`);
       }
+
+      const aiResult = await response.json();
+      setAiVideoSuggestions(aiResult);
 
       setVideoProgress(100);
 

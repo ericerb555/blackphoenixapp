@@ -339,21 +339,43 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
   const refreshWeatherData = async () => {
     setRefreshing(true);
     try {
-      // In production, this would call OpenWeather API or similar
-      // For now, simulate with mock data
-      const mockWeather = new Map<string, WeatherData>();
-      
-      // Only generate weather if we have job sites
-      if (jobSites && jobSites.length > 0) {
-        jobSites.forEach(site => {
-          mockWeather.set(site.id, generateMockWeather(site));
-        });
-        setWeatherData(mockWeather);
-        if (!loading) {
-          toast.success('Weather data refreshed');
-        }
-      } else {
+      if (!jobSites || jobSites.length === 0) {
         console.log('No job sites to refresh weather for');
+        return;
+      }
+
+      // Fetch real weather for every site in parallel from the server, which
+      // proxies Open-Meteo (free, no API key). Each site has lat/long.
+      const results = await Promise.all(
+        jobSites.map(async (site) => {
+          const res = await fetch(`${API_BASE}/weather/site`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${publicAnonKey}`,
+            },
+            body: JSON.stringify({
+              siteId: site.id,
+              siteName: site.name,
+              latitude: site.latitude,
+              longitude: site.longitude,
+            }),
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`Weather fetch failed for ${site.name} (${res.status}): ${errText}`);
+          }
+          const json = await res.json();
+          if (!json.success) throw new Error(`Weather error for ${site.name}: ${json.error}`);
+          return json.weather as WeatherData;
+        })
+      );
+
+      const newWeather = new Map<string, WeatherData>();
+      results.forEach((w) => newWeather.set(w.siteId, w));
+      setWeatherData(newWeather);
+      if (!loading) {
+        toast.success('Weather data refreshed');
       }
     } catch (error) {
       console.error('Error refreshing weather:', error);
@@ -363,40 +385,6 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
     } finally {
       setRefreshing(false);
     }
-  };
-
-  const generateMockWeather = (site: JobSite): WeatherData => {
-    const conditions = ['clear', 'clouds', 'rain', 'drizzle'];
-    const currentCondition = conditions[Math.floor(Math.random() * conditions.length)];
-    
-    return {
-      siteId: site.id,
-      siteName: site.name,
-      current: {
-        temp: Math.floor(Math.random() * 30) + 50,
-        feelsLike: Math.floor(Math.random() * 30) + 48,
-        condition: currentCondition,
-        description: `${currentCondition} sky`,
-        humidity: Math.floor(Math.random() * 40) + 40,
-        windSpeed: Math.floor(Math.random() * 20) + 5,
-        windDirection: Math.floor(Math.random() * 360),
-        precipitation: currentCondition === 'rain' ? Math.random() * 0.5 : 0,
-        visibility: Math.floor(Math.random() * 5) + 5,
-        uvIndex: Math.floor(Math.random() * 8) + 1,
-        timestamp: new Date().toISOString()
-      },
-      forecast: Array.from({ length: 7 }, (_, i) => ({
-        date: new Date(Date.now() + i * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        high: Math.floor(Math.random() * 20) + 65,
-        low: Math.floor(Math.random() * 20) + 45,
-        condition: conditions[Math.floor(Math.random() * conditions.length)],
-        precipChance: Math.floor(Math.random() * 100),
-        precipAmount: Math.random() * 1,
-        windSpeed: Math.floor(Math.random() * 15) + 5,
-        workableHours: Math.floor(Math.random() * 4) + 6
-      })),
-      alerts: []
-    };
   };
 
   const calculateStats = (sites: JobSite[]) => {

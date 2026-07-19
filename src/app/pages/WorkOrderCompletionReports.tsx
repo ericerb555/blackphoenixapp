@@ -21,6 +21,9 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { WorkOrderCompletionReport } from '../components/WorkOrderCompletionReport';
 import { generateCompletionReportData } from '../utils/generateCompletionReport';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface CompletionReportsProps {
   onNavigate: (path: string) => void;
@@ -41,12 +44,30 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
     filterWorkOrders();
   }, [completedWorkOrders, searchTerm, dateFilter]);
 
-  const loadCompletedWorkOrders = () => {
-    // Get all work orders that have been paid
-    const allWorkOrders = JSON.parse(localStorage.getItem('pipeline_items') || '[]');
-    
+  const loadCompletedWorkOrders = async () => {
+    // Source of truth is the server pipeline; fall back to the local pipeline
+    // cache ('pipeline-items-demo') if the server is unreachable.
+    let allWorkOrders: any[] = [];
+    try {
+      const res = await fetch(`${SERVER}/pipeline/items`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.items)) {
+        allWorkOrders = data.items;
+      }
+    } catch (err) {
+      console.error('WorkOrderCompletionReports: failed to load pipeline from server, using cache:', err);
+    }
+
+    if (allWorkOrders.length === 0) {
+      try {
+        allWorkOrders = JSON.parse(localStorage.getItem('pipeline-items-demo') || '[]');
+      } catch { allWorkOrders = []; }
+    }
+
     // Filter for completed and paid work orders
-    const completed = allWorkOrders.filter((wo: any) => 
+    const completed = allWorkOrders.filter((wo: any) =>
       wo.stage === 'payment' || wo.invoicePaidDate
     );
 

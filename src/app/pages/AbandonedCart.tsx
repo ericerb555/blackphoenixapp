@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { ShoppingCart, Mail, Clock, DollarSign, TrendingUp, Send, Eye, RefreshCw, Search, X, CheckCircle, AlertCircle, Zap, Users, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const STORAGE_KEY = 'bp_abandoned_carts';
-const RECOVERY_KEY = 'bp_cart_recoveries';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 export interface AbandonedCart {
   id: string;
@@ -112,46 +113,63 @@ export default function AbandonedCart() {
   const [sending, setSending] = useState(false);
   const [tab, setTab] = useState<'carts' | 'templates' | 'settings'>('carts');
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      setCarts(JSON.parse(stored));
-    } else {
-      const seed = seedCarts();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
-      setCarts(seed);
-    }
-  }, []);
+  useEffect(() => { loadCarts(); }, []);
 
-  function saveCarts(updated: AbandonedCart[]) {
-    setCarts(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  async function loadCarts() {
+    try {
+      const res = await fetch(`${SERVER}/abandoned-carts`, { headers: authHeaders });
+      const json = await res.json();
+      if (json.success) {
+        if (json.carts.length === 0) {
+          // First run: seed the database with sample carts so the tool isn't empty.
+          const seed = seedCarts();
+          await Promise.all(seed.map(cart =>
+            fetch(`${SERVER}/abandoned-carts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(cart) })
+          ));
+          const re = await fetch(`${SERVER}/abandoned-carts`, { headers: authHeaders });
+          const reJson = await re.json();
+          setCarts(reJson.carts || seed);
+        } else {
+          setCarts(json.carts);
+        }
+      }
+    } catch (err) {
+      console.error('Abandoned cart load error:', err);
+      toast.error('Could not load carts from server');
+    }
   }
 
   async function sendEmail(cartId: string) {
     setSending(true);
-    await new Promise(r => setTimeout(r, 900));
-    const updated = carts.map(c => c.id === cartId ? {
-      ...c, status: 'emailed' as const, emailsSent: c.emailsSent + 1,
-      lastEmailed: new Date().toISOString(),
-    } : c);
-    saveCarts(updated);
-    setSending(false);
-    setSelectedCart(null);
-    toast.success('Recovery email sent! (Twilio SendGrid — connect in Settings)');
+    try {
+      const res = await fetch(`${SERVER}/abandoned-carts/${cartId}/recover`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ subject: previewSubject, body: previewBody }),
+      });
+      const json = await res.json();
+      if (!json.success) { toast.error(json.error || 'Failed to send recovery email'); return; }
+      setCarts(prev => prev.map(c => c.id === cartId ? json.cart : c));
+      setSelectedCart(null);
+      toast.success('Recovery email sent via Resend!');
+    } catch (err) {
+      console.error('Recovery email error:', err);
+      toast.error('Network error while sending email');
+    } finally {
+      setSending(false);
+    }
   }
 
   async function markRecovered(cartId: string) {
-    const updated = carts.map(c => c.id === cartId ? { ...c, status: 'recovered' as const } : c);
-    saveCarts(updated);
-    const rec = localStorage.getItem(RECOVERY_KEY);
-    const recoveries = rec ? JSON.parse(rec) : [];
-    const cart = carts.find(c => c.id === cartId);
-    if (cart) {
-      recoveries.push({ id: cartId, total: cart.total, at: new Date().toISOString() });
-      localStorage.setItem(RECOVERY_KEY, JSON.stringify(recoveries));
+    try {
+      const res = await fetch(`${SERVER}/abandoned-carts/${cartId}/mark-recovered`, { method: 'POST', headers: authHeaders });
+      const json = await res.json();
+      if (!json.success) { toast.error(json.error || 'Failed to update cart'); return; }
+      setCarts(prev => prev.map(c => c.id === cartId ? json.cart : c));
+      toast.success('Cart marked as recovered!');
+    } catch (err) {
+      console.error('Mark recovered error:', err);
+      toast.error('Network error');
     }
-    toast.success('Cart marked as recovered!');
   }
 
   const visible = carts.filter(c => {

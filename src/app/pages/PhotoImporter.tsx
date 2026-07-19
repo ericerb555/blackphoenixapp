@@ -2,6 +2,20 @@ import { useState, useEffect } from 'react';
 import { Image, Facebook, Globe, CheckCircle, AlertCircle, Upload, RefreshCw, ExternalLink, Key, Info, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { seedWebsitePhotos } from '../utils/seedWebsitePhotos';
+import { saveDual, loadDual } from '../lib/database';
+
+// Mirror the current media library to the shared server-backed store so imports
+// show up in the Media Library across devices.
+function syncMediaLibrary() {
+  try {
+    const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
+    saveDual('media_library_items', items).catch((err) =>
+      console.error('[PhotoImporter] media library server sync failed:', err),
+    );
+  } catch (err) {
+    console.error('[PhotoImporter] Error reading media library for sync:', err);
+  }
+}
 
 interface ImportedPhoto {
   id: string;
@@ -30,15 +44,28 @@ export default function PhotoImporter() {
   const [showTokenHelp, setShowTokenHelp] = useState(false);
 
   useEffect(() => {
-    try {
-      const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
-      setMediaCount(items.length);
-      const webImported = items.filter((i: any) => i.uploadedBy === 'Website Import').length;
-      if (webImported > 0) {
-        setWebsiteStatus('already');
-        setWebsiteCount(webImported);
+    (async () => {
+      // Pull the shared, server-backed media library first so counts reflect
+      // photos imported from any device.
+      try {
+        const remote = await loadDual('media_library_items');
+        if (Array.isArray(remote)) {
+          localStorage.setItem('media_library_items', JSON.stringify(remote));
+        }
+      } catch (err) {
+        console.error('[PhotoImporter] Error loading media library from server:', err);
       }
-    } catch {}
+
+      try {
+        const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
+        setMediaCount(items.length);
+        const webImported = items.filter((i: any) => i.uploadedBy === 'Website Import').length;
+        if (webImported > 0) {
+          setWebsiteStatus('already');
+          setWebsiteCount(webImported);
+        }
+      } catch {}
+    })();
 
     const saved = localStorage.getItem('fb_import_token') || '';
     const savedPage = localStorage.getItem('fb_import_page_id') || '';
@@ -50,6 +77,7 @@ export default function PhotoImporter() {
     setWebsiteStatus('importing');
     setTimeout(() => {
       const count = seedWebsitePhotos();
+      syncMediaLibrary();
       if (count === 0) {
         setWebsiteStatus('already');
         const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
@@ -125,6 +153,7 @@ export default function PhotoImporter() {
 
       const merged = [...existing, ...newItems];
       localStorage.setItem('media_library_items', JSON.stringify(merged));
+      syncMediaLibrary();
       setFbPhotoCount(newItems.length);
       setMediaCount(merged.length);
       setFbStatus('done');
@@ -140,6 +169,7 @@ export default function PhotoImporter() {
       const existing: any[] = JSON.parse(localStorage.getItem('media_library_items') || '[]');
       const filtered = existing.filter((i: any) => i.uploadedBy !== source);
       localStorage.setItem('media_library_items', JSON.stringify(filtered));
+      syncMediaLibrary();
       const removed = existing.length - filtered.length;
       setMediaCount(filtered.length);
       if (source === 'Website Import') { setWebsiteStatus('idle'); setWebsiteCount(0); }

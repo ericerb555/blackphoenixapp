@@ -81,7 +81,7 @@ export async function loadFromDatabase(key: string): Promise<any | null> {
     const userId = await getUserId();
     const userKey = `${key}_${userId}`;
 
-    const response = await fetch(`${API_BASE}/kv/get?key=${encodeURIComponent(userKey)}`, {
+    const response = await fetch(`${API_BASE}/kv/get/${encodeURIComponent(userKey)}`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }

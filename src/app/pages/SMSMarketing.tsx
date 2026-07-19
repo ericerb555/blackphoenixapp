@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, Send, Users, Zap, Plus, X, Phone, Check, Clock, TrendingUp, ChevronRight, Sparkles, RefreshCw, Filter } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../contexts/AuthContext';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface Contact {
   id: string;
@@ -24,20 +28,6 @@ interface Campaign {
   clicks: number;
 }
 
-const DEMO_CONTACTS: Contact[] = [
-  { id: 'c1', name: 'Marcus T.', phone: '+1 (555) 210-4490', tags: ['vip', 'local'], optedIn: true, lastTexted: '2 days ago' },
-  { id: 'c2', name: 'Sarah K.', phone: '+1 (555) 384-1122', tags: ['loyal'], optedIn: true, lastTexted: '1 week ago' },
-  { id: 'c3', name: 'Jamie R.', phone: '+1 (555) 901-7765', tags: ['new'], optedIn: true },
-  { id: 'c4', name: 'Devon M.', phone: '+1 (555) 447-2231', tags: ['local', 'new'], optedIn: true },
-  { id: 'c5', name: 'Priya S.', phone: '+1 (555) 623-8890', tags: ['vip'], optedIn: false },
-];
-
-const DEMO_CAMPAIGNS: Campaign[] = [
-  { id: 'camp1', name: 'Summer Sale Flash', message: "Hey {name}! 🔥 Flash sale — 20% OFF everything today only. Shop now: theblackphoenixcompany.com", sentTo: 143, sentAt: 'Jul 4, 2026', status: 'sent', replies: 12, clicks: 38 },
-  { id: 'camp2', name: 'Local Neighbor Offer', message: "Hi {name}, your neighborhood exclusive: 15% off + free shipping with code BPLOCAL15. Limited time!", sentTo: 89, sentAt: 'Jul 1, 2026', status: 'sent', replies: 7, clicks: 21 },
-  { id: 'camp3', name: 'Back-to-School', message: "School season is here! Get ready with Black Phoenix — gear up & save. Shop: theblackphoenixcompany.com/public-store", sentTo: 0, sentAt: '', status: 'draft', replies: 0, clicks: 0 },
-];
-
 const TEMPLATES = [
   { id: 'promo', label: '🔥 Flash Promo', body: "Hey {name}! 🔥 Don't miss our limited-time offer — {discount}% OFF sitewide. Shop now: theblackphoenixcompany.com/public-store" },
   { id: 'local', label: '📍 Local Offer', body: "Hi {name}, your neighbor exclusive: {discount}% off + free shipping with code BPLOCAL15. theblackphoenixcompany.com/local" },
@@ -54,8 +44,40 @@ type Tab = 'dashboard' | 'compose' | 'contacts' | 'campaigns';
 export default function SMSMarketing() {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [contacts, setContacts] = useState<Contact[]>(DEMO_CONTACTS);
-  const [campaigns] = useState<Campaign[]>(DEMO_CAMPAIGNS);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [cRes, campRes] = await Promise.all([
+        fetch(`${SERVER}/sms/contacts`, { headers: authHeaders }),
+        fetch(`${SERVER}/sms/campaigns`, { headers: authHeaders }),
+      ]);
+      const cJson = await cRes.json();
+      const campJson = await campRes.json();
+      if (cJson.success) {
+        setContacts(cJson.contacts.map((c: any) => ({
+          id: c.id, name: c.name, phone: c.phone, tags: c.tags || [], optedIn: c.optedIn, lastTexted: c.lastTexted,
+        })));
+      }
+      if (campJson.success) {
+        setCampaigns(campJson.campaigns.map((c: any) => ({
+          id: c.id, name: c.name, message: c.message,
+          sentTo: c.sentTo || 0, sentAt: c.sentAt ? new Date(c.sentAt).toLocaleDateString() : '',
+          status: c.status === 'failed' ? 'draft' : c.status, replies: c.replies || 0, clicks: c.clicks || 0,
+        })));
+      }
+    } catch (err) {
+      console.error('SMS Marketing load error:', err);
+      toast.error('Could not load SMS data from server');
+    } finally {
+      setLoading(false);
+    }
+  }
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [messageBody, setMessageBody] = useState('');
   const [campaignName, setCampaignName] = useState('');
@@ -89,28 +111,48 @@ export default function SMSMarketing() {
     if (!messageBody.trim()) { toast.error('Write a message first'); return; }
     if (audience.length === 0) { toast.error('No opted-in contacts in this audience'); return; }
     setSending(true);
-    await new Promise(r => setTimeout(r, 1800));
-    setSending(false);
-    toast.success(`Campaign sent to ${audience.length} contacts!`);
-    setMessageBody('');
-    setCampaignName('');
-    setSelectedTemplate('');
-    setTab('campaigns');
+    try {
+      const res = await fetch(`${SERVER}/sms/send`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ name: campaignName || 'Untitled Campaign', message: messageBody, audience: sendTo }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error || 'Failed to send campaign');
+        return;
+      }
+      toast.success(`Campaign sent to ${json.sent} contact${json.sent === 1 ? '' : 's'}${json.errors?.length ? ` (${json.errors.length} failed)` : ''}!`);
+      setMessageBody('');
+      setCampaignName('');
+      setSelectedTemplate('');
+      await loadData();
+      setTab('campaigns');
+    } catch (err) {
+      console.error('SMS send error:', err);
+      toast.error('Network error while sending campaign');
+    } finally {
+      setSending(false);
+    }
   }
 
-  function addContact() {
+  async function addContact() {
     if (!newContact.phone.trim()) { toast.error('Phone number required'); return; }
     const tags = newContact.tags.split(',').map(t => t.trim()).filter(Boolean);
-    setContacts(prev => [...prev, {
-      id: `c${Date.now()}`,
-      name: newContact.name || 'Unknown',
-      phone: newContact.phone,
-      tags,
-      optedIn: true,
-    }]);
-    setNewContact({ name: '', phone: '', tags: '' });
-    setShowAddContact(false);
-    toast.success('Contact added!');
+    try {
+      const res = await fetch(`${SERVER}/sms/contacts`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ name: newContact.name || 'Unknown', phone: newContact.phone, tags, optedIn: true }),
+      });
+      const json = await res.json();
+      if (!json.success) { toast.error(json.error || 'Failed to add contact'); return; }
+      setNewContact({ name: '', phone: '', tags: '' });
+      setShowAddContact(false);
+      await loadData();
+      toast.success('Contact added!');
+    } catch (err) {
+      console.error('Add contact error:', err);
+      toast.error('Network error while adding contact');
+    }
   }
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
@@ -144,8 +186,8 @@ export default function SMSMarketing() {
       <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
         <Zap className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-xs font-bold text-blue-300">Connect Twilio to send real SMS</p>
-          <p className="text-xs text-gray-500 mt-0.5">Add your <strong className="text-gray-400">TWILIO_ACCOUNT_SID</strong>, <strong className="text-gray-400">TWILIO_AUTH_TOKEN</strong>, and <strong className="text-gray-400">TWILIO_PHONE</strong> in your Supabase Edge Function secrets to go live. Everything else is ready.</p>
+          <p className="text-xs font-bold text-blue-300">Live — sending real SMS via Twilio</p>
+          <p className="text-xs text-gray-500 mt-0.5">Contacts and campaigns are saved to your database and texts are delivered through your connected Twilio number. Standard carrier rates apply per message.</p>
         </div>
       </div>
 

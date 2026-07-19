@@ -1,14 +1,60 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, PlayCircle, StopCircle, Camera, Upload, Video,
   MessageSquare, FileText, Image, Paperclip, CheckCircle,
   AlertCircle, MapPin, Calendar, User, Menu, Bell,
   Home, ClipboardList, Send, X, ChevronRight, Zap,
-  BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft
+  BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft, Loader2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
+
+// Stable identity for the field technician using the mobile app. In a full
+// deployment this would come from the authenticated session.
+const EMPLOYEE_ID = 'EMP-MOBILE-001';
+const EMPLOYEE_NAME = 'John Smith';
+const EMPLOYEE_ROLE = 'Field Technician';
+
+interface FieldTask {
+  id: string;
+  title: string;
+  location: string;
+  scheduledAt: string;
+  status: string;
+}
+interface UploadItem {
+  id: string;
+  name: string;
+  type: string;
+  uploadedAt: string;
+  size: number;
+}
+
+function fmtSize(bytes: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (isNaN(diff) || diff < 0) return 'just now';
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
 
 export default function EmployeeMobileApp() {
   const [isClockedIn, setIsClockedIn] = useState(false);
@@ -19,68 +65,259 @@ export default function EmployeeMobileApp() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadType, setUploadType] = useState<'photo' | 'document' | 'video' | null>(null);
   const [location, setLocation] = useState('Fetching location...');
-  const [isOnline, setIsOnline] = useState(true);
-  const [batteryLevel, setBatteryLevel] = useState(85);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+
+  const [tasks, setTasks] = useState<FieldTask[]>([]);
+  const [recentUploads, setRecentUploads] = useState<UploadItem[]>([]);
+  const [recentPunches, setRecentPunches] = useState<any[]>([]);
+  const [weekHours, setWeekHours] = useState(0);
+  const [clockBusy, setClockBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadDesc, setUploadDesc] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Update current time every second
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   // Calculate elapsed time when clocked in
   useEffect(() => {
     if (isClockedIn && clockInTime) {
-      const timer = setInterval(() => {
-        const now = new Date();
-        const diff = now.getTime() - clockInTime.getTime();
+      const tick = () => {
+        const diff = Date.now() - clockInTime.getTime();
         const hours = Math.floor(diff / 3600000);
         const minutes = Math.floor((diff % 3600000) / 60000);
         const seconds = Math.floor((diff % 60000) / 1000);
         setElapsedTime(
           `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
         );
-      }, 1000);
+      };
+      tick();
+      const timer = setInterval(tick, 1000);
       return () => clearInterval(timer);
     }
+    setElapsedTime('00:00:00');
   }, [isClockedIn, clockInTime]);
 
-  // Simulate location fetch
+  // Real network status
   useEffect(() => {
-    setTimeout(() => {
-      setLocation('123 Main St, City, ST 12345');
-    }, 1000);
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  const handleClockIn = () => {
-    setIsClockedIn(true);
-    setClockInTime(new Date());
+  // Real battery level (where supported)
+  useEffect(() => {
+    const nav = navigator as any;
+    if (nav.getBattery) {
+      nav.getBattery().then((bat: any) => {
+        const update = () => setBatteryLevel(Math.round(bat.level * 100));
+        update();
+        bat.addEventListener('levelchange', update);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Real geolocation
+  useEffect(() => {
+    if (!navigator.geolocation) { setLocation('Location unavailable'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setCoords({ lat: latitude, lng: longitude });
+        setLocation(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+      },
+      () => setLocation('Location permission denied'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      // Ensure the employee record exists (idempotent), then load status.
+      await fetch(`${SERVER}/time-tracking/employees`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: EMPLOYEE_ID, name: EMPLOYEE_NAME, role: EMPLOYEE_ROLE }),
+      });
+      const res = await fetch(`${SERVER}/time-tracking/employees/${EMPLOYEE_ID}`, { headers: authHeaders });
+      const data = await res.json();
+      if (data?.activeEntry?.punchIn) {
+        setIsClockedIn(true);
+        setClockInTime(new Date(data.activeEntry.punchIn));
+      } else {
+        setIsClockedIn(false);
+        setClockInTime(null);
+      }
+      const entries = (data?.recentEntries || []).slice().sort(
+        (a: any, b: any) => new Date(b.punchIn).getTime() - new Date(a.punchIn).getTime()
+      );
+      setRecentPunches(entries.slice(0, 10));
+    } catch (err) {
+      console.error('EmployeeMobileApp: failed to load clock status:', err);
+    }
+  }, []);
+
+  const loadTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${EMPLOYEE_ID}`, { headers: authHeaders });
+      const data = await res.json();
+      if (data?.success) setTasks(data.tasks || []);
+    } catch (err) {
+      console.error('EmployeeMobileApp: failed to load tasks:', err);
+    }
+  }, []);
+
+  const loadUploads = useCallback(async () => {
+    try {
+      const res = await fetch(`${SERVER}/media`, { headers: authHeaders });
+      const data = await res.json();
+      if (data?.success) {
+        const items: UploadItem[] = (data.media || [])
+          .map((m: any) => ({ id: m.id, name: m.name, type: m.type, uploadedAt: m.uploadedAt, size: m.size || 0 }))
+          .sort((a: UploadItem, b: UploadItem) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+        setRecentUploads(items.slice(0, 8));
+      }
+    } catch (err) {
+      console.error('EmployeeMobileApp: failed to load uploads:', err);
+    }
+  }, []);
+
+  const loadWeekHours = useCallback(async () => {
+    try {
+      const res = await fetch(`${SERVER}/time-tracking/hours-summary`, { headers: authHeaders });
+      const data = await res.json();
+      const mine = data?.summary?.[EMPLOYEE_NAME];
+      if (mine) setWeekHours(mine.hoursThisWeek || 0);
+    } catch (err) {
+      console.error('EmployeeMobileApp: failed to load week hours:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+    loadTasks();
+    loadUploads();
+    loadWeekHours();
+  }, [loadStatus, loadTasks, loadUploads, loadWeekHours]);
+
+  const handleClockIn = async () => {
+    setClockBusy(true);
+    try {
+      const res = await fetch(`${SERVER}/time-tracking/punch-in`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: EMPLOYEE_ID,
+          location: coords ? { ...coords, address: location } : { address: location },
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setIsClockedIn(true);
+        setClockInTime(new Date(data.timeEntry?.punchIn || Date.now()));
+      } else {
+        console.error('Clock-in failed:', data?.error);
+        alert(`Clock-in failed: ${data?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Clock-in request error:', err);
+      alert('Clock-in failed. Check your connection.');
+    } finally {
+      setClockBusy(false);
+    }
   };
 
-  const handleClockOut = () => {
-    setIsClockedIn(false);
-    setClockInTime(null);
-    setElapsedTime('00:00:00');
+  const handleClockOut = async () => {
+    setClockBusy(true);
+    try {
+      const res = await fetch(`${SERVER}/time-tracking/punch-out`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: EMPLOYEE_ID,
+          location: coords ? { ...coords, address: location } : { address: location },
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setIsClockedIn(false);
+        setClockInTime(null);
+        setElapsedTime('00:00:00');
+        loadStatus();
+        loadWeekHours();
+      } else {
+        console.error('Clock-out failed:', data?.error);
+        alert(`Clock-out failed: ${data?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Clock-out request error:', err);
+      alert('Clock-out failed. Check your connection.');
+    } finally {
+      setClockBusy(false);
+    }
   };
 
   const handleUpload = (type: 'photo' | 'document' | 'video') => {
     setUploadType(type);
+    setUploadDesc('');
     setShowUploadModal(true);
   };
 
-  const todayTasks = [
-    { id: 1, title: 'Kitchen Installation - Johnson Residence', time: '9:00 AM', status: 'in-progress', location: '456 Oak Ave' },
-    { id: 2, title: 'Bathroom Inspection - Smith Home', time: '2:00 PM', status: 'pending', location: '789 Pine St' },
-    { id: 3, title: 'Materials Pickup - Supplier', time: '4:30 PM', status: 'pending', location: 'Downtown Supply' }
-  ];
+  const acceptFor = (type: 'photo' | 'document' | 'video' | null) =>
+    type === 'photo' ? 'image/*' : type === 'video' ? 'video/*' : '.pdf,.doc,.docx,image/*';
 
-  const recentUploads = [
-    { id: 1, name: 'Before Photo - Kitchen', type: 'image', time: '10 mins ago', size: '2.4 MB' },
-    { id: 2, name: 'Progress Video', type: 'video', time: '1 hour ago', size: '45.2 MB' },
-    { id: 3, name: 'Signed Contract', type: 'document', time: '2 hours ago', size: '1.1 MB' }
-  ];
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      if (uploadDesc) form.append('description', uploadDesc);
+      form.append('tags', 'field-upload');
+      const res = await fetch(`${SERVER}/media/upload`, {
+        method: 'POST',
+        headers: authHeaders, // do NOT set Content-Type; browser sets multipart boundary
+        body: form,
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setShowUploadModal(false);
+        setUploadDesc('');
+        loadUploads();
+      } else {
+        console.error('Upload failed:', data?.error || data);
+        alert(`Upload failed: ${data?.error || 'Unsupported file or server error'}`);
+      }
+    } catch (err) {
+      console.error('Upload request error:', err);
+      alert('Upload failed. Check your connection.');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const startTask = async (taskId: string) => {
+    try {
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${EMPLOYEE_ID}/${taskId}/status`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in-progress' }),
+      });
+      const data = await res.json();
+      if (data?.success) loadTasks();
+    } catch (err) {
+      console.error('Failed to start task:', err);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -95,10 +332,12 @@ export default function EmployeeMobileApp() {
           ) : (
             <WifiOff className="w-4 h-4 text-red-400" />
           )}
-          <div className="flex items-center gap-1">
-            <Battery className="w-4 h-4" />
-            <span>{batteryLevel}%</span>
-          </div>
+          {batteryLevel !== null && (
+            <div className="flex items-center gap-1">
+              <Battery className="w-4 h-4" />
+              <span>{batteryLevel}%</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -175,11 +414,12 @@ export default function EmployeeMobileApp() {
                   variant={isClockedIn ? 'danger' : 'success'}
                   fullWidth
                   size="lg"
+                  disabled={clockBusy}
                   onClick={isClockedIn ? handleClockOut : handleClockIn}
-                  icon={isClockedIn ? <StopCircle className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
+                  icon={clockBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : isClockedIn ? <StopCircle className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
                   className="shadow-lg"
                 >
-                  {isClockedIn ? 'Clock Out' : 'Clock In'}
+                  {clockBusy ? 'Please wait…' : isClockedIn ? 'Clock Out' : 'Clock In'}
                 </Button>
               </div>
             </Card>
@@ -249,10 +489,17 @@ export default function EmployeeMobileApp() {
             <div>
               <div className="flex items-center justify-between mb-3 px-1">
                 <h3 className="font-bold text-slate-900">Today's Tasks</h3>
-                <Badge variant="primary" size="sm">{todayTasks.length}</Badge>
+                <Badge variant="primary" size="sm">{tasks.length}</Badge>
               </div>
               <div className="space-y-3">
-                {todayTasks.map((task) => (
+                {tasks.length === 0 && (
+                  <Card>
+                    <CardContent className="p-6 text-center text-sm text-slate-500">
+                      No tasks assigned yet.
+                    </CardContent>
+                  </Card>
+                )}
+                {tasks.map((task) => (
                   <Card key={task.id} hover className="border-l-4 border-l-blue-500">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-2">
@@ -261,26 +508,30 @@ export default function EmployeeMobileApp() {
                           <div className="flex items-center gap-3 text-sm text-slate-500">
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {task.time}
+                              {fmtTime(task.scheduledAt)}
                             </span>
-                            <span className="flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              {task.location}
-                            </span>
+                            {task.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {task.location}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <Badge 
-                          variant={task.status === 'in-progress' ? 'success' : 'warning'}
+                        <Badge
+                          variant={task.status === 'in-progress' ? 'success' : task.status === 'completed' ? 'primary' : 'warning'}
                           size="sm"
                           dot
                         >
-                          {task.status === 'in-progress' ? 'Active' : 'Pending'}
+                          {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
                         </Badge>
                       </div>
-                      <Button variant="ghost" size="sm" fullWidth className="mt-2">
-                        View Details
-                        <ChevronRight className="w-4 h-4 ml-auto" />
-                      </Button>
+                      {task.status === 'pending' && (
+                        <Button variant="ghost" size="sm" fullWidth className="mt-2" onClick={() => startTask(task.id)}>
+                          Start Task
+                          <ChevronRight className="w-4 h-4 ml-auto" />
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -292,25 +543,29 @@ export default function EmployeeMobileApp() {
               <h3 className="font-bold text-slate-900 mb-3 px-1">Recent Uploads</h3>
               <Card>
                 <CardContent className="p-4">
-                  <div className="space-y-3">
-                    {recentUploads.map((upload) => (
-                      <div key={upload.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          upload.type === 'image' ? 'bg-blue-50' :
-                          upload.type === 'video' ? 'bg-purple-50' : 'bg-green-50'
-                        }`}>
-                          {upload.type === 'image' && <Image className="w-5 h-5 text-blue-600" />}
-                          {upload.type === 'video' && <Video className="w-5 h-5 text-purple-600" />}
-                          {upload.type === 'document' && <FileText className="w-5 h-5 text-green-600" />}
+                  {recentUploads.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-4">No uploads yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentUploads.map((upload) => (
+                        <div key={upload.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                            upload.type === 'image' ? 'bg-blue-50' :
+                            upload.type === 'video' ? 'bg-purple-50' : 'bg-green-50'
+                          }`}>
+                            {upload.type === 'image' && <Image className="w-5 h-5 text-blue-600" />}
+                            {upload.type === 'video' && <Video className="w-5 h-5 text-purple-600" />}
+                            {upload.type !== 'image' && upload.type !== 'video' && <FileText className="w-5 h-5 text-green-600" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 truncate">{upload.name}</p>
+                            <p className="text-sm text-slate-500">{relTime(upload.uploadedAt)} • {fmtSize(upload.size)}</p>
+                          </div>
+                          <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-900 truncate">{upload.name}</p>
-                          <p className="text-sm text-slate-500">{upload.time} • {upload.size}</p>
-                        </div>
-                        <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -334,31 +589,45 @@ export default function EmployeeMobileApp() {
                     </div>
                     <div className="p-4 bg-green-50 rounded-xl">
                       <p className="text-sm text-green-600 font-semibold mb-1">This Week</p>
-                      <p className="text-2xl font-bold text-green-900">32:45:12</p>
+                      <p className="text-2xl font-bold text-green-900">{weekHours.toFixed(1)}h</p>
                     </div>
                   </div>
 
                   {/* Recent Punches */}
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-3">Recent Punches</h4>
-                    <div className="space-y-2">
-                      {[
-                        { date: 'Today', in: '8:00 AM', out: 'Active', hours: elapsedTime },
-                        { date: 'Yesterday', in: '8:15 AM', out: '5:30 PM', hours: '9:15:00' },
-                        { date: 'Jan 21', in: '8:00 AM', out: '5:00 PM', hours: '9:00:00' }
-                      ].map((entry, index) => (
-                        <div key={index} className="p-3 bg-slate-50 rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-semibold text-slate-900">{entry.date}</span>
-                            <Badge variant="success" size="sm">{entry.hours}</Badge>
+                    {recentPunches.length === 0 && !isClockedIn ? (
+                      <p className="text-sm text-slate-500 text-center py-4">No punches recorded yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {isClockedIn && clockInTime && (
+                          <div className="p-3 bg-slate-50 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-slate-900">Today</span>
+                              <Badge variant="success" size="sm">{elapsedTime}</Badge>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-slate-600">
+                              <span>In: {fmtTime(clockInTime.toISOString())}</span>
+                              <span>Out: Active</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-4 text-sm text-slate-600">
-                            <span>In: {entry.in}</span>
-                            <span>Out: {entry.out}</span>
+                        )}
+                        {recentPunches.map((entry) => (
+                          <div key={entry.id} className="p-3 bg-slate-50 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {new Date(entry.punchIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                              <Badge variant="success" size="sm">{(entry.totalHours || 0).toFixed(2)}h</Badge>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-slate-600">
+                              <span>In: {fmtTime(entry.punchIn)}</span>
+                              <span>Out: {entry.punchOut ? fmtTime(entry.punchOut) : '—'}</span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -444,16 +713,20 @@ export default function EmployeeMobileApp() {
                 <CardTitle>Recent Uploads</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1, 2, 3, 4, 5, 6].map((item) => (
-                    <div key={item} className="aspect-square bg-slate-200 rounded-lg relative overflow-hidden group">
-                      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/50 to-purple-500/50" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <CheckCircle className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                {recentUploads.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-6">No uploads yet.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {recentUploads.map((item) => (
+                      <div key={item.id} className="aspect-square bg-slate-100 rounded-lg relative overflow-hidden flex flex-col items-center justify-center p-2 text-center">
+                        {item.type === 'image' && <Image className="w-6 h-6 text-blue-500 mb-1" />}
+                        {item.type === 'video' && <Video className="w-6 h-6 text-purple-500 mb-1" />}
+                        {item.type !== 'image' && item.type !== 'video' && <FileText className="w-6 h-6 text-green-500 mb-1" />}
+                        <span className="text-[10px] text-slate-600 truncate w-full">{item.name}</span>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
@@ -467,42 +740,45 @@ export default function EmployeeMobileApp() {
                 <CardTitle>Today's Schedule</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {todayTasks.map((task) => (
-                    <div key={task.id} className="p-4 border-2 border-slate-200 rounded-xl hover:border-blue-300 transition-colors">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-slate-900 mb-1">{task.title}</h4>
-                          <div className="space-y-1 text-sm text-slate-500">
-                            <div className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {task.time}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              {task.location}
+                {tasks.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-6">No tasks scheduled.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {tasks.map((task) => (
+                      <div key={task.id} className="p-4 border-2 border-slate-200 rounded-xl hover:border-blue-300 transition-colors">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-slate-900 mb-1">{task.title}</h4>
+                            <div className="space-y-1 text-sm text-slate-500">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {fmtTime(task.scheduledAt)}
+                              </div>
+                              {task.location && (
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  {task.location}
+                                </div>
+                              )}
                             </div>
                           </div>
+                          <Badge
+                            variant={task.status === 'in-progress' ? 'success' : task.status === 'completed' ? 'primary' : 'warning'}
+                            size="sm"
+                            dot
+                          >
+                            {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
+                          </Badge>
                         </div>
-                        <Badge 
-                          variant={task.status === 'in-progress' ? 'success' : 'warning'}
-                          size="sm"
-                          dot
-                        >
-                          {task.status === 'in-progress' ? 'Active' : 'Pending'}
-                        </Badge>
+                        {task.status === 'pending' && (
+                          <Button variant="primary" size="sm" fullWidth onClick={() => startTask(task.id)}>
+                            Start Task
+                          </Button>
+                        )}
                       </div>
-                      <div className="flex gap-2">
-                        <Button variant="primary" size="sm" fullWidth>
-                          Start Task
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
@@ -528,6 +804,14 @@ export default function EmployeeMobileApp() {
             </div>
 
             <div className="p-6 space-y-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={acceptFor(uploadType)}
+                capture={uploadType === 'photo' ? 'environment' : undefined}
+                className="hidden"
+                onChange={handleFileSelected}
+              />
               {uploadType === 'photo' && (
                 <>
                   <div className="aspect-video bg-slate-900 rounded-xl flex items-center justify-center">
@@ -541,6 +825,8 @@ export default function EmployeeMobileApp() {
                       <span className="text-sm font-semibold text-slate-700 mb-2 block">Photo Description</span>
                       <input
                         type="text"
+                        value={uploadDesc}
+                        onChange={(e) => setUploadDesc(e.target.value)}
                         placeholder="e.g., Before photo - kitchen"
                         className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -554,8 +840,8 @@ export default function EmployeeMobileApp() {
                       </select>
                     </label>
                   </div>
-                  <Button variant="primary" fullWidth size="lg" icon={<Camera className="w-5 h-5" />}>
-                    Open Camera
+                  <Button variant="primary" fullWidth size="lg" disabled={uploading} onClick={() => fileInputRef.current?.click()} icon={uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}>
+                    {uploading ? 'Uploading…' : 'Choose / Take Photo'}
                   </Button>
                 </>
               )}
@@ -607,15 +893,15 @@ export default function EmployeeMobileApp() {
                       </select>
                     </label>
                   </div>
-                  <Button variant="primary" fullWidth size="lg" icon={<Video className="w-5 h-5" />}>
-                    Start Recording
+                  <Button variant="primary" fullWidth size="lg" disabled={uploading} onClick={() => fileInputRef.current?.click()} icon={uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Video className="w-5 h-5" />}>
+                    {uploading ? 'Uploading…' : 'Choose / Record Video'}
                   </Button>
                 </>
               )}
 
               {uploadType === 'document' && (
                 <>
-                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-colors cursor-pointer">
+                  <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-colors cursor-pointer">
                     <Upload className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                     <p className="font-semibold text-slate-900 mb-1">Choose File</p>
                     <p className="text-sm text-slate-500">PDF, DOC, DOCX, PNG, JPG</p>
@@ -636,13 +922,15 @@ export default function EmployeeMobileApp() {
                       <span className="text-sm font-semibold text-slate-700 mb-2 block">Notes (Optional)</span>
                       <textarea
                         rows={3}
+                        value={uploadDesc}
+                        onChange={(e) => setUploadDesc(e.target.value)}
                         placeholder="Add any notes about this document..."
                         className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       />
                     </label>
                   </div>
-                  <Button variant="primary" fullWidth size="lg" icon={<Upload className="w-5 h-5" />}>
-                    Browse Files
+                  <Button variant="primary" fullWidth size="lg" disabled={uploading} onClick={() => fileInputRef.current?.click()} icon={uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}>
+                    {uploading ? 'Uploading…' : 'Browse Files'}
                   </Button>
                 </>
               )}

@@ -47,6 +47,30 @@ export const ENTITY_TYPES: EntityConfig[] = [
   },
 ];
 
+// ─── Pricing Regions ──────────────────────────────────────────────────────────
+
+export interface Region {
+  id: string;
+  label: string;
+  description: string;
+  priceMultiplier: number; // applied to every service base price for this region
+}
+
+export const REGIONS: Region[] = [
+  {
+    id: 'national',
+    label: 'National (Standard)',
+    description: 'Default pricing used outside specific service regions',
+    priceMultiplier: 1.00,
+  },
+  {
+    id: 'nh',
+    label: 'New Hampshire',
+    description: 'NH regional pricing — adjust the multiplier to set local rates',
+    priceMultiplier: 1.00,
+  },
+];
+
 // ─── Skill Levels ─────────────────────────────────────────────────────────────
 
 export interface SkillLevel {
@@ -257,8 +281,9 @@ export function computePrice(
   baseMonthlyPrice: number,
   skillMultiplier: number,
   frequencyMultiplier: number,
+  regionMultiplier: number = 1,
 ): number {
-  return Math.round(baseMonthlyPrice * skillMultiplier * frequencyMultiplier);
+  return Math.round(baseMonthlyPrice * skillMultiplier * frequencyMultiplier * regionMultiplier);
 }
 
 // ─── Helper: get unique categories for an entity ──────────────────────────────

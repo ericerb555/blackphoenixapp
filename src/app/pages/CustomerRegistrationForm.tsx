@@ -5,6 +5,7 @@ import {
   CreditCard, Crown, Star, CheckCircle2, Eye, EyeOff, Sparkles
 } from 'lucide-react';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -174,17 +175,60 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
     setLoading(true);
 
     try {
-      // TODO: Implement actual API call to create customer account
-      // const response = await fetch('/api/customers/register', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ ...formData, plan })
-      // });
+      const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const fullName = `${formData.firstName} ${formData.lastName}`.trim();
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 1) Create the real auth account (also creates profile, role, CRM entry).
+      const signupRes = await fetch(`${base}/auth/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          full_name: fullName,
+          role: 'client',
+        }),
+      });
 
-      // Redirect to dashboard or success page
+      const signupData = await signupRes.json();
+      if (!signupRes.ok) {
+        throw new Error(signupData.error || `Signup failed (${signupRes.status})`);
+      }
+
+      // 2) Persist the customer profile (address, property type, plan, etc.).
+      const customerRes = await fetch(`${base}/customers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          userId: signupData.user?.id,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          phone: formData.phone,
+          status: 'active',
+          address_line1: formData.streetAddress,
+          address_line2: formData.aptUnit,
+          city: formData.city,
+          state: formData.state,
+          zip_code: formData.zipCode,
+          propertyType: formData.propertyType,
+          source: formData.howHeard,
+          plan,
+          marketingEmails: formData.marketingEmails,
+        }),
+      });
+      if (!customerRes.ok) {
+        const errText = await customerRes.text();
+        console.error('Customer profile creation failed (account was still created):', errText);
+      }
+
+      // Redirect to the customer portal on success.
       if (onNavigate) {
         onNavigate('customer-portal');
       } else {
@@ -192,7 +236,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       }
     } catch (error) {
       console.error('Registration error:', error);
-      setErrors({ submit: 'Registration failed. Please try again.' });
+      setErrors({ submit: error instanceof Error ? error.message : 'Registration failed. Please try again.' });
     } finally {
       setLoading(false);
     }

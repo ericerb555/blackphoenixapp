@@ -164,6 +164,7 @@ import InfluencerTracker from "./pages/InfluencerTracker";
 import KeywordTracker from "./pages/KeywordTracker";
 import CustomerPortal from "./pages/CustomerPortal";
 import SubscriptionMaintenancePlans from "./pages/SubscriptionMaintenancePlans";
+import MaintenancePlanAdmin from "./pages/MaintenancePlanAdmin";
 import HREmployeeHub from "./pages/HREmployeeHub";
 import BlueprintAnalysisPage from "./pages/BlueprintAnalysisPage";
 import DobaIntegration from "./pages/DobaIntegration";
@@ -534,6 +535,8 @@ export const pageMap: Record<string, React.ComponentType<any>> = {
   "maintenance-plans":              SubscriptionMaintenancePlans,
   "subscription-maintenance":       SubscriptionMaintenancePlans,
   "maintenance-subscriptions":      SubscriptionMaintenancePlans,
+  "maintenance-admin":              MaintenancePlanAdmin,
+  "maintenance-plan-admin":         MaintenancePlanAdmin,
 
   // Legacy redirects (kept for backward compat)
   "condo-association-portal": PortalDemoHub,

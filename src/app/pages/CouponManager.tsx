@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { Tag, Plus, X, Copy, Check, TrendingUp, DollarSign, Zap, Users, Search, ToggleLeft, ToggleRight, Edit3, Trash2, Calendar, Hash, Percent, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const STORAGE_KEY = 'bp_coupons';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 export interface Coupon {
   id: string;
@@ -120,13 +122,25 @@ export default function CouponManager() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    setCoupons(stored ? JSON.parse(stored) : seed());
-    if (!stored) localStorage.setItem(STORAGE_KEY, JSON.stringify(seed()));
-  }, []);
+  async function loadCoupons() {
+    try {
+      const res = await fetch(`${SERVER}/coupons`, { headers: authHeaders });
+      const json = await res.json();
+      if (json.success) {
+        if (json.coupons.length === 0) {
+          // First run: seed default coupons then reload.
+          await Promise.all(seed().map(c => fetch(`${SERVER}/coupons`, { method: 'POST', headers: authHeaders, body: JSON.stringify(c) })));
+          const rr = await fetch(`${SERVER}/coupons`, { headers: authHeaders });
+          const rj = await rr.json();
+          if (rj.success) setCoupons(rj.coupons);
+        } else {
+          setCoupons(json.coupons);
+        }
+      } else console.error('Failed to load coupons:', json.error);
+    } catch (err) { console.error('Network error loading coupons:', err); toast.error('Could not load coupons'); }
+  }
 
-  function save(updated: Coupon[]) { setCoupons(updated); localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); }
+  useEffect(() => { loadCoupons(); }, []);
 
   function copyCode(code: string, id: string) {
     navigator.clipboard.writeText(code).catch(() => {});
@@ -135,13 +149,22 @@ export default function CouponManager() {
     setTimeout(() => setCopiedId(null), 1800);
   }
 
-  function toggleActive(id: string) {
-    save(coupons.map(c => c.id === id ? { ...c, active: !c.active } : c));
+  async function toggleActive(id: string) {
+    const target = coupons.find(c => c.id === id);
+    if (!target) return;
+    const next = !target.active;
+    setCoupons(prev => prev.map(c => c.id === id ? { ...c, active: next } : c));
+    try {
+      await fetch(`${SERVER}/coupons/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ active: next }) });
+    } catch (err) { console.error('Failed to toggle coupon:', err); }
   }
 
-  function deleteCoupon(id: string) {
-    save(coupons.filter(c => c.id !== id));
+  async function deleteCoupon(id: string) {
+    setCoupons(prev => prev.filter(c => c.id !== id));
     toast('Coupon deleted');
+    try {
+      await fetch(`${SERVER}/coupons/${id}`, { method: 'DELETE', headers: authHeaders });
+    } catch (err) { console.error('Failed to delete coupon:', err); }
   }
 
   function openCreate() {
@@ -160,30 +183,30 @@ export default function CouponManager() {
     setShowCreate(true);
   }
 
-  function submitForm() {
+  async function submitForm() {
     if (!form.code.trim()) { toast.error('Code is required'); return; }
     if (form.type !== 'freeShipping' && form.type !== 'bogo' && !form.value) { toast.error('Enter a discount value'); return; }
-    if (editingId) {
-      save(coupons.map(c => c.id === editingId ? {
-        ...c, code: form.code.trim().toUpperCase(), description: form.description,
-        type: form.type, value: Number(form.value), minOrder: Number(form.minOrder),
-        maxUses: form.maxUses ? Number(form.maxUses) : null,
-        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
-        source: form.source,
-      } : c));
-      toast.success('Coupon updated');
-    } else {
-      const newC: Coupon = {
-        id: crypto.randomUUID(), code: form.code.trim().toUpperCase(), description: form.description,
-        type: form.type, value: Number(form.value), minOrder: Number(form.minOrder),
-        maxUses: form.maxUses ? Number(form.maxUses) : null, usedCount: 0, active: true,
-        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
-        createdAt: new Date().toISOString(), categories: [], source: form.source, redemptions: [],
-      };
-      save([newC, ...coupons]);
-      toast.success('Coupon created!');
-    }
-    setShowCreate(false);
+    const payload = {
+      code: form.code.trim().toUpperCase(), description: form.description,
+      type: form.type, value: Number(form.value), minOrder: Number(form.minOrder),
+      maxUses: form.maxUses ? Number(form.maxUses) : null,
+      expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
+      source: form.source,
+    };
+    try {
+      if (editingId) {
+        const res = await fetch(`${SERVER}/coupons/${editingId}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify(payload) });
+        const json = await res.json();
+        if (json.success) { setCoupons(prev => prev.map(c => c.id === editingId ? json.coupon : c)); toast.success('Coupon updated'); }
+        else { toast.error(json.error || 'Update failed'); return; }
+      } else {
+        const res = await fetch(`${SERVER}/coupons`, { method: 'POST', headers: authHeaders, body: JSON.stringify(payload) });
+        const json = await res.json();
+        if (json.success) { setCoupons(prev => [json.coupon, ...prev]); toast.success('Coupon created!'); }
+        else { toast.error(json.error || 'Create failed'); return; }
+      }
+      setShowCreate(false);
+    } catch (err) { console.error('Failed to save coupon:', err); toast.error('Network error saving coupon'); }
   }
 
   const visible = coupons.filter(c => {

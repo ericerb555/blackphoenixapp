@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react';
-import { Search, TrendingUp, TrendingDown, Minus, Plus, Trash2, RefreshCw, Download, Info, Star, Target } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, TrendingUp, TrendingDown, Minus, Plus, Trash2, Download, Info, Star, Target } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface Keyword {
   id: string;
@@ -16,35 +20,26 @@ interface Keyword {
   priority: 'high' | 'medium' | 'low';
 }
 
-function load(): Keyword[] {
-  try { return JSON.parse(localStorage.getItem('keyword_tracker') || 'null') || DEFAULTS; } catch { return DEFAULTS; }
-}
-
-function persist(k: Keyword[]) { localStorage.setItem('keyword_tracker', JSON.stringify(k)); }
-
-// Simulate position data (in production, would integrate with Google Search Console API)
-function genHistory(base: number | null, days = 30): { date: string; position: number | null }[] {
-  const history = [];
-  const now = new Date();
-  for (let i = days; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const date = d.toISOString().split('T')[0];
-    if (base === null) { history.push({ date, position: null }); continue; }
-    const jitter = Math.floor(Math.random() * 5) - 2;
-    const pos = Math.max(1, Math.min(100, base + jitter + (i > 20 ? Math.floor(Math.random() * 8) : 0)));
-    history.push({ date, position: pos });
+async function persist(k: Keyword[]) {
+  try {
+    const res = await fetch(`${SERVER}/keywords`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ keywords: k }) });
+    const json = await res.json();
+    if (!json.success) console.error('Failed to save keywords:', json.error);
+  } catch (err) {
+    console.error('Network error saving keywords:', err);
   }
-  return history;
 }
 
+// Positions are entered manually (or pasted from Google Search Console / a rank
+// tool) and stored per keyword as a dated history. No values are fabricated —
+// a keyword shows "not ranked" until a real position is recorded for it.
 const DEFAULTS: Keyword[] = [
-  { id: 'kw-1', keyword: 'roofing contractor new hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Primary keyword', addedAt: '2026-05-01', searchVolume: 1600, difficulty: 'high', priority: 'high', history: genHistory(14) },
-  { id: 'kw-2', keyword: 'roof replacement NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-01', searchVolume: 880, difficulty: 'medium', priority: 'high', history: genHistory(8) },
-  { id: 'kw-3', keyword: 'siding contractor Nashua NH', location: 'Nashua, NH', device: 'mobile', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Local intent', addedAt: '2026-05-15', searchVolume: 320, difficulty: 'low', priority: 'high', history: genHistory(5) },
-  { id: 'kw-4', keyword: 'deck builder New Hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-20', searchVolume: 590, difficulty: 'medium', priority: 'medium', history: genHistory(22) },
-  { id: 'kw-5', keyword: 'Black Phoenix Builds', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Brand term', addedAt: '2026-04-01', searchVolume: 110, difficulty: 'low', priority: 'high', history: genHistory(2) },
-  { id: 'kw-6', keyword: 'gutter installation NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-06-01', searchVolume: 480, difficulty: 'low', priority: 'medium', history: genHistory(null) },
+  { id: 'kw-1', keyword: 'roofing contractor new hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Primary keyword', addedAt: '2026-05-01', searchVolume: 1600, difficulty: 'high', priority: 'high', history: [] },
+  { id: 'kw-2', keyword: 'roof replacement NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-01', searchVolume: 880, difficulty: 'medium', priority: 'high', history: [] },
+  { id: 'kw-3', keyword: 'siding contractor Nashua NH', location: 'Nashua, NH', device: 'mobile', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Local intent', addedAt: '2026-05-15', searchVolume: 320, difficulty: 'low', priority: 'high', history: [] },
+  { id: 'kw-4', keyword: 'deck builder New Hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-20', searchVolume: 590, difficulty: 'medium', priority: 'medium', history: [] },
+  { id: 'kw-5', keyword: 'Black Phoenix Builds', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Brand term', addedAt: '2026-04-01', searchVolume: 110, difficulty: 'low', priority: 'high', history: [] },
+  { id: 'kw-6', keyword: 'gutter installation NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-06-01', searchVolume: 480, difficulty: 'low', priority: 'medium', history: [] },
 ];
 
 const BLANK = (): Keyword => ({
@@ -105,18 +100,37 @@ function MiniSparkline({ history }: { history: Keyword['history'] }) {
 }
 
 export default function KeywordTracker() {
-  const [keywords, setKeywords] = useState<Keyword[]>(load);
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newKw, setNewKw] = useState<Keyword>(BLANK());
   const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<'position' | 'volume' | 'keyword' | 'priority'>('priority');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [posInput, setPosInput] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/keywords`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.keywords) && json.keywords.length) {
+          setKeywords(json.keywords);
+        } else {
+          setKeywords(DEFAULTS);
+          persist(DEFAULTS);
+        }
+      } catch (err) {
+        console.error('Network error loading keywords:', err);
+        setKeywords(DEFAULTS);
+      }
+    })();
+  }, []);
 
   function save(k: Keyword[]) { setKeywords(k); persist(k); }
 
   function addKeyword() {
     if (!newKw.keyword.trim()) { toast.error('Enter a keyword.'); return; }
-    const kw = { ...newKw, id: `kw-${Date.now()}`, history: genHistory(Math.floor(Math.random() * 40) + 10) };
+    const kw = { ...newKw, id: `kw-${Date.now()}`, history: [] };
     save([...keywords, kw]);
     setNewKw(BLANK());
     setShowAdd(false);
@@ -125,19 +139,27 @@ export default function KeywordTracker() {
 
   function del(id: string) { save(keywords.filter(k => k.id !== id)); toast.success('Removed.'); }
 
-  function simulateRefresh() {
-    setRefreshing(true);
-    setTimeout(() => {
-      const updated = keywords.map(k => {
-        const last = latestPosition(k);
-        if (last === null) return k;
-        const newPos = Math.max(1, Math.min(100, last + Math.floor(Math.random() * 5) - 2));
-        return { ...k, history: [...k.history, { date: new Date().toISOString().split('T')[0], position: newPos }] };
-      });
-      save(updated);
-      setRefreshing(false);
-      toast.success('Positions refreshed (simulated)!');
-    }, 1800);
+  // Record a real, manually-observed position for a keyword. Overwrites any
+  // entry already logged today so re-checks don't create duplicates.
+  function recordPosition(id: string) {
+    const raw = posInput.trim();
+    const today = new Date().toISOString().split('T')[0];
+    const value = raw === '' ? null : Math.max(1, Math.min(100, Math.round(Number(raw))));
+    if (raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 1)) {
+      toast.error('Enter a position from 1–100, or leave blank for "not ranked".');
+      return;
+    }
+    const updated = keywords.map(k => {
+      if (k.id !== id) return k;
+      const history = k.history.filter(h => h.date !== today);
+      history.push({ date: today, position: value });
+      history.sort((a, b) => a.date.localeCompare(b.date));
+      return { ...k, history };
+    });
+    save(updated);
+    setEditingId(null);
+    setPosInput('');
+    toast.success('Position saved.');
   }
 
   function exportCSV() {
@@ -180,11 +202,6 @@ export default function KeywordTracker() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={simulateRefresh} disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#222] text-gray-400 hover:text-white text-sm transition disabled:opacity-50">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
           <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#222] text-gray-400 hover:text-white text-sm transition">
             <Download className="w-4 h-4" /> Export
           </button>
@@ -214,7 +231,7 @@ export default function KeywordTracker() {
       <div className="bg-[#0d1a2a] border border-blue-900/30 rounded-xl p-4 mb-5 flex gap-2.5">
         <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-gray-400">
-          <span className="text-blue-300 font-semibold">Positions are simulated.</span> For real rankings, connect Google Search Console — go to Search Console → Performance → Queries. Export and paste into this tracker, or use a paid tool like Semrush, Ahrefs, or Serpstat.
+          <span className="text-blue-300 font-semibold">Positions are entered manually.</span> Click any keyword's position to record where it currently ranks (check Google Search Console → Performance → Queries, or a tool like Semrush/Ahrefs). Each entry is dated and stored, building a real trend over time. Leave the field blank to mark a keyword "not ranked".
         </p>
       </div>
 
@@ -302,7 +319,28 @@ export default function KeywordTracker() {
                 <p className="text-[10px] text-gray-600">{k.location} · {k.device}</p>
               </div>
               <div className="text-center">
-                <span className={`text-lg font-bold ${positionColor(pos)}`}>{pos ?? '—'}</span>
+                {editingId === k.id ? (
+                  <input
+                    autoFocus
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={posInput}
+                    onChange={e => setPosInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') recordPosition(k.id); if (e.key === 'Escape') { setEditingId(null); setPosInput(''); } }}
+                    onBlur={() => recordPosition(k.id)}
+                    placeholder="1-100"
+                    className="w-16 bg-[#1a1a1a] border border-orange-500 rounded-lg px-2 py-1 text-sm text-white text-center focus:outline-none"
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setEditingId(k.id); setPosInput(pos !== null ? String(pos) : ''); }}
+                    title="Click to record current position"
+                    className={`text-lg font-bold ${positionColor(pos)} hover:underline`}
+                  >
+                    {pos ?? '—'}
+                  </button>
+                )}
               </div>
               <div className="text-center">
                 {change === null ? <Minus className="w-4 h-4 text-gray-700 mx-auto" /> : change > 0

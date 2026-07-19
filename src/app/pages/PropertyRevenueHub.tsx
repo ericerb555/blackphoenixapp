@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { saveDual, loadDual } from '../lib/database';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart as RPieChart, Pie, Cell,
@@ -539,11 +540,13 @@ export default function PropertyRevenueHub() {
   const selectedProp = properties.find(p => p.id === selectedPropId) || null;
 
   useEffect(() => {
-    const saved = localStorage.getItem('bp_properties');
-    const propsArr: PropertyProfile[] = saved ? JSON.parse(saved) : [seedProfile()];
-    if (!saved) localStorage.setItem('bp_properties', JSON.stringify(propsArr));
-    setProperties(propsArr);
-    setSelectedPropId(propsArr[0]?.id || null);
+    (async () => {
+      const saved = await loadDual('bp_properties');
+      const propsArr: PropertyProfile[] = Array.isArray(saved) && saved.length ? saved : [seedProfile()];
+      if (!Array.isArray(saved) || !saved.length) saveDual('bp_properties', propsArr);
+      setProperties(propsArr);
+      setSelectedPropId(propsArr[0]?.id || null);
+    })();
   }, []);
 
   useEffect(() => {
@@ -565,7 +568,7 @@ export default function PropertyRevenueHub() {
 
   function saveProperties(p: PropertyProfile[]) {
     setProperties(p);
-    localStorage.setItem('bp_properties', JSON.stringify(p));
+    saveDual('bp_properties', p);
   }
 
   function runAnalysis() {

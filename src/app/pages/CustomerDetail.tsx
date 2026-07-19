@@ -5,6 +5,7 @@ import {
   Activity, Star, User, Globe, MessageSquare, Briefcase
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -48,34 +49,18 @@ export default function CustomerDetail({ customerId, onBack, onEdit }: CustomerD
   const loadCustomer = async () => {
     try {
       setLoading(true);
-      // In a real app, fetch from API
-      // For now, using mock data
-      const mockCustomer: Customer = {
-        id: customerId,
-        customer_number: 'CUST-001',
-        first_name: 'John',
-        last_name: 'Smith',
-        email: 'john.smith@example.com',
-        phone: '(555) 123-4567',
-        company: 'Smith Construction Inc.',
-        status: 'active',
-        total_spent: 125000,
-        project_count: 8,
-        tags: ['VIP', 'Commercial', 'Repeat Customer'],
-        address_line1: '123 Main Street',
-        city: 'Austin',
-        state: 'TX',
-        zip_code: '78701',
-        country: 'USA',
-        notes: 'Prefers email communication. Large commercial projects.',
-        source: 'Referral',
-        assigned_to: 'Mike Johnson',
-        created_at: '2024-01-15T10:30:00Z',
-        updated_at: '2026-03-10T14:20:00Z',
-      };
-      setCustomer(mockCustomer);
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/customers/${encodeURIComponent(customerId)}`,
+        { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Failed to load customer ${customerId} (${res.status}): ${errText}`);
+      }
+      const data = await res.json();
+      setCustomer(data);
     } catch (error) {
-      console.error('Error loading customer:', error);
+      console.error('Error loading customer detail:', error);
       toast.error('Failed to load customer details');
     } finally {
       setLoading(false);

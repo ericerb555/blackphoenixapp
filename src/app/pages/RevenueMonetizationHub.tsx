@@ -40,6 +40,7 @@ import {
   formatNumber,
   initializeCohorts
 } from '../lib/services/revenueService';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 type TabType = 'payments' | 'subscriptions' | 'advertising' | 'vendor-ops' | 'subcontractor-ops' | 'promotions' | 'referrals' | 'marketing' | 'cohorts';
 
@@ -257,29 +258,75 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
     { id: 'cohorts', label: 'Cohorts', icon: Layers }
   ];
 
-  const mockPayments = [
-    { id: 'PAY-001', customer: 'John Doe', amount: 5000, status: 'completed', date: '2026-03-12' },
-    { id: 'PAY-002', customer: 'Acme Corp', amount: 12000, status: 'pending', date: '2026-03-13' },
-    { id: 'PAY-003', customer: 'Jane Smith', amount: 3500, status: 'completed', date: '2026-03-11' }
-  ];
+  // Server-backed operational data (payments, subscriptions, vendors, subcontractors).
+  const [payments, setPayments] = useState<any[]>([]);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [subcontractors, setSubcontractors] = useState<any[]>([]);
 
-  const mockSubscriptions = [
-    { id: 'SUB-001', plan: 'Premium', customer: 'Tech Solutions Inc', mrr: 299, status: 'active', renewalDate: '2026-04-01' },
-    { id: 'SUB-002', plan: 'Enterprise', customer: 'BuildRight Co', mrr: 599, status: 'active', renewalDate: '2026-03-28' },
-    { id: 'SUB-003', plan: 'Starter', customer: 'Small Business LLC', mrr: 99, status: 'expiring', renewalDate: '2026-03-15' }
-  ];
+  useEffect(() => {
+    const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+    const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
+    const getJson = async (path: string) => {
+      const res = await fetch(`${base}${path}`, { headers: authHeaders });
+      if (!res.ok) throw new Error(`${path} → ${res.status}`);
+      return res.json();
+    };
 
-  const mockVendors = [
-    { id: 'V-001', name: 'HD Supply', revenue: 45000, orders: 127, rating: 4.8, status: 'active' },
-    { id: 'V-002', name: 'Ferguson Plumbing', revenue: 32000, orders: 89, rating: 4.6, status: 'active' },
-    { id: 'V-003', name: 'Grainger Industrial', revenue: 28000, orders: 64, rating: 4.9, status: 'active' }
-  ];
+    (async () => {
+      // Payments come from real store orders.
+      try {
+        const data = await getJson('/store/orders');
+        const orders = Array.isArray(data) ? data : (data.orders || []);
+        setPayments(orders.map((o: any) => ({
+          id: o.id,
+          customer: o.customer_name || o.customer_email || 'Customer',
+          amount: o.total ?? 0,
+          status: o.payment_status || o.fulfillment_status || 'pending',
+          date: (o.created_at || '').slice(0, 10),
+        })));
+      } catch (err) { console.error('Failed to load payments:', err); }
 
-  const mockSubcontractors = [
-    { id: 'SC-001', name: 'Elite Electrical', revenue: 67000, jobs: 23, rating: 4.9, status: 'active' },
-    { id: 'SC-002', name: 'ProPlumb Services', revenue: 54000, jobs: 18, rating: 4.7, status: 'active' },
-    { id: 'SC-003', name: 'Premier HVAC', revenue: 48000, jobs: 15, rating: 4.8, status: 'active' }
-  ];
+      try {
+        const data = await getJson('/subscriptions');
+        const subs = Array.isArray(data) ? data : (data.subscriptions || []);
+        setSubscriptions(subs.map((s: any) => ({
+          id: s.id,
+          plan: s.plan || s.planName || s.tier || '—',
+          customer: s.customer || s.customerName || s.customerEmail || '—',
+          mrr: s.mrr ?? s.monthlyPrice ?? s.price ?? 0,
+          status: s.status || 'active',
+          renewalDate: (s.renewalDate || s.nextBillingDate || '').slice(0, 10),
+        })));
+      } catch (err) { console.error('Failed to load subscriptions:', err); }
+
+      try {
+        const data = await getJson('/vendors');
+        const list = Array.isArray(data) ? data : (data.vendors || []);
+        setVendors(list.map((v: any) => ({
+          id: v.id,
+          name: v.name || v.vendorName || 'Vendor',
+          revenue: v.revenue ?? v.totalSpend ?? 0,
+          orders: v.orders ?? v.totalOrders ?? 0,
+          rating: v.rating ?? 0,
+          status: v.status || 'active',
+        })));
+      } catch (err) { console.error('Failed to load vendors:', err); }
+
+      try {
+        const data = await getJson('/subcontractors');
+        const list = Array.isArray(data) ? data : (data.subcontractors || []);
+        setSubcontractors(list.map((sc: any) => ({
+          id: sc.id,
+          name: sc.name || sc.companyName || 'Subcontractor',
+          revenue: sc.revenue ?? sc.totalRevenue ?? 0,
+          jobs: sc.jobs ?? sc.totalJobs ?? 0,
+          rating: sc.rating ?? 0,
+          status: sc.status || 'active',
+        })));
+      } catch (err) { console.error('Failed to load subcontractors:', err); }
+    })();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
@@ -365,7 +412,7 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
                 </button>
               </div>
               <div className="space-y-3">
-                {mockPayments.map((payment) => (
+                {payments.map((payment) => (
                   <div key={payment.id} className="flex items-center justify-between p-4 bg-[#0A0A0A] rounded-lg hover:border hover:border-orange-500/30 transition-all">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-1">
@@ -744,7 +791,7 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
             <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6">
               <h3 className="text-lg font-bold mb-4">Top Vendors</h3>
               <div className="space-y-3">
-                {mockVendors.map((vendor) => (
+                {vendors.map((vendor) => (
                   <div key={vendor.id} className="flex items-center justify-between p-4 bg-[#0A0A0A] rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-1">
@@ -809,7 +856,7 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
             <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6">
               <h3 className="text-lg font-bold mb-4">Top Subcontractors</h3>
               <div className="space-y-3">
-                {mockSubcontractors.map((sub) => (
+                {subcontractors.map((sub) => (
                   <div key={sub.id} className="flex items-center justify-between p-4 bg-[#0A0A0A] rounded-lg">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-1">

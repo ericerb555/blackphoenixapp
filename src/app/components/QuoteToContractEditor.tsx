@@ -273,7 +273,7 @@ export function QuoteToContractEditor({
     setLoadingBids(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/bids`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/bids`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -300,7 +300,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/v1/make-server-57095a78/quotes/${workRequest.quote.id}/request-bids`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote.id}/request-bids`,
         {
           method: 'POST',
           headers: {
@@ -715,7 +715,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/v1/make-server-57095a78/quotes/${editedQuote.id}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${editedQuote.id}`,
         {
           method: 'PUT',
           headers: {
@@ -755,7 +755,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/send-to-customer`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/send-to-customer`,
         {
           method: 'POST',
           headers: {
@@ -771,9 +771,18 @@ export function QuoteToContractEditor({
       );
 
       if (response.ok) {
-        toast.success('Quote sent to customer', {
-          description: `Email sent to ${workRequest.customerEmail}`,
-        });
+        const data = await response.json().catch(() => ({}));
+        if (data?.approvalToken) {
+          const link = `${window.location.origin}${window.location.pathname}?token=${data.approvalToken}`;
+          try { await navigator.clipboard.writeText(link); } catch {}
+          toast.success('Quote sent — approval link copied', {
+            description: `Share this link with ${workRequest.customerEmail}: ${link}`,
+          });
+        } else {
+          toast.success('Quote sent to customer', {
+            description: `Sent to ${workRequest.customerEmail}`,
+          });
+        }
         onSendToCustomer(workRequest);
       } else {
         throw new Error('Failed to send quote');

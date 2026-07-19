@@ -1,19 +1,35 @@
 /**
  * Subscription & Maintenance Plans
- * Entity-aware service catalog with dynamic pricing engine.
- * All service data lives in src/app/data/maintenancePlans.ts
+ * Entity-aware service catalog with dynamic, region-aware pricing engine.
+ *
+ * Configuration (services, technician levels, frequency tiers, and pricing
+ * regions) is loaded at runtime from the server via maintenanceConfig.ts, so the
+ * business can edit everything through the in-app admin editor without a code
+ * change. maintenancePlans.ts supplies the code defaults / fallback.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
-  ChevronDown, ChevronUp, CheckCircle, Circle, Star, Zap, Shield,
-  ShoppingCart, X, Download, RefreshCw, Info, BadgeCheck, Sparkles,
+  ChevronDown, ChevronUp, CheckCircle, Circle, Star, Shield,
+  ShoppingCart, X, Download, Info, BadgeCheck, Sparkles, MapPin, Settings,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  ENTITY_TYPES, SKILL_LEVELS, FREQUENCY_TIERS, SERVICE_CATALOG,
-  computePrice, getCategories,
-  type EntityType, type ServiceItem,
-} from '../data/maintenancePlans';
+  fetchMaintenanceConfig,
+  computeConfigPrice,
+  getConfigCategories,
+  getDefaultConfig,
+  type MaintenanceConfig,
+  type EntityType,
+  type ServiceItem,
+  type SkillLevel,
+  type FrequencyTier,
+  type Region,
+} from '../data/maintenanceConfig';
+import { useAuth } from '../contexts/AuthContext';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const draftAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,12 +46,17 @@ const SKILL_BADGE_STYLE: Record<string, string> = {
   journeyman: 'text-green-400 bg-green-500/10 border-green-500/20',
   master:     'text-amber-400 bg-amber-500/10 border-amber-500/20',
 };
+const SKILL_BADGE_FALLBACK = 'text-orange-400 bg-orange-500/10 border-orange-500/20';
 
 const FREQ_BADGE_STYLE: Record<string, string> = {
   monthly:   'text-gray-400 bg-gray-500/10 border-gray-500/20',
   quarterly: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
   annual:    'text-orange-400 bg-orange-500/10 border-orange-500/20',
 };
+const FREQ_BADGE_FALLBACK = 'text-sky-400 bg-sky-500/10 border-sky-500/20';
+
+function skillBadge(id: string) { return SKILL_BADGE_STYLE[id] ?? SKILL_BADGE_FALLBACK; }
+function freqBadge(id: string)  { return FREQ_BADGE_STYLE[id] ?? FREQ_BADGE_FALLBACK; }
 
 function formatPrice(n: number) {
   return '$' + n.toLocaleString();
@@ -47,6 +68,11 @@ function ServiceCard({
   service,
   selection,
   accentColor,
+  skillLevels,
+  frequencyTiers,
+  regionMultiplier,
+  defaultSkillId,
+  defaultFreqId,
   onToggle,
   onSkillChange,
   onFreqChange,
@@ -54,6 +80,11 @@ function ServiceCard({
   service: ServiceItem;
   selection: ServiceSelection | undefined;
   accentColor: string;
+  skillLevels: SkillLevel[];
+  frequencyTiers: FrequencyTier[];
+  regionMultiplier: number;
+  defaultSkillId: string;
+  defaultFreqId: string;
   onToggle: (id: string) => void;
   onSkillChange: (id: string, skill: string) => void;
   onFreqChange: (id: string, freq: string) => void;
@@ -61,9 +92,9 @@ function ServiceCard({
   const [expanded, setExpanded] = useState(false);
   const selected = !!selection;
 
-  const skillLevel = SKILL_LEVELS.find(s => s.id === (selection?.skillId ?? 'journeyman'))!;
-  const freqTier   = FREQUENCY_TIERS.find(f => f.id === (selection?.frequencyId ?? 'monthly'))!;
-  const price      = computePrice(service.baseMonthlyPrice, skillLevel.multiplier, freqTier.multiplier);
+  const skillLevel = skillLevels.find(s => s.id === (selection?.skillId ?? defaultSkillId)) ?? skillLevels[0];
+  const freqTier   = frequencyTiers.find(f => f.id === (selection?.frequencyId ?? defaultFreqId)) ?? frequencyTiers[0];
+  const price      = computeConfigPrice(service.baseMonthlyPrice, skillLevel.multiplier, freqTier.multiplier, regionMultiplier);
 
   return (
     <div
@@ -120,13 +151,13 @@ function ServiceCard({
             <div>
               <p className="text-[10px] font-black text-gray-600 uppercase tracking-wide mb-1.5">Technician Level</p>
               <div className="flex flex-col gap-1">
-                {SKILL_LEVELS.map(skill => (
+                {skillLevels.map(skill => (
                   <button
                     key={skill.id}
                     onClick={() => { onSkillChange(service.id, skill.id); if (!selected) onToggle(service.id); }}
                     className={`flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                      (selection?.skillId ?? 'journeyman') === skill.id
-                        ? SKILL_BADGE_STYLE[skill.id]
+                      (selection?.skillId ?? defaultSkillId) === skill.id
+                        ? skillBadge(skill.id)
                         : 'text-gray-600 border-gray-800 hover:border-gray-700'
                     }`}
                   >
@@ -142,13 +173,13 @@ function ServiceCard({
             <div>
               <p className="text-[10px] font-black text-gray-600 uppercase tracking-wide mb-1.5">Frequency</p>
               <div className="flex flex-col gap-1">
-                {FREQUENCY_TIERS.map(freq => (
+                {frequencyTiers.map(freq => (
                   <button
                     key={freq.id}
                     onClick={() => { onFreqChange(service.id, freq.id); if (!selected) onToggle(service.id); }}
                     className={`flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                      (selection?.frequencyId ?? 'monthly') === freq.id
-                        ? FREQ_BADGE_STYLE[freq.id]
+                      (selection?.frequencyId ?? defaultFreqId) === freq.id
+                        ? freqBadge(freq.id)
                         : 'text-gray-600 border-gray-800 hover:border-gray-700'
                     }`}
                   >
@@ -180,33 +211,40 @@ function ServiceCard({
 
 function SummaryPanel({
   selections,
-  entityId,
+  services,
+  skillLevels,
+  frequencyTiers,
+  regionMultiplier,
+  regionLabel,
   accentColor,
   onRemove,
   onClear,
   onCheckout,
 }: {
   selections: Map<string, ServiceSelection>;
-  entityId: EntityType;
+  services: ServiceItem[];
+  skillLevels: SkillLevel[];
+  frequencyTiers: FrequencyTier[];
+  regionMultiplier: number;
+  regionLabel: string;
   accentColor: string;
   onRemove: (id: string) => void;
   onClear: () => void;
   onCheckout: () => void;
 }) {
-  const services = SERVICE_CATALOG[entityId];
-
   const lineItems = useMemo(() => {
     return Array.from(selections.entries()).map(([serviceId, sel]) => {
-      const service = services.find(s => s.id === serviceId)!;
-      const skill   = SKILL_LEVELS.find(s => s.id === sel.skillId)!;
-      const freq    = FREQUENCY_TIERS.find(f => f.id === sel.frequencyId)!;
-      const price   = computePrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier);
+      const service = services.find(s => s.id === serviceId);
+      const skill   = skillLevels.find(s => s.id === sel.skillId) ?? skillLevels[0];
+      const freq    = frequencyTiers.find(f => f.id === sel.frequencyId) ?? frequencyTiers[0];
+      if (!service) return null;
+      const price   = computeConfigPrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier, regionMultiplier);
       return { service, skill, freq, price };
-    });
-  }, [selections, services]);
+    }).filter(Boolean) as { service: ServiceItem; skill: SkillLevel; freq: FrequencyTier; price: number }[];
+  }, [selections, services, skillLevels, frequencyTiers, regionMultiplier]);
 
   const monthlyTotal  = lineItems.reduce((s, l) => {
-    const monthly = computePrice(l.service.baseMonthlyPrice, l.skill.multiplier, 1.0);
+    const monthly = computeConfigPrice(l.service.baseMonthlyPrice, l.skill.multiplier, 1.0, regionMultiplier);
     return s + monthly;
   }, 0);
   const actualTotal   = lineItems.reduce((s, l) => s + l.price, 0);
@@ -239,6 +277,12 @@ function SummaryPanel({
         <button onClick={onClear} className="text-xs text-gray-600 hover:text-red-400 transition flex items-center gap-1">
           <X className="w-3 h-3" /> Clear all
         </button>
+      </div>
+
+      {/* Region banner */}
+      <div className="px-4 py-2 flex items-center gap-1.5 border-b" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        <MapPin className="w-3 h-3 text-gray-600" />
+        <span className="text-[11px] text-gray-500">Priced for <span className="text-gray-300 font-bold">{regionLabel}</span></span>
       </div>
 
       {/* Line items */}
@@ -307,29 +351,85 @@ export default function SubscriptionMaintenancePlans({
 }: {
   onNavigate?: (p: string) => void;
 }) {
+  const { user } = useAuth();
+  const draftEmail = user?.email || 'guest';
+
+  const [config, setConfig] = useState<MaintenanceConfig>(() => getDefaultConfig());
   const [entityId, setEntityId] = useState<EntityType | null>(null);
+  const [regionId, setRegionId] = useState<string>('national');
   const [selections, setSelections] = useState<Map<string, ServiceSelection>>(new Map());
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
   const [showRecommended, setShowRecommended] = useState(false);
 
-  const entity = ENTITY_TYPES.find(e => e.id === entityId);
+  const skillLevels    = config.skillLevels;
+  const frequencyTiers = config.frequencyTiers;
+  const regions        = config.regions;
+  const defaultSkillId = skillLevels.find(s => s.id === 'journeyman')?.id ?? skillLevels[0]?.id ?? 'journeyman';
+  const defaultFreqId  = frequencyTiers.find(f => f.id === 'monthly')?.id ?? frequencyTiers[0]?.id ?? 'monthly';
+
+  const region = regions.find(r => r.id === regionId) ?? regions[0];
+  const regionMultiplier = region?.priceMultiplier ?? 1;
+  const regionLabel = region?.label ?? 'National';
+
+  // Load the runtime config (services, tech levels, frequency, regions) from the
+  // server so admin-edited pricing is reflected for customers.
+  useEffect(() => {
+    (async () => {
+      const cfg = await fetchMaintenanceConfig();
+      setConfig(cfg);
+      setRegionId(prev => (cfg.regions.some(r => r.id === prev) ? prev : (cfg.regions[0]?.id ?? 'national')));
+    })();
+  }, []);
+
+  // Restore any previously saved draft (server first, then localStorage) so a
+  // returning customer picks up where they left off.
+  useEffect(() => {
+    (async () => {
+      let draft: any = null;
+      try {
+        const res = await fetch(`${SERVER}/maintenance-draft/${encodeURIComponent(draftEmail)}`, { headers: draftAuthHeaders });
+        const json = await res.json();
+        if (json.success && json.draft) draft = json.draft;
+      } catch (err) {
+        console.error('Network error loading maintenance draft:', err);
+      }
+      if (!draft) {
+        try {
+          const local = localStorage.getItem('bp_maintenance_plan_draft');
+          if (local) draft = JSON.parse(local);
+        } catch { /* ignore */ }
+      }
+      if (draft && draft.entity && draft.selections) {
+        setEntityId(draft.entity);
+        if (draft.region) setRegionId(draft.region);
+        setSelections(new Map(Object.entries(draft.selections) as [string, ServiceSelection][]));
+      }
+    })();
+  }, [draftEmail]);
+
+  const entity = config.entityTypes.find(e => e.id === entityId);
   const accentColor = entity?.accentColor ?? '#ea580c';
 
+  const catalogForEntity = useMemo(
+    () => (entityId ? (config.catalog[entityId] || []) : []),
+    [config, entityId],
+  );
+
   const categories = useMemo(() =>
-    entityId ? ['All', ...getCategories(entityId)] : [],
-  [entityId]);
+    entityId ? ['All', ...getConfigCategories(config, entityId)] : [],
+  [config, entityId]);
 
   const filteredServices = useMemo(() => {
     if (!entityId) return [];
-    return SERVICE_CATALOG[entityId].filter(s => {
+    return catalogForEntity.filter(s => {
       if (activeCategory !== 'All' && s.category !== activeCategory) return false;
       if (showRecommended && !s.recommended) return false;
       if (search && !s.name.toLowerCase().includes(search.toLowerCase()) &&
           !s.description.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  }, [entityId, activeCategory, search, showRecommended]);
+  }, [catalogForEntity, entityId, activeCategory, search, showRecommended]);
 
   function toggleService(id: string) {
     setSelections(prev => {
@@ -337,7 +437,7 @@ export default function SubscriptionMaintenancePlans({
       if (next.has(id)) {
         next.delete(id);
       } else {
-        next.set(id, { serviceId: id, skillId: 'journeyman', frequencyId: 'monthly' });
+        next.set(id, { serviceId: id, skillId: defaultSkillId, frequencyId: defaultFreqId });
       }
       return next;
     });
@@ -346,7 +446,7 @@ export default function SubscriptionMaintenancePlans({
   function updateSkill(id: string, skillId: string) {
     setSelections(prev => {
       const next = new Map(prev);
-      const existing = next.get(id) ?? { serviceId: id, skillId, frequencyId: 'monthly' };
+      const existing = next.get(id) ?? { serviceId: id, skillId, frequencyId: defaultFreqId };
       next.set(id, { ...existing, skillId });
       return next;
     });
@@ -355,7 +455,7 @@ export default function SubscriptionMaintenancePlans({
   function updateFreq(id: string, frequencyId: string) {
     setSelections(prev => {
       const next = new Map(prev);
-      const existing = next.get(id) ?? { serviceId: id, skillId: 'journeyman', frequencyId };
+      const existing = next.get(id) ?? { serviceId: id, skillId: defaultSkillId, frequencyId };
       next.set(id, { ...existing, frequencyId });
       return next;
     });
@@ -369,35 +469,52 @@ export default function SubscriptionMaintenancePlans({
     setShowRecommended(false);
   }
 
-  function handleCheckout() {
-    const total = Array.from(selections.entries()).reduce((s, [sid, sel]) => {
-      const service = SERVICE_CATALOG[entityId!].find(x => x.id === sid)!;
-      const skill   = SKILL_LEVELS.find(x => x.id === sel.skillId)!;
-      const freq    = FREQUENCY_TIERS.find(x => x.id === sel.frequencyId)!;
-      return s + computePrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier);
+  function planTotal(): number {
+    if (!entityId) return 0;
+    return Array.from(selections.entries()).reduce((s, [sid, sel]) => {
+      const service = catalogForEntity.find(x => x.id === sid);
+      if (!service) return s;
+      const skill = skillLevels.find(x => x.id === sel.skillId) ?? skillLevels[0];
+      const freq  = frequencyTiers.find(x => x.id === sel.frequencyId) ?? frequencyTiers[0];
+      return s + computeConfigPrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier, regionMultiplier);
     }, 0);
-    // Save to localStorage for future integration
-    localStorage.setItem('bp_maintenance_plan_draft', JSON.stringify({
+  }
+
+  function handleCheckout() {
+    const total = planTotal();
+    const draft = {
       entity: entityId,
+      region: regionId,
       selections: Object.fromEntries(selections),
       totalMonthly: total,
       createdAt: new Date().toISOString(),
-    }));
+    };
+    // Persist to server (real record the team can retrieve) + localStorage mirror
+    localStorage.setItem('bp_maintenance_plan_draft', JSON.stringify(draft));
+    fetch(`${SERVER}/maintenance-draft/${encodeURIComponent(draftEmail)}`, {
+      method: 'POST',
+      headers: draftAuthHeaders,
+      body: JSON.stringify({ draft }),
+    }).then(res => res.json()).then(json => {
+      if (!json.success) console.error('Failed to save maintenance draft:', json.error);
+    }).catch(err => console.error('Network error saving maintenance draft:', err));
     toast.success(`Plan saved — ${formatPrice(total)}/mo. Your team will follow up to confirm details.`);
   }
 
   function exportPlan() {
     if (!entityId) return;
     const lines = Array.from(selections.entries()).map(([sid, sel]) => {
-      const service = SERVICE_CATALOG[entityId].find(x => x.id === sid)!;
-      const skill   = SKILL_LEVELS.find(x => x.id === sel.skillId)!;
-      const freq    = FREQUENCY_TIERS.find(x => x.id === sel.frequencyId)!;
-      const price   = computePrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier);
+      const service = catalogForEntity.find(x => x.id === sid);
+      if (!service) return '';
+      const skill = skillLevels.find(x => x.id === sel.skillId) ?? skillLevels[0];
+      const freq  = frequencyTiers.find(x => x.id === sel.frequencyId) ?? frequencyTiers[0];
+      const price = computeConfigPrice(service.baseMonthlyPrice, skill.multiplier, freq.multiplier, regionMultiplier);
       return `${service.name} | ${skill.label} | ${freq.label} | $${price}/visit`;
-    });
+    }).filter(Boolean);
     const blob = new Blob([
       `BLACK PHOENIX BUILDS — MAINTENANCE PLAN\n`,
       `Entity: ${entity?.label}\n`,
+      `Region: ${regionLabel}\n`,
       `Generated: ${new Date().toLocaleDateString()}\n\n`,
       lines.join('\n'),
     ], { type: 'text/plain' });
@@ -426,12 +543,35 @@ export default function SubscriptionMaintenancePlans({
             </p>
           </div>
 
+          {/* Region selector */}
+          <div className="space-y-2">
+            <p className="text-xs font-black text-gray-600 uppercase tracking-widest text-center">
+              Service region
+            </p>
+            <div className="flex justify-center gap-2 flex-wrap">
+              {regions.map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => setRegionId(r.id)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition border ${
+                    regionId === r.id
+                      ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
+                      : 'text-gray-500 border-gray-800 hover:border-gray-700'
+                  }`}
+                  title={r.description}
+                >
+                  <MapPin className="w-3.5 h-3.5" /> {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <p className="text-xs font-black text-gray-600 uppercase tracking-widest text-center">
               Select your property type to get started
             </p>
             <div className="grid grid-cols-2 gap-4">
-              {ENTITY_TYPES.map(e => (
+              {config.entityTypes.map(e => (
                 <button
                   key={e.id}
                   onClick={() => handleEntityChange(e.id)}
@@ -444,7 +584,7 @@ export default function SubscriptionMaintenancePlans({
                   <p className="font-black text-white text-lg">{e.label}</p>
                   <p className="text-gray-500 text-xs mt-1">{e.description}</p>
                   <div className="mt-4 text-xs font-bold" style={{ color: e.accentColor }}>
-                    {SERVICE_CATALOG[e.id].length} services available →
+                    {(config.catalog[e.id] || []).length} services available →
                   </div>
                 </button>
               ))}
@@ -459,6 +599,17 @@ export default function SubscriptionMaintenancePlans({
               New Hampshire-specific code compliance and seasonal considerations. Pricing shown before taxes and applicable permits.
             </p>
           </div>
+
+          {onNavigate && (
+            <div className="flex justify-center">
+              <button
+                onClick={() => onNavigate('maintenance-admin')}
+                className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-300 transition"
+              >
+                <Settings className="w-3.5 h-3.5" /> Manage services & pricing (admin)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -482,7 +633,21 @@ export default function SubscriptionMaintenancePlans({
             <span className="font-black text-white">{entity!.label}</span>
             <span className="text-xs text-gray-600">Maintenance Plan Builder</span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {/* Region selector */}
+            <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <MapPin className="w-3.5 h-3.5 text-gray-500" />
+              <select
+                value={regionId}
+                onChange={e => setRegionId(e.target.value)}
+                className="bg-transparent text-xs font-bold text-gray-300 focus:outline-none cursor-pointer"
+              >
+                {regions.map(r => (
+                  <option key={r.id} value={r.id} style={{ background: '#111' }}>{r.label}</option>
+                ))}
+              </select>
+            </div>
             {selections.size > 0 && (
               <button onClick={exportPlan}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition"
@@ -527,10 +692,10 @@ export default function SubscriptionMaintenancePlans({
               <button
                 onClick={() => {
                   // Select all recommended services
-                  const recs = SERVICE_CATALOG[entityId].filter(s => s.recommended);
+                  const recs = catalogForEntity.filter(s => s.recommended);
                   const next = new Map(selections);
                   recs.forEach(s => {
-                    if (!next.has(s.id)) next.set(s.id, { serviceId: s.id, skillId: 'journeyman', frequencyId: 'quarterly' });
+                    if (!next.has(s.id)) next.set(s.id, { serviceId: s.id, skillId: defaultSkillId, frequencyId: 'quarterly' });
                   });
                   setSelections(next);
                   toast.success(`Added ${recs.filter(s => !selections.has(s.id)).length} recommended services`);
@@ -573,6 +738,11 @@ export default function SubscriptionMaintenancePlans({
                   service={service}
                   selection={selections.get(service.id)}
                   accentColor={accentColor}
+                  skillLevels={skillLevels}
+                  frequencyTiers={frequencyTiers}
+                  regionMultiplier={regionMultiplier}
+                  defaultSkillId={defaultSkillId}
+                  defaultFreqId={defaultFreqId}
                   onToggle={toggleService}
                   onSkillChange={updateSkill}
                   onFreqChange={updateFreq}
@@ -591,7 +761,11 @@ export default function SubscriptionMaintenancePlans({
             <div className="sticky top-20 space-y-4">
               <SummaryPanel
                 selections={selections}
-                entityId={entityId}
+                services={catalogForEntity}
+                skillLevels={skillLevels}
+                frequencyTiers={frequencyTiers}
+                regionMultiplier={regionMultiplier}
+                regionLabel={regionLabel}
                 accentColor={accentColor}
                 onRemove={id => toggleService(id)}
                 onClear={() => setSelections(new Map())}
@@ -602,10 +776,10 @@ export default function SubscriptionMaintenancePlans({
               <div className="rounded-2xl p-4 space-y-2"
                 style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <p className="text-xs font-black text-gray-600 uppercase tracking-wide">Skill Level Guide</p>
-                {SKILL_LEVELS.map(s => (
+                {skillLevels.map(s => (
                   <div key={s.id} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${SKILL_BADGE_STYLE[s.id]}`}>
+                      <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${skillBadge(s.id)}`}>
                         {s.badge}
                       </span>
                       <span className="text-gray-400">{s.description}</span>

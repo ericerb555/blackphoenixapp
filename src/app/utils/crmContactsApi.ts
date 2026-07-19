@@ -110,6 +110,42 @@ async function fetchJson(path: string): Promise<any[]> {
  * Fetch all signed-in customers + users from the server and return them as
  * deduped CRM contacts (by email, falling back to id).
  */
+/**
+ * Load manually-managed CRM contacts and the hidden-id list from the server.
+ * Returns null for `contacts` when nothing has been saved yet so callers can seed.
+ */
+export async function fetchSavedCrm(): Promise<{ contacts: any[] | null; hidden: string[] }> {
+  try {
+    const res = await fetch(`${BASE}/crm/contacts`, { headers: authHeaders() });
+    const json = await res.json();
+    if (json.success) {
+      return {
+        contacts: Array.isArray(json.contacts) ? json.contacts : null,
+        hidden: Array.isArray(json.hidden) ? json.hidden : [],
+      };
+    }
+    console.error('[crmContactsApi] fetchSavedCrm failed:', json.error);
+  } catch (err) {
+    console.error('[crmContactsApi] Error loading saved CRM:', err);
+  }
+  return { contacts: null, hidden: [] };
+}
+
+/** Persist manually-managed CRM contacts and/or the hidden-id list to the server. */
+export async function saveSavedCrm(payload: { contacts?: any[]; hidden?: string[] }): Promise<void> {
+  try {
+    const res = await fetch(`${BASE}/crm/contacts`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!json.success) console.error('[crmContactsApi] saveSavedCrm failed:', json.error);
+  } catch (err) {
+    console.error('[crmContactsApi] Error saving CRM:', err);
+  }
+}
+
 export async function fetchAccountContacts(): Promise<CrmContact[]> {
   const [customers, users] = await Promise.all([
     fetchJson('/customers'),

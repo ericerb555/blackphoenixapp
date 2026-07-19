@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { saveDual, loadDual } from '../lib/database';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 const STORAGE_KEY = 'bp_subscriptions';
@@ -95,13 +96,15 @@ export default function SubscribeAndSave() {
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) setSubs(JSON.parse(raw));
+    (async () => {
+      const stored = await loadDual(STORAGE_KEY);
+      if (Array.isArray(stored)) setSubs(stored);
+    })();
   }, []);
 
   function persist(updated: Subscription[]) {
     setSubs(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    saveDual(STORAGE_KEY, updated);
   }
 
   async function subscribe() {

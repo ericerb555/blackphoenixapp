@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { BookOpen, Plus, Edit3, Trash2, Eye, Search, Tag, Calendar, User, Globe, Save, X, Image, Copy, CheckCircle, ArrowLeft, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,14 +37,6 @@ function slugify(s: string) {
 
 function readTime(body: string) {
   return Math.max(1, Math.ceil(body.split(/\s+/).length / 200));
-}
-
-function load(): BlogPost[] {
-  try { return JSON.parse(localStorage.getItem('blog_posts') || 'null') || DEFAULT_POSTS; } catch { return DEFAULT_POSTS; }
-}
-
-function persist(posts: BlogPost[]) {
-  localStorage.setItem('blog_posts', JSON.stringify(posts));
 }
 
 // ─── Default Content ──────────────────────────────────────────────────────────
@@ -204,10 +200,23 @@ const BLANK = (): BlogPost => ({
 
 // ─── Post Editor ──────────────────────────────────────────────────────────────
 
-function PostEditor({ post, onSave, onClose }: { post: BlogPost; onSave: (p: BlogPost) => void; onClose: () => void }) {
+function PostEditor({ post, onSave, onClose, onView }: { post: BlogPost; onSave: (p: BlogPost) => void; onClose: () => void; onView: (id: string) => void }) {
   const [p, setP] = useState<BlogPost>({ ...post });
   const [tagInput, setTagInput] = useState('');
   const [preview, setPreview] = useState(false);
+  const viewedRef = useRef(false);
+
+  function togglePreview() {
+    setPreview(v => {
+      const next = !v;
+      // Register a real view the first time a published post is previewed this session.
+      if (next && p.status === 'published' && !viewedRef.current) {
+        viewedRef.current = true;
+        onView(p.id);
+      }
+      return next;
+    });
+  }
 
   function f(key: keyof BlogPost, val: any) {
     setP(prev => {
@@ -243,7 +252,7 @@ function PostEditor({ post, onSave, onClose }: { post: BlogPost; onSave: (p: Blo
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <div className="flex items-center gap-2">
-          <button onClick={() => setPreview(v => !v)}
+          <button onClick={togglePreview}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-[#1a1a1a] transition">
             <Eye className="w-4 h-4" />
             {preview ? 'Edit' : 'Preview'}
@@ -450,25 +459,49 @@ function PostCard({ post, onEdit, onDelete, onToggleStatus }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function BlogManager() {
-  const [posts, setPosts] = useState<BlogPost[]>(load);
+  const [posts, setPosts] = useState<BlogPost[]>([]);
   const [editing, setEditing] = useState<BlogPost | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | PostStatus>('all');
   const [filterCategory, setFilterCategory] = useState('all');
 
-  function save(p: BlogPost) {
-    const next = posts.find(x => x.id === p.id) ? posts.map(x => x.id === p.id ? p : x) : [...posts, p];
-    setPosts(next);
-    persist(next);
-    setEditing(null);
-    toast.success(`Post "${p.title}" ${p.status === 'published' ? 'published!' : 'saved.'}`);
+  async function loadPosts() {
+    try {
+      const res = await fetch(`${SERVER}/blog/posts`, { headers: authHeaders });
+      const json = await res.json();
+      if (json.success) {
+        if (json.posts.length === 0) {
+          // First run: seed the starter posts then reload.
+          await Promise.all(DEFAULT_POSTS.map(p => fetch(`${SERVER}/blog/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) })));
+          const rr = await fetch(`${SERVER}/blog/posts`, { headers: authHeaders });
+          const rj = await rr.json();
+          if (rj.success) setPosts(rj.posts);
+        } else {
+          setPosts(json.posts);
+        }
+      } else console.error('Failed to load blog posts:', json.error);
+    } catch (err) { console.error('Network error loading blog posts:', err); toast.error('Could not load posts'); }
   }
 
-  function del(id: string) {
-    const next = posts.filter(p => p.id !== id);
-    setPosts(next);
-    persist(next);
-    toast.success('Post deleted.');
+  useEffect(() => { loadPosts(); }, []);
+
+  async function save(p: BlogPost) {
+    setPosts(prev => prev.find(x => x.id === p.id) ? prev.map(x => x.id === p.id ? p : x) : [p, ...prev]);
+    setEditing(null);
+    try {
+      const res = await fetch(`${SERVER}/blog/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) });
+      const json = await res.json();
+      if (json.success) toast.success(`Post "${p.title}" ${p.status === 'published' ? 'published!' : 'saved.'}`);
+      else toast.error(json.error || 'Save failed');
+    } catch (err) { console.error('Failed to save post:', err); toast.error('Network error saving post'); }
+  }
+
+  async function del(id: string) {
+    setPosts(prev => prev.filter(p => p.id !== id));
+    try {
+      await fetch(`${SERVER}/blog/posts/${id}`, { method: 'DELETE', headers: authHeaders });
+      toast.success('Post deleted.');
+    } catch (err) { console.error('Failed to delete post:', err); toast.error('Network error deleting post'); }
   }
 
   const filtered = useMemo(() => posts.filter(p => {
@@ -478,10 +511,19 @@ export default function BlogManager() {
     return true;
   }), [posts, search, filterStatus, filterCategory]);
 
+  async function registerView(id: string) {
+    try {
+      const res = await fetch(`${SERVER}/blog/posts/${id}/view`, { method: 'POST', headers: authHeaders });
+      const json = await res.json();
+      if (json.success) setPosts(prev => prev.map(x => x.id === id ? { ...x, views: json.views } : x));
+      else console.error('Failed to register view:', json.error);
+    } catch (err) { console.error('Network error registering view:', err); }
+  }
+
   const published = posts.filter(p => p.status === 'published').length;
   const totalViews = posts.reduce((s, p) => s + p.views, 0);
 
-  if (editing) return <PostEditor post={editing} onSave={save} onClose={() => setEditing(null)} />;
+  if (editing) return <PostEditor post={editing} onSave={save} onClose={() => setEditing(null)} onView={registerView} />;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">

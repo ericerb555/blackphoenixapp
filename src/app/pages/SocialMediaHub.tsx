@@ -83,6 +83,12 @@ function loadCustomAccounts(): CustomAccount[] {
 }
 function saveCustomAccounts(accounts: CustomAccount[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+  // Mirror to server so custom accounts persist and are shared across devices.
+  fetch(`${SERVER}/social/custom-accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+    body: JSON.stringify({ accounts }),
+  }).catch((err) => console.error('[SocialMediaHub] custom accounts server save failed:', err));
 }
 
 async function getAuthToken(): Promise<string> {
@@ -792,6 +798,24 @@ export default function SocialMediaHub() {
   }, []);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  // Load custom accounts from the server (falls back to the localStorage cache).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/social/custom-accounts`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.accounts)) {
+          setCustomAccounts(json.accounts);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.accounts));
+        }
+      } catch (err) {
+        console.error('[SocialMediaHub] Error loading custom accounts from server:', err);
+      }
+    })();
+  }, []);
 
   // Listen for OAuth popup messages
   useEffect(() => {

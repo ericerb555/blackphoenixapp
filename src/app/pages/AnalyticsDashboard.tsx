@@ -9,65 +9,20 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-// ─── Data generators ─────────────────────────────────────────────────────────
-function revenueData() {
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul'];
-  const base = [4200, 5100, 4800, 6300, 7100, 8400, 9200];
-  return months.map((m, i) => ({
-    month: m,
-    revenue: base[i] + Math.floor(Math.random() * 400 - 200),
-    orders:  Math.floor(base[i] / 65) + Math.floor(Math.random() * 5),
-    leads:   Math.floor(base[i] / 280) + Math.floor(Math.random() * 3),
-  }));
-}
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
-function weeklyData() {
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  return days.map(d => ({
-    day: d,
-    store:    Math.floor(300 + Math.random() * 600),
-    services: Math.floor(200 + Math.random() * 500),
-    subs:     Math.floor(80  + Math.random() * 160),
-  }));
-}
-
-function sourceData() {
-  return [
-    { name: 'Online Store',   value: 38, color: '#ea580c' },
-    { name: 'Service Booking',value: 27, color: '#60a5fa' },
-    { name: 'Subscriptions',  value: 14, color: '#34d399' },
-    { name: 'Gift Cards',     value: 9,  color: '#f472b6' },
-    { name: 'Affiliates',     value: 7,  color: '#fbbf24' },
-    { name: 'Other',          value: 5,  color: '#6b7280' },
-  ];
-}
-
-function topProducts() {
-  return [
-    { name: 'Air Fryer 5.5L',          revenue: 4499, units: 50, trend: 'up'   },
-    { name: 'Wireless Headphones Pro',  revenue: 3999, units: 50, trend: 'up'   },
-    { name: 'Lawn Care (Service)',       revenue: 3120, units: 24, trend: 'up'   },
-    { name: 'Bluetooth Speaker 360',    revenue: 2799, units: 40, trend: 'down' },
-    { name: 'Daily Vitamin Pack',       revenue: 2699, units: 90, trend: 'up'   },
-    { name: 'Landscaping (Service)',     revenue: 2400, units: 8,  trend: 'up'   },
-  ];
-}
-
-function recentActivity() {
-  return [
-    { icon: ShoppingCart, color: '#ea580c', text: 'Marcus T. placed a $149.97 order',              time: '4m ago'  },
-    { icon: Calendar,     color: '#60a5fa', text: 'New service booking — Lawn Care (Avery J.)',     time: '12m ago' },
-    { icon: Star,         color: '#fbbf24', text: 'Jessica M. left a 5-star review',               time: '28m ago' },
-    { icon: Flame,        color: '#f87171', text: 'Flash sale "July Blowout" is live — 23 clicks',  time: '1h ago'  },
-    { icon: Gift,         color: '#f472b6', text: 'Gift card redeemed — $50 by Samantha C.',        time: '1h ago'  },
-    { icon: RefreshCw,    color: '#34d399', text: 'Subscription renewed — Mia F. (Vitamin Pack)',   time: '2h ago'  },
-    { icon: Tag,          color: '#4ade80', text: 'Coupon WELCOME10 used — order $89.99',           time: '2h ago'  },
-    { icon: Users,        color: '#818cf8', text: 'Referral link clicked — BP-ERIC042 (3rd today)', time: '3h ago'  },
-    { icon: MessageSquare,color: '#fb923c', text: 'SMS campaign sent — 214 contacts reached',       time: '4h ago'  },
-    { icon: ShoppingCart, color: '#ea580c', text: 'Cart recovered — Troy J. used COMEBACK10',       time: '5h ago'  },
-  ];
-}
+// Map an activity event type from the server to an icon + color.
+const ACTIVITY_ICON: Record<string, { icon: any; color: string }> = {
+  order:        { icon: ShoppingCart,  color: '#ea580c' },
+  lead:         { icon: Users,         color: '#818cf8' },
+  review:       { icon: Star,          color: '#fbbf24' },
+  subscription: { icon: RefreshCw,     color: '#34d399' },
+  sms:          { icon: MessageSquare, color: '#fb923c' },
+  giftcard:     { icon: Gift,          color: '#f472b6' },
+};
 
 // ─── Subcomponents ────────────────────────────────────────────────────────────
 function KPICard({ label, value, sub, change, icon: Icon, color }: {
@@ -114,29 +69,64 @@ type Period = '7d' | '30d' | 'ytd';
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function AnalyticsDashboard() {
   const [period, setPeriod] = useState<Period>('30d');
-  const [revData]    = useState(revenueData);
-  const [weekData]   = useState(weeklyData);
-  const [srcData]    = useState(sourceData);
-  const [products]   = useState(topProducts);
-  const [activity]   = useState(recentActivity);
+  const [revData, setRevData]   = useState<any[]>([]);
+  const [weekData, setWeekData] = useState<any[]>([]);
+  const [srcData, setSrcData]   = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [activity, setActivity] = useState<{ icon: any; color: string; text: string; time: string }[]>([]);
+  const [summary, setSummary]   = useState<any | null>(null);
+  const [loading, setLoading]   = useState(true);
 
-  // Simulate live ticker
-  const [liveRevenue, setLiveRevenue] = useState(9247);
   useEffect(() => {
-    const t = setInterval(() => setLiveRevenue(p => p + Math.floor(Math.random() * 40)), 8000);
-    return () => clearInterval(t);
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${SERVER}/analytics/summary`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success) {
+          setSummary(json.kpis);
+          setRevData(json.revenueByMonth || []);
+          setWeekData((json.revenueByWeekday || []).map((d: any) => ({ day: d.day, store: d.revenue, services: 0, subs: 0 })));
+          setSrcData(json.sources || []);
+          setProducts((json.topProducts || []).map((p: any, i: number, arr: any[]) => ({
+            ...p, trend: i < Math.ceil(arr.length / 2) ? 'up' : 'down',
+          })));
+          setActivity((json.activity || []).map((a: any) => ({
+            ...(ACTIVITY_ICON[a.type] || { icon: Activity, color: '#6b7280' }), text: a.text, time: a.time,
+          })));
+        } else {
+          console.error('[Analytics] summary failed:', json.error);
+        }
+      } catch (err) {
+        console.error('[Analytics] Error loading summary:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
+  const k = summary || {};
   const kpis = [
-    { label: 'Revenue This Month', value: `$${liveRevenue.toLocaleString()}`, sub: 'Updates live', change: 18, icon: DollarSign, color: '#ea580c' },
-    { label: 'Total Orders',       value: '142',   sub: '+22 vs last month',  change: 18, icon: ShoppingCart, color: '#60a5fa' },
-    { label: 'Active Leads',       value: '38',    sub: '9 need follow-up',   change: 12, icon: Users,        color: '#818cf8' },
-    { label: 'Avg Order Value',    value: '$65.10', sub: 'up $4.20',          change: 7,  icon: TrendingUp,   color: '#4ade80' },
-    { label: 'Recovery Rate',      value: '28%',   sub: 'Abandoned cart',     change: 5,  icon: RefreshCw,    color: '#34d399' },
-    { label: 'Coupon Redemptions', value: '207',   sub: 'This month',         change: 31, icon: Tag,          color: '#fbbf24' },
-    { label: 'Review Score',       value: '4.8★',  sub: '89 total reviews',   change: 2,  icon: Star,         color: '#f472b6' },
-    { label: 'Subscriptions',      value: '34',    sub: '$1,820 MRR',         change: 15, icon: Activity,     color: '#a78bfa' },
+    { label: 'Revenue This Month', value: `$${(k.revenueThisMonth ?? 0).toLocaleString()}`, sub: 'This month',        change: k.revenueChange ?? 0, icon: DollarSign,   color: '#ea580c' },
+    { label: 'Total Orders',       value: `${k.totalOrders ?? 0}`,                          sub: 'All time',          change: undefined,            icon: ShoppingCart, color: '#60a5fa' },
+    { label: 'Active Leads',       value: `${k.activeLeads ?? 0}`,                          sub: 'In pipeline',       change: undefined,            icon: Users,        color: '#818cf8' },
+    { label: 'Avg Order Value',    value: `$${(k.avgOrderValue ?? 0).toFixed(2)}`,          sub: 'Per order',         change: undefined,            icon: TrendingUp,   color: '#4ade80' },
+    { label: 'Recovery Rate',      value: `${k.recoveryRate ?? 0}%`,                        sub: 'Abandoned cart',    change: undefined,            icon: RefreshCw,    color: '#34d399' },
+    { label: 'Gift Redemptions',   value: `${k.giftRedemptions ?? 0}`,                      sub: 'Gift cards',        change: undefined,            icon: Tag,          color: '#fbbf24' },
+    { label: 'Review Score',       value: k.reviewCount ? `${k.reviewScore}★` : '—',        sub: `${k.reviewCount ?? 0} total reviews`, change: undefined, icon: Star,   color: '#f472b6' },
+    { label: 'Subscriptions',      value: `${k.subscriptions ?? 0}`,                        sub: `$${(k.mrr ?? 0).toLocaleString()} MRR`, change: undefined, icon: Activity, color: '#a78bfa' },
   ];
+
+  // Insights derived from the real summary — only surfaced when the data supports them.
+  const insights: { icon: any; color: string; title: string; body: string }[] = [];
+  if (summary) {
+    if ((k.revenueChange ?? 0) > 0) insights.push({ icon: TrendingUp, color: '#4ade80', title: `Revenue up ${k.revenueChange}%`, body: `You're up ${k.revenueChange}% vs last month, at $${(k.revenueThisMonth ?? 0).toLocaleString()} so far.` });
+    else if ((k.revenueChange ?? 0) < 0) insights.push({ icon: TrendingDown, color: '#f87171', title: `Revenue down ${Math.abs(k.revenueChange)}%`, body: `Revenue dropped ${Math.abs(k.revenueChange)}% vs last month. Consider a promo to re-engage.` });
+    if ((k.activeLeads ?? 0) > 0) insights.push({ icon: Users, color: '#60a5fa', title: `${k.activeLeads} active lead${k.activeLeads === 1 ? '' : 's'}`, body: `You have ${k.activeLeads} lead${k.activeLeads === 1 ? '' : 's'} in the pipeline. Follow up to convert them.` });
+    if ((k.recoveryRate ?? 0) > 0) insights.push({ icon: RefreshCw, color: '#34d399', title: 'Cart recovery active', body: `Your abandoned-cart recovery rate is ${k.recoveryRate}%. Keep the automation running.` });
+    if (products[0]) insights.push({ icon: Star, color: '#f472b6', title: 'Top performer', body: `"${products[0].name}" is your best seller with $${(products[0].revenue).toLocaleString()} in revenue.` });
+    if ((k.mrr ?? 0) > 0) insights.push({ icon: Tag, color: '#fbbf24', title: `$${(k.mrr).toLocaleString()} MRR`, body: `Recurring revenue from ${k.subscriptions} active subscription${k.subscriptions === 1 ? '' : 's'}.` });
+  }
 
   return (
     <div className="min-h-screen p-4 sm:p-6 space-y-6" style={{ background: '#0a0a0a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
@@ -252,6 +242,9 @@ export default function AnalyticsDashboard() {
             <h2 className="font-black text-white mb-1">Top Performers</h2>
             <p className="text-xs text-gray-500 mb-4">Products &amp; services by revenue this month</p>
             <div className="space-y-3">
+              {products.length === 0 && (
+                <p className="text-xs text-gray-600 py-6 text-center">{loading ? 'Loading…' : 'No product sales yet.'}</p>
+              )}
               {products.map((p, i) => (
                 <div key={p.name} className="flex items-center gap-3">
                   <span className="text-[10px] font-black text-gray-700 w-4">{i + 1}</span>
@@ -265,7 +258,7 @@ export default function AnalyticsDashboard() {
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-black text-white">${(p.revenue / 100).toFixed(0)}k</p>
+                    <p className="text-sm font-black text-white">{p.revenue >= 1000 ? `$${(p.revenue / 1000).toFixed(1)}k` : `$${p.revenue}`}</p>
                     {p.trend === 'up'
                       ? <ArrowUpRight className="w-3 h-3 text-green-400 ml-auto" />
                       : <ArrowDownRight className="w-3 h-3 text-red-400 ml-auto" />}
@@ -283,6 +276,9 @@ export default function AnalyticsDashboard() {
               <Activity className="w-4 h-4 text-orange-400" /> Live Activity Feed
             </h2>
             <div className="space-y-3">
+              {activity.length === 0 && (
+                <p className="text-xs text-gray-600 py-6 text-center">{loading ? 'Loading activity…' : 'No activity yet. Events appear here as orders, leads, and reviews come in.'}</p>
+              )}
               {activity.map((a, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: a.color + '15' }}>
@@ -301,13 +297,10 @@ export default function AnalyticsDashboard() {
             <h2 className="font-black text-white flex items-center gap-2">
               <Flame className="w-4 h-4 text-orange-400" /> AI Insights
             </h2>
-            {[
-              { icon: TrendingUp, color: '#4ade80', title: 'Revenue up 18%', body: 'July is your best month ever. Air Fryer and Lawn Care are driving growth.' },
-              { icon: Users,      color: '#60a5fa', title: '9 hot leads ignored', body: 'Samantha C., Avery J., and 7 others scored 80+ with no recent contact.' },
-              { icon: RefreshCw,  color: '#34d399', title: 'Cart recovery working', body: 'COMEBACK10 has a 28% recovery rate — 3× industry average. Keep it active.' },
-              { icon: Tag,        color: '#fbbf24', title: 'SUMMER25 expired', body: 'Your best-performing coupon expired. Consider relaunching for August.' },
-              { icon: Star,       color: '#f472b6', title: 'Reviews converting', body: 'Products with 10+ reviews see 2.4× more add-to-cart clicks in your store.' },
-            ].map((ins, i) => (
+            {insights.length === 0 && (
+              <p className="text-xs text-gray-600 py-4">{loading ? 'Analyzing…' : 'Insights appear as your business data grows.'}</p>
+            )}
+            {insights.map((ins, i) => (
               <div key={i} className="rounded-xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div className="flex items-start gap-2.5">
                   <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: ins.color + '15' }}>

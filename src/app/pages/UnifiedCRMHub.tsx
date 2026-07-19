@@ -6,7 +6,7 @@ import {
   ArrowLeft, Phone, Calendar, MapPin, Eye, Edit, Trash2, MoreVertical,
   X, ChevronDown, Map, RefreshCw
 } from 'lucide-react';
-import { fetchAccountContacts } from '../utils/crmContactsApi';
+import { fetchAccountContacts, fetchSavedCrm, saveSavedCrm } from '../utils/crmContactsApi';
 
 // Contact Types
 type ContactType =
@@ -37,81 +37,6 @@ interface Contact {
   avatar?: string;
 }
 
-// Mock data for demonstration
-const mockContacts: Contact[] = [
-  {
-    id: '1',
-    name: 'John Smith',
-    type: 'customer',
-    email: 'john.smith@email.com',
-    phone: '(555) 123-4567',
-    company: 'Smith Residence',
-    location: 'New York, NY',
-    tags: ['VIP', 'Repeat Customer'],
-    lastContact: '2024-05-15',
-    status: 'active'
-  },
-  {
-    id: '2',
-    name: 'Sarah Johnson',
-    type: 'property_manager',
-    email: 'sarah.j@propertymanagement.com',
-    phone: '(555) 234-5678',
-    company: 'Premier Property Management',
-    location: 'Boston, MA',
-    tags: ['50+ Units'],
-    lastContact: '2024-05-20',
-    status: 'active'
-  },
-  {
-    id: '3',
-    name: 'Mike Davis',
-    type: 'subcontractor',
-    email: 'mike@daviselectrical.com',
-    phone: '(555) 345-6789',
-    company: 'Davis Electrical',
-    location: 'Chicago, IL',
-    tags: ['Licensed', 'Insured'],
-    lastContact: '2024-05-18',
-    status: 'active'
-  },
-  {
-    id: '4',
-    name: 'Empire Investors LLC',
-    type: 'investor',
-    email: 'contact@empireinvestors.com',
-    phone: '(555) 456-7890',
-    company: 'Empire Investors',
-    location: 'San Francisco, CA',
-    tags: ['High Net Worth', 'Multi-Property'],
-    lastContact: '2024-05-22',
-    status: 'active'
-  },
-  {
-    id: '5',
-    name: 'BuildPro Supply Co',
-    type: 'vendor',
-    email: 'orders@buildprosupply.com',
-    phone: '(555) 567-8901',
-    company: 'BuildPro Supply',
-    location: 'Atlanta, GA',
-    tags: ['Bulk Discount', 'Net 30'],
-    lastContact: '2024-05-19',
-    status: 'active'
-  },
-  {
-    id: '6',
-    name: 'Northwest Territory Group',
-    type: 'territory',
-    email: 'contact@nwterritory.com',
-    phone: '(555) 678-9012',
-    company: 'NW Territory Partners',
-    location: 'Seattle, WA',
-    tags: ['Regional Partner', 'Multi-State'],
-    lastContact: '2024-05-21',
-    status: 'active'
-  }
-];
 
 export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -119,7 +44,7 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [showBulkActions, setShowBulkActions] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>(mockContacts);
+  const [contacts, setContacts] = useState<Contact[]>([]);
 
   // Modal states
   const [showAddContactModal, setShowAddContactModal] = useState(false);
@@ -145,16 +70,34 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
       console.log('[CRM Hub] Loading data...');
       setSyncing(true);
 
-      // Load saved CRM contacts from localStorage
-      const savedContacts = localStorage.getItem('crm_contacts');
+      // Load saved CRM contacts — server is the source of truth, with a
+      // localStorage fallback (and mirror) so data survives across devices.
       let loadedContacts: Contact[] = [];
-
-      if (savedContacts) {
-        try {
-          loadedContacts = JSON.parse(savedContacts);
-          console.log(`[CRM Hub] Loaded ${loadedContacts.length} saved contacts`);
-        } catch (error) {
-          console.error('[CRM Hub] Error parsing saved contacts:', error);
+      try {
+        const saved = await fetchSavedCrm();
+        if (saved.contacts && saved.contacts.length) {
+          loadedContacts = saved.contacts as Contact[];
+          localStorage.setItem('crm_contacts', JSON.stringify(loadedContacts));
+          console.log(`[CRM Hub] Loaded ${loadedContacts.length} contacts from server`);
+        } else {
+          const savedContacts = localStorage.getItem('crm_contacts');
+          if (savedContacts) {
+            loadedContacts = JSON.parse(savedContacts);
+            if (loadedContacts.length) saveSavedCrm({ contacts: loadedContacts });
+            console.log(`[CRM Hub] Loaded ${loadedContacts.length} saved contacts (local)`);
+          }
+        }
+        // Merge server-side hidden ids into the local set.
+        if (saved.hidden && saved.hidden.length) {
+          const local = new Set<string>(JSON.parse(localStorage.getItem('crm_hidden_ids') || '[]'));
+          saved.hidden.forEach(h => local.add(h));
+          localStorage.setItem('crm_hidden_ids', JSON.stringify([...local]));
+        }
+      } catch (error) {
+        console.error('[CRM Hub] Error loading saved contacts:', error);
+        const savedContacts = localStorage.getItem('crm_contacts');
+        if (savedContacts) {
+          try { loadedContacts = JSON.parse(savedContacts); } catch { /* ignore */ }
         }
       }
 
@@ -222,14 +165,10 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
 
       const finalContacts = [...loadedContacts, ...accountContacts];
 
-      // If we have loaded contacts, use them; otherwise use mock data
-      if (finalContacts.length > 0) {
-        setContacts(finalContacts);
-        console.log(`[CRM Hub] Total contacts loaded: ${finalContacts.length}`);
-      } else {
-        console.log('[CRM Hub] No saved data, using mock contacts');
-        setContacts(mockContacts);
-      }
+      // Server is the source of truth. When there are no saved contacts we show a
+      // genuine empty state rather than fabricated demo contacts.
+      setContacts(finalContacts);
+      console.log(`[CRM Hub] Total contacts loaded: ${finalContacts.length}`);
       setSyncing(false);
     };
 
@@ -401,11 +340,13 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
       avatar: newContact.avatar,
       lastContact: new Date().toISOString().split('T')[0]
     };
-    setContacts([...contacts, contact]);
+    const next = [...contacts, contact];
+    setContacts(next);
     setShowAddContactModal(false);
 
-    // Save to localStorage
-    localStorage.setItem('crm_contacts', JSON.stringify([...contacts, contact]));
+    // Persist to server (source of truth) + localStorage mirror
+    localStorage.setItem('crm_contacts', JSON.stringify(next));
+    saveSavedCrm({ contacts: next });
   };
 
   // Handle edit contact
@@ -417,8 +358,9 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
     setShowEditContactModal(false);
     setSelectedContact(null);
 
-    // Save to localStorage
+    // Persist to server (source of truth) + localStorage mirror
     localStorage.setItem('crm_contacts', JSON.stringify(updatedContacts));
+    saveSavedCrm({ contacts: updatedContacts });
   };
 
   // Handle delete contact
@@ -430,8 +372,9 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
       setContactToDelete(null);
       setShowDeleteModal(false);
 
-      // Save to localStorage
+      // Persist to server (source of truth) + localStorage mirror
       localStorage.setItem('crm_contacts', JSON.stringify(updatedContacts));
+      saveSavedCrm({ contacts: updatedContacts });
 
       // Remember deletions of server-synced accounts so they don't reappear on refresh.
       if (removed) {
@@ -439,7 +382,9 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
           const hidden = new Set<string>(JSON.parse(localStorage.getItem('crm_hidden_ids') || '[]'));
           hidden.add(removed.id);
           if (removed.email) hidden.add(removed.email.toLowerCase());
-          localStorage.setItem('crm_hidden_ids', JSON.stringify([...hidden]));
+          const hiddenArr = [...hidden];
+          localStorage.setItem('crm_hidden_ids', JSON.stringify(hiddenArr));
+          saveSavedCrm({ hidden: hiddenArr });
         } catch (err) {
           console.error('[CRM Hub] Error saving hidden ids:', err);
         }
@@ -492,8 +437,10 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
         try {
           const imported = JSON.parse(e.target?.result as string);
           if (Array.isArray(imported)) {
-            setContacts([...contacts, ...imported]);
-            localStorage.setItem('crm_contacts', JSON.stringify([...contacts, ...imported]));
+            const merged = [...contacts, ...imported];
+            setContacts(merged);
+            localStorage.setItem('crm_contacts', JSON.stringify(merged));
+            saveSavedCrm({ contacts: merged });
             alert(`Imported ${imported.length} contacts`);
           }
         } catch (error) {

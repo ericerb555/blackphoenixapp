@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Star, Send, MessageSquare, ThumbsUp, ThumbsDown, Copy, CheckCircle, ExternalLink, Search, Filter, Download, Plus, Trash2, Eye, Mail } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,12 +26,14 @@ interface SurveyResponse {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function load(): SurveyResponse[] {
-  try { return JSON.parse(localStorage.getItem('review_surveys') || 'null') || DEFAULT_RESPONSES; } catch { return DEFAULT_RESPONSES; }
-}
-
-function persist(r: SurveyResponse[]) {
-  localStorage.setItem('review_surveys', JSON.stringify(r));
+async function persist(r: SurveyResponse[]) {
+  try {
+    const res = await fetch(`${SERVER}/surveys`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ surveys: r }) });
+    const json = await res.json();
+    if (!json.success) console.error('Failed to save surveys:', json.error);
+  } catch (err) {
+    console.error('Network error saving surveys:', err);
+  }
 }
 
 // ─── Default Data ─────────────────────────────────────────────────────────────
@@ -225,13 +231,31 @@ function ResponseDetail({ r, onMarkReviewLeft, onClose }: { r: SurveyResponse; o
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReviewSurveyManager() {
-  const [responses, setResponses] = useState<SurveyResponse[]>(load);
+  const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [showSend, setShowSend] = useState(false);
   const [viewing, setViewing] = useState<SurveyResponse | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | SurveyResponse['status']>('all');
   const [tab, setTab] = useState<'responses' | 'templates' | 'platforms'>('responses');
   const [copied, setCopied] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/surveys`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.surveys) && json.surveys.length) {
+          setResponses(json.surveys);
+        } else {
+          setResponses(DEFAULT_RESPONSES);
+          persist(DEFAULT_RESPONSES);
+        }
+      } catch (err) {
+        console.error('Network error loading surveys:', err);
+        setResponses(DEFAULT_RESPONSES);
+      }
+    })();
+  }, []);
 
   function save(r: SurveyResponse[]) { setResponses(r); persist(r); }
 

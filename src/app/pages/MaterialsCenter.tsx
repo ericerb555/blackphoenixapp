@@ -1022,27 +1022,36 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
 
     try {
       const searchTerm = material.description || material.name;
-      const vendors = ['Home Depot', 'Lowes', 'Grainger'];
-      const allAlternatives: any[] = [];
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/vendor-pricing/compare`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            materialId: material.id,
+            materialName: searchTerm,
+            basePrice: material.unitPrice,
+            quantity: material.quantity,
+          }),
+        }
+      );
 
-      for (const vendor of vendors) {
-        // Mock vendor search - in production this would call real APIs
-        const mockResults = [
-          {
-            vendorName: vendor,
-            productName: searchTerm,
-            price: material.unitPrice * (0.85 + Math.random() * 0.3),
-            sku: `${vendor.substring(0, 2).toUpperCase()}-${Math.random().toString(36).substring(7).toUpperCase()}`,
-            inStock: Math.random() > 0.2,
-            delivery: vendor === 'Grainger' ? 'Next Day' : 'Same Day'
-          }
-        ];
-        allAlternatives.push(...mockResults);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Vendor pricing request failed (${res.status}): ${errText}`);
       }
 
-      setVendorAlternatives(allAlternatives);
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(`Vendor pricing error: ${json.error || 'unknown'}`);
+      }
+
+      setVendorAlternatives(json.data || []);
     } catch (error) {
-      console.error('Error fetching vendor alternatives:', error);
+      console.error('Error fetching vendor alternatives from server:', error);
       toast.error('Failed to fetch vendor alternatives');
     } finally {
       setLoadingVendorAlternatives(false);

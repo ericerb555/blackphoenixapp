@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Zap, Plus, Trash2, Play, Pause, Edit3, Copy, CheckCircle, Clock, Mail, MessageSquare, Bell, Tag, DollarSign, Users, ChevronRight, ChevronDown, Info, BarChart2, X, Save } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +30,7 @@ interface Workflow {
   runCount: number;
   createdAt: string;
   description: string;
+  lastRun?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -55,7 +60,7 @@ const DEFAULT_WORKFLOWS: Workflow[] = [
     name: 'New Lead Welcome',
     trigger: 'new_lead',
     status: 'active',
-    runCount: 14,
+    runCount: 0,
     createdAt: '2026-06-01',
     description: 'Greet new leads instantly, follow up in 2 days.',
     actions: [
@@ -69,7 +74,7 @@ const DEFAULT_WORKFLOWS: Workflow[] = [
     name: 'Post-Job Review Request',
     trigger: 'job_completed',
     status: 'active',
-    runCount: 31,
+    runCount: 0,
     createdAt: '2026-05-15',
     description: 'Ask for a Google review 3 days after completion.',
     actions: [
@@ -82,7 +87,7 @@ const DEFAULT_WORKFLOWS: Workflow[] = [
     name: 'Overdue Invoice Reminder',
     trigger: 'invoice_overdue',
     status: 'paused',
-    runCount: 8,
+    runCount: 0,
     createdAt: '2026-05-20',
     description: 'Friendly reminder, then escalate after a week.',
     actions: [
@@ -111,12 +116,14 @@ const BLANK_WORKFLOW = (): Workflow => ({
   description: '',
 });
 
-function load(): Workflow[] {
-  try { return JSON.parse(localStorage.getItem('marketing_workflows') || 'null') || DEFAULT_WORKFLOWS; } catch { return DEFAULT_WORKFLOWS; }
-}
-
-function save(ws: Workflow[]) {
-  localStorage.setItem('marketing_workflows', JSON.stringify(ws));
+async function saveToServer(ws: Workflow[]) {
+  try {
+    const res = await fetch(`${SERVER}/automation/workflows`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ workflows: ws }) });
+    const json = await res.json();
+    if (!json.success) console.error('Failed to save workflows:', json.error);
+  } catch (err) {
+    console.error('Network error saving workflows:', err);
+  }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -327,14 +334,32 @@ function WorkflowEditor({ workflow, onSave, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MarketingAutomation() {
-  const [workflows, setWorkflows] = useState<Workflow[]>(load);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [editing, setEditing] = useState<Workflow | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tab, setTab] = useState<'workflows' | 'templates' | 'stats'>('workflows');
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/automation/workflows`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.workflows) && json.workflows.length) {
+          setWorkflows(json.workflows);
+        } else {
+          setWorkflows(DEFAULT_WORKFLOWS);
+          saveToServer(DEFAULT_WORKFLOWS);
+        }
+      } catch (err) {
+        console.error('Network error loading workflows:', err);
+        setWorkflows(DEFAULT_WORKFLOWS);
+      }
+    })();
+  }, []);
+
   function persist(ws: Workflow[]) {
     setWorkflows(ws);
-    save(ws);
+    saveToServer(ws);
   }
 
   function handleSave(wf: Workflow) {
@@ -366,6 +391,25 @@ export default function MarketingAutomation() {
       toast.success(`Workflow ${next === 'active' ? 'activated' : 'paused'}.`);
       return { ...w, status: next };
     }));
+  }
+
+  async function runWorkflow(id: string) {
+    const wf = workflows.find(w => w.id === id);
+    if (!wf) return;
+    if (wf.status !== 'active') { toast.error('Activate the workflow before running it.'); return; }
+    try {
+      const res = await fetch(`${SERVER}/automation/workflows/${id}/run`, { method: 'POST', headers: authHeaders });
+      const json = await res.json();
+      if (json.success && json.workflow) {
+        setWorkflows(prev => prev.map(w => w.id === id ? { ...w, runCount: json.workflow.runCount, lastRun: json.workflow.lastRun } : w));
+        toast.success(`"${wf.name}" ran — ${json.workflow.runCount} total run${json.workflow.runCount === 1 ? '' : 's'}.`);
+      } else {
+        toast.error(json.error || 'Failed to run workflow');
+      }
+    } catch (err) {
+      console.error('Failed to run workflow:', err);
+      toast.error('Network error running workflow');
+    }
   }
 
   function useTemplate(tmpl: Partial<Workflow>) {
@@ -468,6 +512,11 @@ export default function MarketingAutomation() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  {wf.status === 'active' && (
+                    <button onClick={() => runWorkflow(wf.id)} title="Run now" className="p-2 hover:bg-[#1a1a1a] rounded-lg text-gray-500 hover:text-green-400 transition">
+                      <Play className="w-4 h-4" />
+                    </button>
+                  )}
                   <button onClick={() => setEditing(wf)} className="p-2 hover:bg-[#1a1a1a] rounded-lg text-gray-500 hover:text-white transition">
                     <Edit3 className="w-4 h-4" />
                   </button>

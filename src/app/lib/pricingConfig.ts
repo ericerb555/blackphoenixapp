@@ -161,7 +161,8 @@ export function calculateTax(amount: number, config?: PricingConfig): number {
 export function calculateQuoteTotal(
   materialsSubtotal: number,
   laborSubtotal: number,
-  config?: PricingConfig
+  config?: PricingConfig,
+  subscriptionDiscountPct: number = 0
 ): {
   materialsSubtotal: number;
   laborSubtotal: number;
@@ -169,16 +170,27 @@ export function calculateQuoteTotal(
   overhead: number;
   profit: number;
   subtotalWithProfitOverhead: number;
+  subscriptionDiscountPct: number;
+  subscriptionDiscount: number;
+  discountedSubtotal: number;
   tax: number;
   grandTotal: number;
 } {
   const pricingConfig = config || loadPricingConfig();
-  
+
   const subtotal = materialsSubtotal + laborSubtotal;
   const { overhead, profit, total: subtotalWithProfitOverhead } = applyProfitAndOverhead(subtotal, pricingConfig);
-  const tax = calculateTax(subtotalWithProfitOverhead, pricingConfig);
-  const grandTotal = subtotalWithProfitOverhead + tax;
-  
+
+  // Subscription / maintenance-plan loyalty discount, applied pre-tax to the job cost.
+  const pct = pricingConfig.allowDiscounts
+    ? Math.max(0, Math.min(subscriptionDiscountPct, pricingConfig.maxDiscountPercentage))
+    : 0;
+  const subscriptionDiscount = subtotalWithProfitOverhead * (pct / 100);
+  const discountedSubtotal = subtotalWithProfitOverhead - subscriptionDiscount;
+
+  const tax = calculateTax(discountedSubtotal, pricingConfig);
+  const grandTotal = discountedSubtotal + tax;
+
   return {
     materialsSubtotal,
     laborSubtotal,
@@ -186,6 +198,9 @@ export function calculateQuoteTotal(
     overhead,
     profit,
     subtotalWithProfitOverhead,
+    subscriptionDiscountPct: pct,
+    subscriptionDiscount,
+    discountedSubtotal,
     tax,
     grandTotal,
   };

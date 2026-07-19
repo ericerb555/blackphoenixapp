@@ -9,7 +9,7 @@
  * - ROI tracking
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Gift, Tag, Percent, DollarSign, Calendar, Users, TrendingUp, TrendingDown,
   Plus, Edit, Trash2, Eye, Copy, Search, Filter, Download, Settings,
@@ -18,6 +18,10 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { toast } from 'sonner@2.0.3';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const DEFAULT_PROMOS = [
     {
@@ -125,16 +129,37 @@ const BLANK = { name: '', type: 'coupon' as 'coupon'|'sale'|'giveaway', code: ''
 export default function PromotionsManager() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'coupons' | 'sales' | 'giveaways'>('all');
-  const [promotions, setPromos] = useState<any[]>(() => {
-    try { return JSON.parse(localStorage.getItem('promotions_data') || 'null') || DEFAULT_PROMOS; } catch { return DEFAULT_PROMOS; }
-  });
+  const [promotions, setPromos] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingPromo, setEditingPromo] = useState<any | null>(null);
   const [viewingPromo, setViewingPromo] = useState<any | null>(null);
   const [form, setForm] = useState(BLANK);
   const [createType, setCreateType] = useState<'coupon'|'sale'|'giveaway'>('coupon');
 
-  function savePromos(updated: any[]) { setPromos(updated); localStorage.setItem('promotions_data', JSON.stringify(updated)); }
+  useEffect(() => { loadPromos(); }, []);
+
+  async function loadPromos() {
+    try {
+      const res = await fetch(`${SERVER}/promotions`, { headers: authHeaders });
+      const json = await res.json();
+      if (json.success) {
+        if (json.promotions.length === 0) {
+          // Seed the database with defaults on first run.
+          await Promise.all(DEFAULT_PROMOS.map(p =>
+            fetch(`${SERVER}/promotions`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) })
+          ));
+          const re = await fetch(`${SERVER}/promotions`, { headers: authHeaders });
+          const reJson = await re.json();
+          setPromos(reJson.promotions || []);
+        } else {
+          setPromos(json.promotions);
+        }
+      }
+    } catch (err) {
+      console.error('Promotions load error:', err);
+      toast.error('Could not load promotions from server');
+    }
+  }
 
   function openCreate(type: 'coupon'|'sale'|'giveaway' = 'coupon') {
     setCreateType(type);
@@ -149,23 +174,61 @@ export default function PromotionsManager() {
     setShowModal(true);
   }
 
-  function savePromo() {
+  async function savePromo() {
     if (!form.name || !form.code) { toast.error('Name and code are required'); return; }
-    if (editingPromo) {
-      savePromos(promotions.map(p => p.id === editingPromo.id ? { ...editingPromo, ...form, discount: form.discountType === 'percentage' ? `${form.discountValue}% OFF` : form.discountType === 'fixed' ? `$${form.discountValue} OFF` : 'Free Entry' } : p));
-      toast.success('Promotion updated');
-    } else {
-      const next = { id: `PROMO-${String(promotions.length + 1).padStart(3, '0')}`, ...form, discount: form.discountType === 'percentage' ? `${form.discountValue}% OFF` : form.discountType === 'fixed' ? `$${form.discountValue} OFF` : 'Free Entry', used: 0, revenue: 0 };
-      savePromos([...promotions, next]);
-      toast.success(`"${form.name}" promotion created`);
+    try {
+      if (editingPromo) {
+        const res = await fetch(`${SERVER}/promotions/${editingPromo.id}`, {
+          method: 'PUT', headers: authHeaders, body: JSON.stringify({ ...form }),
+        });
+        const json = await res.json();
+        if (!json.success) { toast.error(json.error || 'Failed to update'); return; }
+        toast.success('Promotion updated');
+      } else {
+        const res = await fetch(`${SERVER}/promotions`, {
+          method: 'POST', headers: authHeaders, body: JSON.stringify({ ...form }),
+        });
+        const json = await res.json();
+        if (!json.success) { toast.error(json.error || 'Failed to create'); return; }
+        toast.success(`"${form.name}" promotion created`);
+      }
+      await loadPromos();
+      setShowModal(false);
+      setEditingPromo(null);
+    } catch (err) {
+      console.error('Save promo error:', err);
+      toast.error('Network error while saving promotion');
     }
-    setShowModal(false);
-    setEditingPromo(null);
   }
 
-  function deletePromo(id: string, name: string) {
-    savePromos(promotions.filter(p => p.id !== id));
-    toast.success(`"${name}" deleted`);
+  async function deletePromo(id: string, name: string) {
+    try {
+      const res = await fetch(`${SERVER}/promotions/${id}`, { method: 'DELETE', headers: authHeaders });
+      const json = await res.json();
+      if (!json.success) { toast.error(json.error || 'Failed to delete'); return; }
+      await loadPromos();
+      toast.success(`"${name}" deleted`);
+    } catch (err) {
+      console.error('Delete promo error:', err);
+      toast.error('Network error while deleting promotion');
+    }
+  }
+
+  async function duplicatePromo(promo: any) {
+    try {
+      const { id, createdAt, ...rest } = promo;
+      const res = await fetch(`${SERVER}/promotions`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({ ...rest, name: `${promo.name} (Copy)`, used: 0, revenue: 0 }),
+      });
+      const json = await res.json();
+      if (!json.success) { toast.error(json.error || 'Failed to duplicate'); return; }
+      await loadPromos();
+      toast.success(`Duplicated "${promo.name}"`);
+    } catch (err) {
+      console.error('Duplicate promo error:', err);
+      toast.error('Network error while duplicating promotion');
+    }
   }
 
   function exportReport() {
@@ -372,7 +435,7 @@ export default function PromotionsManager() {
                       Edit
                     </button>
                     <button
-                      onClick={() => { const dup = { ...promo, id: `PROMO-${String(promotions.length + 1).padStart(3, '0')}`, name: promo.name + ' (Copy)', used: 0 }; savePromos([...promotions, dup]); toast.success(`Duplicated "${promo.name}"`); }}
+                      onClick={() => duplicatePromo(promo)}
                       className="flex-1 px-3 py-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-zinc-800 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
                     >
                       <Copy className="w-3 h-3" />

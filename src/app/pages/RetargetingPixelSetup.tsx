@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Target, Copy, CheckCircle, ExternalLink, Info, AlertCircle, Code, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface PixelConfig {
   facebookPixelId: string;
@@ -18,6 +22,12 @@ function load(): PixelConfig {
 
 function persist(cfg: PixelConfig) {
   localStorage.setItem('retargeting_pixels', JSON.stringify(cfg));
+  // Mirror to server so pixel IDs are durable and shared across devices.
+  fetch(`${SERVER}/retargeting-pixels`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: JSON.stringify({ config: cfg }),
+  }).catch((err) => console.error('[RetargetingPixelSetup] server save failed:', err));
 }
 
 const PLATFORMS = [
@@ -128,6 +138,22 @@ export default function RetargetingPixelSetup() {
   const [showCode, setShowCode] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState(false);
+
+  // Load saved pixel IDs from the server (falls back to the localStorage cache).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/retargeting-pixels`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && json.config) {
+          setConfig({ ...DEFAULT, ...json.config });
+          localStorage.setItem('retargeting_pixels', JSON.stringify(json.config));
+        }
+      } catch (err) {
+        console.error('[RetargetingPixelSetup] Error loading pixels from server:', err);
+      }
+    })();
+  }, []);
 
   function update(key: keyof PixelConfig, val: string) {
     setConfig(c => ({ ...c, [key]: val }));

@@ -1,6 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Users, Plus, Edit3, Trash2, Search, Instagram, Link2, Download, Eye, X, Save, DollarSign, Star, TrendingUp, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,11 +33,15 @@ interface Ambassador {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function load(): Ambassador[] {
-  try { return JSON.parse(localStorage.getItem('influencer_ambassadors') || 'null') || DEFAULTS; } catch { return DEFAULTS; }
+async function persist(a: Ambassador[]) {
+  try {
+    const res = await fetch(`${SERVER}/influencers`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ influencers: a }) });
+    const json = await res.json();
+    if (!json.success) console.error('Failed to save influencers:', json.error);
+  } catch (err) {
+    console.error('Network error saving influencers:', err);
+  }
 }
-
-function persist(a: Ambassador[]) { localStorage.setItem('influencer_ambassadors', JSON.stringify(a)); }
 
 function fmt(n: number) {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -45,21 +53,21 @@ const DEFAULTS: Ambassador[] = [
   {
     id: 'amb-1', name: 'Kayla Thompson', email: 'kayla@nhlifestyle.com', phone: '(603) 555-0201',
     platform: 'Instagram', handle: '@nhlifestyle_kayla', followers: 18400, niche: 'Home & Lifestyle',
-    status: 'active', promoCode: 'KAYLA10', commissionPct: 10, referrals: 7, revenue: 4200,
+    status: 'active', promoCode: 'KAYLA10', commissionPct: 10, referrals: 0, revenue: 0,
     notes: 'Great content creator. Posts before/after remodels. Very engaged audience in NH.',
     joinedAt: '2026-04-01', lastPost: '2026-07-05', tags: ['instagram', 'home', 'nh'],
   },
   {
     id: 'amb-2', name: 'Mike Labonte', email: 'mike@nhcontractors.net', phone: '(603) 555-0302',
     platform: 'Facebook', handle: 'Mike Labonte Home Talk', followers: 5200, niche: 'Contractor / Trade',
-    status: 'active', promoCode: 'MIKE15', commissionPct: 15, referrals: 12, revenue: 7800,
+    status: 'active', promoCode: 'MIKE15', commissionPct: 15, referrals: 0, revenue: 0,
     notes: 'Local contractor who refers overflow to us. High conversion.',
     joinedAt: '2026-03-15', lastPost: '2026-07-01', tags: ['facebook', 'referral', 'trade'],
   },
   {
     id: 'amb-3', name: 'Sarah V.', email: 'sarahv@gmail.com', phone: '(603) 555-0403',
     platform: 'Nextdoor', handle: 'Sarah V. - Nashua Area', followers: 0, niche: 'Neighborhood',
-    status: 'active', promoCode: 'SARAH10', commissionPct: 10, referrals: 3, revenue: 1400,
+    status: 'active', promoCode: 'SARAH10', commissionPct: 10, referrals: 0, revenue: 0,
     notes: 'Very active on Nextdoor. Recommends us in home improvement threads.',
     joinedAt: '2026-05-20', lastPost: '2026-06-28', tags: ['nextdoor', 'local'],
   },
@@ -161,11 +169,29 @@ const STATUS_COLORS: Record<AmbassadorStatus, string> = {
 };
 
 export default function InfluencerTracker() {
-  const [ambassadors, setAmbassadors] = useState<Ambassador[]>(load);
+  const [ambassadors, setAmbassadors] = useState<Ambassador[]>([]);
   const [editing, setEditing] = useState<Ambassador | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | AmbassadorStatus>('all');
   const [filterPlatform, setFilterPlatform] = useState<'all' | Platform>('all');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/influencers`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.influencers) && json.influencers.length) {
+          setAmbassadors(json.influencers);
+        } else {
+          setAmbassadors(DEFAULTS);
+          persist(DEFAULTS);
+        }
+      } catch (err) {
+        console.error('Network error loading influencers:', err);
+        setAmbassadors(DEFAULTS);
+      }
+    })();
+  }, []);
 
   function save(list: Ambassador[]) { setAmbassadors(list); persist(list); }
 

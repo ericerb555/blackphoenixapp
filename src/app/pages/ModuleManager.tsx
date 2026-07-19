@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { saveDual, loadDual } from '../lib/database';
 import {
   LayoutGrid, Shield, Users, DollarSign, Wrench, MessageSquare,
   BarChart3, Store, Palette, Workflow, Globe, Zap, Lock, Unlock,
@@ -69,6 +70,18 @@ export default function ModuleManager({ onNavigate }: Props) {
   const [category, setCategory] = useState('All');
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Hydrate module state from the server on mount (falls back to the
+  // localStorage-seeded initial state if nothing is stored server-side yet).
+  useEffect(() => {
+    (async () => {
+      const saved = await loadDual('module_manager_state');
+      if (saved && typeof saved === 'object') {
+        const savedMap = saved as Record<string, boolean>;
+        setModules(MODULES.map(m => ({ ...m, enabled: savedMap[m.id] ?? m.enabled })));
+      }
+    })();
+  }, []);
+
   const filtered = modules.filter(m => {
     const matchCat = category === 'All' || m.category === category;
     const matchSearch = !search || m.name.toLowerCase().includes(search.toLowerCase()) || m.description.toLowerCase().includes(search.toLowerCase());
@@ -87,7 +100,7 @@ export default function ModuleManager({ onNavigate }: Props) {
   function saveChanges() {
     const state: Record<string, boolean> = {};
     modules.forEach(m => { state[m.id] = m.enabled; });
-    localStorage.setItem('module_manager_state', JSON.stringify(state));
+    saveDual('module_manager_state', state);
     setHasChanges(false);
     toast.success('Module settings saved');
   }

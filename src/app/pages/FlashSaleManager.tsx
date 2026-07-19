@@ -2,8 +2,34 @@ import { useState, useEffect, useCallback } from 'react';
 import { Zap, Plus, Trash2, Clock, TrendingUp, Eye, ToggleLeft, ToggleRight, Copy, Check, Flame, Tag, Gift, ArrowRight, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const STORAGE_KEY = 'bp_flash_sales';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const flashAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+async function fetchSalesFromServer(): Promise<FlashSale[] | null> {
+  try {
+    const res = await fetch(`${SERVER}/flash-sales`, { headers: flashAuthHeaders });
+    const json = await res.json();
+    if (json.success && Array.isArray(json.sales)) return json.sales;
+    console.error('Failed to load flash sales:', json.error);
+    return null;
+  } catch (err) {
+    console.error('Network error loading flash sales:', err);
+    return null;
+  }
+}
+
+async function saveSalesToServer(sales: FlashSale[]) {
+  try {
+    const res = await fetch(`${SERVER}/flash-sales`, { method: 'POST', headers: flashAuthHeaders, body: JSON.stringify({ sales }) });
+    const json = await res.json();
+    if (!json.success) console.error('Failed to save flash sales:', json.error);
+  } catch (err) {
+    console.error('Network error saving flash sales:', err);
+  }
+}
 
 interface FlashSale {
   id: string;
@@ -83,6 +109,13 @@ export function ActiveFlashBanner() {
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) setSales(JSON.parse(raw));
+    // Server is the source of truth; mirror into localStorage for offline/live sync.
+    fetchSalesFromServer().then(serverSales => {
+      if (serverSales) {
+        setSales(serverSales);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverSales));
+      }
+    });
     const handler = () => {
       const raw2 = localStorage.getItem(STORAGE_KEY);
       if (raw2) setSales(JSON.parse(raw2));
@@ -135,6 +168,16 @@ export default function FlashSaleManager() {
     return raw ? JSON.parse(raw) : [];
   });
   const [showCreate, setShowCreate] = useState(false);
+
+  useEffect(() => {
+    fetchSalesFromServer().then(serverSales => {
+      if (serverSales) {
+        setSales(serverSales);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverSales));
+        window.dispatchEvent(new Event('bp_flash_update'));
+      }
+    });
+  }, []);
   const [preview, setPreview] = useState<FlashSale | null>(null);
   const [form, setForm] = useState({
     title: '', subtitle: '', code: '', discountType: 'percent' as 'percent' | 'fixed',
@@ -145,6 +188,7 @@ export default function FlashSaleManager() {
     setSales(updated);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     window.dispatchEvent(new Event('bp_flash_update'));
+    saveSalesToServer(updated);
   }
 
   function setF(key: string, val: any) { setForm(p => ({ ...p, [key]: val })); }

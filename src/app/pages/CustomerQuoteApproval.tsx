@@ -11,6 +11,12 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
+  loadCustomerMembership,
+  contractDiscountForMembership,
+  planTierLabel,
+  type CustomerMembership,
+} from '../lib/subscriptionDiscount';
+import {
   CheckCircle, X, DollarSign, Calendar, User, MapPin, Phone, Mail,
   FileText, Clock, Package, Users, Download, CreditCard, Shield,
   ArrowRight, Check, ChevronDown, ChevronRight, Building, AlertCircle,
@@ -260,6 +266,27 @@ export default function CustomerQuoteApproval() {
     validUntil: '2026-04-14T23:59:59Z',
     approvalStatus: 'pending'
   });
+
+  // Subscription / maintenance-plan loyalty discount on this contract job
+  const [membership, setMembership] = useState<CustomerMembership | null>(null);
+  const discountPct = contractDiscountForMembership(membership);
+  const jobSubtotal = quote.materialsSubtotal + quote.laborSubtotal;
+  const discountAmount = Math.round(jobSubtotal * (discountPct / 100));
+  const discountedTotal = Math.max(0, quote.totalCost - discountAmount);
+
+  // Resolve the customer's membership by email whenever it changes.
+  useEffect(() => {
+    let cancelled = false;
+    const email = quote.customerEmail;
+    if (!email) {
+      setMembership(null);
+      return;
+    }
+    loadCustomerMembership(email)
+      .then((m) => { if (!cancelled) setMembership(m); })
+      .catch((err) => console.error('Failed to resolve customer membership for discount:', err));
+    return () => { cancelled = true; };
+  }, [quote.customerEmail]);
 
   const [showContract, setShowContract] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
@@ -547,10 +574,29 @@ export default function CustomerQuoteApproval() {
                 <span>Tax ({(quote.taxRate * 100).toFixed(0)}%)</span>
                 <span className="font-semibold">${quote.taxAmount.toLocaleString()}</span>
               </div>
+              {discountPct > 0 && (
+                <div className="flex justify-between items-center text-green-400">
+                  <span className="flex items-center gap-2">
+                    <Award className="w-4 h-4" />
+                    {planTierLabel(membership?.tier) ? `${planTierLabel(membership?.tier)} Plan` : 'Member'} Discount ({discountPct}% off)
+                  </span>
+                  <span className="font-semibold">−${discountAmount.toLocaleString()}</span>
+                </div>
+              )}
               <div className="pt-3 border-t border-[#2A2A2A] flex justify-between items-center">
                 <span className="text-2xl font-bold text-white">Total Project Cost</span>
-                <span className="text-4xl font-bold text-[#ea580c]">${quote.totalCost.toLocaleString()}</span>
+                <div className="text-right">
+                  {discountPct > 0 && (
+                    <div className="text-lg text-gray-500 line-through">${quote.totalCost.toLocaleString()}</div>
+                  )}
+                  <span className="text-4xl font-bold text-[#ea580c]">${discountedTotal.toLocaleString()}</span>
+                </div>
               </div>
+              {discountPct > 0 && (
+                <div className="text-sm text-green-400/80 text-right">
+                  You saved ${discountAmount.toLocaleString()} with your subscription
+                </div>
+              )}
             </div>
           </div>
 

@@ -60,71 +60,20 @@ export default function PurchaseOrders() {
         }
       );
 
-      if (!response.ok) throw new Error('Failed to fetch purchase orders');
-      
+      if (!response.ok) throw new Error(`Failed to fetch purchase orders (${response.status})`);
+
       const data = await response.json();
-      setOrders(data.orders || []);
+      // Show only rich purchase orders (created via this page). Light summary-only
+      // records from the supplier hub are filtered out since they lack line items.
+      const richOrders = (data.orders || []).filter((o: any) => Array.isArray(o.items));
+      setOrders(richOrders);
     } catch (error) {
       console.error('Error fetching purchase orders:', error);
-      // Load mock data
-      setOrders(getMockOrders());
+      setOrders([]);
     } finally {
       setLoading(false);
     }
   };
-
-  const getMockOrders = (): PurchaseOrder[] => [
-    {
-      id: '1',
-      poNumber: 'PO-2024-001',
-      vendor: 'ABC Suppliers',
-      vendorId: 'V001',
-      date: '2024-03-10',
-      dueDate: '2024-03-20',
-      status: 'approved',
-      total: 15750.00,
-      items: [
-        { id: '1', description: 'Steel Beams - Grade A', quantity: 50, unitPrice: 250, total: 12500, category: 'Materials' },
-        { id: '2', description: 'Concrete Mix - Type II', quantity: 100, unitPrice: 32.50, total: 3250, category: 'Materials' }
-      ],
-      approver: 'John Manager',
-      notes: 'Urgent - Project deadline',
-      createdBy: 'Sarah Smith',
-      createdAt: '2024-03-10T10:00:00Z'
-    },
-    {
-      id: '2',
-      poNumber: 'PO-2024-002',
-      vendor: 'XYZ Equipment',
-      vendorId: 'V002',
-      date: '2024-03-11',
-      dueDate: '2024-03-25',
-      status: 'pending',
-      total: 8900.00,
-      items: [
-        { id: '3', description: 'Power Tools Set', quantity: 5, unitPrice: 1780, total: 8900, category: 'Equipment' }
-      ],
-      notes: 'Need manager approval',
-      createdBy: 'Mike Johnson',
-      createdAt: '2024-03-11T14:30:00Z'
-    },
-    {
-      id: '3',
-      poNumber: 'PO-2024-003',
-      vendor: 'BuildMart Supply',
-      vendorId: 'V003',
-      date: '2024-03-12',
-      dueDate: '2024-03-18',
-      status: 'sent',
-      total: 4250.00,
-      items: [
-        { id: '4', description: 'Safety Equipment', quantity: 25, unitPrice: 170, total: 4250, category: 'Safety' }
-      ],
-      approver: 'Jane Director',
-      createdBy: 'Tom Brown',
-      createdAt: '2024-03-12T09:15:00Z'
-    }
-  ];
 
   const handleCreatePO = async () => {
     try {

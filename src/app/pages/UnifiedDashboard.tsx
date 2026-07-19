@@ -108,17 +108,16 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     checkAuth();
   }, []);
 
-  // Initialize metrics on mount
+  // Metrics start at zero and are replaced with real values from the server.
   useEffect(() => {
-    // Set initial mock data immediately
-    setRevenueData(generateMockRevenueData());
-    setTotalRevenue(245678);
-    setRevenueTrend(12.5);
-    setActiveJobsCount(24);
-    setJobsTrend(8);
-    setCustomersCount(156);
-    setCustomersTrend(5.2);
-    setTeamCount(18);
+    setRevenueData([]);
+    setTotalRevenue(0);
+    setRevenueTrend(0);
+    setActiveJobsCount(0);
+    setJobsTrend(0);
+    setCustomersCount(0);
+    setCustomersTrend(0);
+    setTeamCount(0);
   }, []);
 
   // Fetch company branding
@@ -160,12 +159,12 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
           if (revenueResponse.ok) {
             const data = await revenueResponse.json();
-            if (data.chartData) setRevenueData(data.chartData);
-            if (data.total) setTotalRevenue(data.total);
-            if (data.trend) setRevenueTrend(data.trend);
+            if (data.chartData !== undefined) setRevenueData(data.chartData);
+            if (data.total !== undefined) setTotalRevenue(data.total);
+            if (data.trend !== undefined) setRevenueTrend(data.trend);
           }
         } catch (err) {
-          // Keep mock data
+          console.error('[Dashboard] Error fetching revenue metrics:', err);
         }
 
         // Fetch jobs count
@@ -176,11 +175,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
           if (jobsResponse.ok) {
             const data = await jobsResponse.json();
-            if (data.count) setActiveJobsCount(data.count);
-            if (data.trend) setJobsTrend(data.trend);
+            if (data.count !== undefined) setActiveJobsCount(data.count);
+            if (typeof data.trend === 'number') setJobsTrend(data.trend);
           }
         } catch (err) {
-          // Keep mock data
+          console.error('[Dashboard] Error fetching jobs count:', err);
         }
 
         // Fetch customers count
@@ -191,11 +190,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
           if (customersResponse.ok) {
             const data = await customersResponse.json();
-            if (data.count) setCustomersCount(data.count);
-            if (data.trend) setCustomersTrend(data.trend);
+            if (data.count !== undefined) setCustomersCount(data.count);
+            if (typeof data.trend === 'number') setCustomersTrend(data.trend);
           }
         } catch (err) {
-          // Keep mock data
+          console.error('[Dashboard] Error fetching customers count:', err);
         }
 
         // Fetch team count
@@ -206,14 +205,14 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
           if (teamResponse.ok) {
             const data = await teamResponse.json();
-            if (data.count) setTeamCount(data.count);
+            if (data.count !== undefined) setTeamCount(data.count);
           }
         } catch (err) {
-          // Keep mock data
+          console.error('[Dashboard] Error fetching team count:', err);
         }
 
       } catch (error) {
-        // Keep mock data
+        console.error('[Dashboard] Error fetching metrics:', error);
       }
     };
 

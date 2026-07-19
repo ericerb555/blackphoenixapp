@@ -23,6 +23,8 @@ import {
   type SubscriptionPlan
 } from '../config/subscriptionPlans';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
+import { saveCustomerMembership, planTierLabel } from '../lib/subscriptionDiscount';
+import { useAuth } from '../contexts/AuthContext';
 
 type PlanCategory = 'customer' | 'construction' | 'property-management' | 'vendor' | 'subcontractor' | 'advertiser';
 type PricingDisplay = 'regular' | 'first12';
@@ -34,6 +36,7 @@ interface SubscriptionPlansProps {
 }
 
 export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
+  const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState<PlanCategory>('customer');
   const [pricingDisplay, setPricingDisplay] = useState<PricingDisplay>('first12');
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
@@ -89,7 +92,25 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
     if (onSelectPlan) {
       onSelectPlan(planId);
     }
-    toast.success('Plan selected! Proceed to checkout.');
+
+    // Persist the customer's membership so it unlocks their contract-job discount.
+    const plan = subscriptionPlans.find((p) => p.id === planId);
+    const email = (user as any)?.email as string | undefined;
+    if (plan && email) {
+      saveCustomerMembership(email, {
+        planId: plan.id,
+        planName: plan.name,
+        tier: plan.tier,
+        status: 'active',
+        source: 'subscription',
+      }).catch((err) => console.error('Failed to persist customer membership:', err));
+
+      const tierLabel = planTierLabel(plan.tier);
+      const pct = plan.tier === 'starter' ? 5 : plan.tier === 'professional' ? 10 : 15;
+      toast.success(`Plan selected! You now get ${pct}% off contract jobs${tierLabel ? ` (${tierLabel} tier)` : ''}.`);
+    } else {
+      toast.success('Plan selected! Proceed to checkout.');
+    }
   };
 
   const handleEditPlan = (plan: SubscriptionPlan, e: React.MouseEvent) => {

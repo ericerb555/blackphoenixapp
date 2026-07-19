@@ -7,6 +7,9 @@
 import { useEffect, useState } from 'react';
 import { X, Tag, Mail, ArrowRight, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface ExitIntentConfig {
   enabled: boolean;
@@ -27,8 +30,8 @@ const DEFAULT_CONFIG: ExitIntentConfig = {
   headline: "Wait — Don't Leave Empty Handed!",
   subheadline: "Get an exclusive discount on your first service. Enter your email and we'll send it right over.",
   offerType: 'discount',
-  promoCode: 'SAVE15',
-  discountLabel: '15% OFF',
+  promoCode: 'SAVE5',
+  discountLabel: '5% OFF',
   buttonText: 'Claim My Discount',
   bgColor: '#111111',
   accentColor: '#ea580c',
@@ -123,21 +126,39 @@ export default function ExitIntentPopup() {
     setVisible(false);
   }
 
-  function handleCapture(e: React.FormEvent) {
+  async function handleCapture(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !email.includes('@')) { toast.error('Enter a valid email'); return; }
     recordCapture();
     suppress();
     setCaptured(true);
 
-    // Store lead
+    // Persist the lead to the server (and email the discount code). Keep a
+    // localStorage copy as an offline fallback.
     try {
       const leads = JSON.parse(localStorage.getItem('exit_intent_leads') || '[]');
       leads.push({ email, capturedAt: new Date().toISOString(), promoCode: config.promoCode, source: 'exit-intent' });
       localStorage.setItem('exit_intent_leads', JSON.stringify(leads));
     } catch {}
 
-    toast.success(`Discount sent to ${email}!`);
+    try {
+      const res = await fetch(`${SERVER}/exit-intent/capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email, promoCode: config.promoCode, source: 'exit-intent', page: window.location.pathname }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(json.emailSent ? `Discount emailed to ${email}!` : `You're on the list, ${email}!`);
+      } else {
+        console.error('Exit-intent capture failed:', json.error);
+        toast.success(`Discount code: ${config.promoCode}`);
+      }
+    } catch (err) {
+      console.error('Exit-intent capture network error:', err);
+      toast.success(`Discount code: ${config.promoCode}`);
+    }
+
     setTimeout(() => setVisible(false), 2500);
   }
 

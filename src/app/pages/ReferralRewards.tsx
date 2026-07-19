@@ -1,18 +1,122 @@
-import { useState } from 'react';
-import { Gift, Users, DollarSign, Plus, TrendingUp, Award, Search, Edit2, Share2, Copy, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Gift, Users, DollarSign, Plus, TrendingUp, Award, Search, Edit2, Share2, Copy, ArrowLeft, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+interface Referral {
+  id: string;
+  referrer: string;
+  referred: string;
+  status: 'pending' | 'converted' | 'rewarded';
+  reward: number;
+  date: string;
+  code: string;
+}
+
+interface Program {
+  id: string;
+  name: string;
+  reward: string;
+  referrals: number;
+  active: boolean;
+}
+
+const DEFAULT_REFERRALS: Referral[] = [
+  { id: 'REF-001', referrer: 'Sarah Johnson', referred: 'Mike Williams', status: 'rewarded', reward: 500, date: '2026-01-20', code: 'SJ2026' },
+  { id: 'REF-002', referrer: 'Robert Chen', referred: 'Lisa Martinez', status: 'converted', reward: 500, date: '2026-01-18', code: 'RC2026' },
+  { id: 'REF-003', referrer: 'Emily Williams', referred: 'John Davis', status: 'pending', reward: 500, date: '2026-01-15', code: 'EW2026' },
+];
+
+const DEFAULT_PROGRAMS: Program[] = [
+  { id: 'prog-1', name: 'Customer Referral', reward: '$500', referrals: 32, active: true },
+  { id: 'prog-2', name: 'VIP Referral', reward: '$1,000', referrals: 12, active: true },
+  { id: 'prog-3', name: 'Partner Referral', reward: '$750', referrals: 4, active: true },
+];
 
 export default function ReferralRewards() {
-  const [referrals] = useState([
-    { id: 'REF-001', referrer: 'Sarah Johnson', referred: 'Mike Williams', status: 'rewarded', reward: 500, date: '2026-01-20', code: 'SJ2026' },
-    { id: 'REF-002', referrer: 'Robert Chen', referred: 'Lisa Martinez', status: 'converted', reward: 500, date: '2026-01-18', code: 'RC2026' },
-    { id: 'REF-003', referrer: 'Emily Williams', referred: 'John Davis', status: 'pending', reward: 500, date: '2026-01-15', code: 'EW2026' },
-  ]);
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ name: '', reward: '' });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/referrals`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success) {
+          const r = Array.isArray(json.referrals) && json.referrals.length ? json.referrals : DEFAULT_REFERRALS;
+          const p = Array.isArray(json.programs) && json.programs.length ? json.programs : DEFAULT_PROGRAMS;
+          setReferrals(r);
+          setPrograms(p);
+          if (!Array.isArray(json.referrals) || !json.referrals.length || !Array.isArray(json.programs) || !json.programs.length) {
+            persist(r, p);
+          }
+        } else {
+          console.error('Failed to load referrals:', json.error);
+          setReferrals(DEFAULT_REFERRALS);
+          setPrograms(DEFAULT_PROGRAMS);
+        }
+      } catch (err) {
+        console.error('Network error loading referrals:', err);
+        setReferrals(DEFAULT_REFERRALS);
+        setPrograms(DEFAULT_PROGRAMS);
+      }
+    })();
+  }, []);
+
+  async function persist(r: Referral[], p: Program[]) {
+    try {
+      const res = await fetch(`${SERVER}/referrals`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ referrals: r, programs: p }) });
+      const json = await res.json();
+      if (!json.success) console.error('Failed to save referrals:', json.error);
+    } catch (err) {
+      console.error('Network error saving referrals:', err);
+    }
+  }
+
+  function createProgram() {
+    if (!form.name.trim() || !form.reward.trim()) { toast.error('Name and reward are required.'); return; }
+    const reward = form.reward.trim().startsWith('$') ? form.reward.trim() : `$${form.reward.trim()}`;
+    const program: Program = { id: `prog-${Date.now()}`, name: form.name.trim(), reward, referrals: 0, active: true };
+    const next = [...programs, program];
+    setPrograms(next);
+    persist(referrals, next);
+    setForm({ name: '', reward: '' });
+    setShowCreate(false);
+    toast.success('Program created.');
+  }
+
+  function copyCode(code: string) {
+    navigator.clipboard.writeText(code);
+    toast.success(`Code ${code} copied.`);
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return referrals;
+    return referrals.filter(r =>
+      r.referrer.toLowerCase().includes(q) ||
+      r.referred.toLowerCase().includes(q) ||
+      r.code.toLowerCase().includes(q) ||
+      r.id.toLowerCase().includes(q)
+    );
+  }, [referrals, search]);
+
+  const totalReferrals = referrals.length;
+  const rewardsPaid = referrals.filter(r => r.status === 'rewarded').reduce((s, r) => s + r.reward, 0);
+  const converted = referrals.filter(r => r.status !== 'pending').length;
+  const conversionRate = totalReferrals ? Math.round((converted / totalReferrals) * 100) : 0;
 
   const stats = [
-    { label: 'Total Referrals', value: '48', icon: Users, change: '+12%' },
-    { label: 'Rewards Paid', value: '$12,500', icon: DollarSign, change: '+18%' },
-    { label: 'Conversion Rate', value: '68%', icon: TrendingUp, change: '+5%' },
-    { label: 'Active Programs', value: '3', icon: Gift, change: '+1%' }
+    { label: 'Total Referrals', value: String(totalReferrals), icon: Users },
+    { label: 'Rewards Paid', value: `$${rewardsPaid.toLocaleString()}`, icon: DollarSign },
+    { label: 'Conversion Rate', value: `${conversionRate}%`, icon: TrendingUp },
+    { label: 'Active Programs', value: String(programs.filter(p => p.active).length), icon: Gift },
   ];
 
   return (
@@ -21,9 +125,7 @@ export default function ReferralRewards() {
       <div>
         <div className="flex items-center gap-4 mb-2">
           <button
-            onClick={() => {
-              window.location.href = '/unified-dashboard';
-            }}
+            onClick={() => { window.location.href = '/unified-dashboard'; }}
             className="p-2 hover:bg-[#2A2A2A] rounded-lg transition-colors text-gray-400 hover:text-white"
             title="Back to Unified Dashboard"
           >
@@ -39,15 +141,14 @@ export default function ReferralRewards() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {stats.map((stat, i) => {
+        {stats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={i} className="bg-[#1A1A1A] rounded-2xl p-6 border border-[#2A2A2A] hover:border-[#ea580c]/30 transition group">
+            <div key={stat.label} className="bg-[#1A1A1A] rounded-2xl p-6 border border-[#2A2A2A] hover:border-[#ea580c]/30 transition group">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#ea580c]/20 to-[#dc2626]/20 flex items-center justify-center border border-[#ea580c]/20">
                   <Icon className="w-6 h-6 text-[#ea580c]" />
                 </div>
-                <span className="text-sm font-semibold text-green-400">{stat.change}</span>
               </div>
               <p className="text-2xl font-bold text-white">{stat.value}</p>
               <p className="text-sm text-gray-400">{stat.label}</p>
@@ -60,18 +161,14 @@ export default function ReferralRewards() {
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">Active Programs</h2>
-          <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white rounded-xl hover:from-[#dc2626] hover:to-[#b91c1c] transition shadow-lg shadow-[#ea580c]/20">
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white rounded-xl hover:from-[#dc2626] hover:to-[#b91c1c] transition shadow-lg shadow-[#ea580c]/20">
             <Plus className="w-4 h-4" />
             New Program
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { name: 'Customer Referral', reward: '$500', referrals: 32, active: true },
-            { name: 'VIP Referral', reward: '$1,000', referrals: 12, active: true },
-            { name: 'Partner Referral', reward: '$750', referrals: 4, active: true }
-          ].map((program, i) => (
-            <div key={i} className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6 hover:border-[#ea580c]/30 transition group cursor-pointer">
+          {programs.map((program) => (
+            <div key={program.id} className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6 hover:border-[#ea580c]/30 transition group cursor-pointer">
               <div className="flex items-center justify-between mb-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#ea580c]/20 to-[#dc2626]/20 flex items-center justify-center border border-[#ea580c]/20">
                   <Award className="w-6 h-6 text-[#ea580c]" />
@@ -95,11 +192,16 @@ export default function ReferralRewards() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
             <input
               type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
               placeholder="Search referrals..."
               className="w-full pl-11 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ea580c]/50"
             />
           </div>
-          <button className="flex items-center gap-2 px-4 py-3 border border-[#2A2A2A] rounded-xl text-gray-300 hover:bg-[#2A2A2A] transition">
+          <button
+            onClick={() => { navigator.clipboard.writeText('https://theblackphoenixcompany.com/refer'); toast.success('Referral link copied.'); }}
+            className="flex items-center gap-2 px-4 py-3 border border-[#2A2A2A] rounded-xl text-gray-300 hover:bg-[#2A2A2A] transition"
+          >
             <Share2 className="w-4 h-4" />
             Share Link
           </button>
@@ -112,7 +214,7 @@ export default function ReferralRewards() {
           <h2 className="text-lg font-semibold text-white">Recent Referrals</h2>
         </div>
         <div className="divide-y divide-[#2A2A2A]">
-          {referrals.map((referral) => (
+          {filtered.map((referral) => (
             <div key={referral.id} className="p-6 hover:bg-[#2A2A2A]/50 transition cursor-pointer">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -133,7 +235,7 @@ export default function ReferralRewards() {
                     <p className="text-sm text-gray-500">Code</p>
                     <div className="flex items-center gap-2">
                       <p className="text-sm text-gray-300 font-mono">{referral.code}</p>
-                      <button className="p-1 hover:bg-[#ea580c]/10 rounded transition">
+                      <button onClick={() => copyCode(referral.code)} className="p-1 hover:bg-[#ea580c]/10 rounded transition">
                         <Copy className="w-3 h-3 text-[#ea580c]" />
                       </button>
                     </div>
@@ -149,15 +251,47 @@ export default function ReferralRewards() {
                   }`}>
                     {referral.status.toUpperCase()}
                   </span>
-                  <button className="p-2 hover:bg-[#ea580c]/10 rounded-lg transition">
-                    <Edit2 className="w-4 h-4 text-[#ea580c]" />
-                  </button>
                 </div>
               </div>
             </div>
           ))}
+          {filtered.length === 0 && (
+            <div className="p-10 text-center text-gray-600 text-sm">No referrals found.</div>
+          )}
         </div>
       </div>
+
+      {/* Create Program Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A]">
+              <h2 className="font-bold text-white">New Referral Program</h2>
+              <button onClick={() => setShowCreate(false)} className="text-gray-500 hover:text-white transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-1.5 block">Program Name</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Holiday Referral"
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ea580c]/50" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 mb-1.5 block">Reward Amount</label>
+                <input value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))}
+                  placeholder="e.g. $500"
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ea580c]/50" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 pb-6">
+              <button onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-xl text-sm text-gray-400 hover:text-white transition">Cancel</button>
+              <button onClick={createProgram} className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white text-sm font-semibold transition">Create Program</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

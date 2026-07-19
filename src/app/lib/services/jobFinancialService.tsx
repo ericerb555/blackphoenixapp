@@ -1,7 +1,20 @@
 /**
  * Job Financial Service
  * Real-time tracking of hours, purchases, materials, and vendors per job
+ *
+ * Persistence model: localStorage acts as a synchronous hot cache so the (sync)
+ * public API keeps working, while every write is mirrored to the server and the
+ * whole dataset can be re-hydrated from the server on app load. This makes job
+ * financial data durable and shared across devices instead of browser-local.
  */
+
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const jobFinAuthHeaders = {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${publicAnonKey}`,
+};
 
 export interface TimeEntry {
   id: string;
@@ -152,6 +165,49 @@ class JobFinancialService {
   private logsKey = 'job_activity_logs';
   private foldersKey = 'job_folders';
 
+  // Write-through: update the synchronous localStorage cache and mirror to server.
+  private write(key: string, value: any): void {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      console.error(`[jobFinancialService] localStorage write failed for ${key}:`, err);
+    }
+    // Fire-and-forget server persistence so the sync API is not blocked.
+    fetch(`${SERVER}/job-financials/kv`, {
+      method: 'POST',
+      headers: jobFinAuthHeaders,
+      body: JSON.stringify({ key, value }),
+    }).catch((err) =>
+      console.error(`[jobFinancialService] server sync failed for ${key}:`, err),
+    );
+  }
+
+  // Pull the full server snapshot into the localStorage cache. Call on app load
+  // before reading so the sync getters return server-backed data.
+  async hydrateFromServer(): Promise<void> {
+    try {
+      const res = await fetch(`${SERVER}/job-financials/snapshot`, {
+        headers: jobFinAuthHeaders,
+      });
+      const json = await res.json();
+      if (!json.success || !Array.isArray(json.entries)) {
+        if (json.error) console.error('[jobFinancialService] hydrate failed:', json.error);
+        return;
+      }
+      for (const entry of json.entries) {
+        if (entry && typeof entry.key === 'string') {
+          try {
+            localStorage.setItem(entry.key, JSON.stringify(entry.value));
+          } catch (err) {
+            console.error(`[jobFinancialService] cache write failed for ${entry.key}:`, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[jobFinancialService] Error hydrating from server:', err);
+    }
+  }
+
   // Get all job financials
   getAllJobs(): JobFinancialSummary[] {
     const data = localStorage.getItem(this.storageKey);
@@ -223,7 +279,7 @@ class JobFinancialService {
     
     const entries = this.getTimeEntries(entry.jobId);
     entries.push(timeEntry);
-    localStorage.setItem(`time_entries_${entry.jobId}`, JSON.stringify(entries));
+    this.write(`time_entries_${entry.jobId}`, entries);
     
     // Update job totals
     this.recalculateJobFinancials(entry.jobId);
@@ -250,7 +306,7 @@ class JobFinancialService {
     
     const purchases = this.getPurchases(entry.jobId);
     purchases.push(purchase);
-    localStorage.setItem(`purchases_${entry.jobId}`, JSON.stringify(purchases));
+    this.write(`purchases_${entry.jobId}`, purchases);
     
     // Update job totals
     this.recalculateJobFinancials(entry.jobId);
@@ -277,7 +333,7 @@ class JobFinancialService {
     
     const materials = this.getMaterials(entry.jobId);
     materials.push(material);
-    localStorage.setItem(`materials_${entry.jobId}`, JSON.stringify(materials));
+    this.write(`materials_${entry.jobId}`, materials);
     
     // Update job totals
     this.recalculateJobFinancials(entry.jobId);
@@ -379,7 +435,7 @@ class JobFinancialService {
     };
     
     logs.unshift(log); // Add to beginning
-    localStorage.setItem(`${this.logsKey}_${jobId}`, JSON.stringify(logs));
+    this.write(`${this.logsKey}_${jobId}`, logs);
   }
 
   getActivityLogs(jobId: string): ActivityLog[] {
@@ -401,7 +457,7 @@ class JobFinancialService {
     };
     
     folders.push(folder);
-    localStorage.setItem(`${this.foldersKey}_${jobId}`, JSON.stringify(folders));
+    this.write(`${this.foldersKey}_${jobId}`, folders);
     
     return folder;
   }
@@ -450,7 +506,7 @@ class JobFinancialService {
       }
     ];
     
-    localStorage.setItem(`${this.foldersKey}_${jobId}`, JSON.stringify(defaultFolders));
+    this.write(`${this.foldersKey}_${jobId}`, defaultFolders);
     return defaultFolders;
   }
 
@@ -464,7 +520,7 @@ class JobFinancialService {
         id: `doc_${Date.now()}_${Math.random()}`
       };
       folder.documents.push(doc);
-      localStorage.setItem(`${this.foldersKey}_${jobId}`, JSON.stringify(folders));
+      this.write(`${this.foldersKey}_${jobId}`, folders);
     }
   }
 
@@ -486,7 +542,7 @@ class JobFinancialService {
 
   // Helper methods
   private saveJobs(jobs: JobFinancialSummary[]): void {
-    localStorage.setItem(this.storageKey, JSON.stringify(jobs));
+    this.write(this.storageKey, jobs);
   }
 
   private getDefaultJobs(): JobFinancialSummary[] {
@@ -639,7 +695,7 @@ class JobFinancialService {
         approvedAt: '2026-02-20'
       }
     ];
-    localStorage.setItem(`time_entries_${jobId}`, JSON.stringify(timeEntries));
+    this.write(`time_entries_${jobId}`, timeEntries);
 
     // Add purchase entries with receipts
     const purchases: PurchaseEntry[] = [
@@ -736,7 +792,7 @@ class JobFinancialService {
         approvedAt: '2026-02-20'
       }
     ];
-    localStorage.setItem(`purchases_${jobId}`, JSON.stringify(purchases));
+    this.write(`purchases_${jobId}`, purchases);
 
     // Add material usage
     const materials: MaterialUsage[] = [
@@ -789,7 +845,7 @@ class JobFinancialService {
         notes: 'Electrical rough-in'
       }
     ];
-    localStorage.setItem(`materials_${jobId}`, JSON.stringify(materials));
+    this.write(`materials_${jobId}`, materials);
 
     // Add activity logs
     const activityLogs: ActivityLog[] = [
@@ -843,7 +899,7 @@ class JobFinancialService {
       }
     ];
     const existingLogs = this.getActivityLogs(jobId);
-    localStorage.setItem(this.logsKey, JSON.stringify([...existingLogs, ...activityLogs]));
+    this.write(this.logsKey, [...existingLogs, ...activityLogs]);
 
     // Recalculate totals
     this.recalculateJobFinancials(jobId);

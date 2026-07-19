@@ -7,6 +7,10 @@ import QRCode from 'qrcode';
 import { Download, Copy, Plus, Trash2, ExternalLink, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const QR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const qrAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const BASE_URL = 'https://theblackphoenixcompany.com';
 
@@ -43,6 +47,16 @@ function loadSaved(): QREntry[] {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
 }
 
+function persistCodes(codes: QREntry[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
+  // Mirror to server so generated QR codes are durable and feed Revenue Analytics.
+  fetch(`${QR_SERVER}/qr-codes`, {
+    method: 'POST',
+    headers: qrAuthHeaders,
+    body: JSON.stringify({ codes }),
+  }).catch((err) => console.error('[QRCodeGenerator] server save failed:', err));
+}
+
 export default function QRCodeGenerator() {
   const [selectedPreset, setSelectedPreset] = useState(PRESET_LINKS[0]);
   const [customUrl, setCustomUrl] = useState('');
@@ -54,6 +68,22 @@ export default function QRCodeGenerator() {
   const [generating, setGenerating] = useState(false);
   const [saved, setSaved] = useState<QREntry[]>(loadSaved);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Load saved QR codes from the server (falls back to the localStorage cache).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${QR_SERVER}/qr-codes`, { headers: qrAuthHeaders });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.codes)) {
+          setSaved(json.codes);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.codes));
+        }
+      } catch (err) {
+        console.error('[QRCodeGenerator] Error loading QR codes from server:', err);
+      }
+    })();
+  }, []);
 
   const activeUrl = useCustom ? customUrl : selectedPreset.url;
   const activeLabel = useCustom ? (customLabel || 'Custom QR') : selectedPreset.label;
@@ -94,7 +124,7 @@ export default function QRCodeGenerator() {
       };
       const updated = [entry, ...saved];
       setSaved(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      persistCodes(updated);
       toast.success('QR code saved! Download it below.');
     } catch (e: any) {
       toast.error('Failed to generate: ' + e.message);
@@ -113,7 +143,7 @@ export default function QRCodeGenerator() {
   function deleteSaved(id: string) {
     const updated = saved.filter(e => e.id !== id);
     setSaved(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    persistCodes(updated);
   }
 
   function copyUrl(url: string) {

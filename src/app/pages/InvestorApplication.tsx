@@ -6,6 +6,9 @@ import {
   TrendingUp, Target, FileText, Briefcase, Calendar,
   Home, PieChart, Users, Info
 } from 'lucide-react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 export default function InvestorApplication() {
   const [opportunityId, setOpportunityId] = useState<string | null>(null);
@@ -16,23 +19,34 @@ export default function InvestorApplication() {
     const params = new URLSearchParams(window.location.search);
     const oppId = params.get('opportunity');
 
-    if (oppId) {
-      setOpportunityId(oppId);
+    if (!oppId) return;
+    setOpportunityId(oppId);
 
-      // Try to load opportunity details from localStorage
-      const stored = localStorage.getItem('investmentOpportunities');
-      if (stored) {
-        try {
-          const opportunities = JSON.parse(stored);
-          const opp = opportunities.find((o: any) => o.id === oppId);
-          if (opp) {
-            setOpportunityTitle(opp.title);
-          }
-        } catch (e) {
-          console.error('Error loading opportunity:', e);
+    // Load opportunity details from the server (source of truth), falling back
+    // to the localStorage cache if the server is unreachable.
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/investments/opportunities`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.opportunities)) {
+          const opp = data.opportunities.find((o: any) => o.id === oppId);
+          if (opp) { setOpportunityTitle(opp.title); return; }
         }
+      } catch (err) {
+        console.error('InvestorApplication: failed to load opportunity from server:', err);
       }
-    }
+      try {
+        const stored = localStorage.getItem('investmentOpportunities');
+        if (stored) {
+          const opp = JSON.parse(stored).find((o: any) => o.id === oppId);
+          if (opp) setOpportunityTitle(opp.title);
+        }
+      } catch (e) {
+        console.error('Error loading opportunity from cache:', e);
+      }
+    })();
   }, []);
 
   const investorConfig: ApplicationConfig = {

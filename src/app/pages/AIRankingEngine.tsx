@@ -16,6 +16,10 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, RadialBarChart, RadialBar,
 } from 'recharts';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -280,6 +284,27 @@ export default function AIRankingEngine() {
 
   const autoTimer = useRef<any>(null);
 
+  // Load persisted content + auto-mode setting from the server on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/ranking/content`, { headers: authHeaders });
+        const json = await res.json();
+        if (json.success) {
+          if (Array.isArray(json.content) && json.content.length) {
+            setContentPieces(json.content);
+          }
+          if (json.settings?.autoRunning) setAutoRunning(true);
+        } else {
+          console.error('Failed to load ranking content:', json.error);
+        }
+      } catch (err) {
+        console.error('Network error loading ranking content:', err);
+      }
+    })();
+    return () => { if (autoTimer.current) clearInterval(autoTimer.current); };
+  }, []);
+
   // Overall visibility score
   const googleScore = 81;
   const aiScore = 68;
@@ -301,50 +326,36 @@ export default function AIRankingEngine() {
   }
 
   async function generateContent(type: string) {
-    setIsGenerating(true);
-    setGeneratingType(type);
-    await new Promise(r => setTimeout(r, 2200));
-
     const typeLabels: Record<string, string> = {
       blog: 'Blog Post',
       faq: 'FAQ Page',
       service: 'Service Page',
       local: 'Local Landing Page',
     };
-
-    const keywords: Record<string, string> = {
-      blog: `emergency ${targetServices.split(',')[0].trim().toLowerCase()} ${businessCity}`,
-      faq: `${targetServices.split(',')[0].trim().toLowerCase()} FAQ ${businessCity}`,
-      service: `${targetServices.split(',')[1]?.trim().toLowerCase() || 'maintenance'} services ${businessCity}`,
-      local: `best contractor in ${businessCity}`,
-    };
-
-    const titles: Record<string, string> = {
-      blog: `Emergency ${targetServices.split(',')[0].trim()} in ${businessCity}: What to Do First`,
-      faq: `${targetServices.split(',')[0].trim()} FAQ: Everything ${businessCity} Homeowners Ask`,
-      service: `${targetServices.split(',')[1]?.trim() || 'Maintenance'} Services in ${businessCity} — ${businessName}`,
-      local: `Best Contractor in ${businessCity} — ${businessName} Reviews & Services`,
-    };
-
-    const newPiece: ContentPiece = {
-      id: `c${Date.now()}`,
-      type: type as any,
-      title: titles[type] || `New ${typeLabels[type]}`,
-      status: 'draft',
-      targetKeyword: keywords[type],
-      wordCount: Math.floor(Math.random() * 400) + 900,
-      seoScore: Math.floor(Math.random() * 8) + 88,
-      geoScore: Math.floor(Math.random() * 10) + 85,
-      voiceScore: Math.floor(Math.random() * 12) + 82,
-      generatedAt: new Date().toISOString().split('T')[0],
-      body: `# ${titles[type]}\n\n## Introduction\n${businessName} has been serving ${businessCity} with professional ${targetServices.split(',')[0].trim().toLowerCase()} services for years. In this guide, we cover everything you need to know.\n\n## Why Choose ${businessName}?\n- Licensed & insured in New Hampshire\n- 24/7 emergency service available\n- Free written estimates\n- 5-star rated on Google\n\n## Our Services\n${targetServices.split(',').map(s => `- **${s.trim()}** — Professional grade, competitive pricing`).join('\n')}\n\n## Frequently Asked Questions\n\n**How quickly can you respond?**\n${businessName} typically responds within 2–4 hours for emergency calls and within 24 hours for standard service requests in ${businessCity}.\n\n**Are you licensed in New Hampshire?**\nYes, ${businessName} holds all required NH contractor licenses and carries full liability insurance.\n\n**Do you offer free estimates?**\nAbsolutely. Contact us today for a free written estimate with no obligation.\n\n## Contact ${businessName}\nReady to get started? Call us or visit theblackphoenixcompany.com to schedule your service today.`,
-    };
-
-    setContentPieces(prev => [newPiece, ...prev]);
-    setOverallScore(s => Math.min(100, s + 2));
-    setIsGenerating(false);
-    setGeneratingType('');
-    toast.success(`${typeLabels[type]} generated — ready to review & publish`);
+    setIsGenerating(true);
+    setGeneratingType(type);
+    try {
+      const res = await fetch(`${SERVER}/ranking/generate`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ type, businessName, businessCity, targetServices }),
+      });
+      const json = await res.json();
+      if (json.success && json.piece) {
+        setContentPieces(prev => [json.piece, ...prev]);
+        setOverallScore(s => Math.min(100, s + 2));
+        toast.success(`${typeLabels[type] || 'Content'} generated — ready to review & publish`);
+      } else {
+        console.error('Ranking generate failed:', json.error);
+        toast.error(json.error || 'Content generation failed');
+      }
+    } catch (err) {
+      console.error('Network error generating ranking content:', err);
+      toast.error('Network error — could not generate content');
+    } finally {
+      setIsGenerating(false);
+      setGeneratingType('');
+    }
   }
 
   function activateSchema(type: string) {
@@ -359,19 +370,55 @@ export default function AIRankingEngine() {
     toast.success('Posted to Google Business Profile');
   }
 
-  function publishContent(id: string) {
+  async function publishContent(id: string) {
     setContentPieces(prev => prev.map(c => c.id === id ? { ...c, status: 'published' } : c));
     setOverallScore(s => Math.min(100, s + 2));
-    toast.success('Published — indexing will begin within 24 hours');
+    try {
+      const res = await fetch(`${SERVER}/ranking/publish/${id}`, { method: 'POST', headers: authHeaders });
+      const json = await res.json();
+      if (json.success) {
+        toast.success('Published — indexing will begin within 24 hours');
+      } else {
+        console.error('Ranking publish failed:', json.error);
+        toast.error(json.error || 'Publish failed');
+      }
+    } catch (err) {
+      console.error('Network error publishing ranking content:', err);
+      toast.error('Network error — could not publish');
+    }
+  }
+
+  async function setAutoOnServer(running: boolean) {
+    try {
+      await fetch(`${SERVER}/ranking/auto`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ autoRunning: running }),
+      });
+    } catch (err) {
+      console.error('Network error updating auto-rank setting:', err);
+    }
   }
 
   function startAutoMode() {
     setAutoRunning(true);
-    toast.success('Auto-Rank Mode ON — generating & publishing content automatically every week');
+    setAutoOnServer(true);
+    toast.success('Auto-Rank Mode ON — generating content automatically while this dashboard is open');
+    // Kick off one generation now, then continue on an interval while the page stays open.
+    const types = ['blog', 'faq', 'service', 'local'];
+    let i = 0;
+    generateContent(types[i % types.length]);
+    if (autoTimer.current) clearInterval(autoTimer.current);
+    autoTimer.current = setInterval(() => {
+      i += 1;
+      generateContent(types[i % types.length]);
+    }, 90000);
   }
 
   function stopAutoMode() {
     setAutoRunning(false);
+    setAutoOnServer(false);
+    if (autoTimer.current) { clearInterval(autoTimer.current); autoTimer.current = null; }
     toast.info('Auto-Rank Mode paused');
   }
 

@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const STORAGE_KEY = 'bp_crm_leads';
-const NOTES_KEY   = 'bp_crm_notes';
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 export type LeadStage = 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost';
 export type LeadSource = 'booking' | 'chat' | 'email' | 'affiliate' | 'subscription' | 'review' | 'walk-in' | 'referral' | 'social';
@@ -105,50 +106,87 @@ export default function LeadCRM() {
   const [showAdd, setShowAdd]     = useState(false);
   const [addForm, setAddForm]     = useState({ name: '', email: '', phone: '', city: '', service: '', source: 'email' as LeadSource, stage: 'new' as LeadStage, value: '' });
 
-  useEffect(() => {
-    const s = localStorage.getItem(STORAGE_KEY);
-    setLeads(s ? JSON.parse(s) : seed());
-    if (!s) localStorage.setItem(STORAGE_KEY, JSON.stringify(seed()));
-    const n = localStorage.getItem(NOTES_KEY);
-    setNotes(n ? JSON.parse(n) : []);
-  }, []);
+  async function loadData() {
+    try {
+      const [lr, nr] = await Promise.all([
+        fetch(`${SERVER}/crm/leads`, { headers: authHeaders }),
+        fetch(`${SERVER}/crm/notes`, { headers: authHeaders }),
+      ]);
+      const lj = await lr.json();
+      const nj = await nr.json();
+      if (lj.success) {
+        if (lj.leads.length === 0) {
+          // First run: seed the CRM so the pipeline isn't empty, then reload.
+          await Promise.all(seed().map(s => fetch(`${SERVER}/crm/leads`, {
+            method: 'POST', headers: authHeaders,
+            body: JSON.stringify({ name: s.name, email: s.email, phone: s.phone, city: s.city, source: s.source, service: s.service, stage: s.stage, score: s.score, value: s.value, tags: s.tags, urgent: s.urgent }),
+          })));
+          const rr = await fetch(`${SERVER}/crm/leads`, { headers: authHeaders });
+          const rj = await rr.json();
+          if (rj.success) setLeads(rj.leads);
+        } else {
+          setLeads(lj.leads);
+        }
+      } else {
+        console.error('Failed to load CRM leads:', lj.error);
+      }
+      if (nj.success) setNotes(nj.notes);
+    } catch (err) {
+      console.error('Network error loading CRM data:', err);
+      toast.error('Could not load leads from server');
+    }
+  }
 
-  function saveLeads(l: Lead[]) { setLeads(l); localStorage.setItem(STORAGE_KEY, JSON.stringify(l)); }
-  function saveNotes(n: Note[]) { setNotes(n); localStorage.setItem(NOTES_KEY, JSON.stringify(n)); }
+  useEffect(() => { loadData(); }, []);
 
-  function moveStage(id: string, stage: LeadStage) {
-    const updated = leads.map(l => l.id === id ? { ...l, stage, lastContact: new Date().toISOString() } : l);
-    saveLeads(updated);
+  async function moveStage(id: string, stage: LeadStage) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, stage, lastContact: new Date().toISOString() } : l));
     if (selectedLead?.id === id) setSelectedLead(prev => prev ? { ...prev, stage } : null);
+    try {
+      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ stage }) });
+    } catch (err) { console.error('Failed to update lead stage:', err); }
   }
 
-  function addNote() {
+  async function addNote() {
     if (!newNote.trim() || !selectedLead) return;
-    const n: Note = { id: crypto.randomUUID(), leadId: selectedLead.id, body: newNote.trim(), at: new Date().toISOString() };
-    saveNotes([...notes, n]);
+    const body = newNote.trim();
     setNewNote('');
-    toast.success('Note saved');
+    try {
+      const res = await fetch(`${SERVER}/crm/notes`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ leadId: selectedLead.id, body }) });
+      const json = await res.json();
+      if (json.success) { setNotes(prev => [json.note, ...prev]); toast.success('Note saved'); }
+      else toast.error(json.error || 'Could not save note');
+    } catch (err) { console.error('Failed to save note:', err); toast.error('Network error saving note'); }
   }
 
-  function addLead() {
+  async function addLead() {
     if (!addForm.name.trim() || !addForm.email.trim()) { toast.error('Name and email required'); return; }
-    const score = Math.floor(40 + Math.random() * 40);
-    const l: Lead = {
-      id: crypto.randomUUID(), name: addForm.name, email: addForm.email,
-      phone: addForm.phone || undefined, city: addForm.city || undefined,
-      source: addForm.source, service: addForm.service || undefined,
-      stage: addForm.stage, score, value: Number(addForm.value) || 0,
-      createdAt: new Date().toISOString(), tags: [], urgent: false,
-    };
-    saveLeads([l, ...leads]);
-    setShowAdd(false);
-    setAddForm({ name: '', email: '', phone: '', city: '', service: '', source: 'email', stage: 'new', value: '' });
-    toast.success('Lead added!');
+    try {
+      const res = await fetch(`${SERVER}/crm/leads`, {
+        method: 'POST', headers: authHeaders,
+        body: JSON.stringify({
+          name: addForm.name, email: addForm.email, phone: addForm.phone, city: addForm.city,
+          source: addForm.source, service: addForm.service, stage: addForm.stage, value: Number(addForm.value) || 0,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setLeads(prev => [json.lead, ...prev]);
+        setShowAdd(false);
+        setAddForm({ name: '', email: '', phone: '', city: '', service: '', source: 'email', stage: 'new', value: '' });
+        toast.success('Lead added!');
+      } else toast.error(json.error || 'Could not add lead');
+    } catch (err) { console.error('Failed to add lead:', err); toast.error('Network error adding lead'); }
   }
 
-  function toggleUrgent(id: string) {
-    saveLeads(leads.map(l => l.id === id ? { ...l, urgent: !l.urgent } : l));
-    if (selectedLead?.id === id) setSelectedLead(p => p ? { ...p, urgent: !p.urgent } : null);
+  async function toggleUrgent(id: string) {
+    const target = leads.find(l => l.id === id);
+    const next = !target?.urgent;
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, urgent: next } : l));
+    if (selectedLead?.id === id) setSelectedLead(p => p ? { ...p, urgent: next } : null);
+    try {
+      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ urgent: next }) });
+    } catch (err) { console.error('Failed to toggle urgent:', err); }
   }
 
   const filteredLeads = leads.filter(l => {

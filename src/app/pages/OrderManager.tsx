@@ -69,7 +69,7 @@ export default function OrderManager() {
   async function loadOrders() {
     try {
       const res = await fetch(`${SERVER}/store/orders`, {
-        headers: { apikey: publicAnonKey },
+        headers: { apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
       });
       if (res.ok) {
         const data = await res.json();
@@ -98,7 +98,7 @@ export default function OrderManager() {
       if (tracking_number) body.tracking_number = tracking_number;
       const res = await fetch(`${SERVER}/store/orders/${orderId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
         body: JSON.stringify(body),
       });
       if (res.ok) {

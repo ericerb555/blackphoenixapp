@@ -92,10 +92,14 @@ export default function CodeTracker() {
   const testServerHealth = async () => {
     try {
       const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-      
-      // DISABLED: Health check removed to prevent console 404 spam
-      // Simulate offline response
-      const response = { ok: false } as Response;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${API_BASE}/health`, {
+        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();

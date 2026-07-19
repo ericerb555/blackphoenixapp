@@ -7,6 +7,9 @@ import { useState } from 'react';
 import { Upload, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { uploadImageDataUrl } from '../utils/imageStorage';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const LOGO_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 export default function UploadMyLogo() {
   const [uploading, setUploading] = useState(false);
@@ -72,6 +75,18 @@ export default function UploadMyLogo() {
       };
 
       localStorage.setItem('company_branding_profile', JSON.stringify(brandingProfile));
+
+      // Persist to the server so the branding loads across devices and for public
+      // (unauthenticated) landing-page visitors via /public/branding.
+      try {
+        await fetch(`${LOGO_SERVER}/branding-profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({ branding: brandingProfile }),
+        });
+      } catch (e) {
+        console.warn('Branding profile server save failed (kept locally):', e);
+      }
 
       console.log('✅ Logo saved to localStorage');
       console.log('✅ Company name:', companyName);
