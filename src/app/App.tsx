@@ -573,6 +573,12 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'check-my-companies',
     'publish-my-branding',
     'fix-my-logo',
+
+    // Legal (public — anyone can read)
+    'privacy',
+    'privacy-policy',
+    'terms',
+    'terms-of-service',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1602,7 +1608,7 @@ function AppContent() {
                         currentPage !== "landing-page" &&
                         currentPage !== "directory" &&
                         currentPage !== "directory-landing-page" && (
-                          <div className="w-full flex justify-center py-12 px-4 border-t border-[#2A2A2A] bg-[#0A0A0A] mt-12">
+                          <div className="w-full flex flex-col items-center gap-4 py-12 px-4 border-t border-[#2A2A2A] bg-[#0A0A0A] mt-12">
                             <button
                               onClick={() => navigate("directory-landing-page")}
                               className="flex items-center gap-2 px-6 py-3 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-xl text-gray-300 hover:text-white transition-all"
@@ -1610,6 +1616,21 @@ function AppContent() {
                               <Home className="w-5 h-5" />
                               <span>Return to Landing Page</span>
                             </button>
+                            <div className="flex items-center gap-4 text-sm text-gray-500">
+                              <button
+                                onClick={() => navigate("privacy-policy")}
+                                className="hover:text-[#ea580c] transition-colors underline underline-offset-4"
+                              >
+                                Privacy Policy
+                              </button>
+                              <span className="text-[#2A2A2A]">|</span>
+                              <button
+                                onClick={() => navigate("terms-of-service")}
+                                className="hover:text-[#ea580c] transition-colors underline underline-offset-4"
+                              >
+                                Terms of Service
+                              </button>
+                            </div>
                           </div>
                         )}
                     </div>

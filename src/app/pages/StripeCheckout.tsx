@@ -24,7 +24,7 @@ interface Company {
   id: string;
   name: string;
   code: string;
-  connectedAccountId?: string;
+  stripeKeyEnv?: string;
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
 }
@@ -130,7 +130,7 @@ export default function StripeCheckout() {
           list = (await api('/stripe/seed', 'POST')).companies;
         }
         setCompanies(list || []);
-        const ready = (list || []).find((co) => co.connectedAccountId);
+        const ready = (list || []).find((co) => co.chargesEnabled);
         if (ready) setCompanyId(ready.id);
         else if (list?.[0]) setCompanyId(list[0].id);
       } catch (err: any) {
@@ -147,8 +147,8 @@ export default function StripeCheckout() {
     const amt = parseFloat(amount);
     if (!companyId) { toast.error('Select a company'); return; }
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (selected && !selected.connectedAccountId) {
-      toast.error(`${selected.name} hasn't connected a bank yet — do that on the Company Bank Routing page first.`);
+    if (selected && !selected.chargesEnabled) {
+      toast.error(`${selected.name}'s Stripe account isn't active yet — check it on the Company Bank Routing page first.`);
       return;
     }
     try {
@@ -219,7 +219,7 @@ export default function StripeCheckout() {
               <label className="text-xs text-gray-400">Company (receives funds)</label>
               <div className="grid grid-cols-1 gap-2 mt-1">
                 {companies.map((co) => {
-                  const ready = !!co.connectedAccountId;
+                  const ready = !!co.chargesEnabled;
                   return (
                     <button
                       key={co.id}

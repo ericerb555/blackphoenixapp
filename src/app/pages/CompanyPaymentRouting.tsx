@@ -1,29 +1,36 @@
 /**
- * Company Payment Routing (Stripe Connect)
+ * Company Payment Routing (Multi-Account, Option B)
  *
- * Manage TWO companies, each mapped to its own Stripe connected account /
- * bank account, each with a unique company code (e.g. BPB-8544). Every payment
- * routed through the app is a destination charge to the correct company's bank
- * and is tagged with that company's code for reconciliation.
+ * Each company is its OWN independent Stripe account with its OWN secret key and
+ * OWN bank/payouts (managed in that account's own Stripe dashboard). At checkout
+ * the server picks the account by the company CODE and charges directly on it.
+ * This page manages the company↔account mapping and shows live account status.
  *
  * All Stripe calls go through the server module `stripe-connect.tsx`.
  */
 import { useEffect, useState } from 'react';
 import {
   Building2, Plus, Banknote, CheckCircle2, AlertCircle, RefreshCw,
-  Link as LinkIcon, DollarSign, Pencil, Save, X,
+  DollarSign, Pencil, Save, X, ExternalLink, KeyRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
+// Human labels for the secret-key env vars (values never touch the browser).
+const KEY_ENV_LABELS: Record<string, string> = {
+  STRIPE_SECRET_KEY: 'Account 1 · STRIPE_SECRET_KEY',
+  STRIPE_SECRET_KEY_2: 'Account 2 · STRIPE_SECRET_KEY_2',
+};
+const KEY_ENV_OPTIONS = ['STRIPE_SECRET_KEY', 'STRIPE_SECRET_KEY_2'];
+
 interface Company {
   id: string;
   name: string;
   code: string;
   email?: string;
-  connectedAccountId?: string;
+  stripeKeyEnv?: string;
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
@@ -61,21 +68,22 @@ export default function CompanyPaymentRouting() {
   const [revenue, setRevenue] = useState<RevenueRow[]>([]);
   const [grandTotal, setGrandTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [stripeConfigured, setStripeConfigured] = useState(true);
+  // Which secret-key env vars are actually configured on the server.
+  const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', code: '', email: '' });
+  const [form, setForm] = useState({ name: '', code: '', email: '', stripeKeyEnv: 'STRIPE_SECRET_KEY' });
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', code: '', email: '' });
+  const [addForm, setAddForm] = useState({ name: '', code: '', email: '', stripeKeyEnv: 'STRIPE_SECRET_KEY' });
   const [busy, setBusy] = useState<string | null>(null);
 
   const loadAll = async () => {
     try {
       setLoading(true);
-      const health = await api('/stripe/health').catch(() => ({ stripeConfigured: false }));
-      setStripeConfigured(!!health.stripeConfigured);
+      const health = await api('/stripe/health').catch(() => ({ accounts: {} }));
+      setKeyStatus(health.accounts || {});
 
       let list = (await api('/stripe/companies')).companies as Company[];
-      // First-run seed so the two-company structure exists.
+      // First-run seed so the company structure exists.
       if (!list || list.length === 0) {
         const seeded = await api('/stripe/seed', 'POST');
         list = seeded.companies;
@@ -97,7 +105,7 @@ export default function CompanyPaymentRouting() {
 
   const startEdit = (co: Company) => {
     setEditing(co.id);
-    setForm({ name: co.name, code: co.code, email: co.email || '' });
+    setForm({ name: co.name, code: co.code, email: co.email || '', stripeKeyEnv: co.stripeKeyEnv || 'STRIPE_SECRET_KEY' });
   };
 
   const saveEdit = async (companyId: string) => {
@@ -124,7 +132,7 @@ export default function CompanyPaymentRouting() {
       await api('/stripe/companies', 'POST', addForm);
       toast.success('Company added');
       setShowAdd(false);
-      setAddForm({ name: '', code: '', email: '' });
+      setAddForm({ name: '', code: '', email: '', stripeKeyEnv: 'STRIPE_SECRET_KEY' });
       await loadAll();
     } catch (err: any) {
       toast.error(err.message);
@@ -133,21 +141,24 @@ export default function CompanyPaymentRouting() {
     }
   };
 
-  const connectBank = async (co: Company) => {
-    if (!stripeConfigured) {
-      toast.error('STRIPE_SECRET_KEY is not configured on the server');
+  // Verify the account's key works and pull live status. The bank itself is
+  // managed inside that account's own Stripe dashboard.
+  const verifyAccount = async (co: Company) => {
+    if (!keyStatus[co.stripeKeyEnv || 'STRIPE_SECRET_KEY']) {
+      toast.error(`${KEY_ENV_LABELS[co.stripeKeyEnv || 'STRIPE_SECRET_KEY']} is not configured on the server yet.`);
       return;
     }
     try {
       setBusy(co.id);
-      const returnUrl = window.location.href;
-      const { url } = await api(`/stripe/companies/${co.id}/connect`, 'POST', {
-        returnUrl, refreshUrl: returnUrl,
-      });
-      toast.success('Opening Stripe onboarding…');
-      window.open(url, '_blank');
+      const res = await api(`/stripe/companies/${co.id}/connect`, 'POST', {});
+      await loadAll();
+      if (res.company?.chargesEnabled) {
+        toast.success(`${co.name} is active and ready to receive payments.`);
+      } else {
+        toast.message(`${co.name}: key works, but the account still needs activation/bank setup in its Stripe dashboard.`);
+      }
     } catch (err: any) {
-      toast.error(`Could not start onboarding: ${err.message}`);
+      toast.error(`Could not verify account: ${err.message}`);
     } finally {
       setBusy(null);
     }
@@ -168,6 +179,20 @@ export default function CompanyPaymentRouting() {
 
   const revFor = (id: string) => revenue.find((r) => r.companyId === id);
 
+  const KeySelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full mt-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm"
+    >
+      {KEY_ENV_OPTIONS.map((env) => (
+        <option key={env} value={env}>
+          {KEY_ENV_LABELS[env]} {keyStatus[env] ? '✓' : '(no key yet)'}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white p-6">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -179,8 +204,8 @@ export default function CompanyPaymentRouting() {
               Company Payment Routing
             </h1>
             <p className="text-gray-400 text-sm mt-1">
-              Two bank accounts via Stripe Connect. Every payment routes to the right company
-              and is tagged with its code.
+              Each company is its own independent Stripe account. Checkout routes by company
+              code to the right account, and every charge is tagged with that code.
             </p>
           </div>
           <div className="flex gap-2">
@@ -199,23 +224,10 @@ export default function CompanyPaymentRouting() {
           </div>
         </div>
 
-        {/* Stripe config warning */}
-        {!stripeConfigured && (
-          <div className="flex items-start gap-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-            <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-yellow-200">
-              <strong>STRIPE_SECRET_KEY not detected on the server.</strong> Companies and codes
-              still save, but connecting banks and charging cards requires the key. It's listed in
-              your provided secrets, so this usually just means the latest server deploy hasn't
-              landed yet — refresh in a minute.
-            </p>
-          </div>
-        )}
-
         {/* Grand total */}
         <div className="bg-gradient-to-r from-[#1A1A1A] to-[#0F0F0F] border border-[#2A2A2A] rounded-xl p-5 flex items-center justify-between">
           <div>
-            <p className="text-gray-400 text-sm">Total routed revenue (all companies)</p>
+            <p className="text-gray-400 text-sm">Total revenue (all companies)</p>
             <p className="text-3xl font-bold text-[#ea580c]">
               ${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
@@ -230,6 +242,8 @@ export default function CompanyPaymentRouting() {
             {companies.map((co) => {
               const rev = revFor(co.id);
               const isEditing = editing === co.id;
+              const keyEnv = co.stripeKeyEnv || 'STRIPE_SECRET_KEY';
+              const keyConfigured = !!keyStatus[keyEnv];
               const ready = co.payoutsEnabled && co.chargesEnabled;
               return (
                 <div key={co.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5 space-y-4">
@@ -281,25 +295,43 @@ export default function CompanyPaymentRouting() {
                     )}
                   </div>
 
+                  {/* Which Stripe account (secret key) this company uses */}
+                  {isEditing ? (
+                    <div>
+                      <label className="text-xs text-gray-400 flex items-center gap-1">
+                        <KeyRound className="w-3 h-3" /> Stripe account
+                      </label>
+                      <KeySelect value={form.stripeKeyEnv} onChange={(v) => setForm({ ...form, stripeKeyEnv: v })} />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      <KeyRound className="w-3 h-3" />
+                      <span>{KEY_ENV_LABELS[keyEnv] || keyEnv}</span>
+                      <span className={keyConfigured ? 'text-green-400' : 'text-yellow-400'}>
+                        {keyConfigured ? '· key configured' : '· key missing'}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Status */}
                   <div className="flex flex-wrap gap-2 text-xs">
-                    <span className={`flex items-center gap-1 px-2 py-1 rounded ${co.connectedAccountId ? 'bg-green-500/10 text-green-300' : 'bg-[#0A0A0A] text-gray-500'}`}>
-                      {co.connectedAccountId ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                      Account {co.connectedAccountId ? 'created' : 'not created'}
+                    <span className={`flex items-center gap-1 px-2 py-1 rounded ${co.chargesEnabled ? 'bg-green-500/10 text-green-300' : 'bg-[#0A0A0A] text-gray-500'}`}>
+                      {co.chargesEnabled ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                      Charges {co.chargesEnabled ? 'enabled' : 'off'}
                     </span>
                     <span className={`flex items-center gap-1 px-2 py-1 rounded ${co.payoutsEnabled ? 'bg-green-500/10 text-green-300' : 'bg-[#0A0A0A] text-gray-500'}`}>
                       <Banknote className="w-3 h-3" />
-                      Bank {co.payoutsEnabled ? `•••• ${co.bankLast4 || ''}` : 'not connected'}
+                      Bank {co.payoutsEnabled ? `•••• ${co.bankLast4 || 'on file'}` : 'not set'}
                     </span>
                     <span className={`flex items-center gap-1 px-2 py-1 rounded ${ready ? 'bg-green-500/10 text-green-300' : 'bg-yellow-500/10 text-yellow-300'}`}>
-                      {ready ? 'Ready to receive' : 'Onboarding needed'}
+                      {ready ? 'Ready to receive' : 'Needs activation'}
                     </span>
                   </div>
 
                   {/* Revenue */}
                   <div className="bg-[#0A0A0A] rounded-lg p-3 flex items-center justify-between">
                     <div>
-                      <p className="text-gray-400 text-xs">Routed revenue</p>
+                      <p className="text-gray-400 text-xs">Revenue</p>
                       <p className="text-xl font-bold">
                         ${(rev?.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </p>
@@ -310,13 +342,22 @@ export default function CompanyPaymentRouting() {
                   {/* Actions */}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => connectBank(co)}
+                      onClick={() => verifyAccount(co)}
                       disabled={busy === co.id}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-[#ea580c] hover:bg-[#dc2626] disabled:opacity-50 rounded-lg text-sm font-medium"
                     >
-                      <LinkIcon className="w-4 h-4" />
-                      {co.connectedAccountId ? 'Manage / Finish Bank Setup' : 'Connect Bank'}
+                      <CheckCircle2 className="w-4 h-4" />
+                      {busy === co.id ? 'Verifying…' : 'Verify Account'}
                     </button>
+                    <a
+                      href="https://dashboard.stripe.com/settings/payouts"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 bg-[#0A0A0A] border border-[#2A2A2A] hover:border-[#ea580c] rounded-lg flex items-center"
+                      title="Open Stripe dashboard to manage this account's bank"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                     <button
                       onClick={() => refreshStatus(co)}
                       disabled={busy === co.id}
@@ -335,9 +376,9 @@ export default function CompanyPaymentRouting() {
         {/* How it works */}
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm text-blue-200/90 space-y-1">
           <p className="font-semibold text-blue-200">How routing works</p>
-          <p>• Each company is a Stripe <strong>connected account</strong> with its own bank & payout schedule.</p>
-          <p>• Payments are <strong>destination charges</strong> — funds land in that company's bank automatically.</p>
-          <p>• Every charge is stamped with the company <strong>code</strong> (e.g. BPB-8544) in Stripe metadata and your records.</p>
+          <p>• Each company is a <strong>separate, independent Stripe account</strong> with its own secret key, bank & payouts.</p>
+          <p>• At checkout the server matches the order's company <strong>code</strong> and charges that account directly.</p>
+          <p>• Manage each account's bank in its <strong>own Stripe dashboard</strong> (Settings → Payouts).</p>
         </div>
       </div>
 
@@ -361,6 +402,12 @@ export default function CompanyPaymentRouting() {
                 <label className="text-xs text-gray-400">Company code (e.g. BPB-8544)</label>
                 <input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
                   className="w-full mt-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm font-mono text-[#ea580c]" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 flex items-center gap-1">
+                  <KeyRound className="w-3 h-3" /> Stripe account (secret key)
+                </label>
+                <KeySelect value={addForm.stripeKeyEnv} onChange={(v) => setAddForm({ ...addForm, stripeKeyEnv: v })} />
               </div>
               <div>
                 <label className="text-xs text-gray-400">Billing email (optional)</label>

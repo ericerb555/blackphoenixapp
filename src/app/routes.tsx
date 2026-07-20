@@ -7,6 +7,8 @@
 // Critical Pages - no lazy loading (avoids Suspense issues on first render)
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
 import DirectoryLandingPage from "./pages/DirectoryLandingPage";
 import BuildsLandingPage from "./pages/BuildsLandingPage";
 import HandymanLandingPage from "./pages/HandymanLandingPage";
@@ -537,6 +539,12 @@ export const pageMap: Record<string, React.ComponentType<any>> = {
   "maintenance-subscriptions":      SubscriptionMaintenancePlans,
   "maintenance-admin":              MaintenancePlanAdmin,
   "maintenance-plan-admin":         MaintenancePlanAdmin,
+
+  // Legal
+  "privacy":           PrivacyPolicy,
+  "privacy-policy":    PrivacyPolicy,
+  "terms":             TermsOfService,
+  "terms-of-service":  TermsOfService,
 
   // Legacy redirects (kept for backward compat)
   "condo-association-portal": PortalDemoHub,
