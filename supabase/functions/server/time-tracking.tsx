@@ -4,12 +4,60 @@
  */
 
 import { Hono } from "npm:hono";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 
-const timeTrackingRouter = new Hono();
+type TimeTrackingVariables = { actor: any; admin: boolean };
+const timeTrackingRouter = new Hono<{ Variables: TimeTrackingVariables }>();
+const auth = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+);
+const ADMIN_ROLES = new Set(["owner", "admin", "master_admin", "management", "hr", "human_resources"]);
+
+async function authenticatedActor(c: any) {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  const { data: { user }, error } = await auth.auth.getUser(token);
+  return error || !user ? null : user;
+}
+
+async function hasAdminAccess(user: any) {
+  const metadataRole = String(user?.user_metadata?.role || user?.user_metadata?.accountType || "").toLowerCase();
+  if (ADMIN_ROLES.has(metadataRole)) return true;
+  if (!user?.id) return false;
+  try {
+    const { data } = await auth.from("user_permissions").select("role_name").eq("user_id", user.id);
+    return (data || []).some((row: any) => ADMIN_ROLES.has(String(row.role_name || "").toLowerCase()));
+  } catch {
+    return false;
+  }
+}
+
+function ownsEmployee(c: any, employeeId: string) {
+  return Boolean(c.get("admin") || String(c.get("actor")?.id || "") === String(employeeId || ""));
+}
+
+function requireEmployeeAccess(c: any, employeeId: string) {
+  return ownsEmployee(c, employeeId) ? null : c.json({ success: false, error: "You may only access your own time records." }, 403);
+}
+
+function requireAdmin(c: any) {
+  return c.get("admin") ? null : c.json({ success: false, error: "Administrator access is required." }, 403);
+}
+
+timeTrackingRouter.use("*", async (c, next) => {
+  const actor = await authenticatedActor(c);
+  if (!actor?.id) return c.json({ success: false, error: "Sign in is required for time tracking." }, 401);
+  c.set("actor", actor);
+  c.set("admin", await hasAdminAccess(actor));
+  await next();
+});
 
 // Get all employees with time tracking status
 timeTrackingRouter.get("/employees", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
   try {
     const employees = await kv.getByPrefix("time_employee:");
     
@@ -42,8 +90,10 @@ timeTrackingRouter.get("/employees", async (c) => {
 
 // Get specific employee
 timeTrackingRouter.get("/employees/:id", async (c) => {
+  const employeeId = c.req.param("id");
+  const denial = requireEmployeeAccess(c, employeeId);
+  if (denial) return denial;
   try {
-    const employeeId = c.req.param("id");
     const employee = await kv.get(`time_employee:${employeeId}`);
     
     if (!employee) {
@@ -77,23 +127,29 @@ timeTrackingRouter.post("/employees", async (c) => {
   try {
     const body = await c.req.json();
     const { id, name, role, department, phoneNumber, payRate, assignedProject } = body;
+    const denial = requireEmployeeAccess(c, id);
+    if (denial) return denial;
     
     if (!id || !name) {
       return c.json({ success: false, error: "Employee ID and name are required" }, 400);
     }
     
+    const existing = await kv.get(`time_employee:${id}`) as any;
+    const isAdmin = Boolean(c.get("admin"));
     const employee = {
+      ...(existing || {}),
       id,
-      name,
-      role: role || 'Employee',
-      department: department || 'General',
-      phoneNumber: phoneNumber || '',
-      payRate: payRate || 0,
-      assignedProject: assignedProject || null,
-      status: 'clocked-out',
-      hoursToday: 0,
-      hoursWeek: 0,
-      createdAt: new Date().toISOString(),
+      // A field user can keep their name current but cannot modify pay, role, department, or assignment.
+      name: name || existing?.name || c.get("actor")?.email || "Employee",
+      role: isAdmin ? (role || existing?.role || 'Employee') : (existing?.role || 'Employee'),
+      department: isAdmin ? (department || existing?.department || 'General') : (existing?.department || 'General'),
+      phoneNumber: isAdmin ? (phoneNumber || existing?.phoneNumber || '') : (existing?.phoneNumber || ''),
+      payRate: isAdmin ? Number(payRate ?? existing?.payRate ?? 0) : Number(existing?.payRate || 0),
+      assignedProject: isAdmin ? (assignedProject ?? existing?.assignedProject ?? null) : (existing?.assignedProject ?? null),
+      status: existing?.status || 'clocked-out',
+      hoursToday: Number(existing?.hoursToday || 0),
+      hoursWeek: Number(existing?.hoursWeek || 0),
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     
@@ -114,6 +170,8 @@ timeTrackingRouter.post("/punch-in", async (c) => {
   try {
     const body = await c.req.json();
     const { employeeId, location, projectId, notes } = body;
+    const denial = requireEmployeeAccess(c, employeeId);
+    if (denial) return denial;
     
     if (!employeeId) {
       return c.json({ success: false, error: "Employee ID is required" }, 400);
@@ -187,6 +245,8 @@ timeTrackingRouter.post("/punch-out", async (c) => {
   try {
     const body = await c.req.json();
     const { employeeId, location, notes } = body;
+    const denial = requireEmployeeAccess(c, employeeId);
+    if (denial) return denial;
     
     if (!employeeId) {
       return c.json({ success: false, error: "Employee ID is required" }, 400);
@@ -266,6 +326,8 @@ timeTrackingRouter.post("/break", async (c) => {
   try {
     const body = await c.req.json();
     const { employeeId, action } = body; // action: 'start' | 'end'
+    const denial = requireEmployeeAccess(c, employeeId);
+    if (denial) return denial;
     
     if (!employeeId || !action) {
       return c.json({ 
@@ -341,7 +403,8 @@ timeTrackingRouter.post("/break", async (c) => {
 // Get time entries for date range
 timeTrackingRouter.get("/entries", async (c) => {
   try {
-    const employeeId = c.req.query("employeeId");
+    let employeeId = c.req.query("employeeId");
+    if (!c.get("admin")) employeeId = String(c.get("actor")?.id || "");
     const startDate = c.req.query("startDate");
     const endDate = c.req.query("endDate");
     
@@ -384,6 +447,8 @@ timeTrackingRouter.get("/entries", async (c) => {
 
 // Approve time entry (for payroll)
 timeTrackingRouter.post("/entries/:id/approve", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
   try {
     const entryId = c.req.param("id");
     
@@ -419,6 +484,8 @@ timeTrackingRouter.post("/entries/:id/approve", async (c) => {
 
 // Get payroll report
 timeTrackingRouter.get("/payroll-report", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
   try {
     const startDate = c.req.query("startDate");
     const endDate = c.req.query("endDate");
@@ -491,6 +558,8 @@ timeTrackingRouter.get("/payroll-report", async (c) => {
 
 // Reset daily/weekly hours (run via cron)
 timeTrackingRouter.post("/reset-hours", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
   try {
     const resetType = c.req.query("type"); // 'daily' | 'weekly'
     
@@ -528,7 +597,9 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const periodAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-    const entries = (await kv.getByPrefix("time_entry_history:")) || [];
+    let entries = (await kv.getByPrefix("time_entry_history:")) || [];
+    // A field employee only receives their own aggregate; HR/admin receives the full summary.
+    if (!c.get("admin")) entries = entries.filter((entry: any) => String(entry?.employeeId || "") === String(c.get("actor")?.id || ""));
     // name -> { week, period }
     const byName: Record<string, { hoursThisWeek: number; hoursThisPeriod: number }> = {};
 
@@ -562,8 +633,10 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
 
 // List tasks for an employee
 timeTrackingRouter.get("/tasks/:employeeId", async (c) => {
+  const employeeId = c.req.param("employeeId");
+  const denial = requireEmployeeAccess(c, employeeId);
+  if (denial) return denial;
   try {
-    const employeeId = c.req.param("employeeId");
     const tasks = (await kv.getByPrefix(`time_task:${employeeId}:`)) || [];
     tasks.sort((a: any, b: any) => new Date(a?.scheduledAt || 0).getTime() - new Date(b?.scheduledAt || 0).getTime());
     return c.json({ success: true, tasks });
@@ -575,6 +648,8 @@ timeTrackingRouter.get("/tasks/:employeeId", async (c) => {
 
 // Create a task for an employee
 timeTrackingRouter.post("/tasks/:employeeId", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
   try {
     const employeeId = c.req.param("employeeId");
     const body = await c.req.json();
@@ -602,8 +677,10 @@ timeTrackingRouter.post("/tasks/:employeeId", async (c) => {
 
 // Update a task's status
 timeTrackingRouter.post("/tasks/:employeeId/:taskId/status", async (c) => {
+  const employeeId = c.req.param("employeeId");
+  const denial = requireEmployeeAccess(c, employeeId);
+  if (denial) return denial;
   try {
-    const employeeId = c.req.param("employeeId");
     const taskId = c.req.param("taskId");
     const body = await c.req.json();
     const { status } = body;

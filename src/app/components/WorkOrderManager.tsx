@@ -22,7 +22,8 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { motion, AnimatePresence } from 'motion/react';
 import WorkOrderDetail from './WorkOrderDetail';
-import { addTestRequestToStorage } from '../utils/createTestWorkRequest';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 export type WorkRequestStatus = 'new' | 'reviewed' | 'approved' | 'rejected';
 export type WorkOrderStatus = 'pending' | 'assigned' | 'in-progress' | 'on-hold' | 'completed' | 'cancelled';
@@ -137,37 +138,20 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
     loadData();
   }, []);
 
-  const loadData = () => {
-    // Load from localStorage
-    const requestsData = localStorage.getItem('work_requests');
-    const ordersData = localStorage.getItem('work_orders');
-
-    if (requestsData) {
-      setWorkRequests(JSON.parse(requestsData));
-    } else {
-      // Load demo data
-      setWorkRequests(generateDemoRequests());
-    }
-
-    if (ordersData) {
-      setWorkOrders(JSON.parse(ordersData));
-    } else {
-      // Load demo data
-      setWorkOrders(generateDemoOrders());
-    }
+  const apiHeaders = async (contentType = false) => { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as an administrator to manage work orders.'); return { Authorization: `Bearer ${session.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; };
+  const loadData = async () => {
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`, { headers: await apiHeaders() });
+      const records = await response.json(); if (!response.ok || !Array.isArray(records)) throw new Error(records.error || 'Could not load work requests.');
+      const requests = records.map((record: any) => ({ id: record.id, requestNumber: record.requestNumber || record.id, status: record.status || 'new', customerName: record.client_name || record.clientName || '', customerEmail: record.client_email || record.clientEmail || '', customerPhone: record.client_phone || record.clientPhone || '', serviceType: record.serviceType || '', title: record.project_name || record.title || 'Service request', description: record.description || '', location: record.address || '', urgency: record.urgency || 'medium', photos: record.photos || [], documents: record.documents || [], createdAt: record.created_at || record.createdAt || new Date().toISOString(), reviewedAt: record.reviewedAt, reviewedBy: record.reviewedBy, notes: record.notes }));
+      setWorkRequests(requests); setWorkOrders(records.filter((record: any) => record.workOrder).map((record: any) => record.workOrder));
+    } catch (error: any) { toast.error(error.message || 'Could not load live work orders.'); setWorkRequests([]); setWorkOrders([]); }
   };
 
-  const saveRequests = (requests: WorkRequest[]) => {
-    localStorage.setItem('work_requests', JSON.stringify(requests));
-    setWorkRequests(requests);
-  };
+  const saveRequests = (requests: WorkRequest[]) => setWorkRequests(requests);
+  const saveOrders = (orders: WorkOrder[]) => setWorkOrders(orders);
 
-  const saveOrders = (orders: WorkOrder[]) => {
-    localStorage.setItem('work_orders', JSON.stringify(orders));
-    setWorkOrders(orders);
-  };
-
-  const convertRequestToOrder = (request: WorkRequest) => {
+  const convertRequestToOrder = async (request: WorkRequest) => {
     const newOrder: WorkOrder = {
       id: `WO-${Date.now()}`,
       workOrderNumber: `WO-${String(workOrders.length + 1).padStart(5, '0')}`,
@@ -190,23 +174,12 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
       updatedAt: new Date().toISOString()
     };
 
-    const updatedOrders = [...workOrders, newOrder];
-    saveOrders(updatedOrders);
-
-    // Mark request as approved
-    const updatedRequests = workRequests.map(r =>
-      r.id === request.id
-        ? { ...r, status: 'approved' as WorkRequestStatus, reviewedAt: new Date().toISOString() }
-        : r
-    );
-    saveRequests(updatedRequests);
-
-    toast.success(`Work order ${newOrder.workOrderNumber} created!`);
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(request.id)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', reviewedAt: new Date().toISOString(), workOrder: newOrder }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not create work order.'); saveOrders([...workOrders, newOrder]); saveRequests(workRequests.map(r => r.id === request.id ? { ...r, status: 'approved' as WorkRequestStatus, reviewedAt: new Date().toISOString() } : r)); toast.success(`Work order ${newOrder.workOrderNumber} created!`); } catch (error: any) { toast.error(error.message || 'Could not create work order.'); return; }
     setSelectedOrder(newOrder);
     setActiveTab('orders');
   };
 
-  const updateOrderStatus = (orderId: string, status: WorkOrderStatus) => {
+  const updateOrderStatus = async (orderId: string, status: WorkOrderStatus) => {
     const updatedOrders = workOrders.map(order => {
       if (order.id === orderId) {
         const updates: Partial<WorkOrder> = { status, updatedAt: new Date().toISOString() };
@@ -229,11 +202,11 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
       return order;
     });
 
-    saveOrders(updatedOrders);
-    toast.success('Work order status updated!');
+    const updated = updatedOrders.find(order => order.id === orderId); if (!updated?.requestId) { toast.error('This work order is not linked to a persisted request.'); return; }
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: status === 'completed' ? 'completed' : 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not update work order status.'); saveOrders(updatedOrders); toast.success('Work order status updated!'); } catch (error: any) { toast.error(error.message || 'Could not update work order status.'); }
   };
 
-  const assignWorkOrder = (orderId: string, assignee: { id: string; name: string; type: 'crew' | 'contractor' }) => {
+  const assignWorkOrder = async (orderId: string, assignee: { id: string; name: string; type: 'crew' | 'contractor' }) => {
     const updatedOrders = workOrders.map(order =>
       order.id === orderId
         ? {
@@ -246,8 +219,8 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
         : order
     );
 
-    saveOrders(updatedOrders);
-    toast.success(`Assigned to ${assignee.name}!`);
+    const updated = updatedOrders.find(order => order.id === orderId); if (!updated?.requestId) { toast.error('This work order is not linked to a persisted request.'); return; }
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not assign work order.'); saveOrders(updatedOrders); toast.success(`Assigned to ${assignee.name}!`); } catch (error: any) { toast.error(error.message || 'Could not assign work order.'); }
   };
 
   const filteredRequests = workRequests.filter(request => {
@@ -313,20 +286,6 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
                 Back to Command Center
               </button>
             )}
-            <button
-              onClick={() => {
-                const testRequest = addTestRequestToStorage();
-                loadData();
-                setActiveTab('requests');
-                toast.success(`Test work request created! ${testRequest.requestNumber}`, {
-                  description: `Kitchen renovation for ${testRequest.customerName}`
-                });
-              }}
-              className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 rounded-lg transition-all flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Create Test Request
-            </button>
             {onClose && (
               <button
                 onClick={onClose}

@@ -47,14 +47,14 @@ export default function MobileOwnerPortalView() {
   const stats = [
     { label: 'Total Customers', value: subscriptions.length, icon: Users, color: 'blue', change: '+12%' },
     { label: 'Active Subscriptions', value: subscriptions.filter(s => s.status === 'active').length, icon: CheckCircle, color: 'green', change: '+8%' },
-    { label: 'Monthly Revenue', value: `$${subscriptions.reduce((sum, s) => sum + (s.monthlyRate || 0), 0).toLocaleString()}`, icon: DollarSign, color: 'orange', change: '+15%' },
+    { label: 'Monthly Revenue', value: `$${subscriptions.reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString()}`, icon: DollarSign, color: 'orange', change: '+15%' },
     { label: 'Avg Rating', value: '4.9', icon: Star, color: 'yellow', change: '+0.2' }
   ];
 
   // Top customers
   const topCustomers = subscriptions
     .filter(s => s.status === 'active')
-    .sort((a, b) => (b.monthlyRate || 0) - (a.monthlyRate || 0))
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0))
     .slice(0, 5);
 
   // Recent activity
@@ -66,8 +66,8 @@ export default function MobileOwnerPortalView() {
   ];
 
   const filteredSubscriptions = subscriptions.filter(sub =>
-    (sub.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (sub.subscriptionType || '').toLowerCase().includes(searchQuery.toLowerCase())
+    (sub.stakeholderName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (sub.plan || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getColorClasses = (color: string) => {
@@ -148,7 +148,7 @@ export default function MobileOwnerPortalView() {
         </button>
 
         <button
-          onClick={() => toast.info('Customer management coming soon')}
+          onClick={() => { setActiveTab('customers'); }}
           className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 rounded-2xl p-6 text-left transition group"
         >
           <div className="flex items-center gap-4">
@@ -163,7 +163,7 @@ export default function MobileOwnerPortalView() {
         </button>
 
         <button
-          onClick={() => toast.info('Analytics dashboard coming soon')}
+          onClick={() => { setActiveTab('analytics'); }}
           className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 rounded-2xl p-6 text-left transition group"
         >
           <div className="flex items-center gap-4">
@@ -223,12 +223,12 @@ export default function MobileOwnerPortalView() {
                             <span className="text-lg font-bold text-purple-400">#{i + 1}</span>
                           </div>
                           <div>
-                            <p className="font-bold text-white">{sub.customerName}</p>
-                            <p className="text-sm text-gray-400">{sub.subscriptionType}</p>
+                            <p className="font-bold text-white">{sub.stakeholderName}</p>
+                            <p className="text-sm text-gray-400">{sub.plan}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-lg font-bold text-white">${sub.monthlyRate}/mo</p>
+                          <p className="text-lg font-bold text-white">${sub.amount}/mo</p>
                           <button
                             onClick={() => handleGiftHours(sub)}
                             className="text-sm text-purple-400 hover:text-purple-300 transition flex items-center gap-1"
@@ -296,8 +296,8 @@ export default function MobileOwnerPortalView() {
                     <div key={sub.id} className="bg-[#0A0A0A] rounded-xl p-5 border border-[#2A2A2A] hover:border-purple-500/30 transition">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <h4 className="font-bold text-white mb-1">{sub.customerName}</h4>
-                          <p className="text-sm text-gray-400">{sub.subscriptionType}</p>
+                          <h4 className="font-bold text-white mb-1">{sub.stakeholderName}</h4>
+                          <p className="text-sm text-gray-400">{sub.plan}</p>
                         </div>
                         <span className={`px-3 py-1 rounded-lg text-xs font-semibold ${
                           sub.status === 'active' 
@@ -311,7 +311,7 @@ export default function MobileOwnerPortalView() {
                       <div className="grid grid-cols-3 gap-4 mb-4 pb-4 border-b border-[#2A2A2A]">
                         <div>
                           <p className="text-xs text-gray-500 mb-1">Monthly Rate</p>
-                          <p className="text-lg font-bold text-white">${sub.monthlyRate}</p>
+                          <p className="text-lg font-bold text-white">${sub.amount}</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500 mb-1">Hours Included</p>
@@ -332,7 +332,7 @@ export default function MobileOwnerPortalView() {
                           Gift Hours
                         </button>
                         <button
-                          onClick={() => toast.info('Customer details coming soon')}
+                          onClick={() => { window.location.href = `/customers?email=${encodeURIComponent(sub.stakeholderEmail || '')}`; }}
                           className="px-4 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] rounded-xl text-white transition"
                         >
                           View Details
@@ -351,16 +351,10 @@ export default function MobileOwnerPortalView() {
           )}
 
           {activeTab === 'analytics' && (
-            <div className="text-center py-12">
-              <BarChart3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">Analytics Dashboard</h3>
-              <p className="text-gray-400 mb-6">Detailed revenue and performance metrics coming soon</p>
-              <button
-                onClick={() => setActiveTab('overview')}
-                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 rounded-xl font-bold text-white transition"
-              >
-                Back to Overview
-              </button>
+            <div className="space-y-5">
+              <div><h3 className="text-xl font-bold text-white">Subscription analytics</h3><p className="mt-1 text-sm text-gray-400">Live totals based on the subscriptions currently visible to your owner account.</p></div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"><div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-5"><p className="text-sm text-gray-400">Active monthly revenue</p><p className="mt-2 text-3xl font-bold text-green-400">${subscriptions.filter(sub => sub.status === 'active').reduce((sum, sub) => sum + Number(sub.amount || 0), 0).toLocaleString()}</p></div><div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5"><p className="text-sm text-gray-400">Active plans</p><p className="mt-2 text-3xl font-bold text-blue-400">{subscriptions.filter(sub => sub.status === 'active').length}</p></div><div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-5"><p className="text-sm text-gray-400">Hours remaining</p><p className="mt-2 text-3xl font-bold text-orange-400">{subscriptions.reduce((sum, sub) => sum + Math.max(0, Number(sub.hoursIncluded || 0) + Number(sub.hoursRollover || 0) + Number(sub.hoursGifted || 0) - Number(sub.hoursUsed || 0)), 0).toFixed(1)}h</p></div></div>
+              <div className="rounded-2xl border border-white/10 bg-[#111] p-5"><h4 className="font-semibold text-white">Plan mix</h4><div className="mt-4 space-y-3">{Object.entries(subscriptions.reduce((groups: Record<string, number>, sub) => ({ ...groups, [sub.plan || 'Unassigned']: (groups[sub.plan || 'Unassigned'] || 0) + 1 }), {})).map(([plan, count]) => <div key={plan} className="flex items-center justify-between border-b border-white/5 pb-2 text-sm"><span className="text-gray-300">{plan}</span><span className="font-bold text-white">{count}</span></div>)}</div></div>
             </div>
           )}
         </div>

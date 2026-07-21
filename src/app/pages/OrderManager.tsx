@@ -68,18 +68,20 @@ export default function OrderManager() {
 
   async function loadOrders() {
     try {
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { setOrders([]); return; }
       const res = await fetch(`${SERVER}/store/orders`, {
-        headers: { apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        headers: { apikey: publicAnonKey, Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.orders && data.orders.length > 0) {
-          setOrders(data.orders);
-          return;
-        }
+        setOrders(Array.isArray(data.orders) ? data.orders : []);
+        return;
       }
-    } catch { /* offline — use demo */ }
-    setOrders(demoOrders());
+    } catch { /* Preserve a truthful empty state instead of showing fabricated orders. */ }
+    setOrders([]);
   }
 
   useEffect(() => { loadOrders().finally(() => setLoading(false)); }, []);
@@ -96,9 +98,12 @@ export default function OrderManager() {
     try {
       const body: any = { fulfillment_status };
       if (tracking_number) body.tracking_number = tracking_number;
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in required');
       const res = await fetch(`${SERVER}/store/orders/${orderId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify(body),
       });
       if (res.ok) {
@@ -107,13 +112,11 @@ export default function OrderManager() {
         if (selected?.id === orderId) setSelected(updated);
         toast.success('Order updated');
       } else {
-        // Update locally for demo
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, fulfillment_status: fulfillment_status as any, tracking_number } : o));
-        if (selected?.id === orderId) setSelected(s => s ? { ...s, fulfillment_status: fulfillment_status as any, tracking_number } : null);
-        toast.success('Order updated');
+        const error = await res.json().catch(() => ({ error: 'Order update failed.' }));
+        throw new Error(error.error || 'Order update failed.');
       }
-    } catch {
-      toast.error('Could not update order');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not update order');
     }
     setUpdating(null);
   }

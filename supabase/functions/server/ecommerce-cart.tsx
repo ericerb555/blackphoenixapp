@@ -96,7 +96,7 @@ cartRouter.post('/cart/:customerId/items', async (c) => {
     }
 
     // Get product details
-    const product: Product = await kv.get(`product_${productId}`);
+    const product: Product = await kv.get(`product_${productId}`) || await kv.get(`live_product_${productId}`);
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);
     }
@@ -398,7 +398,7 @@ cartRouter.post('/cart/add', async (c) => {
     }
 
     // Get product details
-    const product: Product = await kv.get(`product_${productId}`);
+    const product: Product = await kv.get(`product_${productId}`) || await kv.get(`live_product_${productId}`);
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);
     }

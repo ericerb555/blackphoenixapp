@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
-import { listPlans, logPlanUsage } from '../../utils/plansApi';
+import { createInvoiceCheckout, listPlans, logPlanUsage } from '../../utils/plansApi';
 import { loadEntitlementSummary } from '../../utils/entitlementsApi';
 import {
   Clock, CheckCircle, AlertTriangle, DollarSign, TrendingUp,
@@ -14,6 +14,7 @@ import {
   ShoppingBag, BookOpen, Bot, Star, ExternalLink, Shield,
 } from 'lucide-react';
 import TierPicker from '../TierPicker';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,6 +258,7 @@ const ROLE_TO_PORTAL: Partial<Record<PortalRole, string>> = {
 
 export default function MaintenancePlanTracker({ portalRole, ownerName }: Props) {
   const cfg = ROLE_CONFIG[portalRole];
+  const { user } = useAuth();
   // Start empty: this tracker must show persisted records, never sample balances.
   const [plans, setPlans] = useState<Plan[]>([]);
   const [usage, setUsage] = useState<Record<string, UsageEntry[]>>({});
@@ -276,7 +278,7 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
     const load = async () => {
       try {
         const params: { owner?: string; portalType?: string } = {};
-        if (ownerName) params.owner = ownerName;
+        if (user?.email) params.owner = user.email;
         const pt = ROLE_TO_PORTAL[portalRole];
         if (pt) params.portalType = pt;
         const [sp, entitlementSummary] = await Promise.all([
@@ -320,7 +322,7 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
     load();
     const t = setInterval(load, 30000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [portalRole, ownerName]);
+  }, [portalRole, ownerName, user?.email]);
 
   const plan = plans.find(p => p.id === selectedPlan) || plans[0];
   if (!plan) return (
@@ -361,12 +363,15 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
     }
   }
 
-  function markPaid(paymentId: string) {
-    setPayments(prev => ({
-      ...prev,
-      [plan.id]: (prev[plan.id] || []).map(p => p.id === paymentId ? { ...p, status: 'paid' } : p)
-    }));
-    toast.success('Payment marked as paid');
+  async function payInvoice(invoiceId: string, description: string) {
+    try {
+      const { checkoutUrl } = await createInvoiceCheckout(invoiceId, description);
+      toast.success('Taking you to secure checkout…');
+      window.location.assign(checkoutUrl);
+    } catch (error: any) {
+      console.error('[MaintenancePlanTracker] Unable to start invoice checkout:', error);
+      toast.error(error.message || 'Could not start secure checkout.');
+    }
   }
 
   const accentMap: Record<string, string> = {
@@ -674,9 +679,9 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
                       {p.status.toUpperCase()}
                     </span>
                     {p.status !== 'paid' && (
-                      <button onClick={() => markPaid(p.id)}
+                      <button onClick={() => void payInvoice(p.id, p.description)}
                         className="px-3 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 text-xs font-semibold rounded-lg transition border border-green-500/30">
-                        Mark Paid
+                        Pay Securely
                       </button>
                     )}
                   </div>

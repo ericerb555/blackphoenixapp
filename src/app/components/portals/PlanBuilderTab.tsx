@@ -24,6 +24,7 @@ import {
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { createPlan, listPlans, bridgePlanGiftCards, type PlanRecord } from '../../utils/plansApi';
 import PortalUpgradeModal from './PortalUpgradeModal';
+import { useAuth } from '../../contexts/AuthContext';
 
 type PortalType =
   | 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor'
@@ -49,6 +50,7 @@ const DEFAULT_ENTITY: Record<PortalType, EntityType> = {
 };
 
 export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'basic' }: PlanBuilderTabProps) {
+  const { user } = useAuth();
   const [entity, setEntity] = useState<EntityType>(DEFAULT_ENTITY[portalType] || 'homeowner');
   const [needs, setNeeds] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,7 +97,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     let cancelled = false;
     const load = async () => {
       try {
-        const plans = await listPlans({ portalType, ...(ownerName ? { owner: ownerName } : {}) });
+        const plans = await listPlans({ portalType, ...(user?.email ? { owner: user.email } : {}) });
         if (!cancelled) setActivePlans(plans);
       } catch (err) {
         console.error('[PlanBuilderTab] Failed to load active plans:', err);
@@ -104,7 +106,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     load();
     const interval = setInterval(load, 15000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [portalType, ownerName]);
+  }, [portalType, ownerName, user?.email]);
 
   const runAI = async () => {
     if (!needs.trim()) {
@@ -160,6 +162,10 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
       toast.error('Add at least one service to save your plan.');
       return;
     }
+    if (!user?.email) {
+      toast.error('Sign in before activating a plan. Your selections stay on this device until your account is ready.');
+      return;
+    }
     setSaving(true);
     const payload = {
       planName,
@@ -171,7 +177,8 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
       serviceNames: selectedServices.map(s => s.name),
       monthlyTotal,
       annualTotal: monthlyTotal * 12,
-      owner: ownerName || null,
+      owner: ownerName || user.user_metadata?.full_name || user.email,
+      ownerEmail: user.email,
     };
     // Keep a local copy for offline resilience.
     try { localStorage.setItem(`bp_plan_${portalType}`, JSON.stringify({ ...payload, savedAt: new Date().toISOString() })); } catch {}

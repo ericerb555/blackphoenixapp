@@ -77,6 +77,31 @@ export default function PublicStore() {
   const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', phone: '', address: '', city: '', zip: '' });
   const [checkoutError, setCheckoutError] = useState('');
 
+  // Stripe only creates the order after the payment session is verified by the
+  // server. This also makes a browser refresh/retry safe and idempotent.
+  useEffect(() => {
+    const checkoutId = new URLSearchParams(window.location.search).get('checkout_id');
+    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    if (!checkoutId || !sessionId) return;
+    let cancelled = false;
+    const complete = async () => {
+      try {
+        setShowCheckout(true); setCheckoutStep('processing');
+        const response = await fetch(`${SERVER}/store/checkouts/${encodeURIComponent(checkoutId)}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, body: JSON.stringify({ sessionId }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Payment confirmation is still pending.');
+        if (cancelled) return;
+        setCart([]); setShowCart(false); setShowCheckout(false); setCheckoutStep('info');
+        window.history.replaceState({}, '', window.location.pathname);
+        toast.success(data.duplicate ? 'Your order is already confirmed.' : `Order ${data.order?.id || ''} confirmed! We will email your receipt.`);
+      } catch (error: any) {
+        if (!cancelled) { setCheckoutError(error.message || 'We could not confirm payment yet.'); setCheckoutStep('info'); toast.error(error.message || 'Payment confirmation is still pending.'); }
+      }
+    };
+    void complete();
+    return () => { cancelled = true; };
+  }, []);
+
   // ── AI Chat ──────────────────────────────────────────────────────────────
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'bot'; text: string }[]>([

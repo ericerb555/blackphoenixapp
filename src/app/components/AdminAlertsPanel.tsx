@@ -1643,7 +1643,7 @@ function ReviewsAdminPanel() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
       await fetch(`${SERVER}/reviews/${id}`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status, response }),
       });
       toast.success(status === 'approved' ? 'Review approved — now live on landing page!' : 'Review updated');

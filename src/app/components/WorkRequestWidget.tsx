@@ -46,28 +46,23 @@ export default function WorkRequestWidget() {
     const ref = `BP-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
     try {
-      await fetch(`${SERVER}/leads/capture`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
-        body: JSON.stringify({
-          name: form.name, email: form.email, phone: form.phone,
-          message: `[WORK REQUEST] Service: ${form.service} | Urgency: ${form.urgency} | Address: ${form.address || 'Not provided'} | Details: ${form.details}`,
-          source: 'work_request_widget',
-          intent: form.urgency === 'urgent' ? 'urgent' : 'converted',
-          metadata: { service: form.service, urgency: form.urgency, address: form.address, ref },
-        }),
+      const response = await fetch(`${SERVER}/work-requests`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ clientName: form.name, clientEmail: form.email, clientPhone: form.phone, serviceType: form.service, project_name: `${form.service} service request`, description: form.details, address: form.address, urgency: form.urgency, requestNumber: ref, source: 'work_request_widget' }),
       });
-    } catch (_) { /* server offline — still confirm to user */ }
-
-    // Save locally as fallback
-    const stored = localStorage.getItem('bp_work_requests');
-    const all = stored ? JSON.parse(stored) : [];
-    all.unshift({ ...form, ref, submittedAt: new Date().toISOString() });
-    localStorage.setItem('bp_work_requests', JSON.stringify(all));
-
-    setRefNum(ref);
-    setStep('done');
-    setSub(false);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not save your work request.');
+      setRefNum(result.workRequest?.id || ref);
+      setStep('done');
+    } catch (error: any) {
+      // Keep a clearly labelled offline queue, but never claim a request was submitted
+      // until the canonical work-request record confirms it.
+      const stored = localStorage.getItem('bp_work_requests_pending');
+      const queued = stored ? JSON.parse(stored) : [];
+      queued.unshift({ ...form, ref, submittedAt: new Date().toISOString() });
+      localStorage.setItem('bp_work_requests_pending', JSON.stringify(queued));
+      toast.error(`${error.message || 'Connection unavailable.'} Your request is saved on this device and will need to be retried.`);
+    } finally { setSub(false); }
   }
 
   function reset() { setForm({ ...EMPTY }); setStep('form'); setOpen(false); }

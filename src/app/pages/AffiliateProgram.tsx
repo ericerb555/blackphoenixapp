@@ -72,6 +72,7 @@ export default function AffiliateProgram() {
   const [guestEmail, setGuestEmail] = useState('');
   const [guestName, setGuestName] = useState('');
   const [joining, setJoining] = useState(false);
+  const [requestingPayout, setRequestingPayout] = useState(false);
 
   const email = user?.email || '';
   const name = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
@@ -90,6 +91,18 @@ export default function AffiliateProgram() {
     } catch (error: any) {
       toast.error(error.message || 'Unable to join the affiliate program.');
     } finally { setJoining(false); }
+  }
+
+  async function requestPayout() {
+    if (!stats || !email) return;
+    const available = Math.max(0, Number(stats.pendingCredit || 0) - Number((stats as any).payoutHold || 0));
+    if (available < 25) { toast.error('A minimum $25.00 available credit is required to request a payout.'); return; }
+    setRequestingPayout(true);
+    try {
+      const data = await affiliateRequest(`/affiliates/${encodeURIComponent(email)}/payout-requests`, { method: 'POST', body: JSON.stringify({ amount: available, payoutMethod: 'manual_review' }) });
+      setStats(data.stats); toast.success(`Payout request for $${available.toFixed(2)} submitted for review.`);
+    } catch (error: any) { toast.error(error.message || 'Unable to submit payout request.'); }
+    finally { setRequestingPayout(false); }
   }
 
   function copyLink() {
@@ -223,6 +236,11 @@ export default function AffiliateProgram() {
             <p className="text-xs text-gray-600 mt-0.5">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
+        <div><p className="text-xs font-black text-white">Affiliate payout</p><p className="text-xs text-gray-500 mt-1">Requests are reviewed and paid by Black Phoenix. Available: ${Math.max(0, Number(stats.pendingCredit || 0) - Number((stats as any).payoutHold || 0)).toFixed(2)}</p></div>
+        <button onClick={() => void requestPayout()} disabled={requestingPayout || Math.max(0, Number(stats.pendingCredit || 0) - Number((stats as any).payoutHold || 0)) < 25} className="px-4 py-2.5 rounded-xl text-sm font-black text-white disabled:opacity-40" style={{ background: '#ea580c' }}>{requestingPayout ? 'Submitting…' : 'Request Payout'}</button>
       </div>
 
       {/* Tabs */}

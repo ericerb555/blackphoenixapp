@@ -5,9 +5,11 @@
  * regions. Changes are saved to the server and picked up by the builder.
  */
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   Save, RotateCcw, Plus, Trash2, Wrench, Users, CalendarClock, MapPin,
-  ArrowLeft, Loader2, Star, BadgeCheck,
+  ArrowLeft, Loader2, Star, BadgeCheck, ClipboardCheck, Check, X, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -22,13 +24,16 @@ import {
   type Region,
 } from '../data/maintenanceConfig';
 
-type TabId = 'services' | 'skills' | 'frequency' | 'regions';
+type TabId = 'services' | 'skills' | 'frequency' | 'regions' | 'requests';
+type CustomPlanItem = { id: string; name: string; details?: string; frequency?: string; status: 'pending_pricing' | 'approved' | 'rejected'; price?: number; reviewNote?: string };
+type PlanDraft = { ownerEmail: string; updatedAt?: string; customItems?: CustomPlanItem[]; selectedItems?: unknown[]; planName?: string };
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: 'services',  label: 'Services',          icon: Wrench },
   { id: 'skills',    label: 'Technician Levels', icon: Users },
   { id: 'frequency', label: 'Frequency Tiers',   icon: CalendarClock },
   { id: 'regions',   label: 'Pricing Regions',   icon: MapPin },
+  { id: 'requests',  label: 'Custom Requests',   icon: ClipboardCheck },
 ];
 
 const CARD = { background: '#111', border: '1px solid rgba(255,255,255,0.07)' } as const;
@@ -45,6 +50,11 @@ export default function MaintenancePlanAdmin({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [drafts, setDrafts] = useState<PlanDraft[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
@@ -55,6 +65,8 @@ export default function MaintenancePlanAdmin({
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => { if (tab === 'requests') void loadCustomRequests(); }, [tab]);
 
   function mutate(fn: (draft: MaintenanceConfig) => void) {
     setConfig(prev => {
@@ -85,6 +97,42 @@ export default function MaintenancePlanAdmin({
     setLoading(false);
     toast.info('Reverted to last saved configuration.');
   }
+
+  const adminHeaders = async (contentType = false) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in with an administrator account to review custom requests.');
+    return { Authorization: `Bearer ${session.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) };
+  };
+
+  const loadCustomRequests = async () => {
+    setRequestsLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/maintenance-drafts`, { headers: await adminHeaders() });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not load custom plan requests.');
+      setDrafts(result.drafts || []);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not load custom plan requests.');
+    } finally { setRequestsLoading(false); }
+  };
+
+  const reviewCustomItem = async (email: string, item: CustomPlanItem, status: CustomPlanItem['status']) => {
+    const key = `${email}:${item.id}`;
+    const priceInput = prices[key] ?? (item.price !== undefined ? String(item.price) : '');
+    const price = Number(priceInput);
+    if (status === 'approved' && (priceInput.trim() === '' || !Number.isFinite(price) || price < 0)) { toast.error('Enter a valid price before approving this item.'); return; }
+    setReviewingId(key);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/maintenance-drafts/${encodeURIComponent(email)}/custom-items/${encodeURIComponent(item.id)}`, {
+        method: 'PATCH', headers: await adminHeaders(true), body: JSON.stringify({ status, price, reviewNote: notes[key] || '' }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not update this request.');
+      setDrafts(current => current.map(draft => draft.ownerEmail === email ? result.draft : draft));
+      toast.success(status === 'approved' ? 'Custom item approved and priced.' : status === 'rejected' ? 'Custom item declined.' : 'Custom item returned to pricing review.');
+    } catch (error: any) { toast.error(error.message || 'Could not update this request.'); }
+    finally { setReviewingId(null); }
+  };
 
   function restoreDefaults() {
     setConfig(getDefaultConfig());
@@ -167,6 +215,7 @@ export default function MaintenancePlanAdmin({
         {tab === 'skills'    && <SkillsTab config={config} mutate={mutate} />}
         {tab === 'frequency' && <FrequencyTab config={config} mutate={mutate} />}
         {tab === 'regions'   && <RegionsTab config={config} mutate={mutate} />}
+        {tab === 'requests'  && <CustomRequestsTab drafts={drafts} loading={requestsLoading} onRefresh={loadCustomRequests} prices={prices} setPrices={setPrices} notes={notes} setNotes={setNotes} reviewingId={reviewingId} onReview={reviewCustomItem} />}
       </div>
     </div>
   );
@@ -507,4 +556,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   );
+}
+
+
+function CustomRequestsTab({ drafts, loading, onRefresh, prices, setPrices, notes, setNotes, reviewingId, onReview }: {
+  drafts: PlanDraft[]; loading: boolean; onRefresh: () => void; prices: Record<string, string>; setPrices: React.Dispatch<React.SetStateAction<Record<string, string>>>; notes: Record<string, string>; setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>; reviewingId: string | null; onReview: (email: string, item: CustomPlanItem, status: CustomPlanItem["status"]) => void;
+}) {
+  const requests = drafts.flatMap(draft => (draft.customItems || []).map(item => ({ email: draft.ownerEmail, item, updatedAt: draft.updatedAt, planName: draft.planName })));
+  return <section className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div><h2 className="font-bold text-white">Customer custom plan requests</h2><p className="mt-1 text-sm text-gray-500">Set a price, approve it, or decline it. The customer sees the decision immediately in their plan builder.</p></div><button onClick={onRefresh} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-gray-200 hover:border-orange-400 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button></div>
+    {loading ? <div className="grid min-h-48 place-items-center text-gray-400"><Loader2 className="h-6 w-6 animate-spin text-orange-400" /></div> : requests.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center text-gray-500">No customer-added plan items are waiting for review.</div> : <div className="space-y-3">{requests.map(({ email, item, updatedAt, planName }) => { const key = `${email}:${item.id}`; const busy = reviewingId === key; const statusClass = item.status === 'approved' ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20' : item.status === 'rejected' ? 'text-red-300 bg-red-500/10 border-red-500/20' : 'text-amber-300 bg-amber-500/10 border-amber-500/20'; return <article key={key} className="rounded-2xl border border-white/10 bg-[#111] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-white">{item.name}</p><p className="mt-1 text-sm text-gray-400">{item.details || 'No additional details.'}</p><p className="mt-2 text-xs text-gray-600">{email} · {planName || 'Custom plan'} · {item.frequency || 'monthly'}{updatedAt ? ` · updated ${new Date(updatedAt).toLocaleDateString()}` : ''}</p></div><span className={`rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${statusClass}`}>{item.status.replace('_', ' ')}</span></div><div className="mt-4 grid gap-3 md:grid-cols-[150px_1fr_auto]"><input inputMode="decimal" value={prices[key] ?? (item.price?.toString() || '')} onChange={e => setPrices(current => ({ ...current, [key]: e.target.value }))} placeholder="Price ($)" className={INPUT} disabled={busy} /><input value={notes[key] ?? item.reviewNote ?? ''} onChange={e => setNotes(current => ({ ...current, [key]: e.target.value }))} placeholder="Optional note to customer" className={INPUT} disabled={busy} /><div className="flex gap-2"><button onClick={() => onReview(email, item, 'approved')} disabled={busy} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-black disabled:opacity-50"><Check className="h-4 w-4" /> Approve</button><button onClick={() => onReview(email, item, 'rejected')} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 px-3 py-2 text-sm font-bold text-red-300 disabled:opacity-50"><X className="h-4 w-4" /> Decline</button></div></div></article>; })}</div>}
+  </section>;
 }

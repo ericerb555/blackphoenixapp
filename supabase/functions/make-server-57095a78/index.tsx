@@ -10,6 +10,31 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
+import plansRouter from "../server/plans.tsx";
+import { entitlementsRouter, recordEntitlementEvent } from "../server/entitlements.tsx";
+import paymentProcessingRouter from "../server/payment-processing.tsx";
+import hourTransfersRouter from "../server/hour-transfers.tsx";
+import timeTrackingRouter from "../server/time-tracking.tsx";
+import quotesRouter from "../server/quotes.tsx";
+import deliverablesRouter from "../server/deliverables.tsx";
+import designProjectsRouter from "../server/design-projects.tsx";
+import projectVisionRouter from "../server/project-vision.tsx";
+import aiFloorplanRouter from "../server/ai-floorplan.tsx";
+import maintenanceConfigRouter from "../server/maintenance-config.tsx";
+import { productsRouter } from "../server/ecommerce-products.tsx";
+import { cartRouter } from "../server/ecommerce-cart.tsx";
+import crmContentRouter from "../server/crm-content.tsx";
+import growthMarketingRouter from "../server/growth-marketing.tsx";
+import { marketingAssetsRouter } from "../server/marketing-assets.tsx";
+import { territoryCohortRouter } from "../server/territory-cohorts.tsx";
+import { vendorProfileRouter } from "../server/vendor-profile.tsx";
+import pipelineRouter from "../server/pipeline.tsx";
+import vendorPricingRouter from "../server/vendorPricing.tsx";
+import brandsRouter from "../server/brands.tsx";
+import { companyConfigRouter } from "../server/company-config.tsx";
+import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "../server/dropshipper-config.tsx";
+import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook } from "../server/dropshipper.tsx";
+import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "../server/dropshipper-catalog.tsx";
 
 const app = new Hono();
 
@@ -26,13 +51,64 @@ console.log("========================================");
 // CORS
 app.use("/*", cors({
   origin: "*",
-  allowHeaders: ["Content-Type", "Authorization"],
+  allowHeaders: ["Content-Type", "Authorization", "X-Payment-Confirmation-Secret", "X-Loyalty-Event-Secret", "X-Affiliate-Event-Secret"],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   exposeHeaders: ["Content-Length"],
   maxAge: 600,
 }));
 
 app.use('*', logger(console.log));
+
+// Entitlement records are financial/account data. Keep the shared read model
+// available to the signed-in plan owner, while reserving cross-account reads
+// and ledger event creation for administrators.
+app.use('/make-server-57095a78/entitlements/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  const path = new URL(c.req.url).pathname;
+  if (path.endsWith('/events') && !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  const planId = path.split('/').filter(Boolean).at(-1) || '';
+  if (!admin && planId && planId !== 'events') {
+    const plan = await kv.get(`plan:${planId}`) as any;
+    if (!plan || String(plan.ownerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'Not permitted.' }, 403);
+  }
+  await next();
+});
+app.use('/make-server-57095a78/entitlements-summary', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  const requestedOwner = String(c.req.query('owner') || c.req.query('email') || '').toLowerCase();
+  if (!admin && requestedOwner !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'You may only view your own plan summary.' }, 403);
+  await next();
+});
+
+// Batch 1 workflow routers. These modules are mounted here as well as in the
+// modular entrypoint so the deployed make-server function exposes the same
+// paths the React clients call.
+app.route("/", plansRouter);
+app.route("/", entitlementsRouter);
+app.route("/make-server-57095a78/payment", paymentProcessingRouter);
+app.route("/make-server-57095a78/hour-transfers", hourTransfersRouter);
+app.route("/make-server-57095a78/time-tracking", timeTrackingRouter);
+app.route("/", quotesRouter);
+app.route("/", deliverablesRouter);
+// Existing design/vision modules were present but unreachable from the deployed function.
+app.route("/", designProjectsRouter);
+app.route("/", projectVisionRouter);
+app.route("/make-server-57095a78/ai-floorplan", aiFloorplanRouter);
+app.route("/", maintenanceConfigRouter);
+// Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
+app.route("/make-server-57095a78", productsRouter);
+app.route("/make-server-57095a78", cartRouter);
+app.route("/", crmContentRouter);
+app.route("/", growthMarketingRouter);
+app.route("/make-server-57095a78", marketingAssetsRouter);
+app.route("/make-server-57095a78", territoryCohortRouter);
+app.route("/make-server-57095a78", vendorProfileRouter);
+app.route("/", pipelineRouter);
+app.route("/", vendorPricingRouter);
+app.route("/", brandsRouter);
+app.route("/make-server-57095a78", companyConfigRouter);
 
 // Health check
 app.get("/make-server-57095a78/health", (c) => {
@@ -816,6 +892,64 @@ app.delete('/make-server-57095a78/companies/:id', async (c) => {
 // and partner workflows.  Keep the application, CRM contact, and pipeline lead
 // in sync here so an accepted browser request is never "successfully" lost.
 // ============================================
+const INTAKE_ADMIN_ROLES = new Set(['owner', 'admin', 'master_admin', 'management']);
+
+async function intakeActor(c: any) {
+  const raw = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!raw) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(raw);
+  return error || !user ? null : user;
+}
+
+async function intakeIsAdmin(user: any) {
+  if (!user?.id) return false;
+  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase();
+  if (INTAKE_ADMIN_ROLES.has(metadataRole)) return true;
+  try {
+    const { data } = await supabase.from('user_permissions').select('role_name').eq('user_id', user.id);
+    return (data || []).some((row: any) => INTAKE_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
+  } catch { return false; }
+}
+
+function intakePortalType(application: any) {
+  const source = String(application.applicationType || application.type || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (source.includes('vendor')) return 'vendor';
+  if (source.includes('subcontractor') || source.includes('service_provider') || source.includes('contractor')) return 'subcontractor';
+  if (source.includes('advertiser')) return 'advertiser';
+  if (source.includes('property') || source.includes('landlord') || source.includes('condo')) return 'property_manager';
+  if (source.includes('territory')) return 'territory_owner';
+  if (source.includes('employee') || source.includes('tech')) return 'employee';
+  return 'customer';
+}
+
+function intakeTasks(portalType: string) {
+  const base = [{ id: 'identity', label: 'Government-issued photo ID', required: true, status: 'pending' }];
+  if (['employee', 'subcontractor', 'vendor'].includes(portalType)) base.push({ id: 'w9_or_tax', label: portalType === 'employee' ? 'Employment tax forms' : 'W-9 / tax documentation', required: true, status: 'pending' });
+  if (['subcontractor', 'vendor', 'property_manager'].includes(portalType)) base.push({ id: 'insurance', label: 'Certificate of insurance', required: true, status: 'pending' });
+  if (portalType === 'employee') base.push({ id: 'background', label: 'Background-check authorization', required: true, status: 'pending' });
+  return base;
+}
+
+async function ensureIntake(application: any) {
+  const key = `intake:onboarding:${application.id}`;
+  const existing = await kv.get(key) as any;
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const intake = { id: application.id, applicationId: application.id, applicantEmail: String(application.email || '').toLowerCase(), applicantName: application.name || 'Applicant', portalType: intakePortalType(application), status: 'pending_documents', requiredTasks: intakeTasks(intakePortalType(application)), documents: [], createdAt: now, updatedAt: now };
+  await kv.set(key, intake);
+  await kv.set(`intake:email:${intake.applicantEmail}`, intake.applicationId);
+  return intake;
+}
+
+async function syncPortalAccess(application: any, intake: any, statusOverride?: string) {
+  const email = String(application.email || intake?.applicantEmail || '').toLowerCase();
+  if (!email) return null;
+  const portalType = intake?.portalType || intakePortalType(application); const now = new Date().toISOString();
+  const key = `portal_access:${email}:${portalType}`; const prior = await kv.get(key) as any;
+  const access = { ...(prior || {}), id: prior?.id || `ACCESS-${crypto.randomUUID()}`, applicationId: application.id, email, portalType, applicantName: application.name || intake?.applicantName || '', status: statusOverride || (intake?.status === 'active' ? 'active' : 'onboarding'), onboardingStatus: intake?.status || 'pending_documents', updatedAt: now, createdAt: prior?.createdAt || now };
+  await kv.set(key, access); return access;
+}
+
 const APPLICATIONS_KEY = 'applications';
 const CRM_CONTACTS_KEY = 'crm_contacts:default';
 const LEADS_KEY = 'leads:all';
@@ -825,11 +959,14 @@ function cleanApplicationText(value: unknown): string {
 }
 
 function applicationApplicant(data: Record<string, unknown>) {
-  const name = cleanApplicationText(data.name) || cleanApplicationText(data.contact_name) ||
+  // Public forms use several generations of field names. Normalize them before
+  // validation so a technician's `full_name` or a company's `contact_name`
+  // never gets rejected as a missing applicant identity.
+  const name = cleanApplicationText(data.full_name) || cleanApplicationText(data.fullName) || cleanApplicationText(data.contact_name) || cleanApplicationText(data.contactName) || cleanApplicationText(data.name) ||
     [cleanApplicationText(data.firstName), cleanApplicationText(data.lastName)].filter(Boolean).join(' ');
-  const email = (cleanApplicationText(data.email) || cleanApplicationText(data.contact_email)).toLowerCase();
-  const phone = cleanApplicationText(data.phone) || cleanApplicationText(data.contact_phone);
-  const location = [cleanApplicationText(data.city), cleanApplicationText(data.state)].filter(Boolean).join(', ') || cleanApplicationText(data.address);
+  const email = (cleanApplicationText(data.email) || cleanApplicationText(data.contact_email) || cleanApplicationText(data.contactEmail)).toLowerCase();
+  const phone = cleanApplicationText(data.phone) || cleanApplicationText(data.contact_phone) || cleanApplicationText(data.contactPhone);
+  const location = [cleanApplicationText(data.city), cleanApplicationText(data.state)].filter(Boolean).join(', ') || cleanApplicationText(data.company_address) || cleanApplicationText(data.address);
   return { name, email, phone, location };
 }
 
@@ -912,6 +1049,21 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
   return { application, contact, updated: existingIndex >= 0 };
 }
 
+// Universal signup is the public entry point used by every portal registration card.
+// Normalize its nested browser payload into the same application → CRM pipeline.
+app.post('/make-server-57095a78/signup/universal', async (c) => {
+  try {
+    const body = await c.req.json(); const personal = body.personalInfo || {}; const address = body.addressInfo || {}; const business = body.businessInfo || {};
+    const accountType = String(body.accountType || 'customer');
+    const applicationData = { ...body, applicationType: accountType, type: accountType, firstName: personal.firstName, lastName: personal.lastName, name: [personal.firstName, personal.lastName].filter(Boolean).join(' '), email: personal.email, phone: personal.phone, address: [address.street, address.city, address.state, address.zip].filter(Boolean).join(', '), city: address.city, state: address.state, zip: address.zip, companyName: business.companyName || body.companyName, signupSource: 'universal_signup' };
+    const { application, updated } = await saveApplicationAndCrm(applicationData);
+    const requestKey = `access_request:application:${application.id}`; const priorRequest = await kv.get(requestKey) as any;
+    const request = { ...(priorRequest || {}), id: priorRequest?.id || `access_${crypto.randomUUID()}`, applicationId: application.id, email: application.email, requestedPortal: intakePortalType(application), requestedAccountType: accountType, status: application.status === 'approved' ? 'approved' : 'pending', createdAt: priorRequest?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+    await kv.set(requestKey, request);
+    return c.json({ success: true, applicationId: application.id, application, accessRequest: request, message: updated ? 'Your application has been updated and remains in review.' : 'Application received. We will review your portal access request and follow up soon.' }, updated ? 200 : 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit registration.' }, 400); }
+});
+
 app.post('/make-server-57095a78/applications', async (c) => {
   try {
     const applicationData = await c.req.json();
@@ -942,40 +1094,45 @@ app.post('/make-server-57095a78/applications/submit', async (c) => {
 
 app.get('/make-server-57095a78/applications', async (c) => {
   try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
     return c.json({ success: true, applications, total: applications.length });
-  } catch (error: any) {
-    console.error('Error fetching applications:', error);
-    return c.json({ success: false, error: error.message, applications: [] }, 500);
-  }
+  } catch (error: any) { return c.json({ success: false, error: error.message, applications: [] }, 500); }
 });
 
 app.get('/make-server-57095a78/applications/:id', async (c) => {
   try {
+    const user = await intakeActor(c);
     const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === c.req.param('id'));
     if (!application) return c.json({ success: false, error: 'Application not found' }, 404);
+    if (!user?.email || (!await intakeIsAdmin(user) && String(application.email || '').toLowerCase() !== String(user.email).toLowerCase())) return c.json({ success: false, error: 'You may only view your own application.' }, 403);
     return c.json({ success: true, application });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
 app.patch('/make-server-57095a78/applications/:id', async (c) => {
   try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     const patch = await c.req.json();
     const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
     const index = applications.findIndex((item: any) => item.id === c.req.param('id'));
     if (index < 0) return c.json({ success: false, error: 'Application not found' }, 404);
-    applications[index] = { ...applications[index], ...patch, id: applications[index].id, updatedAt: new Date().toISOString() };
+    const prior = applications[index];
+    const allowed = { ...patch }; delete allowed.id; delete allowed.email; delete allowed.submittedAt;
+    if (String(allowed.status || '').toLowerCase() === 'accepted') allowed.status = 'approved';
+    applications[index] = { ...prior, ...allowed, id: prior.id, email: prior.email, submittedAt: prior.submittedAt, updatedAt: new Date().toISOString(), reviewedBy: user.email, reviewedAt: new Date().toISOString() };
     await kv.set(APPLICATIONS_KEY, applications);
-    return c.json({ success: true, application: applications[index] });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
+    const intake = ['approved', 'active'].includes(String(applications[index].status).toLowerCase()) ? await ensureIntake(applications[index]) : null;
+    const access = intake ? await syncPortalAccess(applications[index], intake) : null;
+    return c.json({ success: true, application: applications[index], intake, access });
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
 app.get('/make-server-57095a78/crm/contacts', async (c) => {
   try {
+    const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     return c.json({ success: true, contacts: (await kv.get(CRM_CONTACTS_KEY)) || [], hidden: [] });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
@@ -984,6 +1141,7 @@ app.get('/make-server-57095a78/crm/contacts', async (c) => {
 
 app.post('/make-server-57095a78/crm/contacts', async (c) => {
   try {
+    const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     const { contacts, hidden } = await c.req.json();
     if (Array.isArray(contacts)) await kv.set(CRM_CONTACTS_KEY, contacts);
     if (Array.isArray(hidden)) await kv.set('crm_hidden_ids:default', hidden);
@@ -1274,6 +1432,43 @@ app.get('/make-server-57095a78/property-management/pending-counts', async (c) =>
     console.error('Error fetching pending counts:', error);
     return c.json({ error: error.message }, 500);
   }
+});
+
+// Property account collections — used by landlord and property-manager portals.
+// These retain one source of truth and allow the existing service client paths to resolve.
+for (const resource of ['landlords', 'property-managers']) {
+  app.get(`/make-server-57095a78/property-management/${resource}`, async (c) => {
+    try { return c.json({ success: true, data: (await kv.get(resource)) || [] }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+  });
+  app.get(`/make-server-57095a78/property-management/${resource}/:id`, async (c) => {
+    try { const item = ((await kv.get(resource)) || []).find((row: any) => row.id === c.req.param('id')); return item ? c.json({ success: true, data: item }) : c.json({ success: false, error: 'Record not found' }, 404); } catch (error: any) { return c.json({ error: error.message }, 500); }
+  });
+  app.post(`/make-server-57095a78/property-management/${resource}`, async (c) => {
+    try { const rows = (await kv.get(resource)) || []; const body = await c.req.json(); const item = { ...stripBase64(body), id: body.id || crypto.randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; await kv.set(resource, [...rows, item]); return c.json({ success: true, data: item }, 201); } catch (error: any) { return c.json({ error: error.message }, 500); }
+  });
+  app.put(`/make-server-57095a78/property-management/${resource}/:id`, async (c) => {
+    try { const rows = (await kv.get(resource)) || []; const index = rows.findIndex((row: any) => row.id === c.req.param('id')); if (index < 0) return c.json({ success: false, error: 'Record not found' }, 404); rows[index] = { ...rows[index], ...stripBase64(await c.req.json()), id: rows[index].id, updated_at: new Date().toISOString() }; await kv.set(resource, rows); return c.json({ success: true, data: rows[index] }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+  });
+}
+
+// Landlord properties and requests share the property-operations work queue.
+app.get('/make-server-57095a78/property-management/landlords/:id/properties', async (c) => {
+  try { const landlordId = c.req.param('id'); return c.json({ success: true, data: ((await kv.get('properties')) || []).filter((item: any) => item.landlordId === landlordId) }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+app.post('/make-server-57095a78/property-management/landlords/:id/properties', async (c) => {
+  try { const rows = (await kv.get('properties')) || []; const body = await c.req.json(); const item = { ...stripBase64(body), id: body.id || crypto.randomUUID(), landlordId: c.req.param('id'), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; await kv.set('properties', [...rows, item]); return c.json({ success: true, data: item }, 201); } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+app.get('/make-server-57095a78/property-management/landlords/:id/work-requests', async (c) => {
+  try { const status = c.req.query('status'); const rows = ((await kv.get('work_requests')) || []).filter((item: any) => item.landlordId === c.req.param('id')); return c.json({ success: true, data: status ? rows.filter((item: any) => item.status === status) : rows }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+app.post('/make-server-57095a78/property-management/landlords/:id/work-requests', async (c) => {
+  try { const rows = (await kv.get('work_requests')) || []; const body = await c.req.json(); const item = { ...stripBase64(body), id: body.id || crypto.randomUUID(), landlordId: c.req.param('id'), type: 'landlord', status: body.status || 'pending_approval', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; await kv.set('work_requests', [...rows, item]); return c.json({ success: true, data: item }, 201); } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+app.put('/make-server-57095a78/property-management/landlords/:id/work-requests/:requestId', async (c) => {
+  try { const rows = (await kv.get('work_requests')) || []; const index = rows.findIndex((item: any) => item.id === c.req.param('requestId') && item.landlordId === c.req.param('id')); if (index < 0) return c.json({ success: false, error: 'Work request not found' }, 404); rows[index] = { ...rows[index], ...stripBase64(await c.req.json()), id: rows[index].id, landlordId: rows[index].landlordId, updated_at: new Date().toISOString() }; await kv.set('work_requests', rows); return c.json({ success: true, data: rows[index] }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+});
+app.get('/make-server-57095a78/property-management/stats', async (c) => {
+  try { const [condos, landlords, managers, requests] = await Promise.all([kv.get('condos'), kv.get('landlords'), kv.get('property-managers'), kv.get('work_requests')]); const all = requests || []; return c.json({ success: true, data: { condos: (condos || []).length, landlords: (landlords || []).length, propertyManagers: (managers || []).length, pendingRequests: all.filter((item: any) => item.status === 'pending_approval').length, approvedRequests: all.filter((item: any) => item.status === 'approved').length } }); } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
 
 // Get all pending work requests
@@ -1959,6 +2154,7 @@ app.get('/make-server-57095a78/notifications/admin-alerts', async (c) => {
     const token = authHeader?.replace('Bearer ', '') || '';
     const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!await intakeIsAdmin(user)) return c.json({ error: 'Administrator access is required' }, 403);
 
     const alerts = (await kv.get('admin_alerts') as any[]) || [];
     return c.json({ alerts });
@@ -1969,6 +2165,8 @@ app.get('/make-server-57095a78/notifications/admin-alerts', async (c) => {
 
 app.put('/make-server-57095a78/notifications/admin-alerts/:id', async (c) => {
   try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) return c.json({ error: 'Administrator access is required' }, 403);
     const id = c.req.param('id');
     const { status } = await c.req.json();
     const existing = (await kv.get('admin_alerts') as any[]) || [];
@@ -2092,178 +2290,134 @@ async function ensureStorageBuckets() {
   }
 }
 
+async function workRequestActor(c: any) {
+  const user = await intakeActor(c);
+  return { user, admin: await intakeIsAdmin(user) };
+}
+
+function ownsWorkRequest(record: any, user: any) {
+  const email = String(user?.email || '').toLowerCase();
+  return Boolean(
+    (user?.id && (record.user_id === user.id || record.userId === user.id)) ||
+    (email && [record.client_email, record.clientEmail, record.client_info?.email, record.email]
+      .some((value: any) => String(value || '').toLowerCase() === email))
+  );
+}
+
+async function readWorkRequests() {
+  const index: string[] = (await kv.get('wr_index') as string[]) || [];
+  let all: any[] = index.length
+    ? (await Promise.all(index.map(id => kv.get(`wr:${id}`)))).filter(Boolean) as any[]
+    : (await kv.get('all_work_requests') as any[]) || [];
+  try {
+    const { data } = await supabase.from('work_requests').select('data').order('created_at', { ascending: false }).limit(500);
+    const present = new Set(all.map((record: any) => record.id));
+    all = [...all, ...((data || []).map((row: any) => row.data).filter((record: any) => record && !present.has(record.id)))];
+  } catch { /* KV remains the durable fallback when the optional table is absent. */ }
+  return all;
+}
+
+async function persistWorkRequest(record: any) {
+  await kv.set(`wr:${record.id}`, record);
+  const index: string[] = (await kv.get('wr_index') as string[]) || [];
+  if (!index.includes(record.id)) await kv.set('wr_index', [record.id, ...index].slice(0, 1000));
+  const legacy = (await kv.get('all_work_requests') as any[]) || [];
+  const nextLegacy = [record, ...legacy.filter((item: any) => item.id !== record.id)].slice(0, 500);
+  await kv.set('all_work_requests', nextLegacy);
+  try {
+    await supabase.from('work_requests').upsert([{
+      id: record.id, client_name: record.client_name || '', client_email: record.client_email || '',
+      client_phone: record.client_phone || '', user_id: record.user_id || null,
+      service_type: record.serviceType || record.project_type || null,
+      title: record.project_name || record.title || null, description: record.description || null,
+      status: record.status || 'pending', data: record, created_at: record.created_at, updated_at: record.updated_at,
+    }], { onConflict: 'id' });
+  } catch (error: any) { console.warn('[Work Requests] Database mirror skipped:', error?.message); }
+}
+
+// Authenticated customers can submit requests. Anonymous submissions are retained
+// as intake leads, but never become readable through the portal until the customer signs in.
 app.post('/make-server-57095a78/work-requests', async (c) => {
   try {
-    // Ensure photo/video buckets exist so uploads don't fail
     await ensureStorageBuckets().catch(() => {});
-
     const body = await c.req.json();
-
-    // Normalise client fields — they may be nested under client_info or flat
-    const clientEmail = body.client_info?.email || body.clientEmail || body.email || '';
-    const clientName  = body.client_info?.name  || body.clientName  || body.name  || '';
-    const clientPhone = body.client_info?.phone || body.clientPhone || body.phone || '';
-
-    console.log('[Work Requests] Creating work request from:', clientName, clientEmail);
-
-    const workRequest = {
-      ...stripBase64(body),
-      id: `wr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      // Store identifiers at the top level for easy filtering
-      client_email: clientEmail,
-      client_name: clientName,
-      client_phone: clientPhone,
-      user_id: body.user_id || body.userId || '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      status: body.status || 'pending',
-    };
-
-    // ── THREE-LAYER STORAGE for maximum reliability ────────────────────────
-    // Layer 1: Individual KV key — never gets lost in a large array
-    await kv.set(`wr:${workRequest.id}`, workRequest);
-
-    // Layer 2: Master index — fast list of all IDs
-    const index: string[] = (await kv.get('wr_index') as string[]) || [];
-    if (!index.includes(workRequest.id)) {
-      index.unshift(workRequest.id);
-      await kv.set('wr_index', index.slice(0, 1000));
+    const { user } = await workRequestActor(c);
+    const suppliedEmail = String(body.client_info?.email || body.clientEmail || body.email || '').trim().toLowerCase();
+    if (user?.email && suppliedEmail && suppliedEmail !== String(user.email).toLowerCase()) {
+      return c.json({ error: 'The request email must match the signed-in account.' }, 403);
     }
-
-    // Layer 3: Legacy array (backwards compatibility)
-    const existing = (await kv.get('all_work_requests') as any[]) || [];
-    existing.unshift(workRequest);
-    await kv.set('all_work_requests', existing.slice(0, 500));
-
-    // Layer 4: Supabase database table (most durable)
-    try {
-      await supabase.from('work_requests').upsert([{
-        id: workRequest.id,
-        client_name: clientName,
-        client_email: clientEmail,
-        client_phone: clientPhone,
-        user_id: workRequest.user_id || null,
-        service_type: workRequest.serviceType || workRequest.project_type || null,
-        title: workRequest.project_name || workRequest.title || null,
-        description: workRequest.description || null,
-        status: workRequest.status || 'pending',
-        data: workRequest, // full payload
-        created_at: workRequest.created_at,
-        updated_at: workRequest.updated_at,
-      }], { onConflict: 'id' });
-      console.log('✅ [Work Requests] Saved to Supabase DB:', workRequest.id);
-    } catch (dbErr: any) {
-      // Table may not exist yet — that's OK, KV layers still work
-      console.warn('⚠️ [Work Requests] DB save skipped (table may not exist):', dbErr.message);
-    }
-
-    // Always create an admin alert immediately — don't rely on the separate notification call
-    const alert = {
-      id: `wr_alert_${workRequest.id}`,
-      type: 'urgent',
-      category: 'Work Requests',
-      title: `New Work Request: ${clientName || 'Customer'}`,
-      description: `${clientName} submitted a ${workRequest.serviceType || workRequest.project_type || 'service'} request. Email: ${clientEmail}`,
-      priority: 'high',
-      status: 'unread',
-      source: 'work-request-form',
-      actionRequired: true,
-      timestamp: new Date().toISOString(),
-      data: {
-        workRequestId: workRequest.id,
-        clientName,
-        clientEmail,
-        clientPhone,
-        serviceType: workRequest.serviceType || workRequest.project_type,
-        budgetRange: workRequest.budget_range
-          ? `$${workRequest.budget_range.min?.toLocaleString() || 0}–$${workRequest.budget_range.max?.toLocaleString() || 0}`
-          : '',
-      },
+    const clientEmail = String(user?.email || suppliedEmail).toLowerCase();
+    if (!clientEmail) return c.json({ error: 'A customer email is required.' }, 400);
+    const clientName = body.client_info?.name || body.clientName || body.name || user?.user_metadata?.full_name || '';
+    const record = {
+      ...stripBase64(body), id: String(body.id || `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`),
+      client_email: clientEmail, client_name: clientName, client_phone: body.client_info?.phone || body.clientPhone || body.phone || '',
+      user_id: user?.id || body.user_id || body.userId || '', status: 'pending',
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
-    const existingAlerts = (await kv.get('admin_alerts') as any[]) || [];
-    existingAlerts.unshift(alert);
-    await kv.set('admin_alerts', existingAlerts.slice(0, 200));
-
-    console.log('✅ [Work Requests] Created:', workRequest.id, '| Alert stored for', clientEmail);
-    return c.json({ workRequest }, 201);
-  } catch (error: any) {
-    console.error('❌ [Work Requests] Error:', error);
-    return c.json({ error: error.message }, 500);
-  }
+    await persistWorkRequest(record);
+    const alerts = (await kv.get('admin_alerts') as any[]) || [];
+    alerts.unshift({ id: `wr_alert_${record.id}`, type: 'urgent', category: 'Work Requests', title: `New Work Request: ${clientName || 'Customer'}`,
+      description: `${clientName || 'Customer'} submitted a ${record.serviceType || record.project_type || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
+    await kv.set('admin_alerts', alerts.slice(0, 200));
+    return c.json({ success: true, workRequest: stripBase64(record) }, 201);
+  } catch (error: any) { console.error('[Work Requests] Create error:', error); return c.json({ error: error.message || 'Unable to create work request.' }, 500); }
 });
 
 app.get('/make-server-57095a78/work-requests', async (c) => {
   try {
-    const userId = c.req.query('userId');
-    const email  = c.req.query('email') || '';
-
-    // Read from individual KV keys via the index (most reliable)
-    const index: string[] = (await kv.get('wr_index') as string[]) || [];
-    let all: any[] = [];
-
-    if (index.length > 0) {
-      const items = await Promise.all(index.map(id => kv.get(`wr:${id}`)));
-      all = items.filter(Boolean) as any[];
-    } else {
-      // Fallback to legacy array
-      all = (await kv.get('all_work_requests') as any[]) || [];
-    }
-
-    // Try Supabase DB as additional source (merge in any records not in KV)
-    try {
-      const { data: dbRows } = await supabase.from('work_requests').select('data').order('created_at', { ascending: false }).limit(500);
-      if (dbRows && dbRows.length > 0) {
-        const kvIds = new Set(all.map((r: any) => r.id));
-        const fromDb = dbRows.map((r: any) => r.data).filter((r: any) => r && !kvIds.has(r.id));
-        all = [...all, ...fromDb];
-      }
-    } catch {}
-
-    if (userId || email) {
-      const filtered = all.filter((r: any) =>
-        (userId && (r.user_id === userId || r.userId === userId)) ||
-        (email  && (r.client_email === email || r.client_info?.email === email || r.clientEmail === email))
-      );
-      return c.json(stripBase64(filtered));
-    }
-
-    return c.json(stripBase64(all));
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ error: 'Sign in to view work requests.' }, 401);
+    const all = await readWorkRequests();
+    // Query values are deliberately ignored for non-admins: a portal user can only ever read their own records.
+    const records = admin ? all : all.filter((record: any) => ownsWorkRequest(record, user));
+    return c.json(stripBase64(records));
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load work requests.' }, 500); }
 });
 
-// Update work request status (admin sets "opened", "in-progress", "completed", etc.)
+app.get('/make-server-57095a78/work-requests/:id', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ error: 'Sign in to view this work request.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ error: 'Work request not found.' }, 404);
+    if (!admin && !ownsWorkRequest(record, user)) return c.json({ error: 'You may only view your own work requests.' }, 403);
+    return c.json(stripBase64(record));
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load work request.' }, 500); }
+});
+
 app.put('/make-server-57095a78/work-requests/:id', async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '') || '';
-    const { data: { user } } = await supabase.auth.getUser(token);
+    const { user, admin } = await workRequestActor(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const existing = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!existing) return c.json({ error: 'Work request not found.' }, 404);
+    if (!admin && !ownsWorkRequest(existing, user)) return c.json({ error: 'You may only update your own work request.' }, 403);
+    const input = stripBase64(await c.req.json());
+    const customerFields = ['media_attachments', 'description', 'client_phone', 'client_info', 'project_details'];
+    const updates = admin ? input : Object.fromEntries(Object.entries(input).filter(([key]) => customerFields.includes(key)));
+    if (!admin && Object.keys(updates).length === 0) return c.json({ error: 'This update requires administrator access.' }, 403);
+    const record = { ...existing, ...updates, id: existing.id, client_email: existing.client_email, user_id: existing.user_id, updated_at: new Date().toISOString() };
+    await persistWorkRequest(record);
+    return c.json({ success: true, workRequest: stripBase64(record) });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to update work request.' }, 500); }
+});
 
-    const id = c.req.param('id');
-    const updates = await c.req.json();
-    const safeUpdates = { ...stripBase64(updates), updated_at: new Date().toISOString() };
-
-    // Update individual KV key
-    const existing = await kv.get(`wr:${id}`) as any;
-    if (existing) {
-      await kv.set(`wr:${id}`, { ...existing, ...safeUpdates });
-    }
-
-    // Update legacy array
-    const all = (await kv.get('all_work_requests') as any[]) || [];
-    await kv.set('all_work_requests', all.map((r: any) => r.id === id ? { ...r, ...safeUpdates } : r));
-
-    // Update Supabase DB
-    try {
-      await supabase.from('work_requests').update({ status: safeUpdates.status, updated_at: safeUpdates.updated_at, data: { ...(existing || {}), ...safeUpdates } }).eq('id', id);
-    } catch {}
-
-    return c.json({ success: true });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
+app.post('/make-server-57095a78/work-requests/:id/schedule', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required to schedule work.' }, 403);
+    const existing = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!existing) return c.json({ error: 'Work request not found.' }, 404);
+    const body = await c.req.json();
+    const startAt = String(body.startAt || body.start_at || '');
+    if (Number.isNaN(Date.parse(startAt))) return c.json({ error: 'A valid scheduled start time is required.' }, 400);
+    const schedule = { id: `schedule_${crypto.randomUUID()}`, startAt, endAt: body.endAt || body.end_at || null, assignedTo: body.assignedTo || body.assigned_to || null, notes: String(body.notes || ''), scheduledBy: user.email, createdAt: new Date().toISOString() };
+    const record = { ...existing, schedule, status: body.status || 'scheduled', updated_at: new Date().toISOString() };
+    await persistWorkRequest(record);
+    await kv.set(`schedule:${schedule.id}`, { ...schedule, workRequestId: record.id, clientEmail: record.client_email });
+    return c.json({ success: true, workRequest: stripBase64(record), schedule });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to schedule work request.' }, 500); }
 });
 
 // ── PUBLIC REELS ──────────────────────────────────────────────────────────────
@@ -2341,6 +2495,9 @@ app.delete('/make-server-57095a78/public/reels/:id', async (c) => {
 
     const id = c.req.param('id');
     const existing = (await kv.get('public_reels') as any[]) || [];
+    const reel = existing.find((item: any) => item.id === id);
+    if (!reel) return c.json({ error: 'Reel not found' }, 404);
+    if (reel.publishedBy !== user.id && !await intakeIsAdmin(user)) return c.json({ error: 'You may only remove your own reel.' }, 403);
     await kv.set('public_reels', existing.filter((r: any) => r.id !== id));
     return c.json({ success: true });
   } catch (error: any) {
@@ -2709,6 +2866,7 @@ app.post('/make-server-57095a78/social/submit-reel', async (c) => {
   try {
     const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
     const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) return c.json({ error: 'Sign in before submitting content.' }, 401);
 
     const { title, description, videoUrl, thumbnailUrl, linkUrl, submitterName, submitterType } = await c.req.json();
     if (!title) return c.json({ error: 'Title required' }, 400);
@@ -2744,6 +2902,7 @@ app.get('/make-server-57095a78/social/pending-reels', async (c) => {
     const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
     const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!await intakeIsAdmin(user)) return c.json({ error: 'Administrator access is required.' }, 403);
 
     const pending = await kv.get('pending_reels') as any[] || [];
     return c.json({ submissions: pending });
@@ -2758,6 +2917,7 @@ app.post('/make-server-57095a78/social/approve-reel/:id', async (c) => {
     const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
     const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!await intakeIsAdmin(user)) return c.json({ error: 'Administrator access is required.' }, 403);
 
     const id = c.req.param('id');
     const pending = (await kv.get('pending_reels') as any[]) || [];
@@ -3775,6 +3935,26 @@ async function ownRewardsAccount(c: any, email: string) {
   return { user, admin: await rewardsAdmin(user) };
 }
 
+// Referral links work even when a member has not joined loyalty or affiliates.
+app.get('/make-server-57095a78/referrals/my-code', async (c) => {
+  try {
+    const user = await rewardsActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in to create a referral link.' }, 401);
+    const email = rewardsEmail(user.email); let code = await kv.get(`referral_code:${email}`) as string | null;
+    if (!code) { code = `BP${referralCodeFor(email)}`; await kv.set(`referral_code:${email}`, code); await kv.set(`referral_code_owner:${code}`, email); }
+    return c.json({ success: true, code });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to create referral link.' }, 500); }
+});
+
+// A member can see only referrals attributed to their own loyalty or affiliate code.
+app.get('/make-server-57095a78/referrals/mine', async (c) => {
+  try {
+    const user = await rewardsActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in to view your referrals.' }, 401);
+    const email = rewardsEmail(user.email); const all: any[] = (await kv.get('referrals:all')) || [];
+    const referrals = all.filter((item: any) => rewardsEmail(item.referrerEmail || item.affiliateEmail) === email);
+    return c.json({ success: true, referrals });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to load referrals.' }, 500); }
+});
+
 // Owner/admin referral-program view. Program creation and status changes are
 // deliberately not exposed to anonymous browsers.
 app.get('/make-server-57095a78/referrals', async (c) => {
@@ -3851,6 +4031,7 @@ app.post('/make-server-57095a78/loyalty/:email/redeem', async (c) => {
     const account = await kv.get(`loyalty:${email}`);
     if (!account) return c.json({ success: false, error: 'Join the loyalty program first.' }, 404);
     if (existingEvent) return c.json({ success: true, duplicate: true, account: publicLoyaltyAccount(account), redemption: existingEvent });
+    if (reward.code && (account.redeemedCodes || []).includes(reward.code)) return c.json({ success: false, error: 'This reward has already been redeemed.' }, 409);
     if (Number(account.points) < cost) return c.json({ success: false, error: 'Not enough points for this reward.' }, 409);
     const event = { id: rewardId('loyalty'), type: 'redeem', points: -cost, description: String(reward.label || 'Loyalty reward'), date: new Date().toISOString(), rewardId: reward.id, code: reward.code || null };
     account.points -= cost;
@@ -3913,6 +4094,37 @@ app.post('/make-server-57095a78/affiliates/join', async (c) => {
 });
 
 
+app.get('/make-server-57095a78/affiliates/:email/payout-requests', async (c) => {
+  try { const email = rewardsEmail(c.req.param('email')); const { user, admin } = await ownRewardsAccount(c, email); if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to view payout requests.' }, 403); const requests = (await kv.getByPrefix(`affiliate_payout:${email}:`)) || []; return c.json({ success: true, requests: requests.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))) }); }
+  catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to load payout requests.' }, 500); }
+});
+app.post('/make-server-57095a78/affiliates/:email/payout-requests', async (c) => {
+  try {
+    const email = rewardsEmail(c.req.param('email')); const { user, admin } = await ownRewardsAccount(c, email); if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to request a payout.' }, 403);
+    const stats = await kv.get(`affiliate:${email}`) as any; if (!stats) return c.json({ success: false, error: 'Affiliate account not found.' }, 404);
+    const body = await c.req.json().catch(() => ({})); const amount = money(body.amount || (Number(stats.pendingCredit || 0) - Number(stats.payoutHold || 0))); const available = money(Number(stats.pendingCredit || 0) - Number(stats.payoutHold || 0));
+    if (amount < 25) return c.json({ success: false, error: 'A minimum $25.00 available credit is required for a payout request.' }, 400);
+    if (amount > available) return c.json({ success: false, error: 'Payout amount exceeds available affiliate credit.' }, 409);
+    const now = new Date().toISOString(); const request = { id: `PAY-${crypto.randomUUID()}`, affiliateEmail: email, amount, status: 'requested', payoutMethod: String(body.payoutMethod || 'manual_review').slice(0, 80), createdAt: now, updatedAt: now };
+    stats.payoutHold = money(Number(stats.payoutHold || 0) + amount); stats.history = [{ id: rewardId('affiliate'), type: 'payout', description: `Payout request submitted for $${amount.toFixed(2)}`, credit: -amount, date: now, payoutRequestId: request.id }, ...(stats.history || [])]; await kv.set(`affiliate:${email}`, stats); await kv.set(`affiliate_payout:${email}:${request.id}`, request);
+    return c.json({ success: true, request, stats });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to submit payout request.' }, 500); }
+});
+app.get('/make-server-57095a78/affiliate-payouts', async (c) => {
+  try { const user = await rewardsActor(c); if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, requests: (await kv.getByPrefix('affiliate_payout:')) || [] }); }
+  catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to load affiliate payouts.' }, 500); }
+});
+app.patch('/make-server-57095a78/affiliate-payouts/:email/:id', async (c) => {
+  try {
+    const user = await rewardsActor(c); if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const email = rewardsEmail(c.req.param('email')); const key = `affiliate_payout:${email}:${c.req.param('id')}`; const request = await kv.get(key) as any; if (!request) return c.json({ success: false, error: 'Payout request not found.' }, 404);
+    const body = await c.req.json(); const status = String(body.status || ''); if (!['approved', 'paid', 'rejected'].includes(status)) return c.json({ success: false, error: 'Invalid payout status.' }, 400); if (request.status === 'paid' || request.status === 'rejected') return c.json({ success: false, error: 'This payout request is already final.' }, 409);
+    const stats = await kv.get(`affiliate:${email}`) as any; if (!stats) return c.json({ success: false, error: 'Affiliate account not found.' }, 404); const now = new Date().toISOString(); request.status = status; request.reviewedBy = user.email; request.reviewNote = String(body.reviewNote || ''); request.transferReference = String(body.transferReference || ''); request.updatedAt = now;
+    if (status === 'paid') { stats.payoutHold = money(Math.max(0, Number(stats.payoutHold || 0) - Number(request.amount))); stats.pendingCredit = money(Math.max(0, Number(stats.pendingCredit || 0) - Number(request.amount))); stats.paidCredit = money(Number(stats.paidCredit || 0) + Number(request.amount)); stats.history = [{ id: rewardId('affiliate'), type: 'payout', description: `Payout completed${request.transferReference ? ` (${request.transferReference})` : ''}`, credit: -Number(request.amount), date: now, payoutRequestId: request.id }, ...(stats.history || [])]; }
+    if (status === 'rejected') stats.payoutHold = money(Math.max(0, Number(stats.payoutHold || 0) - Number(request.amount)));
+    await kv.set(`affiliate:${email}`, stats); await kv.set(key, request); return c.json({ success: true, request, stats });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to update payout request.' }, 500); }
+});
+
 // Checkout/order services use this protected endpoint after an order has been
 // paid. It is idempotent by affiliate + order ID so retries never award twice.
 app.post('/make-server-57095a78/affiliate-attributions', async (c) => {
@@ -3946,22 +4158,695 @@ app.post('/make-server-57095a78/affiliate-attributions', async (c) => {
 // It stays pending until a trusted paid-order flow changes its status.
 app.post('/make-server-57095a78/referrals/attributions', async (c) => {
   try {
-    const body = await c.req.json();
-    const code = String(body.code || '').toUpperCase().trim();
-    const referredEmail = rewardsEmail(body.referredEmail);
+    const body = await c.req.json(); const code = String(body.code || '').toUpperCase().trim(); const referredEmail = rewardsEmail(body.referredEmail);
     if (!code || !referredEmail) return c.json({ success: false, error: 'Referral code and referred email are required.' }, 400);
-    const referrerEmail = await kv.get(`loyalty_referral:${code}`) as string | null;
+    const loyaltyOwner = await kv.get(`loyalty_referral:${code}`) as string | null;
+    const affiliateOwner = loyaltyOwner ? null : await kv.get(`affiliate_code:${code}`) as string | null;
+    const memberOwner = loyaltyOwner || affiliateOwner ? null : await kv.get(`referral_code_owner:${code}`) as string | null;
+    const referrerEmail = loyaltyOwner || affiliateOwner || memberOwner;
     if (!referrerEmail) return c.json({ success: false, error: 'Referral code not found.' }, 404);
-    if (referrerEmail === referredEmail) return c.json({ success: false, error: 'You cannot refer yourself.' }, 400);
-    const key = `referral_attribution:${code}:${referredEmail}`;
-    const prior = await kv.get(key);
+    if (rewardsEmail(referrerEmail) === referredEmail) return c.json({ success: false, error: 'You cannot refer yourself.' }, 400);
+    const key = `referral_attribution:${code}:${referredEmail}`; const prior = await kv.get(key);
     if (prior) return c.json({ success: true, duplicate: true, referral: prior });
-    const referral = { id: rewardId('referral'), referrerEmail, referredEmail, referrer: body.referrerName || referrerEmail, referred: body.referredName || referredEmail, code, status: 'pending', reward: 0, date: new Date().toISOString() };
-    const all: any[] = (await kv.get('referrals:all')) || [];
-    await kv.set('referrals:all', [referral, ...all]);
-    await kv.set(key, referral);
+    const referral = { id: rewardId('referral'), referrerEmail, affiliateEmail: affiliateOwner || null, referredEmail, referrer: body.referrerName || referrerEmail, referred: body.referredName || referredEmail, code, source: affiliateOwner ? 'affiliate' : 'loyalty', status: 'pending', reward: 0, date: new Date().toISOString() };
+    const all: any[] = (await kv.get('referrals:all')) || []; await kv.set('referrals:all', [referral, ...all]); await kv.set(key, referral);
+    if (affiliateOwner) { const stats = await kv.get(`affiliate:${affiliateOwner}`) as any; if (stats) { const event = { id: rewardId('affiliate'), type: 'signup', description: `Referral signup: ${referredEmail}`, credit: 0, date: new Date().toISOString(), referralId: referral.id }; stats.signups = Number(stats.signups || 0) + 1; stats.history = [event, ...(stats.history || [])]; await kv.set(`affiliate:${affiliateOwner}`, stats); } }
     return c.json({ success: true, referral }, 201);
   } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to record referral.' }, 500); }
 });
+
+// A paid order is the trusted moment to earn rewards and convert a referral.
+// This helper is idempotent by order ID, so checkout-return retries cannot mint
+// duplicate points, referral rewards, or affiliate credit.
+async function settlePaidStoreRewards(order: any) {
+  const email = rewardsEmail(order.customer_email); const orderId = String(order.id || ''); const spend = money(order.amount_total);
+  const result: any = { loyaltyPoints: 0, referralConverted: false, affiliateCredit: 0 };
+  if (!email || !orderId || spend <= 0) return result;
+  const loyalty = await kv.get(`loyalty:${email}`) as any;
+  const loyaltyEventKey = `loyalty_event:${email}:${orderId}`;
+  if (loyalty && !await kv.get(loyaltyEventKey)) {
+    const multiplier = loyalty.tier === 'phoenix' ? 2 : loyalty.tier === 'gold' ? 1.5 : loyalty.tier === 'silver' ? 1.25 : 1;
+    const points = Math.floor(spend * multiplier); const event = { id: rewardId('loyalty'), type: 'earn', points, description: `Store order ${orderId}`, date: new Date().toISOString(), eventId: orderId };
+    loyalty.points = Number(loyalty.points || 0) + points; loyalty.lifetimePoints = Number(loyalty.lifetimePoints || 0) + points; loyalty.lifetimeSpend = Number(loyalty.lifetimeSpend || 0) + spend; loyalty.tier = loyaltyTier(loyalty.lifetimeSpend); loyalty.history = [event, ...(loyalty.history || [])];
+    await kv.set(`loyalty:${email}`, loyalty); await kv.set(loyaltyEventKey, event); result.loyaltyPoints = points;
+  }
+  const referrals: any[] = (await kv.get('referrals:all')) || [];
+  let changed = false;
+  for (const referral of referrals) {
+    if (rewardsEmail(referral.referredEmail) !== email || referral.status !== 'pending') continue;
+    const conversionKey = `referral_conversion:${referral.id}:${orderId}`;
+    if (await kv.get(conversionKey)) continue;
+    referral.status = 'converted'; referral.convertedAt = new Date().toISOString(); referral.orderId = orderId; referral.orderAmount = spend; referral.reward = referral.affiliateEmail ? money(spend * 0.1) : 50; changed = true; result.referralConverted = true;
+    if (referral.affiliateEmail) {
+      const affiliate = await kv.get(`affiliate:${rewardsEmail(referral.affiliateEmail)}`) as any;
+      if (affiliate) { const credit = money(spend * 0.1); const event = { id: rewardId('affiliate'), type: 'sale', description: `10% credit from order ${orderId}`, credit, date: new Date().toISOString(), orderId, referralId: referral.id }; affiliate.conversions = Number(affiliate.conversions || 0) + 1; affiliate.pendingCredit = money(Number(affiliate.pendingCredit || 0) + credit); affiliate.history = [event, ...(affiliate.history || [])]; await kv.set(`affiliate:${rewardsEmail(referral.affiliateEmail)}`, affiliate); result.affiliateCredit = credit; }
+    } else {
+      const referrer = rewardsEmail(referral.referrerEmail); const account = await kv.get(`loyalty:${referrer}`) as any;
+      if (account) { const rewardKey = `loyalty_referral_reward:${referrer}:${orderId}`; if (!await kv.get(rewardKey)) { const event = { id: rewardId('loyalty'), type: 'referral', points: 50, description: `Referral reward from order ${orderId}`, date: new Date().toISOString(), eventId: orderId, referralId: referral.id }; account.points = Number(account.points || 0) + 50; account.lifetimePoints = Number(account.lifetimePoints || 0) + 50; account.history = [event, ...(account.history || [])]; await kv.set(`loyalty:${referrer}`, account); await kv.set(rewardKey, event); } }
+    }
+    await kv.set(conversionKey, { referralId: referral.id, orderId, settledAt: new Date().toISOString() });
+  }
+  if (changed) await kv.set('referrals:all', referrals);
+  return result;
+}
+
+// ============================================
+// PORTAL ONBOARDING + CONTRACT / INVOICE RECORDS
+// ============================================
+async function intakeOwnedBy(c: any, applicationId: string, allowAdmin = true) {
+  const user = await intakeActor(c);
+  if (!user?.email) return { user: null, admin: false, intake: null };
+  const intake = await kv.get(`intake:onboarding:${applicationId}`) as any;
+  const admin = allowAdmin && await intakeIsAdmin(user);
+  if (!intake || (!admin && String(intake.applicantEmail || '').toLowerCase() !== String(user.email).toLowerCase())) return { user, admin, intake: null };
+  return { user, admin, intake };
+}
+
+app.get('/make-server-57095a78/intake/my-onboarding', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view onboarding.' }, 401);
+    let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
+    if (!applicationId) {
+      const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+      const approved = applications.find((application: any) => String(application.email || '').toLowerCase() === String(user.email).toLowerCase() && ['approved', 'active'].includes(String(application.status || '').toLowerCase()));
+      if (approved) applicationId = (await ensureIntake(approved)).applicationId;
+    }
+    if (!applicationId) return c.json({ success: true, intake: null, access: null });
+    const intake = await kv.get(`intake:onboarding:${applicationId}`);
+    return c.json({ success: true, intake, access: intake ? { applicationId, portalType: intake.portalType, status: intake.status } : null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load onboarding.' }, 500); }
+});
+
+app.get('/make-server-57095a78/intake/my-access', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to access a portal.' }, 401);
+    let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
+    let intake = applicationId ? await kv.get(`intake:onboarding:${applicationId}`) as any : null;
+    if (!intake) { const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => String(item.email || '').toLowerCase() === String(user.email).toLowerCase() && ['approved', 'active'].includes(String(item.status || '').toLowerCase())); if (application) { intake = await ensureIntake(application); applicationId = intake.applicationId; } }
+    const application = intake ? ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === intake.applicationId) : null;
+    const access = intake ? await syncPortalAccess(application || { id: intake.applicationId, email: user.email, name: intake.applicantName, type: intake.portalType }, intake) : null;
+    return c.json({ success: true, canEnterPortal: access?.status === 'active', access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load portal access.' }, 500); }
+});
+
+app.get('/make-server-57095a78/intake/onboarding/:id', async (c) => {
+  try {
+    let { intake, admin } = await intakeOwnedBy(c, c.req.param('id'));
+    if (!intake && admin) {
+      const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === c.req.param('id'));
+      if (application && ['approved', 'active'].includes(String(application.status || '').toLowerCase())) intake = await ensureIntake(application);
+    }
+    if (!intake) return c.json({ success: false, error: 'Onboarding record not found or unavailable.' }, 404);
+    return c.json({ success: true, intake });
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+app.post('/make-server-57095a78/intake/my-onboarding/documents', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in before uploading documents.' }, 401);
+    const applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
+    if (!applicationId) return c.json({ success: false, error: 'No onboarding record is assigned to this account.' }, 404);
+    const intake = await kv.get(`intake:onboarding:${applicationId}`) as any;
+    if (!intake || intake.status === 'active') return c.json({ success: false, error: 'This onboarding record cannot accept documents.' }, 409);
+    const body = await c.req.parseBody();
+    const taskId = String(body.taskId || '');
+    const file = body.file;
+    const task = (intake.requiredTasks || []).find((item: any) => item.id === taskId);
+    if (!task || !(file instanceof File)) return c.json({ success: false, error: 'A valid checklist item and document are required.' }, 400);
+    if (file.size > 10 * 1024 * 1024) return c.json({ success: false, error: 'Documents must be 10 MB or smaller.' }, 413);
+    const bucket = 'make-57095a78-intake-documents';
+    const { data: buckets } = await supabase.storage.listBuckets();
+    if (!buckets?.some((item: any) => item.name === bucket)) {
+      const created = await supabase.storage.createBucket(bucket, { public: false });
+      if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+    }
+    const documentId = crypto.randomUUID();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'document';
+    const path = `${applicationId}/${documentId}-${safeName}`;
+    const upload = await supabase.storage.from(bucket).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+    if (upload.error) throw upload.error;
+    const document = { id: documentId, taskId, name: file.name, status: 'submitted', uploadedAt: new Date().toISOString(), storageBucket: bucket, storagePath: path };
+    intake.documents = [...(Array.isArray(intake.documents) ? intake.documents : []), document];
+    intake.requiredTasks = (intake.requiredTasks || []).map((item: any) => item.id === taskId ? { ...item, status: 'submitted', submittedAt: document.uploadedAt } : item);
+    intake.status = 'under_review'; intake.updatedAt = document.uploadedAt;
+    await kv.set(`intake:onboarding:${applicationId}`, intake);
+    return c.json({ success: true, document, requiredTasks: intake.requiredTasks });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to upload document.' }, 500); }
+});
+
+app.get('/make-server-57095a78/intake/onboarding/:id/documents/:documentId/download', async (c) => {
+  try {
+    const { intake } = await intakeOwnedBy(c, c.req.param('id'));
+    if (!intake) return c.json({ success: false, error: 'Document is not available.' }, 404);
+    const document = (intake.documents || []).find((item: any) => item.id === c.req.param('documentId'));
+    if (!document?.storageBucket || !document?.storagePath) return c.json({ success: false, error: 'Document file is unavailable.' }, 404);
+    const signed = await supabase.storage.from(document.storageBucket).createSignedUrl(document.storagePath, 300);
+    if (signed.error || !signed.data?.signedUrl) throw signed.error || new Error('Could not create document link.');
+    return c.json({ success: true, url: signed.data.signedUrl });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to open document.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/intake/onboarding/:id/documents/:documentId', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const intake = await kv.get(`intake:onboarding:${c.req.param('id')}`) as any;
+    if (!intake) return c.json({ success: false, error: 'Onboarding record not found.' }, 404);
+    const document = (intake.documents || []).find((item: any) => item.id === c.req.param('documentId'));
+    if (!document) return c.json({ success: false, error: 'Document not found.' }, 404);
+    if (document.storageBucket && document.storagePath) await supabase.storage.from(document.storageBucket).remove([document.storagePath]);
+    intake.documents = (intake.documents || []).filter((item: any) => item.id !== document.id);
+    intake.requiredTasks = (intake.requiredTasks || []).map((task: any) => task.id === document.taskId ? { ...task, status: 'pending', submittedAt: undefined, reviewedAt: undefined } : task);
+    intake.status = 'pending_documents'; intake.updatedAt = new Date().toISOString();
+    await kv.set(`intake:onboarding:${intake.applicationId}`, intake);
+    return c.json({ success: true, intake });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete document.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/intake/onboarding/:id/documents/:documentId', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const intake = await kv.get(`intake:onboarding:${c.req.param('id')}`) as any;
+    if (!intake) return c.json({ success: false, error: 'Onboarding record not found.' }, 404);
+    const body = await c.req.json(); const status = body.status === 'approved' ? 'approved' : 'rejected';
+    let found = false;
+    intake.documents = (intake.documents || []).map((document: any) => {
+      if (document.id !== c.req.param('documentId')) return document;
+      found = true; return { ...document, status, reviewNote: String(body.reviewNote || ''), reviewedAt: new Date().toISOString(), reviewedBy: user.email };
+    });
+    if (!found) return c.json({ success: false, error: 'Document not found.' }, 404);
+    intake.requiredTasks = (intake.requiredTasks || []).map((task: any) => {
+      const doc = intake.documents.filter((item: any) => item.taskId === task.id).at(-1);
+      return doc ? { ...task, status: doc.status === 'approved' ? 'complete' : doc.status === 'rejected' ? 'rejected' : 'submitted', reviewedAt: doc.reviewedAt } : task;
+    });
+    const required = intake.requiredTasks.filter((task: any) => task.required);
+    intake.status = required.every((task: any) => task.status === 'complete') ? 'active' : 'under_review'; intake.updatedAt = new Date().toISOString();
+    await kv.set(`intake:onboarding:${intake.applicationId}`, intake);
+    const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === intake.applicationId);
+    const access = application ? await syncPortalAccess(application, intake) : null;
+    return c.json({ success: true, intake, access });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to review document.' }, 500); }
+});
+
+async function financialActor(c: any) { const user = await intakeActor(c); return { user, admin: await intakeIsAdmin(user) }; }
+function ownsFinancialRecord(record: any, email: string) { const target = String(email || '').toLowerCase(); return [record.customerEmail, record.clientEmail, record.email, record.ownerEmail].some((value: any) => String(value || '').toLowerCase() === target); }
+
+app.get('/make-server-57095a78/contracts', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('contract:')) || []; return c.json({ success: true, contracts: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
+  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+app.post('/make-server-57095a78/contracts', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const id = String(body.id || crypto.randomUUID()); const record = { ...body, id, status: body.status || 'pending_signature', createdAt: body.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: user.email }; await kv.set(`contract:${id}`, record); return c.json({ success: true, contract: record }, 201); }
+  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+app.post('/make-server-57095a78/contracts/:id/sign', async (c) => {
+  try { const { user, admin } = await financialActor(c); const record = await kv.get(`contract:${c.req.param('id')}`) as any; if (!record) return c.json({ success: false, error: 'Contract not found.' }, 404); if (!user?.email || (!admin && !ownsFinancialRecord(record, user.email))) return c.json({ success: false, error: 'You may only sign your own contract.' }, 403); const body = await c.req.json(); if (body.acceptTerms !== true) return c.json({ success: false, error: 'Terms must be accepted before signing.' }, 400); const signed = { ...record, status: 'active', signedAt: new Date().toISOString(), signedBy: user.email, signatureName: String(body.signatureName || user.user_metadata?.full_name || user.email), updatedAt: new Date().toISOString() }; await kv.set(`contract:${signed.id}`, signed); return c.json({ success: true, contract: signed }); }
+  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+app.get('/make-server-57095a78/invoices', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('invoice:')) || []; return c.json({ success: true, invoices: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
+  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+app.post('/make-server-57095a78/invoices', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const id = String(body.id || crypto.randomUUID()); const lineItems = Array.isArray(body.line_items) ? body.line_items.map((item: any, index: number) => ({ ...item, line_number: item.line_number || index + 1, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), amount: Number(item.amount ?? Number(item.quantity || 0) * Number(item.unit_price || 0)) })) : []; const subtotal = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0); const taxRate = Number(body.tax_rate || 0); const taxAmount = Number(body.tax_amount ?? subtotal * (taxRate / 100)); const discount = Number(body.discount_amount || 0); const total = Number(body.total_amount ?? subtotal + taxAmount - discount); const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`; const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: Number(body.paid_amount || 0), balance_due: Number(body.balance_due ?? total), status: body.status || 'draft', is_draft: body.is_draft ?? body.status === 'draft', createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email }; await kv.set(`invoice:${id}`, record); return c.json({ success: true, invoice: record }, 201); }
+  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+
+app.post('/make-server-57095a78/quotes/:id/convert-to-contract', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const quote = await kv.get(`quote:${c.req.param('id')}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const id = crypto.randomUUID();
+    const contract = { id, quoteId: quote.id, planId: body.planId || quote.planId || null, customerId: quote.customerId || null, customerEmail: quote.clientEmail || body.customerEmail || null, clientEmail: quote.clientEmail || body.customerEmail || null, clientName: quote.clientName || body.clientName || null, title: body.title || quote.number || 'Service Contract', amount: body.amount ?? quote.total ?? quote.grandTotal ?? null, terms: body.terms || quote.notes || '', status: 'pending_signature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: user.email };
+    await kv.set(`contract:${id}`, contract);
+    await kv.set(`quote:${quote.id}`, { ...quote, contractId: id, status: 'sent', updatedAt: new Date().toISOString() });
+    return c.json({ success: true, contract }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to convert quote to contract.' }, 500); }
+});
+
+app.put('/make-server-57095a78/invoices/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const existing = await kv.get(`invoice:${c.req.param('id')}`) as any;
+    if (!existing) return c.json({ success: false, error: 'Invoice not found.' }, 404);
+    const patch = await c.req.json();
+    if (['paid', 'completed'].includes(String(patch.status || '').toLowerCase())) return c.json({ success: false, error: 'Use verified payment confirmation to mark an invoice paid.' }, 400);
+    const invoice = { ...existing, ...patch, id: existing.id, updatedAt: new Date().toISOString(), updatedBy: user.email };
+    await kv.set(`invoice:${invoice.id}`, invoice);
+    return c.json({ success: true, invoice });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update invoice.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/invoices/:id', async (c) => {
+  try { const { admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const existing = await kv.get(`invoice:${c.req.param('id')}`); if (!existing) return c.json({ success: false, error: 'Invoice not found.' }, 404); await kv.del(`invoice:${c.req.param('id')}`); return c.json({ success: true }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete invoice.' }, 500); }
+});
+
+app.post('/make-server-57095a78/payments/create-checkout', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in before starting checkout.' }, 401);
+    const body = await c.req.json();
+    const invoice = body.invoiceId ? await kv.get(`invoice:${String(body.invoiceId)}`) as any : null;
+    if (body.invoiceId && !invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404);
+    if (invoice && !admin && !ownsFinancialRecord(invoice, user.email)) return c.json({ success: false, error: 'You may only pay your own invoice.' }, 403);
+    const amount = money(body.amount ?? invoice?.balance_due ?? invoice?.balanceDue ?? invoice?.amountDue ?? invoice?.total_amount ?? invoice?.total ?? invoice?.amount);
+    if (amount <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
+    const paymentId = crypto.randomUUID();
+    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const session = await stripeCheckoutSession(new URLSearchParams({
+      'payment_method_types[]': 'card', mode: 'payment',
+      success_url: `${appUrl}/customer-portal-app?payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/customer-portal-app?tab=payments`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': String(body.description || invoice?.number || 'Black Phoenix payment'),
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1', customer_email: user.email,
+      'metadata[payment_id]': paymentId, 'metadata[invoice_id]': String(invoice?.id || ''),
+    }));
+    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    await kv.set(`payment:${paymentId}`, payment);
+    if (invoice) await kv.set(`invoice:${invoice.id}`, { ...invoice, paymentId, checkoutSessionId: session.id, status: invoice.status === 'draft' ? 'sent' : invoice.status, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, paymentId, checkoutUrl: session.url });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
+app.post('/make-server-57095a78/payments/confirm', async (c) => {
+  try {
+    const secret = Deno.env.get('PAYMENT_CONFIRMATION_SECRET') || '';
+    if (!secret || c.req.header('X-Payment-Confirmation-Secret') !== secret) return c.json({ success: false, error: 'Unauthorized payment confirmation.' }, 401);
+    const body = await c.req.json();
+    const payment = await kv.get(`payment:${String(body.paymentId || '')}`) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+    if (payment.status === 'paid') return c.json({ success: true, duplicate: true, payment });
+    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''));
+    if (verified.id !== payment.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment.' }, 409);
+    payment.status = 'paid'; payment.paidAt = new Date().toISOString(); payment.stripePaymentIntentId = verified.payment_intent || null; payment.updatedAt = payment.paidAt;
+    await kv.set(`payment:${payment.id}`, payment);
+    if (payment.subscriptionId) {
+      const subscription = await kv.get(subscriptionKey(payment.subscriptionId)) as any;
+      if (subscription) await kv.set(subscriptionKey(subscription.id), { ...subscription, status: 'active', activatedAt: payment.paidAt, paymentId: payment.id, updatedAt: payment.paidAt });
+    }
+    if (payment.invoiceId) {
+      const invoice = await kv.get(`invoice:${payment.invoiceId}`) as any;
+      if (invoice) {
+        const priorPaid = Number(invoice.paid_amount ?? invoice.paidAmount ?? 0); const totalDue = Number(invoice.total_amount ?? invoice.total ?? payment.amount ?? 0); const newPaid = Math.min(totalDue, priorPaid + Number(payment.amount || 0)); const paidInvoice = { ...invoice, status: newPaid >= totalDue ? 'paid' : 'partial', paidAt: newPaid >= totalDue ? payment.paidAt : invoice.paidAt, paid_amount: newPaid, paidAmount: newPaid, balance_due: Math.max(0, totalDue - newPaid), balanceDue: Math.max(0, totalDue - newPaid), paymentId: payment.id, updatedAt: payment.paidAt };
+        await kv.set(`invoice:${invoice.id}`, paidInvoice);
+        const planId = String(paidInvoice.planId || paidInvoice.maintenancePlanId || '');
+        if (planId) await recordEntitlementEvent({ planId, sourceType: 'payment', sourceId: payment.id, amountDelta: Number(payment.amount || 0), invoiceId: paidInvoice.id, note: `Invoice ${paidInvoice.number || paidInvoice.id} paid` });
+      }
+    }
+    return c.json({ success: true, payment });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to confirm payment.' }, 500); }
+});
+
+// A signed-in customer may complete their own checkout return. The server verifies
+// the Stripe session itself before activating a subscription or marking an invoice paid.
+app.post('/make-server-57095a78/payments/complete', async (c) => {
+  try {
+    const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in to complete checkout.' }, 401);
+    const body = await c.req.json(); const payment = await kv.get(`payment:${String(body.paymentId || '')}`) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+    if (String(payment.customerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'You may only complete your own payment.' }, 403);
+    if (payment.status === 'paid') return c.json({ success: true, duplicate: true, payment, subscription: payment.subscriptionId ? await kv.get(subscriptionKey(payment.subscriptionId)) : null });
+    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''));
+    if (verified.id !== payment.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment yet.' }, 409);
+    const now = new Date().toISOString(); payment.status = 'paid'; payment.paidAt = now; payment.stripePaymentIntentId = verified.payment_intent || null; payment.updatedAt = now; await kv.set(`payment:${payment.id}`, payment);
+    let subscription = null;
+    if (payment.subscriptionId) { const current = await kv.get(subscriptionKey(payment.subscriptionId)) as any; if (current) { subscription = { ...current, status: 'active', activatedAt: now, paymentId: payment.id, updatedAt: now }; await kv.set(subscriptionKey(subscription.id), subscription); } }
+    let invoice = null;
+    if (payment.invoiceId) {
+      const current = await kv.get(`invoice:${payment.invoiceId}`) as any;
+      if (current) {
+        const priorPaid = Number(current.paid_amount ?? current.paidAmount ?? 0); const totalDue = Number(current.total_amount ?? current.total ?? payment.amount ?? 0); const newPaid = Math.min(totalDue, priorPaid + Number(payment.amount || 0));
+        invoice = { ...current, status: newPaid >= totalDue ? 'paid' : 'partial', paidAt: newPaid >= totalDue ? now : current.paidAt, paid_amount: newPaid, paidAmount: newPaid, balance_due: Math.max(0, totalDue - newPaid), balanceDue: Math.max(0, totalDue - newPaid), paymentId: payment.id, updatedAt: now };
+        await kv.set(`invoice:${invoice.id}`, invoice);
+        const planId = String(invoice.planId || invoice.maintenancePlanId || '');
+        if (planId) await recordEntitlementEvent({ planId, sourceType: 'payment', sourceId: payment.id, amountDelta: Number(payment.amount || 0), invoiceId: invoice.id, note: `Invoice ${invoice.invoice_number || invoice.number || invoice.id} paid` });
+      }
+    }
+    return c.json({ success: true, payment, subscription, invoice });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to complete payment.' }, 500); }
+});
+
+// ── STORE ORDERS / FULFILLMENT ───────────────────────────────────────────────
+// A Stripe session creates only a pending checkout. An order is created only
+// after this protected confirmation route verifies Stripe's paid status.
+function storeOrderKey(id: string) { return `store:order:${id}`; }
+function storeCheckoutKey(id: string) { return `store:checkout:${id}`; }
+function validStoreItems(items: any) { return Array.isArray(items) && items.length > 0 && items.every((item: any) => String(item?.id || '').trim() && String(item?.name || '').trim() && Number(item?.price) >= 0 && Number(item?.qty || item?.quantity) > 0); }
+
+app.post('/make-server-57095a78/store/checkout', async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!validStoreItems(body.items)) return c.json({ error: 'Your cart must contain valid items.' }, 400);
+    const customer = body.customer || {}; const email = String(customer.email || '').trim().toLowerCase();
+    if (!email || !String(customer.name || '').trim() || !String(customer.address || '').trim()) return c.json({ error: 'Name, email, and shipping address are required.' }, 400);
+    const items = body.items.map((item: any) => ({ id: String(item.id), name: String(item.name), price: money(item.price), qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' }));
+    const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0); const shipping = Math.max(0, money(body.shipping)); const checkoutId = crypto.randomUUID();
+    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/store?checkout=cancelled`, 'metadata[store_checkout_id]': checkoutId });
+    items.forEach((item: any, index: number) => { params.set(`line_items[${index}][price_data][currency]`, 'usd'); params.set(`line_items[${index}][price_data][product_data][name]`, item.name); params.set(`line_items[${index}][price_data][unit_amount]`, String(Math.round(item.price * 100))); params.set(`line_items[${index}][quantity]`, String(item.qty)); });
+    if (shipping > 0) { const index = items.length; params.set(`line_items[${index}][price_data][currency]`, 'usd'); params.set(`line_items[${index}][price_data][product_data][name]`, 'Shipping'); params.set(`line_items[${index}][price_data][unit_amount]`, String(Math.round(shipping * 100))); params.set(`line_items[${index}][quantity]`, '1'); }
+    const session = await stripeCheckoutSession(params);
+    await kv.set(storeCheckoutKey(checkoutId), { id: checkoutId, items, subtotal, shipping, total: subtotal + shipping, customer: { name: String(customer.name), email, phone: String(customer.phone || ''), address: String(customer.address) }, status: 'pending_confirmation', stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    return c.json({ success: true, checkoutId, url: session.url });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
+app.post('/make-server-57095a78/store/checkouts/:id/confirm', async (c) => {
+  try {
+    const secret = Deno.env.get('PAYMENT_CONFIRMATION_SECRET') || ''; if (!secret || c.req.header('X-Payment-Confirmation-Secret') !== secret) return c.json({ error: 'Unauthorized payment confirmation.' }, 401);
+    const checkout = await kv.get(storeCheckoutKey(c.req.param('id'))) as any; if (!checkout) return c.json({ error: 'Checkout not found.' }, 404); if (checkout.orderId) return c.json({ success: true, duplicate: true, order: await kv.get(storeOrderKey(checkout.orderId)) });
+    const body = await c.req.json(); const verified = await retrieveStripeCheckoutSession(String(body.sessionId || checkout.stripeCheckoutSessionId)); if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ error: 'Stripe has not confirmed this payment.' }, 409);
+    const now = new Date().toISOString(); const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`; const order = { id: orderId, stripe_session_id: verified.id, stripe_payment_intent: verified.payment_intent || null, customer_name: checkout.customer.name, customer_email: checkout.customer.email, customer_phone: checkout.customer.phone, shipping_address: checkout.customer.address, items: checkout.items, amount_total: checkout.total, currency: 'usd', status: 'paid', payment_status: 'paid', fulfillment_status: 'pending', created_at: now, updated_at: now };
+    await kv.set(storeOrderKey(orderId), order); await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId, paidAt: now, updatedAt: now }); return c.json({ success: true, order });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to confirm store checkout.' }, 500); }
+});
+
+// The customer returns from Stripe with a checkout-session capability URL.
+// Verify it with Stripe before creating the order; retries remain idempotent.
+app.post('/make-server-57095a78/store/checkouts/:id/complete', async (c) => {
+  try {
+    const checkout = await kv.get(storeCheckoutKey(c.req.param('id'))) as any;
+    if (!checkout) return c.json({ success: false, error: 'Checkout not found.' }, 404);
+    if (checkout.orderId) return c.json({ success: true, duplicate: true, order: await kv.get(storeOrderKey(checkout.orderId)) });
+    const body = await c.req.json(); const sessionId = String(body.sessionId || '');
+    if (!sessionId || sessionId !== checkout.stripeCheckoutSessionId) return c.json({ success: false, error: 'Payment session does not match this checkout.' }, 400);
+    const verified = await retrieveStripeCheckoutSession(sessionId);
+    if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment yet.' }, 409);
+    const now = new Date().toISOString(); const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+    const order = { id: orderId, stripe_session_id: verified.id, stripe_payment_intent: verified.payment_intent || null, customer_name: checkout.customer.name, customer_email: checkout.customer.email, customer_phone: checkout.customer.phone, shipping_address: checkout.customer.address, items: checkout.items, amount_total: checkout.total, currency: 'usd', status: 'paid', payment_status: 'paid', fulfillment_status: 'pending', created_at: now, updated_at: now };
+    const rewards = await settlePaidStoreRewards(order); Object.assign(order, { rewards });
+    await kv.set(storeOrderKey(orderId), order); await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId, paidAt: now, updatedAt: now, rewards });
+    return c.json({ success: true, order });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to complete store checkout.' }, 500); }
+});
+
+app.get('/make-server-57095a78/store/orders', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401); const orders = (await kv.getByPrefix('store:order:')) || []; const visible = admin ? orders : orders.filter((order: any) => String(order.customer_email || '').toLowerCase() === String(user.email).toLowerCase()); return c.json({ success: true, orders: visible.sort((a: any, b: any) => Date.parse(b.created_at) - Date.parse(a.created_at)) }); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to load orders.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/store/orders/:id', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403); const existing = await kv.get(storeOrderKey(c.req.param('id'))) as any; if (!existing) return c.json({ error: 'Order not found.' }, 404); const body = await c.req.json(); const allowed = new Set(['pending', 'forwarded_to_doba', 'shipped', 'delivered']); if (!allowed.has(String(body.fulfillment_status || ''))) return c.json({ error: 'A valid fulfillment status is required.' }, 400); const order = { ...existing, fulfillment_status: body.fulfillment_status, tracking_number: body.tracking_number ? String(body.tracking_number) : existing.tracking_number, updated_at: new Date().toISOString(), fulfillment_updated_by: user.email }; await kv.set(storeOrderKey(order.id), order); return c.json(order); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to update order.' }, 500); }
+});
+
+
+// Blueprint analyzer compatibility. The client sends an Anthropic-style message
+// payload, while the server uses the configured OpenAI Vision key and returns the
+// same `{ content: [{ text }] }` shape expected by the existing analyzer.
+app.post('/make-server-57095a78/ai/vision', async (c) => {
+  try {
+    const body = await c.req.json(); const key = Deno.env.get('OPENAI_API_KEY') || '';
+    if (!key) return c.json({ error: 'AI vision is not configured. Add OPENAI_API_KEY to the Edge Function secrets.' }, 503);
+    const content = Array.isArray(body.messages?.[0]?.content) ? body.messages[0].content : [];
+    const image = content.find((item: any) => item?.type === 'image')?.source; const prompt = String(content.find((item: any) => item?.type === 'text')?.text || 'Analyze this construction blueprint.');
+    if (!image?.data || !image?.media_type) return c.json({ error: 'A blueprint image is required.' }, 400);
+    const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${image.media_type};base64,${image.data}` } }] }], max_tokens: Math.min(4096, Number(body.max_tokens || 2048)) }) });
+    const data = await response.json(); if (!response.ok) return c.json({ error: data?.error?.message || 'AI vision request failed.' }, response.status);
+    const text = data?.choices?.[0]?.message?.content || ''; return c.json({ content: [{ type: 'text', text }], text });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to analyze blueprint.' }, 500); }
+});
+
+// ── MASTER SCHEDULE ──────────────────────────────────────────────────────────
+function appointmentKey(id: string) { return `appointment:${id}`; }
+app.post('/make-server-57095a78/schedule/appointments', async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!String(body.date || '').trim() || !String(body.time || '').trim() || !String(body.employeeId || '').trim()) return c.json({ error: 'Date, time, and assigned technician are required.' }, 400);
+    const { user } = await financialActor(c);
+    const record = { ...stripBase64(body), id: String(body.id || `apt_${crypto.randomUUID()}`), status: body.status || 'scheduled', created_at: body.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), requested_by: user?.email || String(body.customerEmail || '').toLowerCase() || null };
+    await kv.set(appointmentKey(record.id), record);
+    return c.json({ success: true, appointment: record }, 201);
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to schedule appointment.' }, 500); }
+});
+app.get('/make-server-57095a78/schedule/appointments', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const all = (await kv.getByPrefix('appointment:')) || []; const records = admin ? all : all.filter((item: any) => [item.requested_by, item.customerEmail, item.customer_email].some((value: any) => String(value || '').toLowerCase() === String(user.email).toLowerCase()));
+    return c.json({ success: true, appointments: records.sort((a: any, b: any) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)) });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load appointments.' }, 500); }
+});
+
+// ── MAINTENANCE PLAN COMPATIBILITY ────────────────────────────────────────────
+// The older Maintenance Plan Creator now reads/writes the same canonical `plan:`
+// records used by plans, entitlements, invoices, and portal trackers.
+function publicMaintenancePlan(plan: any) { return { ...plan.maintenance, id: plan.id, name: plan.planName, active: plan.status === 'active', hoursUsed: Number(plan.hours?.used || 0), hoursIncluded: Number(plan.hours?.included || 0), overageRate: Number(plan.hours?.overageRate || 0), updatedAt: plan.updatedAt }; }
+app.get('/make-server-57095a78/maintenance-plans', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401); const plans = (await kv.getByPrefix('plan:')) || []; const permitted = admin ? plans : plans.filter((plan: any) => String(plan.ownerEmail || plan.owner || '').toLowerCase() === String(user.email).toLowerCase()); return c.json({ success: true, plans: permitted.filter((plan: any) => plan.maintenance).map(publicMaintenancePlan) }); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to load maintenance plans.' }, 500); }
+});
+app.post('/make-server-57095a78/maintenance-plans', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json(); const input = body.plan || {}; if (!String(input.name || '').trim() || !(Number(input.hoursIncluded) >= 0)) return c.json({ error: 'Plan name and included hours are required.' }, 400);
+    const id = String(input.id || crypto.randomUUID()); const existing = await kv.get(`plan:${id}`) as any; const now = new Date().toISOString(); const included = Number(input.hoursIncluded); const used = Number(existing?.hours?.used || 0);
+    const plan = { ...(existing || {}), id, planName: String(input.name), owner: input.assignedName || input.assignedTo || existing?.owner || null, ownerEmail: input.assignedTo || existing?.ownerEmail || null, portalType: (input.targetPortals || ['all'])[0], status: input.active === false ? 'paused' : 'active', monthlyTotal: Number(input.monthlyFee || 0), annualTotal: Number(input.monthlyFee || 0) * 12, hours: { included, used, overageRate: Number(input.overageRate || 0), bankId: existing?.hours?.bankId || `HRS-${crypto.randomUUID()}` }, maintenance: { ...input, id, updatedAt: now, createdAt: existing?.maintenance?.createdAt || now }, createdAt: existing?.createdAt || now, updatedAt: now, createdBy: existing?.createdBy || user.email };
+    await kv.set(`plan:${id}`, plan); return c.json({ success: true, plan: publicMaintenancePlan(plan) }, existing ? 200 : 201);
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to save maintenance plan.' }, 500); }
+});
+app.delete('/make-server-57095a78/maintenance-plans/:id', async (c) => {
+  try { const { admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403); const plan = await kv.get(`plan:${c.req.param('id')}`) as any; if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404); await kv.set(`plan:${plan.id}`, { ...plan, status: 'cancelled', maintenance: { ...plan.maintenance, active: false }, updatedAt: new Date().toISOString() }); return c.json({ success: true }); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to cancel maintenance plan.' }, 500); }
+});
+app.get('/make-server-57095a78/maintenance-plans/:id/usage', async (c) => {
+  try { const { user, admin } = await financialActor(c); const plan = await kv.get(`plan:${c.req.param('id')}`) as any; if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404); if (!user?.email || (!admin && String(plan.ownerEmail || plan.owner || '').toLowerCase() !== String(user.email).toLowerCase())) return c.json({ error: 'You may only view your own plan.' }, 403); return c.json({ success: true, log: (await kv.getByPrefix(`plan_usage:${plan.id}:`)) || [] }); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to load usage.' }, 500); }
+});
+app.post('/make-server-57095a78/maintenance-plans/:id/log-hours', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required to log service hours.' }, 403);
+    const plan = await kv.get(`plan:${c.req.param('id')}`) as any; if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404); const body = await c.req.json(); const hours = Number(body.hours || 0); if (!(hours > 0)) return c.json({ error: 'A positive hour amount is required.' }, 400);
+    const now = new Date().toISOString(); const entry = { id: `USE-${crypto.randomUUID()}`, planId: plan.id, date: body.date || now, description: String(body.description || 'Service visit'), hours, tech: body.tech || null, invoiceId: body.invoiceId || null, workOrderId: body.workOrderId || null, createdAt: now };
+    await kv.set(`plan_usage:${plan.id}:${entry.id}`, entry); const ledger = await recordEntitlementEvent({ planId: plan.id, sourceType: 'work_usage', sourceId: entry.id, hoursDelta: -hours, note: entry.description, invoiceId: entry.invoiceId, workOrderId: entry.workOrderId });
+    plan.hours = { ...(plan.hours || {}), used: Number(plan.hours?.used || 0) + hours }; plan.updatedAt = now; await kv.set(`plan:${plan.id}`, plan); return c.json({ success: true, entry, hoursUsed: plan.hours.used, hoursRemaining: ledger.balance.hoursRemaining, overageHours: ledger.balance.overageHours });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to log plan hours.' }, 500); }
+});
+
+// ── DROPSHIPPER OPERATIONS ───────────────────────────────────────────────────
+// Provider credentials are never returned to a browser; management routes need
+// an authenticated administrator, while order/inventory state remains shared.
+function publicDropshipperConfig(config: any) { return { ...config, providers: (config.providers || []).map(({ apiKey, ...provider }: any) => provider) }; }
+async function dropshipAdmin(c: any) { const actor = await financialActor(c); return actor.user && actor.admin ? actor : null; }
+app.get('/make-server-57095a78/dropshipper/config', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, config: publicDropshipperConfig(await getDropshipperConfig()) }); });
+app.post('/make-server-57095a78/dropshipper/initialize', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); await setDropshipperEnabled(true); return c.json({ success: true, config: publicDropshipperConfig(await getDropshipperConfig()), message: 'Dropshipper module initialized.' }); });
+app.post('/make-server-57095a78/dropshipper/toggle', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); await setDropshipperEnabled(Boolean(body.enabled)); return c.json({ success: true, config: publicDropshipperConfig(await getDropshipperConfig()) }); });
+app.get('/make-server-57095a78/dropshipper/inventory', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const inventory = await getAllInventory(); return c.json({ success: true, inventory, total: inventory.length }); });
+app.get('/make-server-57095a78/dropshipper/orders', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const orders = await getDropshipperOrders(); return c.json({ success: true, orders, total: orders.length }); });
+app.get('/make-server-57095a78/dropshipper/errors', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const errors = await getDropshipperErrors(Number(c.req.query('limit') || 100)); return c.json({ success: true, errors, total: errors.length }); });
+app.post('/make-server-57095a78/dropshipper/sync-inventory', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperInventory()); });
+app.post('/make-server-57095a78/dropshipper/sync-tracking', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperTracking()); });
+app.get('/make-server-57095a78/dropshipper/providers', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, providers: (await getDropshipperProviders()).map(({ apiKey, ...provider }: any) => provider) }); });
+app.get('/make-server-57095a78/dropshipper/catalog/staged', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, products: await getAllStagedProducts() }); });
+app.get('/make-server-57095a78/dropshipper/catalog/stats', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, stats: await getStagingStats() }); });
+app.get('/make-server-57095a78/dropshipper/catalog/categories', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, categories: await getStagedCategories() }); });
+app.post('/make-server-57095a78/dropshipper/catalog/import-to-live', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); return c.json(await importProductsToLive(Array.isArray(body.stagingIds) ? body.stagingIds : [])); });
+app.delete('/make-server-57095a78/dropshipper/catalog/clear', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, cleared: await clearStagedProducts(c.req.query('providerId')) }); });
+app.post('/make-server-57095a78/dropshipper/webhook/:kind', async (c) => { const body = await c.req.json(); const providerId = String(body.providerId || c.req.query('providerId') || ''); if (!providerId) return c.json({ error: 'providerId is required.' }, 400); const result = await handleDropshipperWebhook(providerId, body); return c.json(result, result.success ? 200 : 400); });
+
+// ── CUSTOMER REVIEWS ─────────────────────────────────────────────────────────
+const REVIEW_PREFIX = 'review:';
+function publicReview(review: any) { const { customerEmail, moderationNote, ...safe } = review; return safe; }
+app.get('/make-server-57095a78/reviews', async (c) => {
+  try {
+    const actor = await financialActor(c); const requested = String(c.req.query('status') || 'approved');
+    const all = (await kv.getByPrefix(REVIEW_PREFIX)) || [];
+    const reviews = actor.admin && requested === 'all' ? all : all.filter((review: any) => review.status === 'approved');
+    return c.json({ success: true, reviews: reviews.map(publicReview).sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load reviews.' }, 500); }
+});
+app.post('/make-server-57095a78/reviews', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json()); const name = String(body.customerName || '').trim(); const text = String(body.reviewText || '').trim(); const rating = Number(body.rating);
+    if (!name || text.length < 10 || !Number.isFinite(rating) || rating < 1 || rating > 5) return c.json({ success: false, error: 'Name, a 10-character review, and a rating from 1 to 5 are required.' }, 400);
+    const review = { id: `review_${crypto.randomUUID()}`, customerName: name.slice(0, 120), customerEmail: String(body.customerEmail || '').trim().toLowerCase(), reviewText: text.slice(0, 4000), rating: Math.round(rating), serviceType: String(body.serviceType || '').slice(0, 120), status: 'pending', response: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    await kv.set(`${REVIEW_PREFIX}${review.id}`, review); return c.json({ success: true, review: publicReview(review) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit review.' }, 500); }
+});
+app.patch('/make-server-57095a78/reviews/:id', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const review = await kv.get(`${REVIEW_PREFIX}${c.req.param('id')}`) as any; if (!review) return c.json({ success: false, error: 'Review not found.' }, 404); const body = await c.req.json();
+    const status = ['pending','approved','hidden','rejected'].includes(String(body.status)) ? body.status : review.status; const updated = { ...review, status, response: body.response === undefined ? review.response : String(body.response).slice(0, 4000), moderationNote: body.moderationNote === undefined ? review.moderationNote : String(body.moderationNote).slice(0, 1000), moderatedBy: actor.user.email, updatedAt: new Date().toISOString() };
+    await kv.set(`${REVIEW_PREFIX}${updated.id}`, updated); return c.json({ success: true, review: publicReview(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to moderate review.' }, 500); }
+});
+
+// ── TECH ROSTER ──────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/tech-tiers/config', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, tiers: (await kv.get('tech_tiers:config')) || [] }); });
+app.post('/make-server-57095a78/tech-tiers/config', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); if (!Array.isArray(body.tiers)) return c.json({ error: 'tiers must be an array.' }, 400); await kv.set('tech_tiers:config', body.tiers); return c.json({ success: true, tiers: body.tiers }); });
+app.get('/make-server-57095a78/tech-roster', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, techs: (await kv.getByPrefix('tech_roster:')) || [] }); });
+app.post('/make-server-57095a78/tech-roster', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const tech = body.tech || {}; if (!String(tech.name || '').trim()) return c.json({ error: 'Technician name is required.' }, 400); const id = String(tech.id || crypto.randomUUID()); const current = await kv.get(`tech_roster:${id}`) as any; const saved = { ...current, ...stripBase64(tech), id, name: String(tech.name).trim(), updatedAt: new Date().toISOString(), createdAt: current?.createdAt || new Date().toISOString() }; await kv.set(`tech_roster:${id}`, saved); return c.json({ success: true, tech: saved }, current ? 200 : 201); });
+app.delete('/make-server-57095a78/tech-roster/:id', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const id = c.req.param('id'); if (!await kv.get(`tech_roster:${id}`)) return c.json({ error: 'Technician not found.' }, 404); await kv.del(`tech_roster:${id}`); return c.json({ success: true }); });
+
+// Legacy subcontractor onboarding now feeds the same application → CRM → intake pipeline.
+app.post('/make-server-57095a78/subcontractors/register', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json()); const personal = body.personalInfo || body.personal || {}; const business = body.businessInfo || body.business || {}; const service = body.serviceInfo || body.service || {};
+    const { application, updated } = await saveApplicationAndCrm({ ...body, applicationType: 'subcontractor', name: body.name || personal.name || [personal.firstName, personal.lastName].filter(Boolean).join(' '), email: body.email || personal.email, phone: body.phone || personal.phone, companyName: body.companyName || business.companyName || business.name, serviceArea: body.serviceArea || service.serviceArea, licenseNumber: body.licenseNumber || service.licenseNumber || business.licenseNumber });
+    return c.json({ success: true, applicationId: application.id, application, updated }, updated ? 200 : 201);
+  } catch (error: any) { return c.json({ success: false, message: error.message || 'Unable to submit subcontractor registration.' }, 400); }
+});
+
+// ── QUOTE FOLLOW-UPS ─────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/follow-ups/schedule', async (c) => {
+  try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); if (!body.quoteId || !body.clientEmail) return c.json({ error: 'quoteId and clientEmail are required.' }, 400); const existing = (await kv.getByPrefix(`follow_up:${body.quoteId}:`)) || []; if (existing.length) return c.json({ success: true, duplicate: true, followUps: existing }); const now = Date.now(); const rows = [3,7].map(days => ({ id: `followup_${crypto.randomUUID()}`, quoteId: String(body.quoteId), workRequestId: body.workRequestId || null, clientName: String(body.clientName || ''), clientEmail: String(body.clientEmail).toLowerCase(), clientPhone: String(body.clientPhone || ''), serviceType: String(body.serviceType || ''), approvalUrl: String(body.approvalUrl || ''), quoteTotal: Number(body.quoteTotal || 0), dueAt: new Date(now + days * 86400000).toISOString(), status: 'scheduled', createdAt: new Date().toISOString(), createdBy: actor.user.email })); await Promise.all(rows.map(row => kv.set(`follow_up:${row.quoteId}:${row.id}`, row))); return c.json({ success: true, followUps: rows }, 201); }
+  catch (error: any) { return c.json({ error: error.message || 'Unable to schedule follow-ups.' }, 500); }
+});
+app.get('/make-server-57095a78/follow-ups', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const followUps = (await kv.getByPrefix('follow_up:')) || []; return c.json({ success: true, followUps: followUps.sort((a: any,b: any) => String(a.dueAt).localeCompare(String(b.dueAt))) }); });
+app.post('/make-server-57095a78/follow-ups/process', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const all = (await kv.getByPrefix('follow_up:')) || []; const now = new Date().toISOString(); const due = all.filter((row: any) => row.status === 'scheduled' && String(row.dueAt) <= now); await Promise.all(due.map((row: any) => kv.set(`follow_up:${row.quoteId}:${row.id}`, { ...row, status: 'due', processedAt: now, processedBy: actor.user.email }))); return c.json({ success: true, processed: due.length }); });
+
+// ── CANONICAL SUBSCRIPTIONS ──────────────────────────────────────────────────
+function subscriptionKey(id: string) { return `subscription:${id}`; }
+function giftHourRequestKey(id: string) { return `gift_hour_request:${id}`; }
+function ownsSubscription(record: any, email: string) { return String(record.stakeholderEmail || record.customerEmail || '').toLowerCase() === String(email || '').toLowerCase(); }
+function nextRenewalDate(subscription: any, from: Date) {
+  const date = new Date(from);
+  date.setMonth(date.getMonth() + (subscription.billingCycle === 'annual' ? 12 : subscription.billingCycle === 'quarterly' ? 3 : 1));
+  return date;
+}
+async function applyGiftHours(subscription: any, hours: number, reason: string, giftedBy: string, metadata: Record<string, unknown> = {}) {
+  const now = new Date().toISOString();
+  const gift = { id: `GIFT-${crypto.randomUUID()}`, subscriptionId: subscription.id, hours, reason, workType: 'general', giftedBy, createdAt: now, ...metadata };
+  const record = { ...subscription, hoursGifted: Number(subscription.hoursGifted || 0) + hours, hourGifts: [gift, ...(subscription.hourGifts || [])], updatedAt: now };
+  await kv.set(subscriptionKey(record.id), record);
+  await kv.set(`subscription_hour_gift:${gift.id}`, gift);
+  return { record, gift };
+}
+app.post('/make-server-57095a78/subscriptions/checkout', async (c) => {
+  try {
+    const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in before starting a subscription.' }, 401);
+    const body = await c.req.json(); const plan = String(body.plan || 'premium'); const amount = money(body.amount ?? 49);
+    if (plan !== 'premium' || amount <= 0) return c.json({ success: false, error: 'A valid paid plan is required.' }, 400);
+    const now = new Date().toISOString(); const subscriptionId = `SUB-${crypto.randomUUID()}`;
+    const subscription = { id: subscriptionId, type: 'customer', stakeholderId: user.id || user.email, stakeholderName: String(body.name || user.user_metadata?.full_name || user.email.split('@')[0]), stakeholderEmail: user.email, plan, status: 'pending_payment', billingCycle: body.billingCycle === 'annual' ? 'annual' : 'monthly', amount, startDate: now, renewalDate: new Date(Date.now() + (body.billingCycle === 'annual' ? 365 : 30) * 86400000).toISOString(), hoursIncluded: Number(body.hoursIncluded || 0), hoursUsed: 0, hoursRollover: 0, hoursGifted: 0, autoRenew: true, paymentMethod: 'stripe', createdAt: now, updatedAt: now, createdBy: user.email };
+    const paymentId = crypto.randomUUID(); const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const session = await stripeCheckoutSession(new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', success_url: `${appUrl}/customer-portal-app?tab=dashboard&payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/customer-portal-app?tab=dashboard&subscription=cancelled`, 'line_items[0][price_data][currency]': 'usd', 'line_items[0][price_data][product_data][name]': `Black Phoenix ${plan} subscription`, 'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)), 'line_items[0][quantity]': '1', customer_email: user.email, 'metadata[payment_id]': paymentId, 'metadata[subscription_id]': subscriptionId }));
+    const payment = { id: paymentId, subscriptionId, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: now, updatedAt: now };
+    await kv.set(subscriptionKey(subscriptionId), subscription); await kv.set(`payment:${paymentId}`, payment);
+    return c.json({ success: true, subscription, paymentId, checkoutUrl: session.url }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start subscription checkout.' }, 500); }
+});
+
+app.get('/make-server-57095a78/subscriptions', async (c) => { try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('subscription:')) || []; return c.json({ success: true, subscriptions: admin ? records : records.filter((r: any) => ownsSubscription(r, user.email)) }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+app.post('/make-server-57095a78/subscriptions', async (c) => { try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); if (!body.stakeholderEmail || !body.plan || !(Number(body.amount) >= 0)) return c.json({ error: 'Stakeholder email, plan, and amount are required.' }, 400); const now = new Date().toISOString(); const id = String(body.id || `SUB-${crypto.randomUUID()}`); const record = { ...stripBase64(body), id, status: body.status || 'pending', createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email, paymentHistory: body.paymentHistory || [] }; await kv.set(subscriptionKey(id), record); return c.json({ success: true, subscription: record }, 201); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+app.post('/make-server-57095a78/subscriptions/:id/gift-hours', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required to gift hours.' }, 403);
+    const subscription = await kv.get(subscriptionKey(c.req.param('id'))) as any; if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
+    const body = await c.req.json(); const hours = Number(body.hours || 0); if (!Number.isFinite(hours) || hours <= 0) return c.json({ success: false, error: 'A positive number of hours is required.' }, 400);
+    const { record, gift } = await applyGiftHours(subscription, hours, String(body.reason || 'Gifted hours'), user.email);
+    return c.json({ success: true, subscription: record, gift });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to gift hours.' }, 500); }
+});
+
+app.get('/make-server-57095a78/gift-hour-requests', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const requests = (await kv.getByPrefix('gift_hour_request:')) || [];
+    const visible = admin ? requests : requests.filter((request: any) => String(request.requestedBy || request.customerEmail || '').toLowerCase() === String(user.email).toLowerCase());
+    return c.json({ success: true, requests: visible.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load gift-hour requests.' }, 500); }
+});
+app.post('/make-server-57095a78/gift-hour-requests', async (c) => {
+  try {
+    const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const body = await c.req.json(); const subscriptionId = String(body.subscriptionId || ''); const hours = Number(body.hours || 0);
+    if (!subscriptionId || !Number.isFinite(hours) || hours <= 0) return c.json({ success: false, error: 'A subscription and a positive number of hours are required.' }, 400);
+    const subscription = await kv.get(subscriptionKey(subscriptionId)) as any; if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
+    if (!ownsSubscription(subscription, user.email) && !(await intakeIsAdmin(user))) return c.json({ success: false, error: 'You may only request hours for your own subscription.' }, 403);
+    const now = new Date().toISOString(); const request = { id: `GHR-${crypto.randomUUID()}`, subscriptionId, customerName: subscription.stakeholderName || subscription.customerName || '', customerEmail: subscription.stakeholderEmail || subscription.customerEmail || '', hours, reason: String(body.reason || ''), urgency: body.urgency === 'urgent' ? 'urgent' : 'standard', requestedBy: user.email, requestedAt: now, status: 'pending', createdAt: now, updatedAt: now };
+    await kv.set(giftHourRequestKey(request.id), request); return c.json({ success: true, request }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create gift-hour request.' }, 500); }
+});
+app.patch('/make-server-57095a78/gift-hour-requests/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const request = await kv.get(giftHourRequestKey(c.req.param('id'))) as any; if (!request) return c.json({ success: false, error: 'Gift-hour request not found.' }, 404);
+    const body = await c.req.json(); const status = String(body.status || ''); if (!['approved', 'rejected'].includes(status)) return c.json({ success: false, error: 'Choose approved or rejected.' }, 400);
+    if (request.status !== 'pending') return c.json({ success: false, error: 'This request has already been reviewed.' }, 409);
+    const now = new Date().toISOString(); const updated = { ...request, status, reviewedBy: user.email, reviewedAt: now, reviewNotes: String(body.reviewNotes || body.notes || ''), updatedAt: now };
+    if (status === 'approved') { const subscription = await kv.get(subscriptionKey(request.subscriptionId)) as any; if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404); const grant = await applyGiftHours(subscription, Number(request.hours), request.reason || 'Approved gifted hours request', user.email, { requestId: request.id }); (updated as any).giftId = grant.gift.id; }
+    await kv.set(giftHourRequestKey(updated.id), updated); return c.json({ success: true, request: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to review gift-hour request.' }, 500); }
+});
+function subscriptionHourBalance(subscription: any) {
+  const included = Number(subscription.hoursIncluded || 0); const rollover = Number(subscription.hoursRollover || 0); const gifted = Number(subscription.hoursGifted || 0); const used = Number(subscription.hoursUsed || 0);
+  const available = included + rollover + gifted;
+  return { included, rollover, gifted, used, available, remaining: Math.max(0, available - used), overageHours: Math.max(0, used - available) };
+}
+app.get('/make-server-57095a78/subscriptions/:id/hours', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); const subscription = await kv.get(subscriptionKey(c.req.param('id'))) as any;
+    if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
+    if (!user?.email || (!admin && !ownsSubscription(subscription, user.email))) return c.json({ success: false, error: 'You may only view your own subscription hours.' }, 403);
+    const transactions = ((await kv.getByPrefix(`subscription_hour_transaction:${subscription.id}:`)) || []).sort((a: any, b: any) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+    return c.json({ success: true, subscriptionId: subscription.id, balance: subscriptionHourBalance(subscription), transactions });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load subscription hours.' }, 500); }
+});
+app.post('/make-server-57095a78/subscriptions/:id/log-hours', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required to log service hours.' }, 403);
+    const subscription = await kv.get(subscriptionKey(c.req.param('id'))) as any; if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
+    if (!['active', 'past_due'].includes(String(subscription.status))) return c.json({ success: false, error: 'Hours can only be posted to an active subscription.' }, 409);
+    const body = await c.req.json(); const hours = Number(body.hours || 0); if (!Number.isFinite(hours) || hours <= 0) return c.json({ success: false, error: 'A positive number of hours is required.' }, 400);
+    const sourceId = String(body.sourceId || body.invoiceId || body.workOrderId || ''); const sourceKey = sourceId ? `subscription_hour_source:${subscription.id}:${sourceId}` : '';
+    if (sourceKey) { const previous = await kv.get(sourceKey) as any; if (previous) return c.json({ success: true, duplicate: true, transaction: previous, balance: subscriptionHourBalance(subscription) }); }
+    const now = new Date().toISOString(); const transaction = { id: `HT-${crypto.randomUUID()}`, subscriptionId: subscription.id, customerId: subscription.stakeholderId || subscription.stakeholderEmail || '', customerName: subscription.stakeholderName || subscription.stakeholderEmail || '', type: 'used', hours, reason: String(body.reason || body.description || 'Service work'), performedBy: user.email, date: String(body.date || now), createdAt: now, invoiceId: body.invoiceId || null, workOrderId: body.workOrderId || null, sourceId: sourceId || null };
+    const record = { ...subscription, hoursUsed: Number(subscription.hoursUsed || 0) + hours, updatedAt: now, hourUsage: [transaction, ...(subscription.hourUsage || [])] };
+    await kv.set(subscriptionKey(record.id), record); await kv.set(`subscription_hour_transaction:${record.id}:${transaction.id}`, transaction); if (sourceKey) await kv.set(sourceKey, transaction);
+    return c.json({ success: true, transaction, subscription: record, balance: subscriptionHourBalance(record) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to post subscription hours.' }, 500); }
+});
+
+app.post('/make-server-57095a78/subscriptions/process-rollovers', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json().catch(() => ({})); const asOf = new Date(body.asOf || Date.now()); if (Number.isNaN(asOf.getTime())) return c.json({ success: false, error: 'Invalid rollover date.' }, 400);
+    const subscriptions = (await kv.getByPrefix('subscription:')) || []; let processed = 0; let totalHours = 0;
+    for (const subscription of subscriptions) {
+      if (!['active', 'past_due'].includes(String(subscription.status))) continue;
+      const renewal = new Date(subscription.renewalDate || 0); if (Number.isNaN(renewal.getTime()) || renewal > asOf) continue;
+      const available = Math.max(0, Number(subscription.hoursIncluded || 0) + Number(subscription.hoursRollover || 0) + Number(subscription.hoursGifted || 0) - Number(subscription.hoursUsed || 0));
+      const cap = Number(subscription.rolloverCap); const carried = Number.isFinite(cap) && cap >= 0 ? Math.min(available, cap) : available;
+      const now = new Date().toISOString(); let next = nextRenewalDate(subscription, renewal); while (next <= asOf) next = nextRenewalDate(subscription, next); const event = { id: `ROL-${crypto.randomUUID()}`, carriedHours: carried, availableHours: available, processedAt: now, processedBy: user.email, previousRenewalDate: renewal.toISOString(), nextRenewalDate: next.toISOString() };
+      const record = { ...subscription, hoursRollover: carried, hoursGifted: 0, hoursUsed: 0, renewalDate: next.toISOString(), lastRolloverAt: now, rolloverHistory: [event, ...(subscription.rolloverHistory || [])], updatedAt: now };
+      await kv.set(subscriptionKey(record.id), record); await kv.set(`subscription_rollover:${event.id}`, { ...event, subscriptionId: record.id }); processed += 1; totalHours += carried;
+    }
+    return c.json({ success: true, processed, totalHours });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to process subscription rollovers.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/subscriptions/:id', async (c) => { try { const { user, admin } = await financialActor(c); const current = await kv.get(subscriptionKey(c.req.param('id'))) as any; if (!current) return c.json({ error: 'Subscription not found.' }, 404); if (!admin && (!user?.email || !ownsSubscription(current, user.email))) return c.json({ error: 'Not permitted.' }, 403); const body = await c.req.json(); const allowed = admin ? ['status','autoRenew','renewalDate','paymentMethod','hoursIncluded','hoursGifted','hoursRollover'] : ['autoRenew']; const patch = Object.fromEntries(Object.entries(body).filter(([key]) => allowed.includes(key))); const record = { ...current, ...patch, updatedAt: new Date().toISOString() }; await kv.set(subscriptionKey(record.id), record); return c.json({ success: true, subscription: record }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+app.post('/make-server-57095a78/subscriptions/:id/renew', async (c) => { try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403); const current = await kv.get(subscriptionKey(c.req.param('id'))) as any; if (!current) return c.json({ error: 'Subscription not found.' }, 404); const paid = Boolean((await c.req.json()).paid); if (!paid) return c.json({ error: 'Renewal must be triggered only after verified payment.' }, 409); const date = new Date(current.renewalDate || Date.now()); date.setMonth(date.getMonth() + (current.billingCycle === 'annual' ? 12 : current.billingCycle === 'quarterly' ? 3 : 1)); const record = { ...current, status: 'active', renewalDate: date.toISOString(), renewedAt: new Date().toISOString(), renewedBy: user.email, updatedAt: new Date().toISOString() }; await kv.set(subscriptionKey(record.id), record); return c.json({ success: true, subscription: record }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+
+// ── SUBCONTRACTOR BIDDING ────────────────────────────────────────────────────
+app.get('/make-server-57095a78/quotes/:id/bids', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, bids: (await kv.get(`quote_bids:${c.req.param('id')}`)) || [] }); });
+app.post('/make-server-57095a78/quotes/:id/request-bids', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const body = await c.req.json(); const request = { id: `bid_request_${crypto.randomUUID()}`, quoteId: quote.id, workRequestId: body.workRequestId || null, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: actor.user.email }; const requests = (await kv.get(`quote_bid_requests:${quote.id}`)) || []; await kv.set(`quote_bid_requests:${quote.id}`, [...requests, request]); return c.json({ success: true, request }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+app.post('/make-server-57095a78/quotes/:id/send-to-customer', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const sent = { ...quote, status: 'sent', sentAt: new Date().toISOString(), sentBy: actor.user.email, updatedAt: new Date().toISOString() }; await kv.set(`quote:${quote.id}`, sent); return c.json({ success: true, quote: sent }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+
+// ── ACCESS REQUESTS ──────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/access-requests', async (c) => { try { const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase(); if (!email || !String(body.requestedPortal || body.portal || '').trim()) return c.json({ success: false, error: 'Email and requested portal are required.' }, 400); const id = `access_${crypto.randomUUID()}`; const request = { ...body, id, email, requestedPortal: body.requestedPortal || body.portal, status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${id}`, request); return c.json({ success: true, request }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/access-requests', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, requests: (await kv.getByPrefix('access_request:')) || [] }); });
+app.patch('/make-server-57095a78/access-requests/:id', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const existing = await kv.get(`access_request:${c.req.param('id')}`) as any; if (!existing) return c.json({ success: false, error: 'Access request not found.' }, 404); const body = await c.req.json(); const status = ['approved','rejected','pending'].includes(String(body.status)) ? body.status : existing.status; const request = { ...existing, status, reviewedBy: actor.user.email, reviewedAt: new Date().toISOString(), reviewNote: String(body.reviewNote || ''), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${request.id}`, request); return c.json({ success: true, request }); });
+
+// ── MAINTENANCE PLAN DRAFTS & CUSTOM ITEMS ───────────────────────────────────
+function maintenanceDraftKey(email: string) { return `maintenance_draft:${String(email).toLowerCase()}`; }
+app.get('/make-server-57095a78/maintenance-draft/:email', async (c) => { try { const { user, admin } = await financialActor(c); const email = String(c.req.param('email')).toLowerCase(); if (!user?.email || (!admin && String(user.email).toLowerCase() !== email)) return c.json({ success: false, error: 'Sign in to view this plan draft.' }, 403); return c.json({ success: true, draft: (await kv.get(maintenanceDraftKey(email))) || null }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/maintenance-draft/:email', async (c) => { try { const { user, admin } = await financialActor(c); const email = String(c.req.param('email')).toLowerCase(); if (email !== 'guest' && (!user?.email || (!admin && String(user.email).toLowerCase() !== email))) return c.json({ success: false, error: 'Sign in to save this plan draft.' }, 403); const draft = stripBase64((await c.req.json()).draft || {}); const previous = await kv.get(maintenanceDraftKey(email)) as any; const items = Array.isArray(draft.customItems) ? draft.customItems.map((item: any) => { const prior = (previous?.customItems || []).find((row: any) => row.id === item.id); return prior?.status && prior.status !== 'pending_pricing' ? { ...item, status: prior.status, price: prior.price, reviewedBy: prior.reviewedBy, reviewedAt: prior.reviewedAt } : { ...item, status: ['approved','rejected'].includes(item.status) ? 'pending_pricing' : (item.status || 'pending_pricing') }; }) : []; const saved = { ...previous, ...draft, customItems: items, ownerEmail: email, updatedAt: new Date().toISOString(), createdAt: previous?.createdAt || new Date().toISOString() }; await kv.set(maintenanceDraftKey(email), saved); return c.json({ success: true, draft: saved }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/maintenance-drafts', async (c) => { const { admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, drafts: (await kv.getByPrefix('maintenance_draft:')) || [] }); });
+app.patch('/make-server-57095a78/maintenance-drafts/:email/custom-items/:id', async (c) => { try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const draft = await kv.get(maintenanceDraftKey(c.req.param('email'))) as any; if (!draft) return c.json({ success: false, error: 'Plan draft not found.' }, 404); const body = await c.req.json(); const status = String(body.status); if (!['approved','rejected','pending_pricing'].includes(status)) return c.json({ success: false, error: 'Invalid approval status.' }, 400); if (status === 'approved' && !(Number(body.price) >= 0)) return c.json({ success: false, error: 'Set a price before approving this item.' }, 400); let found = false; draft.customItems = (draft.customItems || []).map((item: any) => { if (item.id !== c.req.param('id')) return item; found = true; return { ...item, status, price: status === 'approved' ? Number(body.price) : item.price, reviewNote: String(body.reviewNote || ''), reviewedAt: new Date().toISOString(), reviewedBy: user.email }; }); if (!found) return c.json({ success: false, error: 'Custom item not found.' }, 404); draft.updatedAt = new Date().toISOString(); await kv.set(maintenanceDraftKey(c.req.param('email')), draft); return c.json({ success: true, draft }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 
 Deno.serve(app.fetch);

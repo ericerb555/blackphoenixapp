@@ -115,6 +115,18 @@ export async function logPlanUsage(
   return data.hours as PlanHours;
 }
 
+/** Start a verified Stripe checkout for an invoice. Completion is confirmed server-side. */
+export async function createInvoiceCheckout(invoiceId: string, description?: string): Promise<{ paymentId: string; checkoutUrl: string }> {
+  const res = await fetch(`${BASE}/payments/create-checkout`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ invoiceId, description }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success || !data.checkoutUrl) throw new Error(data?.error || `Failed to start payment (${res.status})`);
+  return { paymentId: data.paymentId, checkoutUrl: data.checkoutUrl };
+}
+
 export async function getPlanStats(): Promise<{
   total: number; active: number; mrr: number; giftIssued: number; hoursIncluded: number; hoursUsed: number;
 }> {

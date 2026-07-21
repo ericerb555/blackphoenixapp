@@ -58,6 +58,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+
+async function quoteAuthHeaders(contentType = false) { const { data: { session } } = await supabase.auth.getSession(); return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; }
 import {
   materialsHubService,
   Material,
@@ -262,6 +265,31 @@ export function QuoteToContractEditor({
 
   const currentQuote = editMode ? editedQuote : normalizeQuote(workRequest.quote);
 
+  const handleConvertToContract = async () => {
+    const quoteId = currentQuote?.id || workRequest.quote?.id;
+    if (!quoteId) { toast.error('Save the quote before generating a contract.'); return; }
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
+        { method: 'POST', headers: await quoteAuthHeaders(true), body: JSON.stringify({
+          title: currentQuote?.title || currentQuote?.name || workRequest.title || 'Service Contract',
+          amount: currentQuote?.total || currentQuote?.grandTotal || currentQuote?.totalCost || undefined,
+          customerEmail: workRequest.customerEmail || (workRequest as any).clientEmail,
+          planId: (currentQuote as any)?.planId,
+        }) }
+      );
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not generate the contract.');
+      const updated = { ...currentQuote, contractId: result.contract.id, contractStatus: result.contract.status };
+      setEditedQuote(updated as Quote);
+      onSave({ ...workRequest, quote: updated as Quote });
+      toast.success('Contract created and ready for the customer signature.');
+      onConvertToContract({ ...workRequest, quote: updated as Quote });
+    } catch (error: any) { toast.error(error.message || 'Could not generate the contract.'); }
+    finally { setLoading(false); }
+  };
+
   // Load subcontractor bids from backend
   useEffect(() => {
     if (activeTab === 'bidding' && workRequest.quote?.id) {
@@ -275,9 +303,7 @@ export function QuoteToContractEditor({
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/bids`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: await quoteAuthHeaders(),
         }
       );
 
@@ -303,10 +329,7 @@ export function QuoteToContractEditor({
         `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote.id}/request-bids`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await quoteAuthHeaders(true),
           body: JSON.stringify({
             workRequestId: workRequest.id,
             quoteId: workRequest.quote.id,
@@ -718,10 +741,7 @@ export function QuoteToContractEditor({
         `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${editedQuote.id}`,
         {
           method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await quoteAuthHeaders(true),
           body: JSON.stringify({
             materials: editedQuote.materials,
             labor: editedQuote.labor,
@@ -758,10 +778,7 @@ export function QuoteToContractEditor({
         `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/send-to-customer`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await quoteAuthHeaders(true),
           body: JSON.stringify({
             customerEmail: workRequest.customerEmail,
             customerName: workRequest.customerName,
@@ -2032,7 +2049,7 @@ export function QuoteToContractEditor({
 
                         {/* Convert to Contract Button */}
                         <button
-                          onClick={() => onConvertToContract(workRequest)}
+                          onClick={handleConvertToContract}
                           className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#fb923c] hover:from-[#c2410c] hover:to-[#ea580c] text-white rounded-lg font-semibold transition-all shadow-lg shadow-[#ea580c]/20"
                         >
                           <ArrowRight className="w-5 h-5" />
@@ -2062,7 +2079,7 @@ export function QuoteToContractEditor({
               </button>
               {currentQuote.approvalStatus === 'approved' && currentQuote.contractTypeSelected && (
                 <button
-                  onClick={() => onConvertToContract(workRequest)}
+                  onClick={handleConvertToContract}
                   className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-[#ea580c] to-[#fb923c] hover:from-[#c2410c] hover:to-[#ea580c] text-white rounded-lg font-semibold transition-all shadow-lg shadow-[#ea580c]/20"
                 >
                   Generate {currentQuote.selectedContractType === 'soroban-smart-contract' ? 'Smart' : 'Standard'} Contract

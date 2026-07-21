@@ -1,4 +1,4 @@
-import { useState, Component, ReactNode } from 'react';
+import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner@2.0.3';
 import {
   MapPin, Users, DollarSign, Briefcase, Shield, AlertCircle,
@@ -14,6 +14,9 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import ReferralRewards from '../ReferralRewards';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -77,7 +80,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [customers, setCustomers] = useState(DEMO_CUSTOMERS);
   const [subs, setSubs] = useState(DEMO_SUBS);
-  const [pipeline, setPipeline] = useState(DEMO_PIPELINE);
+  const [pipeline, setPipeline] = useState<any[]>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(true);
   const [messages, setMessages] = useState(DEMO_MESSAGES);
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [msgReply, setMsgReply] = useState('');
@@ -87,6 +91,26 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
   const [showAddSub, setShowAddSub] = useState(false);
   const [cForm, setCForm] = useState({ name: '', email: '', phone: '', serviceType: '' });
   const [sForm, setSForm] = useState({ name: '', trade: '', email: '', phone: '' });
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const loadPipeline = async () => {
+      if (!user?.id) { setPipeline([]); setPipelineLoading(false); return; }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`, { headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` } });
+        const data = await response.json(); if (!response.ok || !Array.isArray(data)) throw new Error(data.error || 'Could not load territory pipeline.');
+        setPipeline(data.map((record: any) => ({ id: record.id, customer: record.client_name || record.clientName || 'Customer', service: record.serviceType || record.project_type || 'Service request', status: record.status || 'new', priority: record.urgency || 'medium', submitted: record.created_at || record.createdAt || '', budget: record.budget || 'Quote pending', description: record.description || '', raw: record })));
+      } catch (error: any) { toast.error(error.message || 'Could not load the territory pipeline.'); setPipeline([]); }
+      finally { setPipelineLoading(false); }
+    };
+    void loadPipeline();
+  }, [user?.id]);
+
+  const assignSubcontractor = async (workRequest: any) => {
+    const assignedTo = window.prompt('Enter the subcontractor or crew name to assign:')?.trim(); if (!assignedTo) return;
+    try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
+  };
 
   const mrr = DEMO_SUBS_WITH_PRICE.filter(s => s.status === 'active').reduce((a, s) => a + s.price, 0);
 
@@ -290,7 +314,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
               <h2 className="text-xl font-bold text-white">Territory Pipeline</h2>
               <p className="text-gray-400 text-sm mt-0.5">Work requests from your customers — assign subs and track progress</p>
             </div>
-            {pipeline.map(wr => (
+            {pipelineLoading ? <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-10 text-center text-gray-400">Loading live work requests…</div> : pipeline.map(wr => (
               <div key={wr.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5 hover:border-cyan-500/30 transition">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                   <div>
@@ -305,11 +329,11 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                   <div className="flex flex-col items-end gap-2">
                     <p className="text-white font-bold text-sm">{wr.budget}</p>
                     <div className="flex gap-2">
-                      <button onClick={() => toast.success('Quote builder opening…')}
+                      <button onClick={() => onNavigate('unified-project-pipeline')}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold transition">
                         <FileText className="w-3 h-3" /> Build Quote
                       </button>
-                      <button onClick={() => toast.info('Assign sub coming soon')}
+                      <button onClick={() => assignSubcontractor(wr)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2A2A2A] hover:bg-[#353535] text-gray-300 rounded-lg text-xs font-medium transition">
                         <Briefcase className="w-3 h-3" /> Assign Sub
                       </button>

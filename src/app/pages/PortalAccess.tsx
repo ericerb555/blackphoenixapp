@@ -21,6 +21,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useUserProfile } from '../lib/hooks/useUserProfile';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 
 type UserRole = 'subcontractor' | 'investor' | 'vendor' | 'employee' | null;
 
@@ -52,6 +55,7 @@ interface UserPermissions {
 
 export default function PortalAccess() {
   const { profile, displayName } = useUserProfile();
+  const { signIn } = useAuth();
   const [step, setStep] = useState<'select-role' | 'login' | 'portal'>('select-role');
   const [selectedRole, setSelectedRole] = useState<UserRole>(null);
   const [email, setEmail] = useState('');
@@ -71,39 +75,8 @@ export default function PortalAccess() {
     }
   }, []);
 
-  // Check for demo user on mount
-  useEffect(() => {
-    try {
-      // FIX: Use consistent key 'demo_mode' to match AuthContext
-      const demoMode = localStorage.getItem('demo_mode');
-      if (demoMode === 'true') {
-        console.log('🎭 Demo mode detected in PortalAccess');
-        
-        // Map demo roles to portal roles
-        const roleMap: Record<string, UserRole> = {
-          'professional': 'subcontractor',
-          'property_manager': 'subcontractor',
-          'provider': 'vendor',
-          'stakeholder': 'investor',
-          'investor': 'investor',
-          'employee': 'employee',
-          'field_worker': 'employee'
-        };
-        
-        const mappedRole = roleMap['professional'] || 'subcontractor';
-        setSelectedRole(mappedRole);
-        setEmail('demo@example.com');
-        
-        // Auto-login demo user
-        toast.success(`Welcome to the Demo Portal!`, {
-          description: 'Demo portal access granted'
-        });
-        setStep('portal');
-      }
-    } catch (error) {
-      console.error('Error checking demo user:', error);
-    }
-  }, []);
+  // Demo mode does not grant a real portal session. Production access always
+  // goes through Supabase sign-in plus the server-owned onboarding status.
 
   // Mock permissions (would come from backend based on admin settings)
   const [userPermissions, setUserPermissions] = useState<UserPermissions>({
@@ -186,23 +159,27 @@ export default function PortalAccess() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedRole) return;
     setLoading(true);
-
-    // Store remember me preference
-    if (rememberMe) {
-      localStorage.setItem('rememberMe', 'true');
-      localStorage.setItem('lastEmail', email);
-    } else {
-      localStorage.removeItem('rememberMe');
-      localStorage.removeItem('lastEmail');
-    }
-
-    // Simulate login
-    setTimeout(() => {
-      setLoading(false);
-      toast.success('Login successful! Loading your portal...');
-      setStep('portal');
-    }, 1500);
+    try {
+      const { error } = await signIn(email, password);
+      if (error) throw error;
+      if (rememberMe) { localStorage.setItem('rememberMe', 'true'); localStorage.setItem('lastEmail', email); }
+      else { localStorage.removeItem('rememberMe'); localStorage.removeItem('lastEmail'); }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Your sign-in session could not be verified.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.access?.active) throw new Error('Your application is not active yet. Complete onboarding or contact Black Phoenix for assistance.');
+      const roleForAccess: Record<string, UserRole> = { subcontractor: 'subcontractor', vendor: 'vendor', employee: 'employee', investor: 'investor' };
+      const grantedRole = roleForAccess[String(data.access.portalType || '')];
+      if (!grantedRole || grantedRole !== selectedRole) throw new Error(`Your approved access is for the ${String(data.access.portalType || 'assigned').replace(/_/g, ' ')} portal. Choose that portal to continue.`);
+      const destinations: Record<Exclude<UserRole, null>, string> = { subcontractor: '/subcontractor-portal', investor: '/investor-portal', vendor: '/vendor-portal', employee: '/employee-portal' };
+      toast.success('Sign-in verified. Opening your portal…');
+      window.location.assign(destinations[grantedRole]);
+    } catch (error: any) {
+      toast.error(error?.message || 'Unable to verify portal access.');
+    } finally { setLoading(false); }
   };
 
   const selectedRoleData = roles.find(r => r.id === selectedRole);

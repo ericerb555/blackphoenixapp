@@ -9,6 +9,12 @@ import { API_BASE_URL } from '../lib/apiConfig';
 
 const API_URL = API_BASE_URL;
 
+async function secureHeaders(contentType = false) {
+  const { supabase } = await import('../lib/supabase');
+  const { data: { session } } = await supabase.auth.getSession();
+  return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) };
+}
+
 interface StagedProduct {
   stagingId: string;
   providerId: string;
@@ -66,13 +72,13 @@ export default function ProductCatalogBrowser() {
     try {
       const [productsRes, statsRes, categoriesRes] = await Promise.all([
         fetch(`${API_URL}/dropshipper/catalog/staged`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await secureHeaders()
         }),
         fetch(`${API_URL}/dropshipper/catalog/stats`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await secureHeaders()
         }),
         fetch(`${API_URL}/dropshipper/catalog/categories`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await secureHeaders()
         })
       ]);
 
@@ -170,8 +176,7 @@ export default function ProductCatalogBrowser() {
       const response = await fetch(`${API_URL}/dropshipper/catalog/import-to-live`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
+          ...(await secureHeaders(true))
         },
         body: JSON.stringify({
           stagingIds: Array.from(selectedProducts)
@@ -206,7 +211,7 @@ export default function ProductCatalogBrowser() {
     try {
       const response = await fetch(`${API_URL}/dropshipper/catalog/clear`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
 
       const data = await response.json();

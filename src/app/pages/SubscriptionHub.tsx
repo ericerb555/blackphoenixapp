@@ -172,10 +172,8 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
       setAnalytics(analyticsData);
       setGiftRequests(requestsData);
       
-      // Add sample data if empty (for demo purposes)
-      if (subsData.length === 0) {
-        await addSampleData();
-      }
+      // An empty account is a real empty account. Do not seed fake subscriptions
+      // into owner records, analytics, or customer portal access.
     } catch (error) {
       console.error('Error loading subscription data:', error);
       toast.error('Failed to load subscription data');

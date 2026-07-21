@@ -307,7 +307,7 @@ export default function LoyaltyProgram() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {REWARDS.map(reward => {
                   const canRedeem = account.points >= reward.points;
-                  const redeemed = account.redeemedCodes.includes(reward.id);
+                  const redeemed = account.redeemedCodes.includes(reward.code);
                   return (
                     <button key={reward.id} onClick={() => handleRedeem(reward)}
                       disabled={!canRedeem}

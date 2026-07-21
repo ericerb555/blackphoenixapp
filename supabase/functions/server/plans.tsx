@@ -20,16 +20,39 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 import { recordEntitlementEvent } from './entitlements.tsx';
 
-const plansRouter = new Hono();
+const plansRouter = new Hono<{ Variables: { actor: any; admin: boolean } }>();
+const auth = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
+const ADMIN_ROLES = new Set(['owner', 'admin', 'master_admin', 'management']);
+
+async function authenticatedActor(c: any) {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  const { data: { user }, error } = await auth.auth.getUser(token);
+  return error || !user ? null : user;
+}
+async function hasAdminAccess(user: any) {
+  const role = String(user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase();
+  if (ADMIN_ROLES.has(role)) return true;
+  if (!user?.id) return false;
+  try { const { data } = await auth.from('user_permissions').select('role_name').eq('user_id', user.id); return (data || []).some((row: any) => ADMIN_ROLES.has(String(row.role_name || '').toLowerCase())); } catch { return false; }
+}
+function ownsPlan(plan: any, user: any) { return String(plan?.ownerEmail || '').toLowerCase() === String(user?.email || '').toLowerCase(); }
 
 plansRouter.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
+plansRouter.use('*', async (c, next) => {
+  const actor = await authenticatedActor(c);
+  if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  c.set('actor', actor); c.set('admin', await hasAdminAccess(actor));
+  await next();
+});
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,7 +146,8 @@ plansRouter.get('/make-server-57095a78/plans/test', (c) =>
  */
 plansRouter.post('/make-server-57095a78/plans', async (c) => {
   try {
-    const body = await c.req.json();
+    const body = await c.req.json(); const actor = c.get('actor'); const admin = c.get('admin');
+    if (!admin && body.ownerEmail && String(body.ownerEmail).toLowerCase() !== String(actor.email).toLowerCase()) return c.json({ success: false, error: 'You may only create a plan for your own account.' }, 403);
 
     const id = genId('PLAN');
     const now = new Date().toISOString();
@@ -140,8 +164,8 @@ plansRouter.post('/make-server-57095a78/plans', async (c) => {
       serviceNames: Array.isArray(body.serviceNames) ? body.serviceNames : [],
       monthlyTotal: Number(body.monthlyTotal) || 0,
       annualTotal: Number(body.annualTotal) || (Number(body.monthlyTotal) || 0) * 12,
-      owner: body.owner || null,
-      ownerEmail: body.ownerEmail || null,
+      owner: body.owner || actor.user_metadata?.full_name || actor.email,
+      ownerEmail: admin ? (body.ownerEmail || null) : actor.email,
       source: body.source || 'portal', // 'portal' | 'application'
       status: 'active',
       createdAt: now,
@@ -176,9 +200,10 @@ plansRouter.get('/make-server-57095a78/plans', async (c) => {
     const portalType = (c.req.query('portalType') || '').trim();
     const status = (c.req.query('status') || '').trim();
 
-    let plans: any[] = (await kv.getByPrefix(PLAN_PREFIX)) || [];
+    let plans: any[] = (await kv.getByPrefix(PLAN_PREFIX)) || []; const actor = c.get('actor'); const admin = c.get('admin');
 
-    if (owner) plans = plans.filter(p => (p.owner || '').toLowerCase() === owner);
+    if (!admin) plans = plans.filter(p => ownsPlan(p, actor));
+    if (owner) plans = plans.filter(p => [p.owner, p.ownerEmail].some(value => String(value || '').toLowerCase() === owner));
     if (portalType) plans = plans.filter(p => p.portalType === portalType);
     if (status) plans = plans.filter(p => p.status === status);
     if (search) plans = plans.filter(p => searchHaystack(p).includes(search));
@@ -200,6 +225,7 @@ plansRouter.get('/make-server-57095a78/plans/:id', async (c) => {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
     if (!plan) return c.json({ success: false, error: 'Plan not found' }, 404);
+    if (!c.get('admin') && !ownsPlan(plan, c.get('actor'))) return c.json({ success: false, error: 'Not permitted.' }, 403);
     const usage = (await kv.getByPrefix(USAGE_PREFIX(id))) || [];
     usage.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
     return c.json({ success: true, plan, usage });
@@ -217,6 +243,7 @@ plansRouter.patch('/make-server-57095a78/plans/:id', async (c) => {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
     if (!plan) return c.json({ success: false, error: 'Plan not found' }, 404);
+    if (!c.get('admin') && !ownsPlan(plan, c.get('actor'))) return c.json({ success: false, error: 'Not permitted.' }, 403);
 
     const patch = await c.req.json();
     const now = new Date().toISOString();
@@ -241,6 +268,7 @@ plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
     if (!plan) return c.json({ success: false, error: 'Plan not found' }, 404);
+    if (!c.get('admin')) return c.json({ success: false, error: 'Administrator access is required to log plan hours.' }, 403);
 
     const body = await c.req.json();
     const hours = Number(body.hours) || 0;
@@ -278,7 +306,9 @@ plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
  */
 plansRouter.delete('/make-server-57095a78/plans/:id', async (c) => {
   try {
-    const id = c.req.param('id');
+    const id = c.req.param('id'); const plan = await kv.get(`${PLAN_PREFIX}${id}`) as any;
+    if (!plan) return c.json({ success: false, error: 'Plan not found.' }, 404);
+    if (!c.get('admin') && !ownsPlan(plan, c.get('actor'))) return c.json({ success: false, error: 'Not permitted.' }, 403);
     await kv.del(`${PLAN_PREFIX}${id}`);
     return c.json({ success: true });
   } catch (error: any) {
@@ -292,7 +322,8 @@ plansRouter.delete('/make-server-57095a78/plans/:id', async (c) => {
  */
 plansRouter.get('/make-server-57095a78/plans-stats', async (c) => {
   try {
-    const plans: any[] = (await kv.getByPrefix(PLAN_PREFIX)) || [];
+    let plans: any[] = (await kv.getByPrefix(PLAN_PREFIX)) || [];
+    if (!c.get('admin')) plans = plans.filter(plan => ownsPlan(plan, c.get('actor')));
     const active = plans.filter(p => p.status === 'active');
     const mrr = active.reduce((s, p) => s + (Number(p.monthlyTotal) || 0), 0);
     const giftIssued = plans.reduce((s, p) => s + (p.giftCards || []).reduce((g: number, x: any) => g + (Number(x.amount) || 0), 0), 0);

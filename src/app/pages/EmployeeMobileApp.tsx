@@ -9,15 +9,11 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
-
-// Stable identity for the field technician using the mobile app. In a full
-// deployment this would come from the authenticated session.
-const EMPLOYEE_ID = 'EMP-MOBILE-001';
-const EMPLOYEE_NAME = 'John Smith';
 const EMPLOYEE_ROLE = 'Field Technician';
 
 interface FieldTask {
@@ -57,6 +53,10 @@ function fmtTime(iso: string): string {
 }
 
 export default function EmployeeMobileApp() {
+  const { user } = useAuth();
+  const employeeId = user?.id || '';
+  const employeeName = String(user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Field Technician');
+  const getAuthHeaders = useCallback(async () => { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in to clock in or out.'); return { Authorization: `Bearer ${session.access_token}` }; }, []);
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [clockInTime, setClockInTime] = useState<Date | null>(null);
@@ -139,14 +139,16 @@ export default function EmployeeMobileApp() {
   }, []);
 
   const loadStatus = useCallback(async () => {
+    if (!employeeId) return;
     try {
+      const authHeaders = await getAuthHeaders();
       // Ensure the employee record exists (idempotent), then load status.
       await fetch(`${SERVER}/time-tracking/employees`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: EMPLOYEE_ID, name: EMPLOYEE_NAME, role: EMPLOYEE_ROLE }),
+        body: JSON.stringify({ id: employeeId, name: employeeName, role: EMPLOYEE_ROLE }),
       });
-      const res = await fetch(`${SERVER}/time-tracking/employees/${EMPLOYEE_ID}`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/time-tracking/employees/${employeeId}`, { headers: authHeaders });
       const data = await res.json();
       if (data?.activeEntry?.punchIn) {
         setIsClockedIn(true);
@@ -162,20 +164,21 @@ export default function EmployeeMobileApp() {
     } catch (err) {
       console.error('EmployeeMobileApp: failed to load clock status:', err);
     }
-  }, []);
+  }, [employeeId, employeeName, getAuthHeaders]);
 
   const loadTasks = useCallback(async () => {
-    try {
-      const res = await fetch(`${SERVER}/time-tracking/tasks/${EMPLOYEE_ID}`, { headers: authHeaders });
+    if (!employeeId) return;
+    try { const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}`, { headers: authHeaders });
       const data = await res.json();
       if (data?.success) setTasks(data.tasks || []);
     } catch (err) {
       console.error('EmployeeMobileApp: failed to load tasks:', err);
     }
-  }, []);
+  }, [employeeId, getAuthHeaders]);
 
   const loadUploads = useCallback(async () => {
-    try {
+    try { const authHeaders = await getAuthHeaders();
       const res = await fetch(`${SERVER}/media`, { headers: authHeaders });
       const data = await res.json();
       if (data?.success) {
@@ -187,18 +190,19 @@ export default function EmployeeMobileApp() {
     } catch (err) {
       console.error('EmployeeMobileApp: failed to load uploads:', err);
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   const loadWeekHours = useCallback(async () => {
-    try {
+    if (!employeeId) return;
+    try { const authHeaders = await getAuthHeaders();
       const res = await fetch(`${SERVER}/time-tracking/hours-summary`, { headers: authHeaders });
       const data = await res.json();
-      const mine = data?.summary?.[EMPLOYEE_NAME];
+      const mine = data?.summary?.[employeeName];
       if (mine) setWeekHours(mine.hoursThisWeek || 0);
     } catch (err) {
       console.error('EmployeeMobileApp: failed to load week hours:', err);
     }
-  }, []);
+  }, [employeeId, employeeName, getAuthHeaders]);
 
   useEffect(() => {
     loadStatus();
@@ -208,13 +212,14 @@ export default function EmployeeMobileApp() {
   }, [loadStatus, loadTasks, loadUploads, loadWeekHours]);
 
   const handleClockIn = async () => {
+    if (!employeeId) { alert('Sign in to clock in.'); return; }
     setClockBusy(true);
-    try {
+    try { const authHeaders = await getAuthHeaders();
       const res = await fetch(`${SERVER}/time-tracking/punch-in`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employeeId: EMPLOYEE_ID,
+          employeeId: employeeId,
           location: coords ? { ...coords, address: location } : { address: location },
         }),
       });
@@ -235,13 +240,14 @@ export default function EmployeeMobileApp() {
   };
 
   const handleClockOut = async () => {
+    if (!employeeId) { alert('Sign in to clock out.'); return; }
     setClockBusy(true);
-    try {
+    try { const authHeaders = await getAuthHeaders();
       const res = await fetch(`${SERVER}/time-tracking/punch-out`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employeeId: EMPLOYEE_ID,
+          employeeId: employeeId,
           location: coords ? { ...coords, address: location } : { address: location },
         }),
       });
@@ -278,6 +284,7 @@ export default function EmployeeMobileApp() {
     if (!file) return;
     setUploading(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const form = new FormData();
       form.append('file', file);
       if (uploadDesc) form.append('description', uploadDesc);
@@ -306,8 +313,9 @@ export default function EmployeeMobileApp() {
   };
 
   const startTask = async (taskId: string) => {
-    try {
-      const res = await fetch(`${SERVER}/time-tracking/tasks/${EMPLOYEE_ID}/${taskId}/status`, {
+    if (!employeeId) return;
+    try { const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}/${taskId}/status`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'in-progress' }),

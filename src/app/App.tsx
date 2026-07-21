@@ -1,81 +1,11 @@
 // App.tsx - Main Application Entry Point with Navigation
 // Updated: 2026-05-29 19:11 - Fixed UnifiedProjectPipeline icon issue
 
-// CRITICAL: Import error suppression FIRST before anything else
-import "./utils/suppressErrors";
-
-// Bundled phoenix logo — always available, no server needed
+// Keep the entry module intentionally small.  App-3 is loaded dynamically by Make,
+// so operational utilities are initialized after React paints rather than while the
+// browser is fetching this module. A failed optional utility can no longer prevent
+// every portal from opening.
 import phoenixLogo from '../imports/BPB_phoenix_full_color_logo.png';
-
-// Cleanup utility: Makes window.cleanupLocalStorage() available in console
-import "./utils/cleanupLocalStorage";
-
-// CRITICAL: Import data persistence system to prevent data loss
-import "./utils/dataPersistence";
-
-// CRITICAL: Sync localStorage data to Supabase for cross-browser persistence
-import { initializeDataSync } from "./utils/syncToSupabase";
-
-// CRITICAL: Start automatic backup system (every 10 seconds)
-import "./utils/autoBackup";
-
-// CRITICAL: Run migrations on app load
-import { migrateUserProfiles } from "./utils/migrationHelper";
-
-// CRITICAL: Initialize owner profile on app load
-import { initializeOwnerProfile } from "./utils/initializeOwnerProfile";
-
-// Pipeline data seeder - generates demo projects for pipeline
-import { seedPipelineData } from "./utils/seedPipelineData";
-// Company data verification and auto-recovery
-import { verifyCompanyData } from "./utils/verifyCompanyData";
-// CRITICAL: Ensure default company exists in database
-import "./utils/ensureDefaultCompany";
-// CRITICAL: Initialize branding profile on app load
-import "./utils/initializeBrandingProfile";
-// UTILITY: Sync branding from database (available globally)
-import "./utils/syncBrandingFromDatabase";
-// CRITICAL: Auto-sync branding on every page load
-import "./utils/autoSyncBranding";
-// UTILITY: Set public branding manually (available globally)
-import "./utils/setPublicBranding";
-// CRITICAL: Force upload logo - clears cache and uploads fresh
-import "./utils/forceUploadLogo";
-// UTILITY: Save permanent logo (available globally)
-import "./utils/savePermanentLogo";
-
-// Run migration immediately
-if (typeof window !== 'undefined') {
-  const migrated = migrateUserProfiles();
-  if (migrated) {
-    console.log('✅ User profile migration completed');
-  }
-
-  // Initialize owner profile
-  initializeOwnerProfile();
-
-  // Initialize data sync to Supabase
-  initializeDataSync().catch(err => {
-    // Silent fail - this is expected when offline or backend not configured
-    console.log('ℹ️ [Sync] Running in local-only mode (sync disabled)');
-  });
-
-  // DISABLED: Auto-recovery was causing data loss
-  // setTimeout(() => {
-  //   console.log('🔍 [App] Running company data verification...');
-  //   const result = verifyCompanyData();
-  //   if (Object.keys(result.found).length === 0) {
-  //     console.warn('🚨 [App] No company data found - auto-recovery completed');
-  //   }
-  // }, 1000);
-
-  // Make utilities available globally for debugging
-  (window as any).verifyCompanyData = verifyCompanyData;
-  (window as any).seedPipelineData = seedPipelineData;
-  console.log('✅ [App] Utilities available:');
-  console.log('  • verifyCompanyData() - Check company data');
-  console.log('  • seedPipelineData() - Load demo projects into pipeline');
-}
 
 import { useState, useEffect, Suspense, useTransition, useDeferredValue, createContext, startTransition } from "react";
 import {
@@ -941,7 +871,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     }).then(async response => ({ response, data: await response.json() }))
-      .then(({ data }) => { if (active) setState(data?.success && data?.canEnterPortal ? "allowed" : "blocked"); })
+      .then(({ data }) => { if (active) setState(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
       .catch(() => { if (active) setState("blocked"); });
     return () => { active = false; };
   }, [needsGate, session?.access_token, isAdmin, isOwner, page]);
@@ -958,6 +888,50 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
 }
 
 export default function App() {
+  // Non-visual setup is intentionally deferred. These utilities include local storage
+  // migrations, optional Supabase sync, and legacy diagnostic helpers; none should
+  // be allowed to make the dynamically imported application entry fail to load.
+  useEffect(() => {
+    let disposed = false;
+    const runOptionalSetup = async () => {
+      try {
+        await import("./utils/suppressErrors");
+        await import("./utils/cleanupLocalStorage");
+        await import("./utils/dataPersistence");
+        await Promise.all([
+          import("./utils/autoBackup"),
+          import("./utils/ensureDefaultCompany"),
+          import("./utils/initializeBrandingProfile"),
+          import("./utils/syncBrandingFromDatabase"),
+          import("./utils/autoSyncBranding"),
+          import("./utils/setPublicBranding"),
+          import("./utils/forceUploadLogo"),
+          import("./utils/savePermanentLogo"),
+        ]);
+
+        const [{ migrateUserProfiles }, { initializeOwnerProfile }, { initializeDataSync }, { verifyCompanyData }, { seedPipelineData }] = await Promise.all([
+          import("./utils/migrationHelper"),
+          import("./utils/initializeOwnerProfile"),
+          import("./utils/syncToSupabase"),
+          import("./utils/verifyCompanyData"),
+          import("./utils/seedPipelineData"),
+        ]);
+        if (disposed) return;
+
+        if (migrateUserProfiles()) console.log("✅ User profile migration completed");
+        initializeOwnerProfile();
+        initializeDataSync().catch(() => console.log("ℹ️ [Sync] Running in local-only mode (sync disabled)"));
+        window.verifyCompanyData = verifyCompanyData;
+        window.seedPipelineData = seedPipelineData;
+      } catch (error) {
+        // Boot helpers are optional. The application remains usable if an old helper
+        // or an unavailable backend dependency fails.
+        console.warn("[App] Optional startup setup was skipped:", error);
+      }
+    };
+    void runOptionalSetup();
+    return () => { disposed = true; };
+  }, []);
   console.log("🚀 App component initializing...");
   console.log("🚀 Current URL:", window.location.href);
   console.log("🚀 Current pathname:", window.location.pathname);

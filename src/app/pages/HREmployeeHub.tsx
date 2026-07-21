@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 import { saveDual, loadDual } from '../lib/database';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
 import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,6 +44,7 @@ const STATUS_CLS: Record<Status, string> = {
 };
 
 export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string) => void }) {
+  const { user } = useAuth();
   const [tab, setTab] = useState<'employees' | 'payroll'>('employees');
   const [employees, setEmployees] = useState<Employee[]>(() => {
     const s = load<Employee[]>('hr_employees', []);
@@ -68,10 +71,13 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
 
       // Overlay real logged hours from the time-tracking system (matched by full name).
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sign in is required to load payroll hours.');
         const res = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/time-tracking/hours-summary`,
-          { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
         );
+        if (!res.ok) throw new Error(`Time tracking responded ${res.status}`);
         const json = await res.json();
         if (json.success && json.summary) {
           const merged = base.map(e => {
@@ -88,7 +94,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
         setEmployees(base);
       }
     })();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { saveDual('hr_employees', employees); }, [employees]);
   useEffect(() => { saveDual('hr_payroll', payroll); }, [payroll]);

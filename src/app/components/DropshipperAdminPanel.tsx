@@ -19,6 +19,12 @@ import ProductCatalogBrowser from './ProductCatalogBrowser';
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
+async function secureHeaders(contentType = false) {
+  const { supabase } = await import('../lib/supabase');
+  const { data: { session } } = await supabase.auth.getSession();
+  return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) };
+}
+
 interface DropshipperProvider {
   id: string;
   name: string;
@@ -57,7 +63,7 @@ export default function DropshipperAdminPanel() {
   const loadConfig = async () => {
     try {
       const response = await fetch(`${API_URL}/dropshipper/config`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
       
       if (!response.ok) {
@@ -84,8 +90,7 @@ export default function DropshipperAdminPanel() {
       const response = await fetch(`${API_URL}/dropshipper/initialize`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
+          ...(await secureHeaders(true)),
         }
       });
 
@@ -102,9 +107,9 @@ export default function DropshipperAdminPanel() {
   const loadStats = async () => {
     try {
       const [invRes, ordRes, errRes] = await Promise.all([
-        fetch(`${API_URL}/dropshipper/inventory`, { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }),
-        fetch(`${API_URL}/dropshipper/orders`, { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }),
-        fetch(`${API_URL}/dropshipper/errors?limit=100`, { headers: { 'Authorization': `Bearer ${publicAnonKey}` } })
+        fetch(`${API_URL}/dropshipper/inventory`, { headers: await secureHeaders() }),
+        fetch(`${API_URL}/dropshipper/orders`, { headers: await secureHeaders() }),
+        fetch(`${API_URL}/dropshipper/errors?limit=100`, { headers: await secureHeaders() })
       ]);
 
       // Check if responses are OK before parsing JSON
@@ -134,8 +139,7 @@ export default function DropshipperAdminPanel() {
       const response = await fetch(`${API_URL}/dropshipper/toggle`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
+          ...(await secureHeaders(true))
         },
         body: JSON.stringify({ enabled: newEnabled })
       });
@@ -155,7 +159,7 @@ export default function DropshipperAdminPanel() {
     try {
       const response = await fetch(`${API_URL}/dropshipper/sync-inventory`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
 
       const data = await response.json();
@@ -176,7 +180,7 @@ export default function DropshipperAdminPanel() {
     try {
       const response = await fetch(`${API_URL}/dropshipper/sync-tracking`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
 
       const data = await response.json();
@@ -537,7 +541,7 @@ function InventoryTab() {
   const loadInventory = async () => {
     try {
       const response = await fetch(`${API_URL}/dropshipper/inventory`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
       const data = await response.json();
       if (data.success) {
@@ -614,7 +618,7 @@ function OrdersTab() {
   const loadOrders = async () => {
     try {
       const response = await fetch(`${API_URL}/dropshipper/orders`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
       const data = await response.json();
       if (data.success) {
@@ -696,7 +700,7 @@ function ErrorsTab() {
   const loadErrors = async () => {
     try {
       const response = await fetch(`${API_URL}/dropshipper/errors?limit=50`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await secureHeaders()
       });
       const data = await response.json();
       if (data.success) {
@@ -771,8 +775,7 @@ function AddProviderModal({ onClose, onSuccess }: { onClose: () => void; onSucce
       const response = await fetch(`${API_URL}/dropshipper/providers`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
+          ...(await secureHeaders(true))
         },
         body: JSON.stringify(formData)
       });

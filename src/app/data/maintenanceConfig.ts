@@ -72,7 +72,15 @@ function mergeWithDefaults(saved: Partial<MaintenanceConfig> | null | undefined)
   if (saved.catalog && typeof saved.catalog === 'object') {
     for (const key of Object.keys(saved.catalog) as EntityType[]) {
       const items = (saved.catalog as Record<string, ServiceItem[]>)[key];
-      if (Array.isArray(items)) catalog[key] = items;
+      if (Array.isArray(items)) {
+        // Preserve the admin's edits, but append new code-defined services so a
+        // previously saved configuration never hides new catalog options.
+        const savedById = new Map(items.map(item => [item.id, item]));
+        catalog[key] = [
+          ...base.catalog[key].map(item => savedById.get(item.id) || item),
+          ...items.filter(item => !base.catalog[key].some(defaultItem => defaultItem.id === item.id)),
+        ];
+      }
     }
   }
 

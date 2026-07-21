@@ -27,9 +27,10 @@ import {
 } from '../data/maintenanceConfig';
 import { useAuth } from '../contexts/AuthContext';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const draftAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+async function draftAuthHeaders() { const { data: { session } } = await supabase.auth.getSession(); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || publicAnonKey}` }; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,8 @@ interface ServiceSelection {
   skillId: string;
   frequencyId: string;
 }
+
+interface CustomPlanItem { id: string; name: string; details: string; frequency: string; status: 'pending_pricing' | 'approved' | 'rejected'; price?: number; }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -361,6 +364,10 @@ export default function SubscriptionMaintenancePlans({
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
   const [showRecommended, setShowRecommended] = useState(false);
+  const [customItems, setCustomItems] = useState<CustomPlanItem[]>([]);
+  const [customName, setCustomName] = useState('');
+  const [customDetails, setCustomDetails] = useState('');
+  const [customFrequency, setCustomFrequency] = useState('monthly');
 
   const skillLevels    = config.skillLevels;
   const frequencyTiers = config.frequencyTiers;
@@ -388,7 +395,7 @@ export default function SubscriptionMaintenancePlans({
     (async () => {
       let draft: any = null;
       try {
-        const res = await fetch(`${SERVER}/maintenance-draft/${encodeURIComponent(draftEmail)}`, { headers: draftAuthHeaders });
+        const res = await fetch(`${SERVER}/maintenance-draft/${encodeURIComponent(draftEmail)}`, { headers: await draftAuthHeaders() });
         const json = await res.json();
         if (json.success && json.draft) draft = json.draft;
       } catch (err) {
@@ -402,6 +409,7 @@ export default function SubscriptionMaintenancePlans({
       }
       if (draft && draft.entity && draft.selections) {
         setEntityId(draft.entity);
+        setCustomItems(Array.isArray(draft.customItems) ? draft.customItems : []);
         if (draft.region) setRegionId(draft.region);
         setSelections(new Map(Object.entries(draft.selections) as [string, ServiceSelection][]));
       }
@@ -480,25 +488,33 @@ export default function SubscriptionMaintenancePlans({
     }, 0);
   }
 
-  function handleCheckout() {
+  async function handleCheckout() {
     const total = planTotal();
     const draft = {
       entity: entityId,
       region: regionId,
       selections: Object.fromEntries(selections),
       totalMonthly: total,
+      customItems,
       createdAt: new Date().toISOString(),
     };
     // Persist to server (real record the team can retrieve) + localStorage mirror
     localStorage.setItem('bp_maintenance_plan_draft', JSON.stringify(draft));
     fetch(`${SERVER}/maintenance-draft/${encodeURIComponent(draftEmail)}`, {
       method: 'POST',
-      headers: draftAuthHeaders,
+      headers: await draftAuthHeaders(),
       body: JSON.stringify({ draft }),
     }).then(res => res.json()).then(json => {
       if (!json.success) console.error('Failed to save maintenance draft:', json.error);
     }).catch(err => console.error('Network error saving maintenance draft:', err));
     toast.success(`Plan saved — ${formatPrice(total)}/mo. Your team will follow up to confirm details.`);
+  }
+
+  function addCustomItem() {
+    if (!customName.trim()) { toast.error('Name the custom item you would like added.'); return; }
+    setCustomItems(prev => [...prev, { id: `custom_${crypto.randomUUID()}`, name: customName.trim(), details: customDetails.trim(), frequency: customFrequency, status: 'pending_pricing' }]);
+    setCustomName(''); setCustomDetails(''); setCustomFrequency('monthly');
+    toast.success('Custom item added for team pricing and approval.');
   }
 
   function exportPlan() {
@@ -705,6 +721,14 @@ export default function SubscriptionMaintenancePlans({
               >
                 <Sparkles className="w-3.5 h-3.5" /> Quick Start
               </button>
+            </div>
+
+            <div className="rounded-2xl p-4 space-y-3" style={{ background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)' }}>
+              <div><p className="text-sm font-black text-white">Add a custom plan item</p><p className="text-xs text-gray-400 mt-0.5">Request something not listed. Your team will review it, set the price, then approve it into your plan.</p></div>
+              <div className="grid sm:grid-cols-2 gap-2"><input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Item or service name" className="rounded-xl px-3 py-2 text-sm bg-[#0a0a0a] border border-white/10 text-white focus:outline-none focus:border-sky-500" /><select value={customFrequency} onChange={e => setCustomFrequency(e.target.value)} className="rounded-xl px-3 py-2 text-sm bg-[#0a0a0a] border border-white/10 text-gray-300"><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annual</option><option value="one-time">One-time</option></select></div>
+              <textarea value={customDetails} onChange={e => setCustomDetails(e.target.value)} placeholder="Describe what you would like included" rows={2} className="w-full rounded-xl px-3 py-2 text-sm bg-[#0a0a0a] border border-white/10 text-white focus:outline-none focus:border-sky-500" />
+              <button onClick={addCustomItem} className="px-3 py-2 rounded-xl text-xs font-bold bg-sky-500/15 border border-sky-400/30 text-sky-300 hover:bg-sky-500/25">Add for approval</button>
+              {customItems.length > 0 && <div className="space-y-2 pt-1">{customItems.map(item => <div key={item.id} className="flex items-center justify-between gap-3 text-xs rounded-lg bg-black/20 px-3 py-2"><div><span className="text-white font-semibold">{item.name}</span><span className="text-gray-500"> · {item.frequency}</span>{item.details && <p className="text-gray-500 mt-0.5">{item.details}</p>}</div><span className={item.status === 'approved' ? 'text-green-400' : item.status === 'rejected' ? 'text-red-400' : 'text-amber-300'}>{item.status === 'approved' ? `${formatPrice(Number(item.price || 0))} approved` : item.status === 'rejected' ? 'not approved' : 'awaiting price'}</span></div>)}</div>}
             </div>
 
             {/* Category tabs */}

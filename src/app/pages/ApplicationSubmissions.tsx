@@ -4,7 +4,7 @@ import {
   ArrowLeft, Loader2, AlertCircle, Mail, Phone, Calendar, ShieldCheck
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
@@ -97,32 +97,29 @@ export default function ApplicationSubmissions() {
         // to the server so they become real records, then clear the queue.
         let syncedCount = 0;
         if (offlineVendorApps.length > 0) {
+          const pendingByQueue: Record<string, any[]> = {};
           for (const app of offlineVendorApps) {
             try {
-              const { _offline, id, status, submittedAt, updatedAt, ...payload } = app;
+              const { _offline, _queueKey, id, status, submittedAt, updatedAt, ...payload } = app;
+              // This is an administrator recovery action, so keep the real session
+              // identity rather than bypassing the server with the public anon token.
               const res = await fetch(`${API_BASE}/applications`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(payload),
+                method: 'POST', headers: await getAdminHeaders(true), body: JSON.stringify(payload),
               });
               if (res.ok) syncedCount++;
+              else (pendingByQueue[_queueKey] ||= []).push(app);
             } catch (err) {
               console.error('[ApplicationSubmissions] Failed to sync offline application:', err);
+              (pendingByQueue[app._queueKey] ||= []).push(app);
             }
           }
-          if (syncedCount === offlineVendorApps.length) {
-            queueKeys.forEach((key) => localStorage.removeItem(key));
-          } else if (syncedCount > 0) {
-            // Keep only the ones that failed to sync
-            const remaining = offlineVendorApps.slice(syncedCount).map((a: any) => {
-              const { _offline, type, ...rest } = a;
-              return rest;
-            });
-            localStorage.setItem('vendor_applications_pending', JSON.stringify(remaining));
-          }
+          // A record leaves its own queue only after the server confirms it saved.
+          // This prevents a failed middle item from being discarded by index slicing.
+          queueKeys.forEach((key) => {
+            const remaining = pendingByQueue[key] || [];
+            if (!remaining.length) localStorage.removeItem(key);
+            else localStorage.setItem(key, JSON.stringify(remaining.map(({ _offline, _queueKey, ...app }: any) => app)));
+          });
         }
 
         if (syncedCount > 0) {

@@ -8,7 +8,7 @@
  * - User-specific referral tracking (isolated per account)
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Gift,
   Users,
@@ -30,6 +30,9 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { copyToClipboard } from '../utils/clipboard';
 import { useUserData, useReferralCode } from '../lib/hooks/useUserData';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 
 interface Referral {
   id: string;
@@ -45,14 +48,46 @@ interface Referral {
 }
 
 export default function ReferralRewards() {
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [serverReferralCode, setServerReferralCode] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'completed'>('overview');
 
   // Use user-specific data storage hooks
   const [referrals, setReferrals] = useUserData<Referral[]>('referrals', []);
   const referralCode = useReferralCode();
 
-  const referralLink = `https://yourdomain.com/signup?ref=${referralCode}`;
+  const referralLink = `https://theblackphoenixcompany.com/signup?ref=${serverReferralCode || referralCode}`;
+
+  useEffect(() => {
+    if (!user?.email) return;
+    const loadCode = async () => {
+      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/referrals/my-code`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const data = await response.json(); if (response.ok && data.success) setServerReferralCode(data.code); } catch { /* local code remains a short offline fallback */ }
+    };
+    void loadCode();
+  }, [user?.email]);
+
+  // The server is the source of truth for referrals. Keep the existing user-data
+  // store as a local mirror so the component remains usable while offline.
+  useEffect(() => {
+    if (!user?.email) return;
+    const load = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/referrals/mine`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load referrals.');
+        setReferrals((data.referrals || []).map((item: any) => ({
+          id: item.id, name: item.referred || item.referredEmail, email: item.referredEmail,
+          status: item.status === 'paid' ? 'paid' : item.status === 'completed' ? 'completed' : item.status === 'active' ? 'active' : 'pending',
+          dateReferred: item.date, potentialReward: Number(item.potentialReward ?? item.reward ?? 0), actualReward: Number(item.actualReward ?? (item.status === 'paid' ? item.reward : 0) ?? 0),
+          projectValue: item.projectValue, projectCompletedDate: item.projectCompletedDate, paymentReceivedDate: item.paymentReceivedDate,
+        })));
+      } catch (error) { console.warn('Referral data unavailable:', error); }
+    };
+    void load();
+  }, [user?.email]);
 
   const stats = {
     totalReferrals: referrals.length,

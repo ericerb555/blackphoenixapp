@@ -129,7 +129,7 @@ productsRouter.post('/products', async (c) => {
 productsRouter.get('/products/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const product = await kv.get(`product_${id}`);
+    const product = await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`);
 
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);
@@ -161,25 +161,12 @@ productsRouter.get('/products', async (c) => {
     const minPrice = url.searchParams.get('minPrice');
     const maxPrice = url.searchParams.get('maxPrice');
 
-    let productIds: string[] = [];
-
-    if (vendorId) {
-      // Get products by vendor
-      const vendorProductsKey = `vendor_products_${vendorId}`;
-      productIds = (await kv.get(vendorProductsKey)) || [];
-    } else if (category) {
-      // Get products by category
-      const categoryKey = `category_products_${category}`;
-      productIds = (await kv.get(categoryKey)) || [];
-    } else {
-      // Get all products (from prefix search)
-      const allProducts = await kv.getByPrefix('product_prod_');
-      productIds = allProducts.map((p: Product) => p.id);
-    }
-
-    // Fetch all products
-    const productsPromises = productIds.map(id => kv.get(`product_${id}`));
-    let products = (await Promise.all(productsPromises)).filter(Boolean) as Product[];
+    // Canonical vendor products and imported dropship products use different
+    // KV prefixes. Read both so imported products immediately become sellable.
+    let products = [...((await kv.getByPrefix('product_')) || []), ...((await kv.getByPrefix('live_product_')) || [])] as Product[];
+    products = [...new Map(products.filter(Boolean).map((product: any) => [product.id, product])).values()] as Product[];
+    if (vendorId) products = products.filter((product: any) => product.vendorId === vendorId);
+    if (category) products = products.filter((product: any) => product.category === category);
 
     // Apply filters
     if (isActive !== null && isActive !== undefined) {
@@ -243,7 +230,7 @@ productsRouter.put('/products/:id', async (c) => {
     const id = c.req.param('id');
     const updates = await c.req.json();
 
-    const product = await kv.get(`product_${id}`);
+    const product = await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`);
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);
     }
@@ -291,7 +278,7 @@ productsRouter.put('/products/:id', async (c) => {
 productsRouter.delete('/products/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const product = await kv.get(`product_${id}`);
+    const product = await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`);
 
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);

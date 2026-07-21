@@ -4,6 +4,24 @@
  * (Previously used API endpoints, now using browser storage for prototyping)
  */
 
+import { supabase } from './supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+
+async function serverRequest(path: string, init: RequestInit = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Sign in to manage subscription records.');
+  const response = await fetch(`${SERVER}${path}`, { ...init, headers: { Authorization: `Bearer ${session.access_token || publicAnonKey}`, 'Content-Type': 'application/json', ...(init.headers || {}) } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) throw new Error(data.error || 'Subscription request failed.');
+  return data;
+}
+
+function normalizeSubscription(record: any): Subscription {
+  return { ...record, id: record.id, stakeholderId: record.stakeholderId || record.stakeholderEmail, stakeholderName: record.stakeholderName || record.ownerName || record.stakeholderEmail || '', stakeholderEmail: record.stakeholderEmail || record.ownerEmail || '', type: record.type || 'customer', plan: record.plan || record.planName || '', status: record.status || 'pending', billingCycle: record.billingCycle || 'monthly', amount: Number(record.amount ?? record.monthlyTotal ?? 0), startDate: record.startDate || record.createdAt || new Date().toISOString(), renewalDate: record.renewalDate || record.renewsOn || '', hoursIncluded: Number(record.hoursIncluded ?? record.hours?.included ?? 0), hoursUsed: Number(record.hoursUsed ?? record.hours?.used ?? 0), hoursRollover: Number(record.hoursRollover ?? record.hours?.rollover ?? 0), hoursGifted: Number(record.hoursGifted ?? record.hours?.gifted ?? 0), autoRenew: record.autoRenew ?? true, paymentMethod: record.paymentMethod || '', createdAt: record.createdAt || new Date().toISOString(), updatedAt: record.updatedAt || new Date().toISOString() };
+}
+
 // Helper to check if we're in a browser environment
 const isBrowser = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
@@ -65,41 +83,29 @@ export interface Subscription {
 }
 
 export async function getSubscriptions(): Promise<Subscription[]> {
-  return getFromStorage<Subscription>('subscription:');
+  const data = await serverRequest('/subscriptions');
+  return (data.subscriptions || []).map(normalizeSubscription);
 }
 
 export async function getSubscription(id: string): Promise<Subscription> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const data = localStorage.getItem(`subscription:${id}`);
-  if (!data) throw new Error('Subscription not found');
-  return JSON.parse(data);
-}
-
-export async function createSubscription(data: Omit<Subscription, 'id' | 'createdAt' | 'updatedAt'>): Promise<Subscription> {
-  const id = `SUB-${data.type.charAt(0).toUpperCase()}-${Date.now()}`;
-  const subscription: Subscription = {
-    ...data,
-    id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`subscription:${id}`, subscription);
+  const subscriptions = await getSubscriptions();
+  const subscription = subscriptions.find(item => item.id === id);
+  if (!subscription) throw new Error('Subscription not found');
   return subscription;
 }
 
+export async function createSubscription(data: Omit<Subscription, 'id' | 'createdAt' | 'updatedAt'>): Promise<Subscription> {
+  const result = await serverRequest('/subscriptions', { method: 'POST', body: JSON.stringify(data) });
+  return normalizeSubscription(result.subscription);
+}
+
 export async function updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription> {
-  const existing = await getSubscription(id);
-  const updated: Subscription = {
-    ...existing,
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`subscription:${id}`, updated);
-  return updated;
+  const result = await serverRequest(`/subscriptions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+  return normalizeSubscription(result.subscription);
 }
 
 export async function deleteSubscription(id: string): Promise<void> {
-  removeFromStorage(`subscription:${id}`);
+  await updateSubscription(id, { status: 'cancelled' });
 }
 
 // ============================================================================
@@ -513,38 +519,42 @@ export interface HourTransaction {
   createdAt: string;
 }
 
+export interface SubscriptionHourBalance {
+  included: number;
+  rollover: number;
+  gifted: number;
+  used: number;
+  available: number;
+  remaining: number;
+  overageHours: number;
+}
+
 export async function getHourTransactions(subscriptionId: string): Promise<HourTransaction[]> {
-  const allTransactions = getFromStorage<HourTransaction>('hour-transaction:');
-  return allTransactions.filter(t => t.subscriptionId === subscriptionId);
+  const data = await serverRequest(`/subscriptions/${encodeURIComponent(subscriptionId)}/hours`);
+  return data.transactions || [];
+}
+
+export async function getSubscriptionHourBalance(subscriptionId: string): Promise<SubscriptionHourBalance> {
+  const data = await serverRequest(`/subscriptions/${encodeURIComponent(subscriptionId)}/hours`);
+  return data.balance;
 }
 
 export async function addHourTransaction(data: Omit<HourTransaction, 'id' | 'createdAt'>): Promise<HourTransaction> {
-  const id = `HT-${Date.now()}`;
-  const transaction: HourTransaction = {
-    ...data,
-    id,
-    createdAt: new Date().toISOString(),
-  };
-  saveToStorage(`hour-transaction:${id}`, transaction);
-  return transaction;
+  if (data.type !== 'used') throw new Error('Only service-hour usage can be posted through this workflow.');
+  const result = await serverRequest(`/subscriptions/${encodeURIComponent(data.subscriptionId)}/log-hours`, {
+    method: 'POST',
+    body: JSON.stringify({ hours: data.hours, description: data.reason, reason: data.reason, date: data.date, workOrderId: (data as any).workOrderId, invoiceId: (data as any).invoiceId, sourceId: (data as any).sourceId }),
+  });
+  return result.transaction;
 }
 
 export async function giftHours(subscriptionId: string, hours: number, reason: string, giftedBy?: string): Promise<void> {
-  await addHourTransaction({
-    subscriptionId,
-    customerId: '', // Will be filled from subscription
-    customerName: '', // Will be filled from subscription
-    type: 'gifted',
-    hours,
-    reason,
-    performedBy: giftedBy || 'System',
-    date: new Date().toISOString(),
-  });
+  await serverRequest(`/subscriptions/${encodeURIComponent(subscriptionId)}/gift-hours`, { method: 'POST', body: JSON.stringify({ hours, reason, giftedBy }) });
 }
 
 export async function processRollovers(): Promise<{ processed: number; totalHours: number }> {
-  // Mock implementation
-  return { processed: 0, totalHours: 0 };
+  const data = await serverRequest('/subscriptions/process-rollovers', { method: 'POST', body: JSON.stringify({}) });
+  return { processed: Number(data.processed || 0), totalHours: Number(data.totalHours || 0) };
 }
 
 // ============================================================================
@@ -570,52 +580,23 @@ export interface GiftHoursRequest {
 }
 
 export async function getGiftHoursRequests(): Promise<GiftHoursRequest[]> {
-  return getFromStorage<GiftHoursRequest>('gift-hours-request:');
+  const data = await serverRequest('/gift-hour-requests');
+  return data.requests || [];
 }
 
 export async function createGiftHoursRequest(data: Omit<GiftHoursRequest, 'id' | 'createdAt' | 'updatedAt' | 'requestedAt' | 'customerName' | 'customerEmail'>): Promise<GiftHoursRequest> {
-  const id = `GHR-${Date.now()}`;
-  const request: GiftHoursRequest = {
-    ...data,
-    id,
-    customerName: '', // Will be filled from subscription data
-    customerEmail: '', // Will be filled from subscription data
-    requestedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`gift-hours-request:${id}`, request);
-  return request;
+  const result = await serverRequest('/gift-hour-requests', { method: 'POST', body: JSON.stringify(data) });
+  return result.request;
 }
 
-export async function approveGiftHoursRequest(id: string, reviewedBy: string, notes?: string): Promise<GiftHoursRequest> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const existing = JSON.parse(localStorage.getItem(`gift-hours-request:${id}`) || '{}');
-  const updated: GiftHoursRequest = {
-    ...existing,
-    status: 'approved',
-    reviewedBy,
-    reviewedAt: new Date().toISOString(),
-    reviewNotes: notes,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`gift-hours-request:${id}`, updated);
-  return updated;
+export async function approveGiftHoursRequest(id: string, _reviewedBy: string, notes?: string): Promise<GiftHoursRequest> {
+  const result = await serverRequest(`/gift-hour-requests/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'approved', reviewNotes: notes || '' }) });
+  return result.request;
 }
 
-export async function rejectGiftHoursRequest(id: string, reviewedBy: string, notes: string): Promise<GiftHoursRequest> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const existing = JSON.parse(localStorage.getItem(`gift-hours-request:${id}`) || '{}');
-  const updated: GiftHoursRequest = {
-    ...existing,
-    status: 'rejected',
-    reviewedBy,
-    reviewedAt: new Date().toISOString(),
-    reviewNotes: notes,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`gift-hours-request:${id}`, updated);
-  return updated;
+export async function rejectGiftHoursRequest(id: string, _reviewedBy: string, notes: string): Promise<GiftHoursRequest> {
+  const result = await serverRequest(`/gift-hour-requests/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'rejected', reviewNotes: notes }) });
+  return result.request;
 }
 
 // ============================================================================

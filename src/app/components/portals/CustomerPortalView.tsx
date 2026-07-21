@@ -58,7 +58,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals'>('dashboard');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -67,12 +67,15 @@ export default function CustomerPortalView() {
   const [loadingQuotes, setLoadingQuotes] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]); // Real invoices from API
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [loadingContracts, setLoadingContracts] = useState(false);
+  const [signingContractId, setSigningContractId] = useState<string | null>(null);
 
   // Check URL for tab query parameter
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tab = urlParams.get('tab');
-    if (tab && ['dashboard', 'projects', 'quotes', 'shopping', 'payments', 'messages', 'referrals'].includes(tab)) {
+    if (tab && ['dashboard', 'projects', 'quotes', 'contracts', 'shopping', 'payments', 'messages', 'referrals'].includes(tab)) {
       setActiveTab(tab as any);
     }
   }, []);
@@ -185,7 +188,7 @@ export default function CustomerPortalView() {
         if (response.ok) {
           const data = await response.json();
           console.log('✅ Loaded invoices for user:', user.id, data);
-          setInvoices(data || []);
+          setInvoices(Array.isArray(data) ? data : (data.invoices || []));
         } else {
           console.warn('⚠️ Invoices API returned status:', response.status);
           setInvoices([]);
@@ -201,6 +204,62 @@ export default function CustomerPortalView() {
 
     loadInvoices();
   }, [user?.id]);
+
+  // Contracts belong to the same signed-in customer as invoices.  Keep them
+  // in the portal so a newly generated contract can actually be signed.
+  useEffect(() => {
+    const loadContracts = async () => {
+      if (!user?.id) { setContracts([]); setLoadingContracts(false); return; }
+      setLoadingContracts(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sign in to view contracts.');
+        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/contracts`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load contracts.');
+        setContracts(data.contracts || []);
+      } catch (error) { console.warn('Contracts API unavailable:', error); setContracts([]); }
+      finally { setLoadingContracts(false); }
+    };
+    void loadContracts();
+  }, [user?.id]);
+
+  const signContract = async (contract: any) => {
+    const signatureName = window.prompt('Type your full legal name to sign this contract:')?.trim();
+    if (!signatureName) return;
+    setSigningContractId(contract.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`${API_BASE_URL}/make-server-57095a78/contracts/${encodeURIComponent(contract.id)}/sign`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ acceptTerms: true, signatureName }) });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not sign this contract.');
+      setContracts(current => current.map(item => item.id === contract.id ? data.contract : item));
+      toast.success('Contract signed. Your project team has been notified.');
+    } catch (error: any) { toast.error(error.message || 'Could not sign this contract.'); }
+    finally { setSigningContractId(null); }
+  };
+
+  // Stripe returns here after checkout. Ask the server to verify the session with
+  // Stripe before showing an upgraded plan; query parameters alone never unlock access.
+  useEffect(() => {
+    const paymentId = new URLSearchParams(window.location.search).get('payment_id');
+    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    if (!paymentId || !sessionId || !user?.email) return;
+    const complete = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/payments/complete`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId, sessionId }) });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Payment is still being confirmed.');
+        if (data.subscription) setCustomerSubscription({ plan: data.subscription.plan || 'premium', hoursIncluded: Number(data.subscription.hoursIncluded || 0), hoursUsed: Number(data.subscription.hoursUsed || 0), hoursRollover: Number(data.subscription.hoursRollover || 0), hoursGifted: Number(data.subscription.hoursGifted || 0), nextBillingDate: data.subscription.renewalDate || '', price: Number(data.subscription.amount || 0) });
+        window.history.replaceState({}, '', `${window.location.pathname}?tab=dashboard`);
+        toast.success('Payment confirmed. Your subscription is active.');
+      } catch (error: any) { toast.error(error.message || 'Payment confirmation is still pending.'); }
+    };
+    void complete();
+  }, [user?.email]);
 
   // Customer info derived from profile (or demo profile when role-switching)
   const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
@@ -220,7 +279,7 @@ export default function CustomerPortalView() {
 
   // Stats - calculate from real data
   const pendingQuotesCount = quotes.filter(q => q.status === 'pending').length;
-  const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + (inv.amount || inv.total || 0), 0);
+  const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + Number(inv.total_amount ?? inv.total ?? inv.amount ?? 0), 0);
 
   const stats = [
     { label: 'Active Projects', value: workRequests.length.toString(), change: loadingWorkRequests ? 'Loading...' : `${workRequests.length} total`, trend: 'up', icon: Briefcase, color: 'orange' },
@@ -259,14 +318,23 @@ export default function CustomerPortalView() {
   const [messages, setMessages] = useUserData<Message[]>('customer_messages', []);
 
   // NEW: Customer subscription plan data
-  const [customerSubscription] = useState({
-    plan: 'professional', // 'free', 'starter', 'professional', 'gold'
-    hoursIncluded: 6,
-    hoursUsed: 2.5,
-    hoursRollover: 4,
-    nextBillingDate: '2026-04-01',
-    price: 198
-  });
+  const [customerSubscription, setCustomerSubscription] = useState({ plan: 'free', hoursIncluded: 0, hoursUsed: 0, hoursRollover: 0, hoursGifted: 0, nextBillingDate: '', price: 0 });
+
+  useEffect(() => {
+    const loadSubscription = async () => {
+      if (!user?.email) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        const subscription = (data.subscriptions || []).find((item: any) => item.status === 'active') || data.subscriptions?.[0];
+        if (!response.ok || !subscription) return;
+        setCustomerSubscription({ plan: subscription.plan || subscription.planName || 'free', hoursIncluded: Number(subscription.hoursIncluded ?? subscription.hours?.included ?? 0), hoursUsed: Number(subscription.hoursUsed ?? subscription.hours?.used ?? 0), hoursRollover: Number(subscription.hoursRollover ?? subscription.hours?.rollover ?? 0), hoursGifted: Number(subscription.hoursGifted ?? subscription.hours?.gifted ?? 0), nextBillingDate: subscription.renewalDate || '', price: Number(subscription.amount ?? subscription.monthlyTotal ?? 0) });
+      } catch (error) { console.warn('Subscription summary unavailable:', error); }
+    };
+    void loadSubscription();
+  }, [user?.email]);
 
   // Video Reels — live from vendors/subcontractors/advertisers/content creation
   const STATIC_REELS = [
@@ -508,6 +576,7 @@ export default function CustomerPortalView() {
   }>>([]);
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [submittingQuoteRequest, setSubmittingQuoteRequest] = useState(false);
 
   // NEW: Reel playback state
   const [mutedReels, setMutedReels] = useState<Record<string, boolean>>({
@@ -552,16 +621,17 @@ export default function CustomerPortalView() {
     toast.success('Removed from quote request');
   };
 
-  const submitQuoteRequest = () => {
-    if (quoteItems.length === 0) {
-      toast.error('Please add at least one item to your quote request');
-      return;
-    }
-    
-    // Here you would send the quote request to your backend
-    toast.success(`Quote request submitted for ${quoteItems.length} item(s)! We'll get back to you soon.`);
-    setQuoteItems([]);
-    setShowQuoteBuilder(false);
+  const submitQuoteRequest = async () => {
+    if (quoteItems.length === 0) { toast.error('Please add at least one item to your quote request'); return; }
+    if (!user?.email) { toast.error('Sign in before submitting a quote request.'); return; }
+    setSubmittingQuoteRequest(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_BASE_URL}/make-server-57095a78/work-requests`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientEmail: user.email, clientName: displayName || user.user_metadata?.full_name || user.email.split('@')[0], serviceType: 'Quote request', project_name: `Quote request – ${quoteItems.map(item => item.title).join(', ')}`, description: quoteItems.map(item => `${item.title}: ${item.description}`).join('\n'), quoteItems, source: 'customer-portal-quote-builder' }) });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not submit your quote request.');
+      toast.success(`Quote request submitted for ${quoteItems.length} item(s).`); setQuoteItems([]); setShowQuoteBuilder(false);
+    } catch (error: any) { toast.error(error.message || 'Could not submit your quote request.'); }
+    finally { setSubmittingQuoteRequest(false); }
   };
 
   const dismissNotice = (noticeId: string) => {
@@ -598,6 +668,7 @@ export default function CustomerPortalView() {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'projects', label: 'Projects', icon: Briefcase },
     { id: 'quotes', label: 'Quotes & Invoices', icon: FileText },
+    { id: 'contracts', label: 'Contracts', icon: FileCheck },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'plan-tracker', label: 'My Plan', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
@@ -820,7 +891,7 @@ export default function CustomerPortalView() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                 <div className="bg-[#0A0A0A] rounded p-2 border border-purple-500/20">
                   <p className="text-xs text-gray-400">Included</p>
                   <p className="text-lg font-bold text-purple-400">{customerSubscription.hoursIncluded}h</p>
@@ -833,24 +904,28 @@ export default function CustomerPortalView() {
                   <p className="text-xs text-gray-400">Rollover</p>
                   <p className="text-lg font-bold text-green-400">{customerSubscription.hoursRollover}h</p>
                 </div>
+                <div className="bg-[#0A0A0A] rounded p-2 border border-purple-500/20">
+                  <p className="text-xs text-gray-400">Gifted</p>
+                  <p className="text-lg font-bold text-sky-400">{customerSubscription.hoursGifted}h</p>
+                </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-400">Available</span>
                   <span className="text-white font-medium">
-                    {customerSubscription.hoursIncluded + customerSubscription.hoursRollover - customerSubscription.hoursUsed}h remaining
+                    {Math.max(0, customerSubscription.hoursIncluded + customerSubscription.hoursRollover + customerSubscription.hoursGifted - customerSubscription.hoursUsed)}h remaining
                   </span>
                 </div>
                 <div className="w-full bg-[#2A2A2A] rounded-full h-2 overflow-hidden">
                   <div className="h-full flex">
                     <div
                       className="bg-gradient-to-r from-orange-600 to-orange-400"
-                      style={{ width: `${(customerSubscription.hoursUsed / (customerSubscription.hoursIncluded + customerSubscription.hoursRollover)) * 100}%` }}
+                      style={{ width: `${Math.min(100, (customerSubscription.hoursUsed / Math.max(1, customerSubscription.hoursIncluded + customerSubscription.hoursRollover + customerSubscription.hoursGifted)) * 100)}%` }}
                     ></div>
                     <div
                       className="bg-gradient-to-r from-green-600 to-green-400"
-                      style={{ width: `${((customerSubscription.hoursIncluded + customerSubscription.hoursRollover - customerSubscription.hoursUsed) / (customerSubscription.hoursIncluded + customerSubscription.hoursRollover)) * 100}%` }}
+                      style={{ width: `${Math.max(0, ((customerSubscription.hoursIncluded + customerSubscription.hoursRollover + customerSubscription.hoursGifted - customerSubscription.hoursUsed) / Math.max(1, customerSubscription.hoursIncluded + customerSubscription.hoursRollover + customerSubscription.hoursGifted)) * 100)}%` }}
                     ></div>
                   </div>
                 </div>
@@ -1367,7 +1442,7 @@ export default function CustomerPortalView() {
                                 body: JSON.stringify({ amount: Math.round((quote.amount || quote.total || 0) * 0.30), description: `30% Deposit — ${quote.title || 'Project'}`, clientName: user?.email, clientEmail: user?.email, workRequestId: quote.workRequestId }),
                               });
                               const data = await res.json();
-                              if (data.url) window.open(data.url, '_blank');
+                              if (data.checkoutUrl) window.location.assign(data.checkoutUrl);
                               else toast.error(data.error || 'Payment setup required — contact Black Phoenix');
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded-lg transition"
@@ -1416,7 +1491,7 @@ export default function CustomerPortalView() {
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <p className="text-sm text-gray-400 mb-1">Amount Due</p>
-                          <p className="text-2xl font-bold">${(invoice.amount || invoice.total || 0).toLocaleString()}</p>
+                          <p className="text-2xl font-bold">${(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0).toLocaleString()}</p>
                         </div>
                       </div>
                       <div className="flex gap-2 flex-wrap">
@@ -1430,13 +1505,13 @@ export default function CustomerPortalView() {
                                 body: JSON.stringify({ amount: invoice.amount || invoice.total, description: `Invoice #${invoice.id}`, clientEmail: user?.email, clientName: user?.email?.split('@')[0], invoiceId: invoice.id, workRequestId: invoice.workRequestId }),
                               });
                               const data = await res.json();
-                              if (data.url) window.open(data.url, '_blank');
+                              if (data.checkoutUrl) window.location.assign(data.checkoutUrl);
                               else toast.error(data.error || 'Payment setup required — contact Black Phoenix to set up payments');
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded-lg transition shadow-lg shadow-green-500/20"
                           >
                             <CreditCard className="w-4 h-4" />
-                            💳 Pay Now — ${(invoice.amount || invoice.total || 0).toLocaleString()}
+                            💳 Pay Now — ${(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0).toLocaleString()}
                           </button>
                         )}
                         {invoice.status === 'paid' && (
@@ -1451,6 +1526,13 @@ export default function CustomerPortalView() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'contracts' && (
+          <div className="space-y-5">
+            <div><h2 className="text-2xl font-bold text-white">Your contracts</h2><p className="mt-1 text-sm text-gray-400">Review and sign contracts connected to your approved quotes.</p></div>
+            {loadingContracts ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">Loading contracts…</div> : contracts.length === 0 ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">No contracts are awaiting your signature.</div> : contracts.map(contract => <article key={contract.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-white">{contract.title || 'Service Contract'}</h3><p className="mt-1 text-sm text-gray-400">Created {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString() : 'recently'}</p></div><span className={`rounded-full border px-3 py-1 text-sm font-semibold ${getStatusColor(contract.status || 'pending')}`}>{String(contract.status || 'pending').replace('_', ' ')}</span></div>{contract.terms && <p className="mt-4 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-sm leading-6 text-gray-300">{contract.terms}</p>}<div className="mt-4 flex items-center justify-between gap-4"><p className="text-lg font-bold text-white">{contract.amount !== undefined && contract.amount !== null ? `$${Number(contract.amount).toLocaleString()}` : 'Amount in contract'}</p>{contract.status !== 'active' ? <button onClick={() => signContract(contract)} disabled={signingContractId === contract.id} className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-50"><FileCheck className="h-4 w-4" />{signingContractId === contract.id ? 'Signing…' : 'Review & sign'}</button> : <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-400"><CheckCircle className="h-4 w-4" /> Signed {contract.signedAt ? new Date(contract.signedAt).toLocaleDateString() : ''}</span>}</div></article>)}
           </div>
         )}
 
@@ -1577,9 +1659,10 @@ export default function CustomerPortalView() {
                 <div className="flex gap-3 pt-4">
                   <PrimaryButton
                     onClick={submitQuoteRequest}
+                    disabled={submittingQuoteRequest}
                   >
                     <Send className="w-4 h-4" />
-                    Submit Quote Request
+                    {submittingQuoteRequest ? 'Submitting…' : 'Submit Quote Request'}
                   </PrimaryButton>
                   <SecondaryButton onClick={() => setShowQuoteBuilder(false)}>
                     Cancel
@@ -1599,10 +1682,14 @@ export default function CustomerPortalView() {
           toast.info('You are already on a free plan');
           setShowSubscriptionModal(false);
         }}
-        onSelectPaid={() => {
-          toast.success('Premium subscription activated! Enjoy your new benefits.');
-          setShowSubscriptionModal(false);
-          // TODO: Integrate with actual payment processing
+        onSelectPaid={async () => {
+          if (!user?.email) { toast.error('Sign in before selecting a subscription.'); return; }
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch(`${API_BASE_URL}/make-server-57095a78/subscriptions/checkout`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: 'premium', amount: 49, billingCycle: 'monthly', name: displayName || user.user_metadata?.full_name || user.email.split('@')[0] }) });
+            const data = await response.json(); if (!response.ok || !data.success || !data.checkoutUrl) throw new Error(data.error || 'Could not start secure checkout.');
+            window.location.assign(data.checkoutUrl);
+          } catch (error: any) { toast.error(error.message || 'Could not start secure checkout.'); }
         }}
       />
     </div>
