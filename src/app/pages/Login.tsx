@@ -196,12 +196,15 @@ export default function Login({ onNavigate }: LoginProps) {
             optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`),
           ]);
           if (identity?.user?.role && !isOwnerEmail) {
-            profile.accountType = identity.user.role;
+            const verifiedRole = String(identity.user.role).toLowerCase();
+            // Normalize every server-recognized platform owner role so the
+            // post-login route cannot be overridden by a stale browser profile.
+            profile.accountType = ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(verifiedRole) ? 'owner' : verifiedRole;
             userProfiles[email.toLowerCase()] = profile;
             localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
             localStorage.setItem('currentUserProfile', JSON.stringify(profile));
           }
-          requiresOnboarding = Boolean(onboarding?.success && onboarding.intake?.status !== 'active');
+          requiresOnboarding = Boolean(onboarding?.success && onboarding.intake?.status !== 'active' && !onboarding.ownerBypass);
         } catch {
           // A noncritical backend delay must never block a successful Supabase sign-in.
         }
@@ -213,7 +216,15 @@ export default function Login({ onNavigate }: LoginProps) {
         onNavigate(page);
       };
 
-      if (requiresOnboarding) {
+      // The Command Center is the Platform Owner's home.  Check both the
+      // verified identity role and the known owner account so a new phone or an
+      // empty local browser profile cannot send the owner to a customer portal.
+      const platformOwnerRoles = ['owner', 'master_admin', 'platform_owner', 'business_owner'];
+      const isPlatformOwner = isOwnerEmail || platformOwnerRoles.includes(String(profile.accountType || '').toLowerCase());
+
+      // Owners do not go through applicant onboarding; they always land in the
+      // Command Center where they can manage every portal and workflow.
+      if (requiresOnboarding && !isPlatformOwner) {
         navigateOnce('portal-onboarding');
         setIsLoading(false);
         return;
@@ -221,7 +232,9 @@ export default function Login({ onNavigate }: LoginProps) {
 
       // Navigate immediately — no polling, reloads, or duplicate redirects.
       const elevatedRoles = ['admin', 'owner', 'master_admin', 'management'];
-      if (elevatedRoles.includes(profile.accountType)) {
+      if (isPlatformOwner) {
+        navigateOnce('unified-dashboard');
+      } else if (elevatedRoles.includes(String(profile.accountType || '').toLowerCase())) {
         navigateOnce('owners-dashboard');
       } else {
         const portalRoutes: Record<string, string> = {

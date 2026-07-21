@@ -1040,10 +1040,10 @@ function NavigationHeader({ currentPage, navigate }: { currentPage: string; navi
           {/* Company Logo/Name */}
           <CompanySelector />
 
-          {/* Owner's Dashboard Button - Only visible to Platform Owners */}
+          {/* Platform Owner Command Center */}
           {user?.role === UserRole.PLATFORM_OWNER && (
             <button
-              onClick={() => navigate("owners-dashboard")}
+              onClick={() => navigate("unified-dashboard")}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
               {logo ? (
@@ -1052,7 +1052,7 @@ function NavigationHeader({ currentPage, navigate }: { currentPage: string; navi
                 <Crown className="w-5 h-5 text-[#ea580c]" />
               )}
               <span className="text-white font-semibold hidden lg:inline">
-                Owner's Dashboard
+                Command Center
               </span>
             </button>
           )}

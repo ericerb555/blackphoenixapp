@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CircleDashed, FileUp, Loader2, LockKeyhole, ShieldCheck, XCircle } from "lucide-react";
+import { ArrowRight, Building2, CheckCircle2, CircleDashed, FileUp, Loader2, LockKeyhole, Phone, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import { toast } from "sonner@2.0.3";
 import { supabase } from "../lib/supabase";
 import { projectId } from "../utils/supabase/info";
@@ -8,13 +8,15 @@ const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78
 
 type Task = { id: string; label: string; required?: boolean; status: string; submittedAt?: string; reviewedAt?: string };
 type DocumentRecord = { id: string; taskId: string; name: string; status: string; uploadedAt?: string; reviewNote?: string };
-type Intake = { applicantName?: string; portalType?: string; status?: string; requiredTasks?: Task[]; documents?: DocumentRecord[] };
+type Intake = { applicantName?: string; applicantEmail?: string; applicantPhone?: string; portalType?: string; status?: string; ownerProvisioned?: boolean; planInterest?: string; profile?: { fullName?: string; email?: string; phone?: string; company?: string; address?: string; completed?: boolean }; requiredTasks?: Task[]; documents?: DocumentRecord[] };
 
 export default function PortalOnboarding() {
   const [intake, setIntake] = useState<Intake | null>(null);
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingTask, setUploadingTask] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '', company: '', address: '', planInterest: 'not_selected' });
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token;
   const load = async () => {
@@ -27,6 +29,7 @@ export default function PortalOnboarding() {
       if (!response.ok || !result.success) throw new Error(result.error || "Could not load onboarding.");
       setIntake(result.intake);
       setApplicationId(result.access?.applicationId || null);
+      if (result.intake) setProfileForm({ fullName: result.intake.profile?.fullName || result.intake.applicantName || '', phone: result.intake.profile?.phone || result.intake.applicantPhone || '', company: result.intake.profile?.company || '', address: result.intake.profile?.address || '', planInterest: result.intake.planInterest || 'not_selected' });
     } catch (error: any) {
       toast.error(error.message || "Could not load onboarding.");
     } finally {
@@ -39,6 +42,29 @@ export default function PortalOnboarding() {
   const required = useMemo(() => intake?.requiredTasks?.filter(task => task.required) || [], [intake]);
   const complete = required.filter(task => task.status === "complete").length;
   const progress = required.length ? Math.round((complete / required.length) * 100) : 0;
+
+  const saveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profileForm.fullName.trim() || !profileForm.phone.trim()) { toast.error('Your full name and phone number are required.'); return; }
+    setSavingProfile(true);
+    try {
+      const accessToken = await token();
+      if (!accessToken) throw new Error('Your session has expired. Please sign in again.');
+      const response = await fetch(`${BASE}/intake/my-onboarding/profile`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(profileForm) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not save your profile.');
+      setIntake(result.intake);
+      toast.success(profileForm.planInterest === 'not_selected' || profileForm.planInterest === 'later' ? 'Profile complete. Your free portal access is active.' : 'Profile complete. Your plan interest was sent to Black Phoenix.');
+    } catch (error: any) { toast.error(error.message || 'Could not save your profile.'); }
+    finally { setSavingProfile(false); }
+  };
+
+  const enterPortal = () => {
+    const routes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', advertiser: 'advertiser-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal' };
+    const route = routes[String(intake?.portalType || '')] || 'customer-portal-app';
+    const navigate = (window as any).__navigateApp;
+    if (typeof navigate === 'function') navigate(route); else window.location.assign(`/${route}`);
+  };
 
   const openDocument = async (documentId: string) => {
     try {
@@ -80,6 +106,24 @@ export default function PortalOnboarding() {
 
   if (loading) return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>;
   if (!intake) return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center px-6 text-center text-gray-300">No portal onboarding record is available for this account.</div>;
+
+  if (intake.ownerProvisioned && !intake.profile?.completed) return (
+    <main className="min-h-screen bg-[#0a0a0a] px-5 py-10 text-white md:px-10 md:py-16">
+      <form onSubmit={saveProfile} className="mx-auto max-w-3xl border border-white/10 bg-[#111111] p-6 shadow-2xl shadow-black/30 md:p-10">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-300"><Sparkles className="h-4 w-4" /> Your free portal access is ready</p>
+        <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] md:text-4xl">Finish your profile, then choose what you need.</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-400">Black Phoenix created your <span className="capitalize text-gray-200">{String(intake.portalType || '').replace(/_/g, ' ')}</span> access at no charge. Complete your account details before entering the portal. Plan selection is optional and never creates a charge from this screen.</p>
+        <div className="mt-8 grid gap-5 md:grid-cols-2">
+          <label className="text-sm font-medium text-gray-300">Full name<input required value={profileForm.fullName} onChange={(event) => setProfileForm((current) => ({ ...current, fullName: event.target.value }))} className="mt-2 w-full border border-white/10 bg-[#080808] px-3 py-3 text-white outline-none transition focus:border-orange-400" /></label>
+          <label className="text-sm font-medium text-gray-300">Phone number<div className="relative mt-2"><Phone className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-gray-500" /><input required value={profileForm.phone} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} className="w-full border border-white/10 bg-[#080808] py-3 pl-10 pr-3 text-white outline-none transition focus:border-orange-400" /></div></label>
+          <label className="text-sm font-medium text-gray-300">Company or property <span className="text-gray-600">(optional)</span><div className="relative mt-2"><Building2 className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-gray-500" /><input value={profileForm.company} onChange={(event) => setProfileForm((current) => ({ ...current, company: event.target.value }))} className="w-full border border-white/10 bg-[#080808] py-3 pl-10 pr-3 text-white outline-none transition focus:border-orange-400" /></div></label>
+          <label className="text-sm font-medium text-gray-300">Address <span className="text-gray-600">(optional)</span><input value={profileForm.address} onChange={(event) => setProfileForm((current) => ({ ...current, address: event.target.value }))} className="mt-2 w-full border border-white/10 bg-[#080808] px-3 py-3 text-white outline-none transition focus:border-orange-400" /></label>
+        </div>
+        <fieldset className="mt-9"><legend className="text-base font-semibold text-white">Would you like plan information?</legend><p className="mt-1 text-sm text-gray-500">Choose an option now or keep your free portal access without a plan.</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{[['not_selected', 'No plan right now', 'Enter with free access only.'], ['subscription', 'Subscription options', 'Recurring portal or service plans.'], ['maintenance', 'Maintenance plans', 'Planned service and included-hours options.'], ['both', 'Both plan types', 'Ask Black Phoenix to help build both.'], ['later', 'Decide later', 'Keep access and revisit from your portal.']].map(([value, title, detail]) => <label key={value} className={`cursor-pointer border p-4 transition ${profileForm.planInterest === value ? 'border-orange-400 bg-orange-500/10' : 'border-white/10 bg-[#151515] hover:border-white/25'}`}><input className="sr-only" type="radio" name="planInterest" value={value} checked={profileForm.planInterest === value} onChange={() => setProfileForm((current) => ({ ...current, planInterest: value }))} /><span className="block text-sm font-semibold text-white">{title}</span><span className="mt-1 block text-xs leading-5 text-gray-500">{detail}</span></label>)}</div></fieldset>
+        <button disabled={savingProfile} type="submit" className="mt-8 inline-flex items-center gap-2 bg-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{savingProfile ? 'Saving your profile…' : 'Activate free portal access'}<ArrowRight className="h-4 w-4" /></button>
+      </form>
+    </main>
+  );
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white selection:bg-orange-500/30">
@@ -126,6 +170,7 @@ export default function PortalOnboarding() {
             <h2 className="mt-4 font-semibold">Activation status</h2>
             <p className="mt-2 text-sm leading-6 text-gray-400">Your account is active, with portal features unlocking as required onboarding items are approved.</p>
             <p className="mt-6 border-t border-white/10 pt-5 text-xs uppercase tracking-[0.15em] text-gray-500">Current: <span className="text-orange-200">{String(intake.status || "pending").replace(/_/g, " ")}</span></p>
+            {intake.ownerProvisioned && intake.profile?.completed && <button type="button" onClick={enterPortal} className="mt-5 inline-flex items-center gap-2 bg-orange-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-orange-500">Enter your portal <ArrowRight className="h-4 w-4" /></button>}
           </aside>
         </section>
       </div>

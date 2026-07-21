@@ -892,7 +892,7 @@ app.delete('/make-server-57095a78/companies/:id', async (c) => {
 // and partner workflows.  Keep the application, CRM contact, and pipeline lead
 // in sync here so an accepted browser request is never "successfully" lost.
 // ============================================
-const INTAKE_ADMIN_ROLES = new Set(['owner', 'admin', 'master_admin', 'management']);
+const INTAKE_ADMIN_ROLES = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management']);
 
 async function intakeActor(c: any) {
   const raw = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -906,8 +906,13 @@ async function intakeIsAdmin(user: any) {
   const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase();
   if (INTAKE_ADMIN_ROLES.has(metadataRole)) return true;
   try {
-    const { data } = await supabase.from('user_permissions').select('role_name').eq('user_id', user.id);
-    return (data || []).some((row: any) => INTAKE_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
+    const [permissions, memberships] = await Promise.all([
+      supabase.from('user_permissions').select('role_name').eq('user_id', user.id),
+      supabase.from('company_members').select('role').eq('user_id', user.id).eq('is_active', true),
+    ]);
+    const hasPermissionRole = (permissions.data || []).some((row: any) => INTAKE_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
+    const hasCompanyAuthority = (memberships.data || []).some((row: any) => ['owner', 'admin'].includes(String(row.role || '').toLowerCase()));
+    return hasPermissionRole || hasCompanyAuthority;
   } catch { return false; }
 }
 
@@ -2186,33 +2191,34 @@ app.get("/", (c) => {
 });
 
 // Data backup/restore — used by dataPersistence.ts on the frontend
+// Data backups are per signed-in account. The browser only calls these routes
+// with a Supabase session token; anonymous writes would leak local app data into
+// a shared backup and also caused repeated 401 retries during app startup.
+async function backupActor(c: any) {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  return error || !user ? null : user;
+}
+
 app.post('/make-server-57095a78/data/backup', async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '') || '';
-    const { data: { user } } = await supabase.auth.getUser(token);
-    const userId = user?.id || 'anonymous';
-
+    const user = await backupActor(c);
+    if (!user?.id) return c.json({ success: false, error: 'Sign in required.' }, 401);
     const body = await c.req.json();
-    await kv.set(`data_backup_${userId}`, body);
+    if (!body?.data || typeof body.data !== 'object') return c.json({ success: false, error: 'Invalid backup payload.' }, 400);
+    await kv.set(`data_backup_${user.id}`, body);
     return c.json({ success: true });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save backup.' }, 500); }
 });
 
 app.get('/make-server-57095a78/data/restore', async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '') || '';
-    const { data: { user } } = await supabase.auth.getUser(token);
-    const userId = user?.id || 'anonymous';
-
-    const backup = await kv.get(`data_backup_${userId}`);
-    return c.json({ backup: backup || null });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
+    const user = await backupActor(c);
+    if (!user?.id) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const backup = await kv.get(`data_backup_${user.id}`);
+    return c.json({ success: true, backup: backup || null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to restore backup.' }, 500); }
 });
 
 // ── ADMIN ALERTS — cross-device notification system ───────────────────────────
@@ -2529,6 +2535,32 @@ function assignedToCondoManager(record: any, user: any) {
       .some((value: any) => String(value || '').toLowerCase() === email))
   );
 }
+
+function condoUnitsKey(email: string) { return `condo_manager_units:${String(email).toLowerCase()}`; }
+
+app.get('/make-server-57095a78/condo-manager/units', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view association units.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active condo-manager portal is required.' }, 403);
+    return c.json({ success: true, units: ((await kv.get(condoUnitsKey(actor.user.email))) as any[] || []).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load association units.' }, 500); }
+});
+
+app.post('/make-server-57095a78/condo-manager/units', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a unit.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active condo-manager portal is required.' }, 403);
+    const body = stripBase64(await c.req.json()); const number = String(body.number || '').trim(); const owner = String(body.owner || '').trim(); const status = ['occupied', 'vacant'].includes(String(body.status || 'occupied')) ? String(body.status) : 'occupied'; const dues = ['current', 'overdue', 'n/a'].includes(String(body.dues || 'n/a')) ? String(body.dues) : 'n/a';
+    if (!number) return c.json({ success: false, error: 'Unit number is required.' }, 400);
+    if (status === 'occupied' && !owner) return c.json({ success: false, error: 'An owner is required for an occupied unit.' }, 400);
+    const key = condoUnitsKey(actor.user.email); const existing = (await kv.get(key) as any[]) || [];
+    if (existing.some((unit: any) => String(unit.number).toLowerCase() === number.toLowerCase())) return c.json({ success: false, error: 'This unit already exists in your association roster.' }, 409);
+    const now = new Date().toISOString(); const unit = { id: `condo_unit_${crypto.randomUUID()}`, number, owner: status === 'vacant' ? 'Vacant' : owner, status, dues: status === 'vacant' ? 'n/a' : dues, condoManagerEmail: actor.user.email, condoManagerUserId: actor.user.id, createdAt: now, updatedAt: now };
+    await kv.set(key, [unit, ...existing]); return c.json({ success: true, unit }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add unit.' }, 500); }
+});
 
 app.get('/make-server-57095a78/condo-manager/work-requests', async (c) => {
   try {
@@ -4580,14 +4612,18 @@ app.get('/make-server-57095a78/auth/me', async (c) => {
   try {
     const user = await intakeActor(c);
     if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
-    const allowedRoles = new Set(['owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
+    const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
     const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().trim();
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
     if (!role) {
       try {
-        const { data } = await supabase.from('user_permissions').select('role_name, level').eq('user_id', user.id).order('level', { ascending: true }).limit(10);
-        const roles = (data || []).map((row: any) => String(row.role_name || '').toLowerCase()).filter((value: string) => allowedRoles.has(value));
-        role = roles.find((value: string) => INTAKE_ADMIN_ROLES.has(value)) || roles[0] || '';
+        const [permissionResult, membershipResult] = await Promise.all([
+          supabase.from('user_permissions').select('role_name, level').eq('user_id', user.id).order('level', { ascending: true }).limit(10),
+          supabase.from('company_members').select('role').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true }).limit(10),
+        ]);
+        const roles = (permissionResult.data || []).map((row: any) => String(row.role_name || '').toLowerCase()).filter((value: string) => allowedRoles.has(value));
+        const membershipRoles = (membershipResult.data || []).map((row: any) => String(row.role || '').toLowerCase());
+        role = membershipRoles.includes('owner') ? 'owner' : membershipRoles.includes('admin') ? 'admin' : roles.find((value: string) => INTAKE_ADMIN_ROLES.has(value)) || roles[0] || '';
       } catch { /* Fall through to the approved application role. */ }
     }
     let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
@@ -4602,10 +4638,43 @@ app.get('/make-server-57095a78/auth/me', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load authenticated identity.' }, 500); }
 });
 
+// Owner-created portal access is intentionally free at creation.  The invite
+// initializes a real onboarding record and an access record; no subscription or
+// payment is created until the invited person chooses a plan themselves.
+const OWNER_PROVISION_PORTALS = new Set(['customer', 'vendor', 'subcontractor', 'employee', 'advertiser', 'investor', 'property_manager', 'condo_manager', 'landlord', 'territory_owner']);
+app.post('/make-server-57095a78/owner-provisioning/invites', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin || !actor.user?.email) return c.json({ success: false, error: 'Platform Owner or administrator access is required.' }, 403);
+    const body = stripBase64(await c.req.json());
+    const name = String(body.name || '').trim().slice(0, 180); const email = String(body.email || '').trim().toLowerCase(); const phone = String(body.phone || '').trim().slice(0, 64); const portalType = String(body.portalType || '').trim().toLowerCase();
+    if (!name || !email || !phone) return c.json({ success: false, error: 'Name, email, and phone are required.' }, 400);
+    if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
+    if (!OWNER_PROVISION_PORTALS.has(portalType)) return c.json({ success: false, error: 'Choose a valid portal.' }, 400);
+    const existingId = await kv.get(`intake:email:${email}`) as string | null;
+    if (existingId) return c.json({ success: false, error: 'This email already has an onboarding or portal record. Use access control to change their access.' }, 409);
+    const now = new Date().toISOString(); const applicationId = `OWNER-INVITE-${crypto.randomUUID()}`;
+    const intake = { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
+    const access = { id: `ACCESS-${crypto.randomUUID()}`, applicationId, email, portalType, applicantName: name, status: 'onboarding', onboardingStatus: intake.status, freeProvisioned: true, provisionedBy: actor.user.email, createdAt: now, updatedAt: now };
+    await kv.set(`intake:onboarding:${applicationId}`, intake); await kv.set(`intake:email:${email}`, applicationId); await kv.set(`portal_access:${email}:${portalType}`, access); await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: 'pending' });
+    let invitationSent = false; let inviteNotice = '';
+    try {
+      const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name, phone, role: portalType, accountType: portalType } });
+      if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; }
+    } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, freeProvisioned: true } }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
+});
+
 app.get('/make-server-57095a78/intake/my-onboarding', async (c) => {
   try {
     const user = await intakeActor(c);
     if (!user?.email) return c.json({ success: false, error: 'Sign in to view onboarding.' }, 401);
+    // Owners and administrators never enter applicant onboarding. Their portal
+    // access is authoritative and they must retain Command Center access even if
+    // an old intake record exists for the same email.
+    if (await intakeIsAdmin(user)) return c.json({ success: true, intake: null, access: null, ownerBypass: true });
     let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
     if (!applicationId) {
       const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
@@ -4616,6 +4685,23 @@ app.get('/make-server-57095a78/intake/my-onboarding', async (c) => {
     const intake = await kv.get(`intake:onboarding:${applicationId}`);
     return c.json({ success: true, intake, access: intake ? { applicationId, portalType: intake.portalType, status: intake.status } : null });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load onboarding.' }, 500); }
+});
+
+app.post('/make-server-57095a78/intake/my-onboarding/profile', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to complete your profile.' }, 401);
+    const applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
+    const intake = applicationId ? await kv.get(`intake:onboarding:${applicationId}`) as any : null;
+    if (!intake) return c.json({ success: false, error: 'No onboarding record is assigned to this account.' }, 404);
+    const body = stripBase64(await c.req.json()); const fullName = String(body.fullName || '').trim().slice(0, 180); const phone = String(body.phone || '').trim().slice(0, 64); const company = String(body.company || '').trim().slice(0, 180); const address = String(body.address || '').trim().slice(0, 300); const planInterest = ['not_selected', 'subscription', 'maintenance', 'both', 'later'].includes(String(body.planInterest)) ? String(body.planInterest) : 'not_selected';
+    if (!fullName || !phone) return c.json({ success: false, error: 'Full name and phone number are required.' }, 400);
+    const now = new Date().toISOString(); intake.applicantName = fullName; intake.applicantPhone = phone; intake.profile = { fullName, email: String(user.email).toLowerCase(), phone, company, address, completed: true, completedAt: now }; intake.planInterest = planInterest; intake.status = 'active'; intake.updatedAt = now;
+    await kv.set(`intake:onboarding:${applicationId}`, intake);
+    const accessKey = `portal_access:${String(user.email).toLowerCase()}:${intake.portalType}`; const prior = await kv.get(accessKey) as any; const access = { ...(prior || {}), applicationId, email: String(user.email).toLowerCase(), portalType: intake.portalType, applicantName: fullName, status: 'active', onboardingStatus: 'active', freeProvisioned: Boolean(intake.ownerProvisioned), updatedAt: now, createdAt: prior?.createdAt || now }; await kv.set(accessKey, access);
+    if (['subscription', 'maintenance', 'both'].includes(planInterest)) await kv.set(`plan_interest:${String(user.email).toLowerCase()}`, { email: String(user.email).toLowerCase(), name: fullName, phone, company, address, portalType: intake.portalType, planInterest, source: 'owner-provisioned-onboarding', status: 'requested', applicationId, requestedAt: now });
+    return c.json({ success: true, intake: stripBase64(intake), access, next: 'portal' });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save your profile.' }, 500); }
 });
 
 app.get('/make-server-57095a78/intake/my-access', async (c) => {
@@ -4815,6 +4901,24 @@ app.get('/make-server-57095a78/payments', async (c) => {
     const records = payments.map((payment: any) => ({ ...payment, subscription: payment.subscriptionId ? subscriptions.find((subscription: any) => subscription.id === payment.subscriptionId) || null : null, invoice: payment.invoiceId ? invoices.find((invoice: any) => invoice.id === payment.invoiceId) || null : null }));
     return c.json({ success: true, payments: records.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load payments.' }, 500); }
+});
+
+// Condo manager financial history is isolated to the manager account; association
+// dues are not inferred from demo data or exposed from the company-wide ledger.
+app.get('/make-server-57095a78/condo-manager/financials', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view financial records.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active condo-manager portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const [payments, invoices] = await Promise.all([kv.getByPrefix('payment:'), kv.getByPrefix('invoice:')]);
+    const visiblePayments = actor.admin ? (payments as any[] || []) : (payments as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const visibleInvoices = actor.admin ? (invoices as any[] || []) : (invoices as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const paidTotal = visiblePayments.filter((record: any) => ['paid', 'completed'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.amount), 0);
+    const pendingTotal = visiblePayments.filter((record: any) => !['paid', 'completed', 'failed', 'refunded'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.amount), 0);
+    const openInvoiceTotal = visibleInvoices.filter((record: any) => !['paid', 'completed', 'void', 'cancelled'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.balance_due ?? record.balanceDue ?? record.amountDue ?? record.total_amount ?? record.total ?? record.amount), 0);
+    return c.json({ success: true, summary: { paidTotal, pendingTotal, openInvoiceTotal }, payments: visiblePayments.sort((a: any, b: any) => new Date(b.paidAt || b.createdAt || 0).getTime() - new Date(a.paidAt || a.createdAt || 0).getTime()), invoices: visibleInvoices.sort((a: any, b: any) => new Date(b.createdAt || b.created_at || 0).getTime() - new Date(a.createdAt || a.created_at || 0).getTime()) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load condo financial records.' }, 500); }
 });
 
 // A property manager sees only the financial records owned by their portal
@@ -5444,6 +5548,165 @@ app.post('/make-server-57095a78/quotes/:id/send-to-customer', async (c) => { try
 app.post('/make-server-57095a78/access-requests', async (c) => { try { const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase(); if (!email || !String(body.requestedPortal || body.portal || '').trim()) return c.json({ success: false, error: 'Email and requested portal are required.' }, 400); const id = `access_${crypto.randomUUID()}`; const request = { ...body, id, email, requestedPortal: body.requestedPortal || body.portal, status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${id}`, request); return c.json({ success: true, request }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-57095a78/access-requests', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, requests: (await kv.getByPrefix('access_request:')) || [] }); });
 app.patch('/make-server-57095a78/access-requests/:id', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const existing = await kv.get(`access_request:${c.req.param('id')}`) as any; if (!existing) return c.json({ success: false, error: 'Access request not found.' }, 404); const body = await c.req.json(); const status = ['approved','rejected','pending'].includes(String(body.status)) ? body.status : existing.status; const request = { ...existing, status, reviewedBy: actor.user.email, reviewedAt: new Date().toISOString(), reviewNote: String(body.reviewNote || ''), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${request.id}`, request); return c.json({ success: true, request }); });
+
+// ── SUBCONTRACTOR BIDS + CUSTOMER GIVEAWAY ENTRIES ───────────────────────────
+// Both workflows are account-scoped and immediately visible to Command Center
+// operators through their dedicated KV records and admin alerts.
+async function ensureBidAttachmentBucket() {
+  const bucket = 'bid-attachments';
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!(buckets || []).some((item: any) => item.name === bucket)) {
+    const { error } = await supabase.storage.createBucket(bucket, { public: false, fileSizeLimit: 52428800, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'] });
+    if (error && !String(error.message || '').toLowerCase().includes('already exists')) throw error;
+  }
+  return bucket;
+}
+app.post('/make-server-57095a78/subcontractor/bid-attachments', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in before uploading a bid attachment.' }, 401);
+    const form = await c.req.parseBody(); const file = form.file;
+    if (!(file instanceof File)) return c.json({ success: false, error: 'Choose an image or video file.' }, 400);
+    const isImage = file.type.startsWith('image/'); const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) return c.json({ success: false, error: 'Only image and video attachments are supported.' }, 400);
+    if (file.size > 50 * 1024 * 1024) return c.json({ success: false, error: 'Attachments are limited to 50MB.' }, 400);
+    const bucket = await ensureBidAttachmentBucket(); const id = `ATT-${crypto.randomUUID()}`; const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'attachment'; const path = `${actor.user.id}/${id}-${safeName}`;
+    const { error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false }); if (error) throw error;
+    const attachment = { id, name: file.name.slice(0, 240), type: isVideo ? 'video' : 'image', mimeType: file.type, size: file.size, bucket, path, ownerUserId: actor.user.id, status: 'uploaded', uploadedAt: new Date().toISOString() };
+    await kv.set(`subcontractor_bid_upload:${actor.user.id}:${id}`, attachment); await kv.set(`subcontractor_bid_upload_record:${id}`, attachment);
+    return c.json({ success: true, attachment }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to upload attachment.' }, 500); }
+});
+app.delete('/make-server-57095a78/subcontractor/bid-attachments/:id', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in before removing an attachment.' }, 401);
+    const key = `subcontractor_bid_upload:${actor.user.id}:${c.req.param('id')}`; const attachment = await kv.get(key) as any; if (!attachment) return c.json({ success: false, error: 'Attachment not found.' }, 404); if (attachment.status === 'attached') return c.json({ success: false, error: 'Submitted bid attachments cannot be removed.' }, 409);
+    await supabase.storage.from(attachment.bucket || 'bid-attachments').remove([attachment.path]); await kv.del(key); await kv.del(`subcontractor_bid_upload_record:${attachment.id}`); return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to remove attachment.' }, 500); }
+});
+app.get('/make-server-57095a78/subcontractor/bid-attachments/:id/download', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in to view an attachment.' }, 401);
+    const attachment = (await kv.get(`subcontractor_bid_upload:${actor.user.id}:${c.req.param('id')}`) as any) || (actor.admin ? await kv.get(`subcontractor_bid_upload_record:${c.req.param('id')}`) as any : null); if (!attachment) return c.json({ success: false, error: 'Attachment not found.' }, 404);
+    const { data, error } = await supabase.storage.from(attachment.bucket || 'bid-attachments').createSignedUrl(attachment.path, 900); if (error || !data?.signedUrl) throw error || new Error('Unable to create a secure file link.');
+    return c.json({ success: true, url: data.signedUrl, attachment: { id: attachment.id, name: attachment.name, type: attachment.type } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to open attachment.' }, 500); }
+});
+
+app.get('/make-server-57095a78/subcontractor/bids', async (c) => {
+  try { const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in to view your bids.' }, 401); const bids = (await kv.getByPrefix(`subcontractor_bid:${actor.user.id}:`)) || []; return c.json({ success: true, bids: bids.sort((a: any, b: any) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || ''))) }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load bids.' }, 500); }
+});
+app.post('/make-server-57095a78/subcontractor/bids', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.user?.id || !actor.user.email) return c.json({ success: false, error: 'Sign in before submitting a bid.' }, 401);
+    const body = stripBase64(await c.req.json()); const jobId = String(body.jobId || '').trim().slice(0, 120); const jobTitle = String(body.jobTitle || '').trim().slice(0, 240); const amount = Number(body.amount);
+    if (!jobId || !jobTitle || !Number.isFinite(amount) || amount <= 0) return c.json({ success: false, error: 'A job and a valid bid amount are required.' }, 400);
+    const duplicateKey = `subcontractor_bid_job:${actor.user.id}:${jobId}`; const existingId = await kv.get(duplicateKey) as string | null;
+    if (existingId) return c.json({ success: false, error: 'You already submitted a bid for this job.' }, 409);
+    const now = new Date().toISOString(); const bid = { id: `BID-${crypto.randomUUID()}`, subcontractorUserId: actor.user.id, subcontractorEmail: String(actor.user.email).toLowerCase(), subcontractorName: String(actor.user.user_metadata?.full_name || actor.user.email).slice(0, 180), jobId, jobTitle, amount, notes: String(body.notes || '').trim().slice(0, 5000), duration: String(body.duration || '').trim().slice(0, 180), attachments: [], status: 'submitted', submittedAt: now, updatedAt: now };
+    const requestedAttachments = Array.isArray(body.attachments) ? body.attachments : [];
+    for (const item of requestedAttachments.slice(0, 10)) { const attachmentId = String(item?.id || ''); const attachment = await kv.get(`subcontractor_bid_upload:${actor.user.id}:${attachmentId}`) as any; if (!attachment || attachment.status !== 'uploaded') return c.json({ success: false, error: 'One or more bid attachments are unavailable. Upload them again before submitting.' }, 400); bid.attachments.push({ id: attachment.id, name: attachment.name, type: attachment.type, mimeType: attachment.mimeType, size: attachment.size }); await kv.set(`subcontractor_bid_upload:${actor.user.id}:${attachment.id}`, { ...attachment, status: 'attached', bidId: bid.id, attachedAt: now }); }
+    await kv.set(`subcontractor_bid:${actor.user.id}:${bid.id}`, bid); await kv.set(duplicateKey, bid.id); await kv.set(`subcontractor_bid_record:${bid.id}`, bid);
+    const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift({ id: `bid_alert_${crypto.randomUUID()}`, type: 'info', category: 'Subcontractor Bids', title: `New bid: ${jobTitle}`, description: `${bid.subcontractorName} submitted $${amount.toLocaleString()} for ${jobTitle}.`, status: 'unread', source: 'subcontractor-portal', data: { bidId: bid.id, jobId }, timestamp: now }); await kv.set('admin_alerts', alerts.slice(0, 200));
+    return c.json({ success: true, bid }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit bid.' }, 500); }
+});
+app.get('/make-server-57095a78/giveaways/entries', async (c) => {
+  try { const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in to view giveaway entries.' }, 401); const entries = actor.admin ? ((await kv.getByPrefix('giveaway_entry:')) || []) : ((await kv.getByPrefix(`giveaway_entry:${actor.user.id}:`)) || []); return c.json({ success: true, entries }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load giveaway entries.' }, 500); }
+});
+app.post('/make-server-57095a78/giveaways/entries', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.user?.id || !actor.user.email) return c.json({ success: false, error: 'Sign in before entering a giveaway.' }, 401);
+    const body = stripBase64(await c.req.json()); const giveawayId = String(body.giveawayId || '').trim().slice(0, 160); const giveawayTitle = String(body.giveawayTitle || '').trim().slice(0, 240);
+    if (!giveawayId || !giveawayTitle) return c.json({ success: false, error: 'Giveaway details are required.' }, 400);
+    const duplicateKey = `giveaway_entry_by_giveaway:${actor.user.id}:${giveawayId}`; if (await kv.get(duplicateKey)) return c.json({ success: false, error: 'You have already entered this giveaway.' }, 409);
+    const now = new Date().toISOString(); const entry = { id: `GIVEAWAY-${crypto.randomUUID()}`, giveawayId, giveawayTitle, customerId: actor.user.id, customerEmail: String(actor.user.email).toLowerCase(), customerName: String(actor.user.user_metadata?.full_name || actor.user.email).slice(0, 180), enteredAt: now, status: 'entered' };
+    await kv.set(`giveaway_entry:${actor.user.id}:${entry.id}`, entry); await kv.set(`giveaway_entry_record:${entry.id}`, entry); await kv.set(duplicateKey, entry.id);
+    const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift({ id: `giveaway_alert_${crypto.randomUUID()}`, type: 'info', category: 'Giveaways', title: `Giveaway entry: ${giveawayTitle}`, description: `${entry.customerName} entered the giveaway.`, status: 'unread', source: 'customer-portal', data: { entryId: entry.id, giveawayId }, timestamp: now }); await kv.set('admin_alerts', alerts.slice(0, 200));
+    return c.json({ success: true, entry }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to enter giveaway.' }, 500); }
+});
+
+// ── PORTAL CRM: CONTACTS & INTERACTIONS ───────────────────────────────────────
+// These records are intentionally account-scoped.  Property, condo, landlord,
+// and territory users may only read and modify their own CRM workspace.
+const portalCrmTypes = new Set(['property-manager', 'condo-manager', 'landlord', 'territory']);
+function portalCrmKey(portalType: string, userId: string) {
+  return `portal_crm:${portalType}:${userId}`;
+}
+async function portalCrmActor(c: any, portalType: string) {
+  const actor = await financialActor(c);
+  return { ...actor, portalType: portalCrmTypes.has(portalType) ? portalType : null };
+}
+function cleanCrmContact(input: any, existing: any = null) {
+  const type = ['tenant', 'owner', 'vendor', 'prospect'].includes(String(input?.type)) ? String(input.type) : 'prospect';
+  const status = ['active', 'inactive', 'prospect'].includes(String(input?.status)) ? String(input.status) : 'prospect';
+  const tags = Array.isArray(input?.tags) ? input.tags.map((tag: any) => String(tag).trim()).filter(Boolean).slice(0, 30) : [];
+  const now = new Date().toISOString();
+  return {
+    id: existing?.id || `crm_${crypto.randomUUID()}`,
+    name: String(input?.name || '').trim().slice(0, 180),
+    type, email: String(input?.email || '').trim().toLowerCase().slice(0, 254),
+    phone: String(input?.phone || '').trim().slice(0, 64),
+    unit: String(input?.unit || '').trim().slice(0, 100),
+    property: String(input?.property || '').trim().slice(0, 240),
+    status, notes: String(input?.notes || '').trim().slice(0, 5000), tags,
+    lastContact: existing?.lastContact || null,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+}
+app.get('/make-server-57095a78/portal-crm/:portalType', async (c) => {
+  try {
+    const actor = await portalCrmActor(c, c.req.param('portalType'));
+    if (!actor.user?.id) return c.json({ success: false, error: 'Sign in to view CRM records.' }, 401);
+    if (!actor.portalType) return c.json({ success: false, error: 'Invalid CRM workspace.' }, 400);
+    const data = (await kv.get(portalCrmKey(actor.portalType, actor.user.id)) as any) || { contacts: [], interactions: [] };
+    return c.json({ success: true, contacts: (data.contacts || []).map(stripBase64), interactions: (data.interactions || []).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load CRM records.' }, 500); }
+});
+app.post('/make-server-57095a78/portal-crm/:portalType/contacts', async (c) => {
+  try {
+    const actor = await portalCrmActor(c, c.req.param('portalType'));
+    if (!actor.user?.id) return c.json({ success: false, error: 'Sign in before adding a contact.' }, 401);
+    if (!actor.portalType) return c.json({ success: false, error: 'Invalid CRM workspace.' }, 400);
+    const contact = cleanCrmContact(stripBase64(await c.req.json()));
+    if (!contact.name) return c.json({ success: false, error: 'Contact name is required.' }, 400);
+    const key = portalCrmKey(actor.portalType, actor.user.id); const data = (await kv.get(key) as any) || { contacts: [], interactions: [] };
+    data.contacts = [contact, ...(data.contacts || [])]; data.updatedAt = new Date().toISOString(); await kv.set(key, data);
+    return c.json({ success: true, contact: stripBase64(contact) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add contact.' }, 500); }
+});
+app.delete('/make-server-57095a78/portal-crm/:portalType/contacts/:id', async (c) => {
+  try {
+    const actor = await portalCrmActor(c, c.req.param('portalType'));
+    if (!actor.user?.id) return c.json({ success: false, error: 'Sign in before deleting a contact.' }, 401);
+    if (!actor.portalType) return c.json({ success: false, error: 'Invalid CRM workspace.' }, 400);
+    const key = portalCrmKey(actor.portalType, actor.user.id); const data = (await kv.get(key) as any) || { contacts: [], interactions: [] };
+    const present = (data.contacts || []).some((contact: any) => String(contact.id) === c.req.param('id'));
+    if (!present) return c.json({ success: false, error: 'Contact not found.' }, 404);
+    data.contacts = (data.contacts || []).filter((contact: any) => String(contact.id) !== c.req.param('id'));
+    data.interactions = (data.interactions || []).filter((interaction: any) => String(interaction.contactId) !== c.req.param('id'));
+    data.updatedAt = new Date().toISOString(); await kv.set(key, data);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete contact.' }, 500); }
+});
+app.post('/make-server-57095a78/portal-crm/:portalType/contacts/:id/interactions', async (c) => {
+  try {
+    const actor = await portalCrmActor(c, c.req.param('portalType'));
+    if (!actor.user?.id) return c.json({ success: false, error: 'Sign in before logging an interaction.' }, 401);
+    if (!actor.portalType) return c.json({ success: false, error: 'Invalid CRM workspace.' }, 400);
+    const key = portalCrmKey(actor.portalType, actor.user.id); const data = (await kv.get(key) as any) || { contacts: [], interactions: [] };
+    const contactIndex = (data.contacts || []).findIndex((contact: any) => String(contact.id) === c.req.param('id'));
+    if (contactIndex < 0) return c.json({ success: false, error: 'Contact not found.' }, 404);
+    const body = stripBase64(await c.req.json()); const type = ['call', 'email', 'meeting', 'note'].includes(String(body.type)) ? String(body.type) : 'note'; const subject = String(body.subject || '').trim().slice(0, 300);
+    if (!subject) return c.json({ success: false, error: 'Interaction subject is required.' }, 400);
+    const date = new Date().toISOString().split('T')[0]; const interaction = { id: `interaction_${crypto.randomUUID()}`, contactId: c.req.param('id'), type, subject, notes: String(body.notes || '').trim().slice(0, 5000), date, createdAt: new Date().toISOString(), createdBy: actor.user.email || actor.user.id };
+    data.interactions = [interaction, ...(data.interactions || [])]; data.contacts[contactIndex] = { ...data.contacts[contactIndex], lastContact: date, updatedAt: new Date().toISOString() }; data.updatedAt = new Date().toISOString(); await kv.set(key, data);
+    return c.json({ success: true, interaction: stripBase64(interaction), contact: stripBase64(data.contacts[contactIndex]) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to log interaction.' }, 500); }
+});
 
 // ── MAINTENANCE PLAN DRAFTS & CUSTOM ITEMS ───────────────────────────────────
 function maintenanceDraftKey(email: string) { return `maintenance_draft:${String(email).toLowerCase()}`; }

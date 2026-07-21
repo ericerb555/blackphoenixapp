@@ -615,7 +615,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
 
         {/* CRM */}
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="territory" />}
-        {tab === 'crm' && <CRMSection portalType="property-manager" />}
+        {tab === 'crm' && <CRMSection portalType="territory" />}
 
         {/* DEALS & REELS */}
         {tab === 'deals' && (<>

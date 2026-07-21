@@ -7,6 +7,8 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import phoenixLogo from '../../../imports/BPB_phoenix_full_color_logo.png';
+import { supabase } from '../../lib/supabase';
+import { projectId } from '../../utils/supabase/info';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
 class MarqueeSafe extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -91,10 +93,25 @@ export default function SubcontractorPortal() {
   const [bidAmount, setBidAmount] = useState('');
   const [bidNotes, setBidNotes] = useState('');
   const [bidDuration, setBidDuration] = useState('');
-  const [bidMedia, setBidMedia] = useState<{ type: 'image' | 'video'; url: string; name: string }[]>([]);
+  const [bidMedia, setBidMedia] = useState<{ id: string; type: 'image' | 'video'; url: string; name: string }[]>([]);
+  const [mediaUploading, setMediaUploading] = useState(false);
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [logo, setLogo] = useState(LOGO_URL);
   const [companyName, setCompanyName] = useState(subCompany);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bids`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const payload = await response.json().catch(() => ({}));
+        if (active && response.ok && payload.success) setSubmittedBids(payload.bids || []);
+      } catch { /* Keep the portal usable if history is temporarily unavailable. */ }
+    })();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     try {
@@ -116,42 +133,67 @@ export default function SubcontractorPortal() {
   const maxRevenue = Math.max(...REVENUE_MONTHS.map(r => r.amount));
 
   function openBid(job: any) { setSelectedJob(job); setShowModal(true); }
-  function closeModal() {
-    setShowModal(false); setSelectedJob(null);
-    setBidAmount(''); setBidNotes(''); setBidDuration('');
-    setBidMedia([]); setPlayingVideo(null);
+  async function closeModal() {
+    const pendingMedia = [...bidMedia];
+    setShowModal(false); setSelectedJob(null); setBidAmount(''); setBidNotes(''); setBidDuration(''); setBidMedia([]); setPlayingVideo(null);
+    for (const item of pendingMedia) {
+      URL.revokeObjectURL(item.url);
+      try { const { data: { session } } = await supabase.auth.getSession(); if (session?.access_token) await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } }); } catch { /* Submitted files return 409 and remain protected. */ }
+    }
   }
 
-  function handleMediaUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleMediaUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      const isVideo = file.type.startsWith('video/');
-      const isImage = file.type.startsWith('image/');
-      if (!isVideo && !isImage) { toast.error(`${file.name} is not a supported image or video`); return; }
-      if (file.size > 50 * 1024 * 1024) { toast.error(`${file.name} is too large (max 50MB)`); return; }
-      const url = URL.createObjectURL(file);
-      setBidMedia(prev => [...prev, { type: isVideo ? 'video' : 'image', url, name: file.name }]);
-    });
     e.target.value = '';
+    if (!files.length) return;
+    setMediaUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in before uploading bid attachments.');
+      for (const file of files) {
+        const isVideo = file.type.startsWith('video/'); const isImage = file.type.startsWith('image/');
+        if (!isVideo && !isImage) { toast.error(`${file.name} is not a supported image or video`); continue; }
+        if (file.size > 50 * 1024 * 1024) { toast.error(`${file.name} is too large (max 50MB)`); continue; }
+        const form = new FormData(); form.set('file', file);
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.success) throw new Error(payload.error || `Could not upload ${file.name}.`);
+        setBidMedia((current) => [...current, { id: payload.attachment.id, type: payload.attachment.type, url: URL.createObjectURL(file), name: payload.attachment.name }]);
+      }
+    } catch (error: any) { toast.error(error.message || 'Could not upload attachment.'); }
+    finally { setMediaUploading(false); }
   }
 
-  function removeMedia(idx: number) {
-    setBidMedia(prev => {
-      URL.revokeObjectURL(prev[idx].url);
-      return prev.filter((_, i) => i !== idx);
-    });
+  async function removeMedia(idx: number) {
+    const target = bidMedia[idx]; if (!target) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in before removing an attachment.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(target.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not remove attachment.');
+      URL.revokeObjectURL(target.url); setBidMedia((current) => current.filter((_, itemIndex) => itemIndex !== idx));
+    } catch (error: any) { toast.error(error.message || 'Could not remove attachment.'); }
   }
 
-  function submitBid() {
-    if (!bidAmount) { toast.error('Please enter a bid amount.'); return; }
-    setSubmittedBids(prev => [...prev, {
-      id: `b${Date.now()}`, jobId: selectedJob.id, jobTitle: selectedJob.title,
-      amount: Number(bidAmount), notes: bidNotes, duration: bidDuration,
-      mediaCount: bidMedia.length,
-      status: 'submitted', submittedAt: new Date().toLocaleDateString(),
-    }]);
-    toast.success(`Bid submitted${bidMedia.length ? ` with ${bidMedia.length} attachment${bidMedia.length > 1 ? 's' : ''}` : ''}! The owner will review it shortly.`);
-    closeModal();
+  async function openBidAttachment(attachmentId: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in to open bid attachments.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(attachmentId)}/download`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const payload = await response.json().catch(() => ({})); if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not open attachment.'); window.open(payload.url, '_blank', 'noopener,noreferrer');
+    } catch (error: any) { toast.error(error.message || 'Could not open attachment.'); }
+  }
+
+  async function submitBid() {
+    if (!bidAmount || !selectedJob) { toast.error('Please enter a bid amount.'); return; }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in before submitting a bid.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bids`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ jobId: selectedJob.id, jobTitle: selectedJob.title, amount: Number(bidAmount), notes: bidNotes, duration: bidDuration, attachments: bidMedia.map((item) => ({ id: item.id })) }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not submit your bid.');
+      setSubmittedBids((current) => [payload.bid, ...current]);
+      toast.success(`Bid submitted${bidMedia.length ? ` with ${bidMedia.length} attachment${bidMedia.length > 1 ? 's' : ''}` : ''}! The owner will review it shortly.`);
+      closeModal();
+    } catch (error: any) { toast.error(error.message || 'Could not submit your bid.'); }
   }
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
@@ -439,6 +481,7 @@ export default function SubcontractorPortal() {
                       <p className="font-bold">{s.jobTitle}</p>
                       <p className="text-gray-500 text-sm">Submitted {s.submittedAt} {s.duration && `· Est. ${s.duration}`}</p>
                       {s.notes && <p className="text-gray-600 text-xs mt-1">{s.notes}</p>}
+                      {Array.isArray(s.attachments) && s.attachments.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{s.attachments.map((attachment: any) => <button key={attachment.id} type="button" onClick={() => void openBidAttachment(attachment.id)} className="rounded border border-orange-500/30 px-2 py-1 text-xs text-orange-200 transition hover:bg-orange-500/10"><Download className="mr-1 inline h-3 w-3" />{attachment.name || 'Secure attachment'}</button>)}</div>}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xl font-bold">${s.amount.toLocaleString()}</span>
@@ -572,11 +615,12 @@ export default function SubcontractorPortal() {
                     accept="image/*,video/*"
                     multiple
                     className="hidden"
-                    onChange={handleMediaUpload}
+                    onChange={(event) => void handleMediaUpload(event)}
                   />
                 </label>
 
                 {/* Preview grid */}
+                {mediaUploading && <p className="text-xs text-orange-300">Uploading attachment…</p>}
                 {bidMedia.length > 0 && (
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     {bidMedia.map((m, i) => (
@@ -605,7 +649,7 @@ export default function SubcontractorPortal() {
                             : <Video className="w-3.5 h-3.5 text-orange-400 drop-shadow" />}
                         </div>
                         {/* Remove button */}
-                        <button onClick={() => removeMedia(i)}
+                        <button onClick={() => void removeMedia(i)}
                           className="absolute top-1.5 right-1.5 w-5 h-5 bg-black/70 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
                           <X className="w-3 h-3 text-white" />
                         </button>
@@ -623,7 +667,7 @@ export default function SubcontractorPortal() {
 
               <div className="flex gap-3 pt-1">
                 <button onClick={closeModal} className="flex-1 py-3 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-                <button onClick={submitBid} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
+                <button onClick={() => void submitBid()} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
                   <Send className="w-4 h-4" /> Submit Bid
                 </button>
               </div>

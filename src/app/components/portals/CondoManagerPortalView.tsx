@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, BarChart3, ChevronRight, ArrowUpRight, CheckCircle, Tag, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Sparkles, LoaderCircle,
+  TrendingUp, Zap, Star, Package, Car, Sparkles, LoaderCircle, Plus,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -95,6 +95,13 @@ export default function CondoManagerPortalView() {
   const [requests, setRequests] = useState<any[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [decisionId, setDecisionId] = useState<string | null>(null);
+  const [financials, setFinancials] = useState({ paidTotal: 0, pendingTotal: 0, openInvoiceTotal: 0, payments: [] as any[], invoices: [] as any[] });
+  const [financialsLoading, setFinancialsLoading] = useState(false);
+  const [units, setUnits] = useState<any[]>([]);
+  const [unitsLoading, setUnitsLoading] = useState(true);
+  const [showUnitForm, setShowUnitForm] = useState(false);
+  const [savingUnit, setSavingUnit] = useState(false);
+  const [unitDraft, setUnitDraft] = useState({ number: '', owner: '', status: 'occupied', dues: 'current' });
   const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Condo Manager');
   const email = accountEmail || demoProfile?.email || '';
 
@@ -110,6 +117,43 @@ export default function CondoManagerPortalView() {
     finally { setRequestsLoading(false); }
   };
   useEffect(() => { void loadRequests(); }, [session?.access_token]);
+
+  const loadUnits = async () => {
+    if (!session?.access_token) { setUnits([]); setUnitsLoading(false); return; }
+    setUnitsLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/units`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load association units.');
+      setUnits(Array.isArray(payload.units) ? payload.units : []);
+    } catch (error: any) { setUnits([]); toast.error(error?.message || 'Unable to load association units.'); } finally { setUnitsLoading(false); }
+  };
+  useEffect(() => { void loadUnits(); }, [session?.access_token]);
+
+  async function addUnit(event: React.FormEvent) {
+    event.preventDefault(); if (!session?.access_token || savingUnit) return; setSavingUnit(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/units`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(unitDraft) });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add unit.');
+      setUnits(current => [payload.unit, ...current]); setUnitDraft({ number: '', owner: '', status: 'occupied', dues: 'current' }); setShowUnitForm(false); toast.success('Unit added to the association roster.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to add unit.'); } finally { setSavingUnit(false); }
+  }
+
+  useEffect(() => {
+    if (tab !== 'financials' || !session?.access_token) return;
+    let cancelled = false;
+    const loadFinancials = async () => {
+      setFinancialsLoading(true);
+      try {
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load financial records.');
+        if (!cancelled) setFinancials({ ...payload.summary, payments: Array.isArray(payload.payments) ? payload.payments : [], invoices: Array.isArray(payload.invoices) ? payload.invoices : [] });
+      } catch (error: any) { if (!cancelled) { setFinancials({ paidTotal: 0, pendingTotal: 0, openInvoiceTotal: 0, payments: [], invoices: [] }); toast.error(error?.message || 'Unable to load financial records.'); } }
+      finally { if (!cancelled) setFinancialsLoading(false); }
+    };
+    void loadFinancials();
+    return () => { cancelled = true; };
+  }, [tab, session?.access_token]);
 
   async function decide(id: string, decision: 'approved' | 'rejected') {
     if (!session?.access_token || decisionId) return; setDecisionId(id);
@@ -165,8 +209,8 @@ export default function CondoManagerPortalView() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Total Units', value: '180', icon: Building2 },
-                { label: 'Occupancy Rate', value: '96%', icon: CheckCircle },
+                { label: 'Total Units', value: String(units.length), icon: Building2 },
+                { label: 'Occupancy Rate', value: units.length ? `${Math.round((units.filter(unit => unit.status === 'occupied').length / units.length) * 100)}%` : '—', icon: CheckCircle },
                 { label: 'HOA Dues Collected', value: '$48K', icon: DollarSign },
                 { label: 'Open Requests', value: String(requests.filter(r => ['open', 'pending', 'pending_approval'].includes(r.status)).length), icon: Wrench },
               ].map((s, i) => {
@@ -234,24 +278,9 @@ export default function CondoManagerPortalView() {
         )}
 
         {tab === 'units' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold">Units</h2>
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {UNITS.map(u => (
-                <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <div>
-                    <p className="font-bold">Unit {u.number}</p>
-                    <p className="text-gray-500 text-sm">{u.owner}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(u.status)}`}>{u.status}</span>
-                    {u.dues !== 'n/a' && (
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(u.dues)}`}>dues {u.dues}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Units</h2><p className="mt-1 text-sm text-gray-400">Your saved association unit and owner roster.</p></div><button type="button" onClick={() => setShowUnitForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-500"><Plus className="h-4 w-4" /> Add unit</button></div>
+            {showUnitForm && <form onSubmit={addUnit} className="grid grid-cols-1 gap-3 rounded-xl border border-indigo-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={unitDraft.number} onChange={event => setUnitDraft(value => ({ ...value, number: event.target.value }))} placeholder="Unit number" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500" /><input required={unitDraft.status === 'occupied'} value={unitDraft.owner} onChange={event => setUnitDraft(value => ({ ...value, owner: event.target.value }))} placeholder="Owner name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500" /><select value={unitDraft.status} onChange={event => setUnitDraft(value => ({ ...value, status: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"><option value="occupied">Occupied</option><option value="vacant">Vacant</option></select><select disabled={unitDraft.status === 'vacant'} value={unitDraft.status === 'vacant' ? 'n/a' : unitDraft.dues} onChange={event => setUnitDraft(value => ({ ...value, dues: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500 disabled:opacity-60"><option value="current">Dues current</option><option value="overdue">Dues overdue</option></select><div className="flex gap-2 sm:col-span-2"><button disabled={savingUnit} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingUnit ? 'Saving…' : 'Save unit'}</button><button type="button" onClick={() => setShowUnitForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{unitsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading association units…</div> : units.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No units have been added to this association yet.</div> : units.map(u => <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">Unit {u.number}</p><p className="text-gray-500 text-sm">{u.owner}</p></div><div className="flex items-center gap-2"><span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(u.status)}`}>{u.status}</span>{u.dues !== 'n/a' && <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(u.dues)}`}>dues {u.dues}</span>}</div></div>)}</div>
           </div>
         )}
 
@@ -259,7 +288,7 @@ export default function CondoManagerPortalView() {
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Owners</h2>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {UNITS.filter(u => u.owner !== 'Vacant').map(u => (
+              {units.filter(u => u.owner !== 'Vacant').map(u => (
                 <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
                   <div>
                     <p className="font-bold">{u.owner}</p>
@@ -309,33 +338,9 @@ export default function CondoManagerPortalView() {
 
         {tab === 'financials' && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Financials</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-              {[
-                { label: 'HOA Dues Collected', value: '$47,600', color: 'text-green-400' },
-                { label: 'Operating Expenses', value: '$12,300', color: 'text-red-400' },
-                { label: 'Reserve Fund', value: '$35,300', color: 'text-indigo-400' },
-              ].map((item, i) => (
-                <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
-                  <p className={`text-2xl font-bold ${item.color}`}>{item.value}</p>
-                  <p className="text-sm text-gray-400 mt-1">{item.label}</p>
-                </div>
-              ))}
-            </div>
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {DUES.map(d => (
-                <div key={d.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <div>
-                    <p className="font-bold">{d.id}</p>
-                    <p className="text-gray-500 text-sm">{d.unit} · {d.owner} · {d.date}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl font-bold">${d.amount}</span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(d.status)}`}>{d.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div><h2 className="text-xl font-bold">Account Financials</h2><p className="mt-1 text-sm text-gray-400">Verified invoice and payment activity for this condo-management account.</p></div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">{[{ label: 'Verified Payments', value: financials.paidTotal, color: 'text-green-400' }, { label: 'Pending Payments', value: financials.pendingTotal, color: 'text-amber-400' }, { label: 'Open Invoice Balance', value: financials.openInvoiceTotal, color: 'text-red-400' }].map((item, i) => <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5"><p className={`text-2xl font-bold ${item.color}`}>${Number(item.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className="text-sm text-gray-400 mt-1">{item.label}</p></div>)}</div>
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{financialsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading financial activity…</div> : financials.payments.length === 0 && financials.invoices.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No invoices or payment activity are available for this account yet.</div> : <>{financials.payments.map((payment: any) => <div key={`payment-${payment.id}`} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">Payment</p><p className="text-gray-500 text-sm">{new Date(payment.paidAt || payment.createdAt || Date.now()).toLocaleDateString()}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(payment.status)}`}>{String(payment.status || 'pending').replace(/_/g, ' ')}</span></div></div>)}{financials.invoices.filter((invoice: any) => !financials.payments.some((payment: any) => payment.invoiceId === invoice.id)).map((invoice: any) => <div key={`invoice-${invoice.id}`} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">{invoice.invoice_number || invoice.description || 'Invoice'}</p><p className="text-gray-500 text-sm">{new Date(invoice.due_date || invoice.dueDate || invoice.createdAt || invoice.created_at || Date.now()).toLocaleDateString()}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(invoice.balance_due ?? invoice.balanceDue ?? invoice.amountDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(invoice.status)}`}>{String(invoice.status || 'open').replace(/_/g, ' ')}</span></div></div>)}</>}</div>
           </div>
         )}
 

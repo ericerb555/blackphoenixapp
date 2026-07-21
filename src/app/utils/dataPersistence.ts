@@ -9,7 +9,8 @@
  * 5. Detecting and preventing data corruption
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { projectId } from './supabase/info';
+import { supabase } from '../lib/supabase';
 import LZString from 'lz-string';
 import { migrateLocalImages } from './migrateLocalImages';
 import { stripDataUrlsDeep } from './imageStorage';
@@ -81,6 +82,13 @@ class DataPersistenceManager {
     console.log('✅ [DataPersistence] System initialized');
   }
 
+  private async sessionAccessToken() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.access_token || null;
+    } catch { return null; }
+  }
+
   /**
    * Restore data from Supabase database if localStorage is missing critical data
    */
@@ -97,6 +105,14 @@ class DataPersistenceManager {
         return;
       }
 
+      const accessToken = await this.sessionAccessToken();
+      if (!accessToken) {
+        // Backups are account-scoped. Never send anonymous credentials or
+        // restore another account's data before authentication is established.
+        console.log('ℹ️ [DataPersistence] Waiting for sign-in before restoring account backup');
+        return;
+      }
+
       console.log('⚠️ [DataPersistence] Missing critical data, restoring from database...');
 
       // Fetch latest backup from database with 5-second timeout
@@ -108,7 +124,7 @@ class DataPersistenceManager {
         {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           signal: controller.signal,
@@ -131,7 +147,8 @@ class DataPersistenceManager {
         return;
       }
 
-      const backup: BackupData = await response.json();
+      const restorePayload = await response.json();
+      const backup: BackupData | null = restorePayload?.backup || restorePayload?.data ? (restorePayload.backup || restorePayload) : null;
 
       if (backup && backup.data) {
         // Decompress if this backup was stored in compressed form (version 2).
@@ -197,6 +214,13 @@ class DataPersistenceManager {
         console.log('💾 [DataPersistence] Starting backup to database...');
       }
       
+      const accessToken = await this.sessionAccessToken();
+      if (!accessToken) {
+        // The server intentionally rejects unauthenticated backup writes. Do
+        // not create noisy 401 retries while the app is signed out.
+        return;
+      }
+
       // Collect ONLY critical keys (not all of localStorage).
       // Backing up the entire localStorage produced multi-MB payloads that
       // exceeded the KV row / edge memory / storage size limits and caused
@@ -268,7 +292,7 @@ class DataPersistenceManager {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           body: serialized,

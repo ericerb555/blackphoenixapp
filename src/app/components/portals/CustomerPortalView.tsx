@@ -486,56 +486,34 @@ export default function CustomerPortalView() {
     }
   ];
 
-  // Track which giveaways the customer has entered (persisted in localStorage)
-  const [enteredGiveaways, setEnteredGiveaways] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('entered_giveaways') || '[]'); } catch { return []; }
-  });
+  // Giveaway entries are loaded from the authenticated account, so they remain
+  // correct on another device and cannot be written anonymously.
+  const [enteredGiveaways, setEnteredGiveaways] = useState<string[]>([]);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/giveaways/entries`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const payload = await response.json().catch(() => ({}));
+        if (active && response.ok && payload.success) setEnteredGiveaways((payload.entries || []).map((entry: any) => entry.giveawayId));
+      } catch { /* The giveaway card remains available; submit will surface any error. */ }
+    })();
+    return () => { active = false; };
+  }, [user?.id]);
 
   const enterGiveaway = async (giveawayId: string, giveawayTitle: string) => {
-    if (enteredGiveaways.includes(giveawayId)) {
-      toast.info("You've already entered this giveaway!");
-      return;
-    }
-    const updated = [...enteredGiveaways, giveawayId];
-    setEnteredGiveaways(updated);
-    localStorage.setItem('entered_giveaways', JSON.stringify(updated));
-
-    // Save entry to server KV so admin can see it
-    const entry = {
-      id: `gentry_${Date.now()}`,
-      giveawayId,
-      giveawayTitle,
-      customerId: user?.id || 'guest',
-      customerEmail: user?.email || '',
-      customerName: displayName || user?.email || 'Customer',
-      enteredAt: new Date().toISOString(),
-    };
+    if (enteredGiveaways.includes(giveawayId)) { toast.info("You've already entered this giveaway!"); return; }
     try {
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/kv/set`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ key: `giveaway_entry_${entry.id}`, value: entry }),
-        signal: AbortSignal.timeout(8000),
-      });
-      // Add to admin alerts
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/notifications/admin-alert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({
-          type: 'info', category: 'Giveaways',
-          title: `🎁 New Giveaway Entry — ${entry.customerName}`,
-          description: `${entry.customerEmail} entered: ${giveawayTitle}`,
-          priority: 'low', status: 'unread', source: 'customer-portal',
-          data: entry,
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-    } catch { /* server unavailable — entry still saved locally */ }
-
-    toast.success("🎉 You're in! Good luck!", {
-      description: `Entry confirmed for: ${giveawayTitle}`,
-      duration: 4000,
-    });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in before entering a giveaway.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/giveaways/entries`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ giveawayId, giveawayTitle }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not enter the giveaway.');
+      setEnteredGiveaways((current) => [...current, giveawayId]);
+      toast.success("🎉 You're in! Good luck!", { description: `Entry confirmed for: ${giveawayTitle}`, duration: 4000 });
+    } catch (error: any) { toast.error(error.message || 'Could not enter the giveaway.'); }
   };
 
   const [currentReelIndex, setCurrentReelIndex] = useState(0);

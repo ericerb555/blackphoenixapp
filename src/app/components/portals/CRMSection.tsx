@@ -2,8 +2,10 @@
  * CRM Section — shared across Property Manager, Condo Manager, and Landlord portals.
  * Lets them upload contacts, create tenant/owner records, log interactions, and manage relationships.
  */
-import { useState } from 'react';
-import { useUserData } from '../../lib/hooks/useUserData';
+import { useEffect, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { projectId } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
 import {
   Users, Plus, Search, Upload, Phone, Mail, MapPin,
@@ -36,12 +38,6 @@ interface Interaction {
   date: string;
 }
 
-const STORAGE_KEY_PREFIX = 'portal_crm';
-
-interface Props {
-  portalType: 'property-manager' | 'condo-manager' | 'landlord';
-}
-
 const TYPE_COLORS: Record<string, string> = {
   tenant: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   owner: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
@@ -55,18 +51,31 @@ const STATUS_COLORS: Record<string, string> = {
   prospect: 'bg-yellow-500/20 text-yellow-400',
 };
 
-const DEMO_CONTACTS: Contact[] = [
-  { id: 'c1', name: 'Sarah Johnson', type: 'tenant', email: 'sarah@example.com', phone: '(214) 555-0101', unit: '4B', property: 'Harborview Condos', status: 'active', notes: 'Long-term tenant, excellent payment history.', lastContact: '2026-06-15', tags: ['VIP', 'Long-term'], createdAt: '2024-01-15' },
-  { id: 'c2', name: 'Robert Chen', type: 'owner', email: 'rchen@example.com', phone: '(972) 555-0202', unit: '', property: 'Sunset Apartments', status: 'active', notes: 'Owner of units 101-105.', lastContact: '2026-06-10', tags: ['Owner', 'Multi-unit'], createdAt: '2023-08-20' },
-  { id: 'c3', name: 'Maria Garcia', type: 'tenant', email: 'mgarcia@example.com', phone: '(469) 555-0303', unit: '2A', property: 'Harborview Condos', status: 'active', notes: 'New tenant. Moving in July 2026.', lastContact: '2026-06-18', tags: ['New'], createdAt: '2026-06-01' },
-  { id: 'c4', name: 'ABC Plumbing Services', type: 'vendor', email: 'abc@plumbing.com', phone: '(214) 555-1001', unit: '', property: '', status: 'active', notes: 'Preferred plumber. Net-30 payment terms.', lastContact: '2026-05-28', tags: ['Preferred', 'Plumbing'], createdAt: '2023-03-10' },
-  { id: 'c5', name: 'James Wilson', type: 'prospect', email: 'jwilson@example.com', phone: '(817) 555-0404', unit: '', property: '', status: 'prospect', notes: 'Interested in 3BR unit. Following up weekly.', lastContact: '2026-06-20', tags: ['Hot lead', '3BR'], createdAt: '2026-06-10' },
-];
-
 export default function CRMSection({ portalType }: Props) {
-  const storageKey = `${STORAGE_KEY_PREFIX}_${portalType}`;
-  const [contacts, setContacts] = useUserData<Contact[]>(storageKey, DEMO_CONTACTS);
-  const [interactions, setInteractions] = useUserData<Interaction[]>(`${storageKey}_interactions`, []);
+  const { user } = useAuth();
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const api = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/portal-crm/${portalType}`;
+
+  async function request(path = '', options: RequestInit = {}) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in is required to manage CRM records.');
+    const response = await fetch(`${api}${path}`, { ...options, headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json', ...(options.headers || {}) } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.success) throw new Error(payload.error || 'CRM request failed.');
+    return payload;
+  }
+
+  useEffect(() => {
+    let active = true;
+    if (!user?.id) { setContacts([]); setInteractions([]); setLoading(false); return; }
+    setLoading(true);
+    void request().then((payload) => { if (active) { setContacts(payload.contacts || []); setInteractions(payload.interactions || []); } })
+      .catch((error) => { if (active) toast.error(error.message || 'Could not load CRM records.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [user?.id, portalType]);
 
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
@@ -92,61 +101,42 @@ export default function CRMSection({ portalType }: Props) {
     return matchSearch && matchType;
   });
 
-  function saveContact() {
+  async function saveContact() {
     if (!form.name?.trim()) { toast.error('Name is required.'); return; }
-    const contact: Contact = {
-      id: `c_${Date.now()}`,
-      name: form.name!, type: form.type as any, email: form.email || '',
-      phone: form.phone || '', unit: form.unit || '', property: form.property || '',
-      status: form.status as any, notes: form.notes || '', tags: form.tags || [],
-      lastContact: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setContacts([contact, ...contacts]);
-    toast.success('Contact added!');
-    setShowAddModal(false);
-    setForm({ name: '', type: 'tenant', email: '', phone: '', unit: '', property: '', status: 'active', notes: '', tags: [] });
-    setTagInput('');
+    try {
+      const payload = await request('/contacts', { method: 'POST', body: JSON.stringify(form) });
+      setContacts((current) => [payload.contact, ...current]);
+      toast.success('Contact added to your shared CRM.'); setShowAddModal(false);
+      setForm({ name: '', type: 'tenant', email: '', phone: '', unit: '', property: '', status: 'active', notes: '', tags: [] }); setTagInput('');
+    } catch (error: any) { toast.error(error.message || 'Could not add contact.'); }
   }
 
-  function deleteContact(id: string) {
-    if (!confirm('Delete this contact?')) return;
-    setContacts(contacts.filter(c => c.id !== id));
-    toast.success('Contact removed.');
+  async function deleteContact(id: string) {
+    if (!confirm('Delete this contact and its interaction history?')) return;
+    try { await request(`/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' }); setContacts((current) => current.filter((contact) => contact.id !== id)); setInteractions((current) => current.filter((interaction) => interaction.contactId !== id)); toast.success('Contact removed.'); }
+    catch (error: any) { toast.error(error.message || 'Could not remove contact.'); }
   }
 
-  function logInteraction() {
+  async function logInteraction() {
     if (!selectedContact || !interForm.subject) { toast.error('Subject is required.'); return; }
-    const interaction: Interaction = {
-      id: `i_${Date.now()}`, contactId: selectedContact.id,
-      type: interForm.type, subject: interForm.subject, notes: interForm.notes,
-      date: new Date().toISOString().split('T')[0],
-    };
-    setInteractions([interaction, ...interactions]);
-    // Update last contact date
-    setContacts(contacts.map(c => c.id === selectedContact.id ? { ...c, lastContact: interaction.date } : c));
-    toast.success('Interaction logged!');
-    setShowInteractionModal(false);
-    setInterForm({ type: 'note', subject: '', notes: '' });
+    try {
+      const payload = await request(`/contacts/${encodeURIComponent(selectedContact.id)}/interactions`, { method: 'POST', body: JSON.stringify(interForm) });
+      setInteractions((current) => [payload.interaction, ...current]); setContacts((current) => current.map((contact) => contact.id === selectedContact.id ? payload.contact : contact));
+      toast.success('Interaction logged to the shared CRM.'); setShowInteractionModal(false); setInterForm({ type: 'note', subject: '', notes: '' });
+    } catch (error: any) { toast.error(error.message || 'Could not log interaction.'); }
   }
 
-  function handleImport() {
-    const lines = importText.split('\n').filter(l => l.trim());
-    const imported: Contact[] = lines.map((line, i) => {
-      const [name, email, phone, type, unit, property] = line.split(',').map(s => s.trim());
-      return {
-        id: `imported_${Date.now()}_${i}`, name: name || 'Unknown',
-        type: (type as any) || 'tenant', email: email || '', phone: phone || '',
-        unit: unit || '', property: property || '', status: 'active',
-        notes: 'Imported contact', tags: ['Imported'],
-        lastContact: new Date().toISOString().split('T')[0],
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-    });
-    setContacts([...imported, ...contacts]);
-    toast.success(`Imported ${imported.length} contacts!`);
-    setShowImport(false);
-    setImportText('');
+  async function handleImport() {
+    const lines = importText.split('\n').filter((line) => line.trim());
+    if (!lines.length) { toast.error('Add at least one CSV line to import.'); return; }
+    try {
+      const imported = await Promise.all(lines.map(async (line) => {
+        const [name, email, phone, type, unit, property] = line.split(',').map((value) => value.trim());
+        const payload = await request('/contacts', { method: 'POST', body: JSON.stringify({ name: name || 'Unknown', email, phone, type: ['tenant', 'owner', 'vendor', 'prospect'].includes(type) ? type : 'tenant', unit, property, status: 'active', notes: 'Imported contact', tags: ['Imported'] }) });
+        return payload.contact as Contact;
+      }));
+      setContacts((current) => [...imported, ...current]); toast.success(`Imported ${imported.length} contacts to your shared CRM.`); setShowImport(false); setImportText('');
+    } catch (error: any) { toast.error(error.message || 'Import stopped. Please check the CSV rows and try again.'); }
   }
 
   const contactInteractions = (id: string) => interactions.filter(i => i.contactId === id);
@@ -172,6 +162,8 @@ export default function CRMSection({ portalType }: Props) {
           </button>
         </div>
       </div>
+
+      {loading && <p className="text-sm text-gray-400">Loading your shared CRM…</p>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -243,7 +235,7 @@ export default function CRMSection({ portalType }: Props) {
                   className="p-1.5 bg-[#2A2A2A] hover:bg-[#353535] text-gray-400 hover:text-white rounded-lg transition">
                   {expandedContact === contact.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
-                <button onClick={() => deleteContact(contact.id)}
+                <button onClick={() => void deleteContact(contact.id)}
                   className="p-1.5 bg-[#2A2A2A] hover:bg-red-500/20 hover:text-red-400 text-gray-400 rounded-lg transition">
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -376,7 +368,7 @@ export default function CRMSection({ portalType }: Props) {
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowAddModal(false)} className="flex-1 py-3 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-                <button onClick={saveContact} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
+                <button onClick={() => void saveContact()} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
                   <Plus className="w-4 h-4" /> Save Contact
                 </button>
               </div>
@@ -420,7 +412,7 @@ export default function CRMSection({ portalType }: Props) {
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowInteractionModal(false)} className="flex-1 py-3 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-                <button onClick={logInteraction} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
+                <button onClick={() => void logInteraction()} className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2">
                   <CheckCircle className="w-4 h-4" /> Log It
                 </button>
               </div>
@@ -448,7 +440,7 @@ export default function CRMSection({ portalType }: Props) {
                 className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none resize-none font-mono" />
               <div className="flex gap-3">
                 <button onClick={() => setShowImport(false)} className="flex-1 py-3 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-                <button onClick={handleImport} disabled={!importText.trim()}
+                <button onClick={() => void handleImport()} disabled={!importText.trim()}
                   className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-700 rounded-lg text-sm font-bold transition disabled:opacity-50 flex items-center justify-center gap-2">
                   <Upload className="w-4 h-4" /> Import
                 </button>

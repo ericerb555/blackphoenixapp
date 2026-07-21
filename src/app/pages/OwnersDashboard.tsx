@@ -89,6 +89,9 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const [subscriptions, setSubscriptions] = useState<SupabaseData.Subscription[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [pendingAccessRequests, setPendingAccessRequests] = useState(0);
+  const [showFreePortalInvite, setShowFreePortalInvite] = useState(false);
+  const [sendingFreePortalInvite, setSendingFreePortalInvite] = useState(false);
+  const [freePortalInvite, setFreePortalInvite] = useState({ name: '', email: '', phone: '', portalType: 'customer' });
 
   // SIMPLE STORE: Get companies directly from localStorage
   const [userCompanies, setUserCompanies] = useState<CompanyStore.Company[]>([]);
@@ -340,6 +343,31 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const handleCompanySwitch = (companyId: string) => {
     setSelectedCompany(companyId);
     toast.success(`Switched to ${mockCompanies.find(c => c.id === companyId)?.name}`);
+  };
+
+  const sendFreePortalInvite = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!freePortalInvite.name.trim() || !freePortalInvite.email.trim() || !freePortalInvite.phone.trim()) {
+      toast.error('Name, email, and phone number are required.');
+      return;
+    }
+    setSendingFreePortalInvite(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in again before creating a portal invite.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/owner-provisioning/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(freePortalInvite),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not create the free portal invite.');
+      const delivery = payload.invite?.invitationSent ? 'Their secure account-setup email has been sent.' : 'Their portal record is ready; they can sign in with their existing account to finish setup.';
+      toast.success(`Free ${String(freePortalInvite.portalType).replace(/_/g, ' ')} access created. ${delivery}`);
+      setFreePortalInvite({ name: '', email: '', phone: '', portalType: 'customer' });
+      setShowFreePortalInvite(false);
+    } catch (error: any) { toast.error(error.message || 'Could not create the portal invite.'); }
+    finally { setSendingFreePortalInvite(false); }
   };
 
   // Navigation tabs
@@ -639,13 +667,26 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 <p className="text-gray-400">Manage all users across all companies and systems</p>
               </div>
               <button
-                onClick={() => handleNavigate('user-management')}
+                onClick={() => setShowFreePortalInvite((open) => !open)}
                 className="px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2"
               >
                 <UserPlus className="w-4 h-4" />
-                Add User
+                Add Free Portal User
               </button>
             </div>
+            {showFreePortalInvite && (
+              <form onSubmit={sendFreePortalInvite} className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 sm:p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div><p className="flex items-center gap-2 text-base font-semibold text-white"><UserPlus className="h-4 w-4 text-orange-300" /> Free portal access</p><p className="mt-1 max-w-2xl text-sm text-gray-400">Creates their portal record at no charge. The invitee completes their profile at first sign-in, then can choose a subscription, maintenance plan, both, or decide later.</p></div>
+                  <button type="button" onClick={() => setShowFreePortalInvite(false)} className="text-sm text-gray-400 hover:text-white">Close</button>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {[['name', 'Full name', 'Jane Smith'], ['email', 'Email address', 'jane@example.com'], ['phone', 'Phone number', '(214) 555-0100']].map(([field, label, placeholder]) => <label key={field} className="block text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">{label}<input required type={field === 'email' ? 'email' : 'text'} value={(freePortalInvite as any)[field]} onChange={(event) => setFreePortalInvite((current) => ({ ...current, [field]: event.target.value }))} placeholder={placeholder} className="mt-2 w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-sm normal-case tracking-normal text-white outline-none transition focus:border-orange-400" /></label>)}
+                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">Portal access<select value={freePortalInvite.portalType} onChange={(event) => setFreePortalInvite((current) => ({ ...current, portalType: event.target.value }))} className="mt-2 w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-sm normal-case tracking-normal text-white outline-none transition focus:border-orange-400"><option value="customer">Customer</option><option value="vendor">Vendor</option><option value="subcontractor">Subcontractor</option><option value="employee">Employee</option><option value="advertiser">Advertiser</option><option value="investor">Investor</option><option value="property_manager">Property Manager</option><option value="condo_manager">Condo Manager</option><option value="landlord">Landlord</option><option value="territory_owner">Territory Owner</option></select></label>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center gap-3"><button disabled={sendingFreePortalInvite} type="submit" className="rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{sendingFreePortalInvite ? 'Creating access…' : 'Create free access & send invite'}</button><span className="text-xs text-gray-500">No subscription, maintenance plan, invoice, or payment is created here.</span></div>
+              </form>
+            )}
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <div className="text-center py-8">
                 <Users className="w-16 h-16 text-gray-600 mx-auto mb-4" />
