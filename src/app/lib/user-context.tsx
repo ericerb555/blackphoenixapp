@@ -76,10 +76,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setUser(updatedUser);
     localStorage.setItem('current_user', JSON.stringify(updatedUser));
 
-    // Set a flag to indicate we're in the middle of a role switch
-    sessionStorage.setItem('role_switching', 'true');
-
-    console.log(`✅ UserContext: Role updated to ${role}`);
+    // This is a view-only preview role. It intentionally does not touch
+    // Supabase auth, onboarding, invitations, or protected-route behavior.
+    console.log(`✅ UserContext: Preview role updated to ${role}`);
   };
 
   const updateUser = (updates: Partial<User>) => {

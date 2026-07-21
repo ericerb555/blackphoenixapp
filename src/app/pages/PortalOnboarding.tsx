@@ -2,6 +2,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Building2, CheckCircle2, CircleDashed, FileUp, Loader2, LockKeyhole, Phone, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import { toast } from "sonner@2.0.3";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../contexts/AuthContext";
 import { projectId } from "../utils/supabase/info";
 
 const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
@@ -11,6 +12,7 @@ type DocumentRecord = { id: string; taskId: string; name: string; status: string
 type Intake = { applicantName?: string; applicantEmail?: string; applicantPhone?: string; portalType?: string; status?: string; ownerProvisioned?: boolean; planInterest?: string; profile?: { fullName?: string; email?: string; phone?: string; company?: string; address?: string; completed?: boolean }; requiredTasks?: Task[]; documents?: DocumentRecord[] };
 
 export default function PortalOnboarding() {
+  const { user, isOwner } = useAuth();
   const [intake, setIntake] = useState<Intake | null>(null);
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +38,14 @@ export default function PortalOnboarding() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const claimRole = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+    const ownerByClaim = ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(claimRole);
+    if (!isOwner && !ownerByClaim) return;
+    const navigate = (window as any).__navigateApp;
+    if (typeof navigate === 'function') navigate('unified-dashboard'); else window.history.replaceState({}, '', '/unified-dashboard');
+  }, [isOwner, user?.id]);
 
   useEffect(() => { load(); }, []);
 

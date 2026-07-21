@@ -248,11 +248,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }).catch((error) => console.error('[Auth] Could not mark portal activation:', error));
       }
 
-      // Don't override demo mode state
-      if (localStorage.getItem('demo_mode') === 'true') {
-        return;
-      }
-      
+      // Always honor the real Supabase session. Demo role previews must never
+      // suppress authentication, onboarding, invitation, or owner routing.
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {

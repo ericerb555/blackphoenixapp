@@ -396,7 +396,7 @@ const isFullBleedPage = (page: string): boolean => FULL_BLEED_PAGES.has(page);
 
 // Protected Route Wrapper Component
 function ProtectedRoutes({ children }: { children: React.ReactNode }) {
-  const { user, loading, userRole } = useAuth();
+  const { user, loading, userRole, isOwner } = useAuth();
   const currentPath = window.location.pathname.slice(1) || 'landing';
   // STRICT: Only landing pages and authentication pages are public
   // Everything else requires authentication
@@ -530,13 +530,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Skip redirect logic if we're in the middle of a role switch
-    const isRoleSwitching = sessionStorage.getItem('role_switching') === 'true';
-    if (isRoleSwitching) {
-      console.log('🔄 [ProtectedRoutes] Role switch in progress, skipping redirect logic');
-      sessionStorage.removeItem('role_switching');
-      return;
-    }
+    // RoleSwitcher is a visual demo tool only. It never pauses or bypasses
+    // real Supabase authentication and route protection.
 
     // Define portal pages list (used for owner redirect check)
     const portalPages = [
@@ -556,6 +551,14 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     const isAuthenticated = !!user;
     console.log('🔐 [ProtectedRoutes] Auth check - User:', !!user, 'Authenticated:', isAuthenticated);
     console.log('📍 [ProtectedRoutes] Current path:', currentPath, 'Is public:', publicRoutes.includes(currentPath));
+
+    // An authenticated Platform Owner must never remain on applicant onboarding,
+    // including a stale URL left open from an earlier portal session.
+    if (!loading && isAuthenticated && isOwner && currentPath === 'portal-onboarding') {
+      window.history.replaceState({}, '', '/unified-dashboard');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
 
     // Redirect to login if not authenticated and trying to access protected route
     if (!loading && !isAuthenticated && !publicRoutes.includes(currentPath)) {
@@ -790,7 +793,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     console.log('✅ [ProtectedRoutes] All portal access allowed - portals handle their own permissions');
     
     console.log('🔒 [ProtectedRoutes] No redirect needed, rendering children');
-  }, [user, loading, currentPath, redirecting]);
+  }, [user, loading, currentPath, redirecting, isOwner]);
 
   // Show loading while checking auth ONLY on initial load (no user yet)
   // If user is already set, skip the loading screen to prevent post-login blink

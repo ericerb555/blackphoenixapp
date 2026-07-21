@@ -903,7 +903,7 @@ async function intakeActor(c: any) {
 
 async function intakeIsAdmin(user: any) {
   if (!user?.id) return false;
-  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase();
+  const metadataRole = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   if (INTAKE_ADMIN_ROLES.has(metadataRole)) return true;
   try {
     const [permissions, memberships] = await Promise.all([
@@ -4613,7 +4613,7 @@ app.get('/make-server-57095a78/auth/me', async (c) => {
     const user = await intakeActor(c);
     if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
     const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
-    const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().trim();
+    const metadataRole = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
     if (!role) {
       try {

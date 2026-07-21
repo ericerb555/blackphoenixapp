@@ -55,29 +55,23 @@ export function initializeOwnerProfile(): void {
     // Save back to localStorage
     localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
 
-    // CRITICAL: Auto-login owner if no current user is logged in
+    // Never create an authenticated or demo session here. This utility may seed
+    // a legacy owner profile for display, but real access must come only from
+    // the Supabase session and server-verified role. Auto-populating a current
+    // profile or demo_mode can suppress the auth listener and cause login/
+    // onboarding routing to use stale browser state.
     const currentUserProfile = localStorage.getItem('currentUserProfile');
-    if (!currentUserProfile) {
-      console.log('👑 No current user - auto-logging in owner');
-      localStorage.setItem('currentUserProfile', JSON.stringify(userProfiles[ownerEmail]));
-      localStorage.setItem('demo_mode', 'true'); // Enable demo mode for owner
-    } else {
-      // Check if current user is owner email - fix account type if wrong
+    if (currentUserProfile) {
       try {
         const current = JSON.parse(currentUserProfile);
-        if (current.email?.toLowerCase() === ownerEmail) {
-          if (current.accountType !== 'owner') {
-            console.log('👑 Current user is owner but wrong accountType - fixing');
-            current.accountType = 'owner';
-            current.fullName = OWNER_PROFILE.fullName;
-            current.phone = OWNER_PROFILE.phone;
-            localStorage.setItem('currentUserProfile', JSON.stringify(current));
-          }
+        if (current.email?.toLowerCase() === ownerEmail && current.accountType !== 'owner') {
+          localStorage.setItem('currentUserProfile', JSON.stringify({ ...current, accountType: 'owner' }));
         }
-      } catch (e) {
-        console.error('Error checking current user:', e);
-      }
+      } catch { /* A corrupt legacy cache must not affect real authentication. */ }
     }
+    // Remove the legacy demo flag created by older builds. RoleSwitcher remains
+    // a view-only tester and cannot disable real auth state updates.
+    localStorage.removeItem('demo_mode');
 
     console.log('🔧 Owner profile initialized successfully');
   } catch (error) {

@@ -86,6 +86,12 @@ export default function Login({ onNavigate }: LoginProps) {
     const isOwnerEmail = email.toLowerCase() === OWNER_EMAIL.toLowerCase();
 
     try {
+      // A real sign-in always exits any legacy demo/role-preview state. Those
+      // tools must never influence the authenticated account's portal routing.
+      localStorage.removeItem('demo_mode');
+      localStorage.removeItem('demo_role_profile');
+      sessionStorage.removeItem('role_switching');
+
       // Persist remember-me before any async work
       if (rememberMe) {
         localStorage.setItem('rememberMe', 'true');
@@ -177,6 +183,17 @@ export default function Login({ onNavigate }: LoginProps) {
       // authenticated the user. Run them in parallel and bound them so an Edge Function
       // timeout cannot leave a mobile sign-in spinner or race the route transition.
       const { data: { session } } = await supabase.auth.getSession();
+      // Prefer the authenticated Supabase claims over any old browser profile.
+      // This keeps Platform Owner access intact even if the Edge Function is
+      // briefly unavailable while the user signs in.
+      const claimedRole = String(session?.user?.app_metadata?.role || session?.user?.user_metadata?.role || session?.user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+      const claimedOwner = ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(claimedRole);
+      if (claimedOwner) {
+        profile.accountType = 'owner';
+        userProfiles[email.toLowerCase()] = profile;
+        localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
+        localStorage.setItem('currentUserProfile', JSON.stringify(profile));
+      }
       let requiresOnboarding = false;
       if (session?.access_token) {
         const optionalJson = async (url: string) => {
@@ -220,7 +237,7 @@ export default function Login({ onNavigate }: LoginProps) {
       // verified identity role and the known owner account so a new phone or an
       // empty local browser profile cannot send the owner to a customer portal.
       const platformOwnerRoles = ['owner', 'master_admin', 'platform_owner', 'business_owner'];
-      const isPlatformOwner = isOwnerEmail || platformOwnerRoles.includes(String(profile.accountType || '').toLowerCase());
+      const isPlatformOwner = isOwnerEmail || claimedOwner || platformOwnerRoles.includes(String(profile.accountType || '').toLowerCase());
 
       // Owners do not go through applicant onboarding; they always land in the
       // Command Center where they can manage every portal and workflow.
