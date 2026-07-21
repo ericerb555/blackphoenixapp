@@ -46,7 +46,9 @@ export default function RewardsPerksHub() {
     }
   })();
 
-  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const canManageReferrals = Boolean((auth as any)?.isAdmin || (auth as any)?.isOwner || (auth as any)?.isMasterAdmin);
+  const visibleTabs = TABS.filter((tab) => tab.id !== 'referrals' || canManageReferrals);
+  const [activeTab, setActiveTab] = useState<TabId>(() => visibleTabs.some((tab) => tab.id === initialTab) ? initialTab : 'loyalty');
   const [showGiftHours, setShowGiftHours] = useState(false);
   const [giftHoursRefresh, setGiftHoursRefresh] = useState(0);
 
@@ -56,7 +58,8 @@ export default function RewardsPerksHub() {
     const syncFromUrl = () => {
       try {
         const t = new URLSearchParams(window.location.search).get('tab') as TabId | null;
-        if (t && TABS.some((x) => x.id === t)) setActiveTab(t);
+        if (t && visibleTabs.some((x) => x.id === t)) setActiveTab(t);
+        else if (t === 'referrals' && !canManageReferrals) setActiveTab('loyalty');
       } catch { /* ignore */ }
     };
     window.addEventListener('popstate', syncFromUrl);
@@ -67,7 +70,7 @@ export default function RewardsPerksHub() {
       window.removeEventListener('popstate', syncFromUrl);
       window.removeEventListener('app:navigate', syncFromUrl as EventListener);
     };
-  }, []);
+  }, [canManageReferrals, visibleTabs]);
 
   // Clicking a tab updates the URL so it stays shareable/deep-linkable.
   const selectTab = (id: TabId) => {
@@ -95,7 +98,7 @@ export default function RewardsPerksHub() {
 
         {/* Tab bar */}
         <div className="flex flex-wrap gap-2 mt-5">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
             return (

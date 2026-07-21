@@ -1,5 +1,6 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { recordEntitlementEvent } from "./entitlements.tsx";
 
 const router = new Hono();
 
@@ -47,7 +48,10 @@ async function attributeAffiliateSale(order: any) {
   const match = affiliates.find(
     (a: any) => String(a?.code || "").trim().toUpperCase() === refCode
   );
-  if (!match) return null;
+  if (!match || !order?.id) return null;
+  const attributionKey = `affiliate_attribution:${String(match.email).toLowerCase()}:${order.id}`;
+  const priorAttribution = await kv.get(attributionKey);
+  if (priorAttribution) return match;
   const revenue = Number(order.total ?? order.amount ?? order.subtotal) || 0;
   const COMMISSION_RATE = 0.10; // 10% store credit per referred sale
   const credit = Math.round(revenue * COMMISSION_RATE * 100) / 100;
@@ -62,6 +66,11 @@ async function attributeAffiliateSale(order: any) {
     date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
   });
   await kv.set(`affiliate:${String(match.email).toLowerCase()}`, match);
+  await kv.set(attributionKey, { orderId: order.id, affiliateEmail: match.email, credit, createdAt: new Date().toISOString() });
+  if (match.planId) await recordEntitlementEvent({
+    planId: match.planId, sourceType: 'adjustment', sourceId: `affiliate:${order.id}`,
+    creditDelta: credit, feature: 'affiliate_credit', featureQuantity: credit, note: `Affiliate credit for order ${order.id}`,
+  });
   console.log(`✅ Attributed order ${order.id} ($${revenue}) to affiliate ${match.email} via code ${refCode} (+$${credit} credit)`);
   return match;
 }
@@ -141,11 +150,17 @@ router.get("/make-server-57095a78/loyalty/:email", async (c) => {
 router.post("/make-server-57095a78/loyalty/:email", async (c) => {
   try {
     const email = decodeURIComponent(c.req.param("email"));
-    const { account } = await c.req.json();
+    const { account, event } = await c.req.json();
     if (!account || typeof account !== "object") {
       return c.json({ success: false, error: "account object is required" }, 400);
     }
+    const eventKey = event?.id ? `loyalty_event:${email.toLowerCase()}:${event.id}` : null;
+    if (eventKey && await kv.get(eventKey)) return c.json({ success: true, duplicate: true });
     await kv.set(loyaltyKey(email), account);
+    if (event?.planId && event?.id) {
+      await recordEntitlementEvent({ planId: event.planId, sourceType: 'adjustment', sourceId: `loyalty:${event.id}`, creditDelta: event.type === 'redeem' ? -Math.abs(Number(event.creditAmount || 0)) : Math.abs(Number(event.creditAmount || 0)), feature: event.type === 'redeem' ? 'loyalty_redeemed' : 'loyalty_earned', featureQuantity: Math.abs(Number(event.creditAmount || 0)), note: event.note || `Loyalty ${event.type || 'activity'}` });
+      await kv.set(eventKey, { id: event.id, type: event.type || 'earn', creditAmount: Number(event.creditAmount || 0), planId: event.planId, createdAt: new Date().toISOString() });
+    }
     return c.json({ success: true });
   } catch (err) {
     console.log("Error saving loyalty account:", err);

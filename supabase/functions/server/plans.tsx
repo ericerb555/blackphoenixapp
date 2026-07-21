@@ -21,6 +21,7 @@
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
 import * as kv from './kv_store.tsx';
+import { recordEntitlementEvent } from './entitlements.tsx';
 
 const plansRouter = new Hono();
 
@@ -253,6 +254,11 @@ plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
       tech: body.tech || null,
     };
     await kv.set(`${USAGE_PREFIX(id)}${entry.id}`, entry);
+    const ledger = await recordEntitlementEvent({
+      planId: id, sourceType: 'work_usage', sourceId: entry.id, hoursDelta: -hours,
+      note: entry.description, workOrderId: body.workOrderId, timeEntryId: body.timeEntryId,
+      contractId: body.contractId, invoiceId: body.invoiceId,
+    });
 
     plan.hours = plan.hours || { included: 0, used: 0, overageRate: 95 };
     plan.hours.used = Number(plan.hours.used || 0) + hours;
@@ -260,7 +266,7 @@ plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
     plan.history = [...(plan.history || []), { ts: now, type: 'usage', note: `${hours}h — ${entry.description}` }];
     await kv.set(`${PLAN_PREFIX}${id}`, plan);
 
-    return c.json({ success: true, entry, hours: plan.hours });
+    return c.json({ success: true, entry, hours: plan.hours, entitlement: ledger.balance });
   } catch (error: any) {
     console.error('[Plans] Usage error:', error);
     return c.json({ success: false, error: error?.message || 'Failed to log usage' }, 500);

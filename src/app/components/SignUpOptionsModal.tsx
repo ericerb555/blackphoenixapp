@@ -31,6 +31,12 @@ interface SignUpOptionsModalProps {
   onClose: () => void;
 }
 
+const readSignupCount = (key: string, fallback: number) => {
+  if (typeof window === 'undefined') return fallback;
+  try { return parseInt(window.localStorage.getItem(key) || String(fallback), 10) || fallback; }
+  catch { return fallback; }
+};
+
 export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsModalProps) {
   const [showCustomerSubscription, setShowCustomerSubscription] = useState(false);
   const [showSubcontractorOnboarding, setShowSubcontractorOnboarding] = useState(false);
@@ -45,11 +51,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
   const [showEmployeeApplication, setShowEmployeeApplication] = useState(false);
 
   // Promotions & sign-up counters (moved from landing page)
-  const [customerSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_customers') || '7'));
-  const [subcontractorSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_subcontractors') || '3'));
-  const [advertiserSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_advertisers') || '2'));
-  const [vendorSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_vendors') || '5'));
-  const [serviceProviderSignUps] = useState<number>(() => parseInt(localStorage.getItem('signUpCount_serviceProviders') || '4'));
+  const [customerSignUps] = useState<number>(() => readSignupCount('signUpCount_customers', 7));
+  const [subcontractorSignUps] = useState<number>(() => readSignupCount('signUpCount_subcontractors', 3));
+  const [advertiserSignUps] = useState<number>(() => readSignupCount('signUpCount_advertisers', 2));
+  const [vendorSignUps] = useState<number>(() => readSignupCount('signUpCount_vendors', 5));
+  const [serviceProviderSignUps] = useState<number>(() => readSignupCount('signUpCount_serviceProviders', 4));
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
 
   const promotions = [
@@ -287,7 +293,8 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
               title: "Employee Portal Application",
               description: "Join our internal team - for admins, project managers, and office staff",
               color: "#06b6d4",
-              apiEndpoint: "/applications/submit",
+              applicationType: "employee",
+              apiEndpoint: "/applications",
               steps: [
                 {
                   title: "Personal Information",
@@ -424,8 +431,9 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
             config={{
               title: "Employment Application",
               description: "Join our team of skilled professionals",
+              applicationType: "employee",
               color: "#ea580c",
-              apiEndpoint: "/applications/submit",
+              apiEndpoint: "/applications",
               steps: [
                 {
                   title: "Personal Information",
@@ -529,8 +537,9 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
             config={{
               title: "Field Tech / Maintenance Tech Application",
               description: "Join our maintenance and field service team",
+              applicationType: "field_technician",
               color: "#16a34a",
-              apiEndpoint: "/applications/submit",
+              apiEndpoint: "/applications",
               steps: [
                 {
                   title: "Personal Information",
@@ -951,7 +960,6 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           onSuccess={() => {
             setShowUniversalSignup(false);
             setSelectedAccountType(null);
-            window.location.href = selectedAccountType.route;
           }}
         />
       )}

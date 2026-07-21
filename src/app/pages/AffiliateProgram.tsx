@@ -4,14 +4,10 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { getLoyaltyAccount } from './LoyaltyProgram';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
-const STORAGE_KEY = 'bp_affiliates';
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const affiliateAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
-const COMMISSION_RATE = 0.10; // 10% store credit per referred sale
-const SIGNUP_BONUS = 500; // points awarded when a referred person joins + buys
 
 interface AffiliateStats {
   email: string;
@@ -33,60 +29,26 @@ interface AffiliateEvent {
   date: string;
 }
 
-function makeCode(email: string) {
-  return 'BP-' + email.split('@')[0].replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase() + Math.floor(Math.random() * 900 + 100);
+async function affiliateRequest(path: string, init: RequestInit = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Please sign in to join or view the affiliate program.');
+  const res = await fetch(`${SERVER}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, ...(init.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) throw new Error(json.error || 'Affiliate request failed.');
+  return json;
 }
 
-// New affiliates start at zero. Clicks, sign-ups, sales and credit accrue from
-// real referred activity (sales are attributed server-side when a customer
-// checks out using this affiliate's code).
-function buildFreshAffiliate(email: string): AffiliateStats {
-  return {
-    email,
-    code: makeCode(email),
-    clicks: 0,
-    signups: 0,
-    conversions: 0,
-    pendingCredit: 0,
-    paidCredit: 0,
-    history: [],
-    joinedAt: new Date().toISOString(),
-  };
-}
-
-function saveAffiliate(stats: AffiliateStats) {
-  localStorage.setItem(`${STORAGE_KEY}_${stats.email}`, JSON.stringify(stats));
-  fetch(`${SERVER}/affiliates/${encodeURIComponent(stats.email)}`, {
-    method: 'POST',
-    headers: affiliateAuthHeaders,
-    body: JSON.stringify({ stats }),
-  }).then(res => res.json()).then(json => {
-    if (!json.success) console.error('Failed to save affiliate stats:', json.error);
-  }).catch(err => console.error('Network error saving affiliate stats:', err));
-}
-
-// Server is source of truth; falls back to local cache, then creates a fresh account.
-async function loadAffiliate(email: string): Promise<AffiliateStats> {
+async function loadAffiliate(email: string): Promise<AffiliateStats | null> {
   try {
-    const res = await fetch(`${SERVER}/affiliates/${encodeURIComponent(email)}`, { headers: affiliateAuthHeaders });
-    const json = await res.json();
-    if (json.success && json.stats) {
-      localStorage.setItem(`${STORAGE_KEY}_${email}`, JSON.stringify(json.stats));
-      return json.stats;
-    }
-    if (!json.success) console.error('Failed to load affiliate stats:', json.error);
+    const json = await affiliateRequest(`/affiliates/${encodeURIComponent(email)}`);
+    return json.stats || null;
   } catch (err) {
     console.error('Network error loading affiliate stats:', err);
+    return null;
   }
-  const local = localStorage.getItem(`${STORAGE_KEY}_${email}`);
-  if (local) {
-    const s = JSON.parse(local) as AffiliateStats;
-    saveAffiliate(s);
-    return s;
-  }
-  const fresh = buildFreshAffiliate(email);
-  saveAffiliate(fresh);
-  return fresh;
 }
 
 const HOW_IT_WORKS = [
@@ -119,12 +81,15 @@ export default function AffiliateProgram() {
   }, [email]);
 
   async function joinAsGuest() {
-    if (!guestEmail.includes('@')) { toast.error('Enter a valid email'); return; }
+    if (!user?.email) { toast.error('Create or sign in to an account before joining the affiliate program.'); return; }
     setJoining(true);
-    const s = await loadAffiliate(guestEmail);
-    setStats(s);
-    setJoining(false);
-    toast.success('Welcome to the affiliate program!');
+    try {
+      const data = await affiliateRequest('/affiliates/join', { method: 'POST', body: JSON.stringify({ name: guestName || name }) });
+      setStats(data.stats);
+      toast.success(data.existing ? 'Your affiliate account is ready.' : 'Welcome to the affiliate program!');
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to join the affiliate program.');
+    } finally { setJoining(false); }
   }
 
   function copyLink() {

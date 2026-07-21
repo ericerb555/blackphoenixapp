@@ -134,7 +134,7 @@ export default function UniversalSignupFlow({
       );
 
       if (response.ok) {
-        toast.success('Account created successfully! Welcome aboard!');
+        toast.success('Application received. We will review your portal access request and follow up shortly.');
         onSuccess();
       } else {
         const error = await response.json();

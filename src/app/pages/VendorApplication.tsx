@@ -130,6 +130,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
       name: formData.companyName,
       company_name: formData.companyName,
       type: formData.businessType,
+      applicationType: 'vendor',
       contact_name: formData.contactName,
       contact_email: formData.email,
       email: formData.email,
@@ -154,7 +155,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
     };
 
     try {
-      const response = await fetch(`${API_BASE}/vendors/apply`, {
+      const response = await fetch(`${API_BASE}/applications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify(vendorData),
@@ -177,8 +178,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
       const existingApps = JSON.parse(localStorage.getItem('vendor_applications_pending') || '[]');
       existingApps.push({ id: tempId, ...vendorData, _offline: true, submitted_at: new Date().toISOString() });
       localStorage.setItem('vendor_applications_pending', JSON.stringify(existingApps));
-      toast.success('Application saved! You\'ll hear from us within 1–3 business days.', { duration: 6000 });
-      if (onNavigate) onNavigate('login');
+      toast.error('We could not submit your application. It is saved only on this device; please try again shortly.', { duration: 7000 });
     } finally {
       setSubmitting(false);
     }

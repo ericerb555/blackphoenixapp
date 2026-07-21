@@ -116,12 +116,13 @@ export default function TerritoryApplication({ onNavigate }: TerritoryApplicatio
         email: formData.email,
         contact_phone: formData.phone,
         phone: formData.phone,
+        applicationType: 'territory_owner',
         desired_territory: `${formData.desiredCity}, ${formData.desiredState} ${formData.desiredZipCode}`,
         ...formData,
       };
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/apply`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/applications`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
@@ -141,8 +142,7 @@ export default function TerritoryApplication({ onNavigate }: TerritoryApplicatio
       const applications = JSON.parse(localStorage.getItem('territory_applications_pending') || '[]');
       applications.push({ id: `TERR-APP-${Date.now()}`, ...formData, _offline: true, submittedAt: new Date().toISOString() });
       localStorage.setItem('territory_applications_pending', JSON.stringify(applications));
-      setSubmitted(true);
-      toast.success('Application saved! We\'ll be in touch shortly.');
+      toast.error('We could not submit your application. It is saved only on this device; please try again shortly.');
     } finally {
       setIsSubmitting(false);
     }

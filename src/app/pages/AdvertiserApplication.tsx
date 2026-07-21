@@ -13,7 +13,8 @@ export default function AdvertiserApplication() {
   const advertiserConfig: ApplicationConfig = {
     title: "Advertiser Application",
     description: "Join our advertising network",
-    apiEndpoint: "/advertisers/apply",
+    apiEndpoint: "/applications",
+    applicationType: "advertiser",
     steps: [
       {
         title: "Contact Information",

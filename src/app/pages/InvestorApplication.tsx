@@ -52,7 +52,8 @@ export default function InvestorApplication() {
   const investorConfig: ApplicationConfig = {
     title: "Investor Application",
     description: "Join our network of property investors",
-    apiEndpoint: "/investors/apply",
+    apiEndpoint: "/applications",
+    applicationType: "investor",
     steps: [
       {
         title: "Personal Information",

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 interface WorkflowItem {
   id: string;
@@ -298,22 +299,21 @@ export default function CodeTracker() {
       const quotes = quotesRes.ok ? await quotesRes.json() : [];
       console.log('Quotes count:', quotes.length);
 
-      // Fetch contracts with error handling
+      // Contracts and invoices contain private financial data, so these use
+      // the active admin session rather than the public anon key.
+      const { data: { session } } = await supabase.auth.getSession();
+      const privateHeaders = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : null;
       console.log('📥 Fetching contracts...');
-      const contractsRes = await fetch(`${API_BASE}/contracts`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-      });
-      console.log('Contracts status:', contractsRes.status);
-      const contracts = contractsRes.ok ? await contractsRes.json() : [];
+      const contractsRes = privateHeaders ? await fetch(`${API_BASE}/contracts`, { headers: privateHeaders }) : null;
+      console.log('Contracts status:', contractsRes?.status);
+      const contractsPayload = contractsRes?.ok ? await contractsRes.json() : { contracts: [] };
+      const contracts = contractsPayload.contracts || [];
       console.log('Contracts count:', contracts.length);
 
-      // Fetch invoices with error handling
       console.log('📥 Fetching invoices...');
-      const invoicesRes = await fetch(`${API_BASE}/invoices`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-      });
-      console.log('Invoices status:', invoicesRes.status);
-      const invoices = invoicesRes.ok ? await invoicesRes.json() : [];
+      const invoicesRes = privateHeaders ? await fetch(`${API_BASE}/invoices`, { headers: privateHeaders }) : null;
+      console.log('Invoices status:', invoicesRes?.status);
+      const invoices = invoicesRes?.ok ? await invoicesRes.json() : [];
       console.log('Invoices count:', invoices.length);
 
       // Build workflow tracking

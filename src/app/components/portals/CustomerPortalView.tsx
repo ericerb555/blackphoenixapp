@@ -136,10 +136,10 @@ export default function CustomerPortalView() {
         const url = new URL(`${API_BASE_URL}/make-server-57095a78/quotes`);
         url.searchParams.append('userId', user.id);
 
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sign in to view invoices.');
         const response = await fetch(url.toString(), {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: { Authorization: `Bearer ${session.access_token}` }
         });
 
         if (response.ok) {
@@ -176,10 +176,10 @@ export default function CustomerPortalView() {
         const url = new URL(`${API_BASE_URL}/make-server-57095a78/invoices`);
         url.searchParams.append('userId', user.id);
 
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sign in to view invoices.');
         const response = await fetch(url.toString(), {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: { Authorization: `Bearer ${session.access_token}` }
         });
 
         if (response.ok) {

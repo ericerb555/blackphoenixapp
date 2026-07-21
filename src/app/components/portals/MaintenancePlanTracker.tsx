@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { listPlans, logPlanUsage } from '../../utils/plansApi';
+import { loadEntitlementSummary } from '../../utils/entitlementsApi';
 import {
   Clock, CheckCircle, AlertTriangle, DollarSign, TrendingUp,
   Plus, ChevronDown, ChevronUp, CreditCard, FileText, Wrench,
@@ -157,7 +158,7 @@ function statusBadge(s: string) {
 function LogHoursModal({ plan, onClose, onSave, cfg }: {
   plan: Plan;
   onClose: () => void;
-  onSave: (entry: Omit<UsageEntry, 'id'>) => void;
+  onSave: (entry: Omit<UsageEntry, 'id'>) => void | Promise<void>;
   cfg: typeof ROLE_CONFIG[PortalRole];
 }) {
   const [desc, setDesc] = useState('');
@@ -167,12 +168,11 @@ function LogHoursModal({ plan, onClose, onSave, cfg }: {
   const [tierId, setTierId] = useState('');
   const [tierRate, setTierRate] = useState(0);
 
-  function submit() {
+  async function submit() {
     if (!desc || !hours) { toast.error('Description and hours are required'); return; }
     const h = parseFloat(hours);
     if (isNaN(h) || h <= 0) { toast.error('Enter a valid number of hours'); return; }
-    onSave({ date, description: desc, hours: h, tech, planId: plan.id, tierId, tierRate });
-    toast.success(`${h}h logged to ${plan.name}`);
+    await onSave({ date, description: desc, hours: h, tech, planId: plan.id, tierId, tierRate });
     onClose();
   }
 
@@ -257,13 +257,12 @@ const ROLE_TO_PORTAL: Partial<Record<PortalRole, string>> = {
 
 export default function MaintenancePlanTracker({ portalRole, ownerName }: Props) {
   const cfg = ROLE_CONFIG[portalRole];
-  const [plans, setPlans] = useState<Plan[]>(() => demoPlan(portalRole));
-  const [usage, setUsage] = useState<Record<string, UsageEntry[]>>(() =>
-    Object.fromEntries(demoPlan(portalRole).map(p => [p.id, demoUsage(p.id)]))
-  );
-  const [payments, setPayments] = useState<Record<string, Payment[]>>(() =>
-    Object.fromEntries(demoPlan(portalRole).map(p => [p.id, demoPayments(p.id)]))
-  );
+  // Start empty: this tracker must show persisted records, never sample balances.
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [usage, setUsage] = useState<Record<string, UsageEntry[]>>({});
+  const [payments, setPayments] = useState<Record<string, Payment[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string>(plans[0]?.id || '');
   const [showLogModal, setShowLogModal] = useState(false);
   const [expandedSection, setExpandedSection] = useState<'usage' | 'payments' | null>('usage');
@@ -280,47 +279,58 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
         if (ownerName) params.owner = ownerName;
         const pt = ROLE_TO_PORTAL[portalRole];
         if (pt) params.portalType = pt;
-        const sp = await listPlans(params);
-        if (cancelled || sp.length === 0) return;
-
-        const mapped: Plan[] = sp.map(p => ({
+        const [sp, entitlementSummary] = await Promise.all([
+          listPlans(params),
+          loadEntitlementSummary(params).catch(() => null),
+        ]);
+        if (cancelled) return;
+        const balanceByPlan = new Map((entitlementSummary?.plans || []).map((row: any) => [row.plan.id, row.balance]));
+        const mapped: Plan[] = sp.map(p => {
+          const balance = balanceByPlan.get(p.id);
+          return ({
           id: p.id,
-          name: p.planName,
-          hoursIncluded: p.hours?.included || 0,
-          hoursUsed: p.hours?.used || 0,
+          name: p.planName || (p as any).name || 'Service Plan',
+          hoursIncluded: Number(balance?.hoursGranted ?? p.hours?.included ?? 0),
+          hoursUsed: Number(balance?.hoursUsed ?? p.hours?.used ?? 0),
           overageRate: p.hours?.overageRate || 95,
           monthlyFee: p.monthlyTotal,
           billingCycle: p.frequencyId === 'annual' ? 'annual' : 'monthly',
           status: (p.status as Plan['status']) || 'active',
           renewsOn: new Date(new Date(p.createdAt).getTime() + 30 * 864e5).toISOString().slice(0, 10),
           property: p.owner || undefined,
-        }));
+        });
+        });
 
-        if (cancelled) return;
         setServerPlanIds(new Set(mapped.map(m => m.id)));
-        setPlans(prev => {
-          // Keep local demo plans that aren't server-backed; put real plans first.
-          const demo = prev.filter(x => !x.id.startsWith('PLAN-'));
-          return [...mapped, ...demo];
-        });
-        setUsage(prev => {
-          const next = { ...prev };
-          for (const m of mapped) if (!next[m.id]) next[m.id] = [];
-          return next;
-        });
+        setPlans(mapped);
+        // Keep the portal ledger view durable across reloads: work entries and
+        // invoice/payment status come from the same server read model as the balance.
+        const rowsByPlan = new Map((entitlementSummary?.plans || []).map((row: any) => [row.plan.id, row]));
+        setUsage(Object.fromEntries(mapped.map(m => [m.id, ((rowsByPlan.get(m.id)?.usageEntries || []) as any[]).map((entry: any) => ({ id: entry.id, date: entry.date || entry.createdAt, description: entry.description || entry.note || 'Service work', hours: Number(entry.hours || Math.abs(Number(entry.hoursDelta || 0))), tech: entry.tech || undefined, planId: m.id } as UsageEntry))])));
+        setPayments(Object.fromEntries(mapped.map(m => [m.id, ((rowsByPlan.get(m.id)?.invoices || []) as any[]).map((invoice: any) => ({ id: invoice.id, date: invoice.paidAt || invoice.createdAt || invoice.date, description: invoice.description || `Invoice ${invoice.invoiceNumber || invoice.id}`, amount: Number(invoice.amountPaid ?? invoice.total ?? invoice.amount ?? 0), status: ['paid', 'completed'].includes(String(invoice.status || invoice.paymentStatus || '').toLowerCase()) ? 'paid' : ['overdue', 'past_due'].includes(String(invoice.status || invoice.paymentStatus || '').toLowerCase()) ? 'overdue' : 'pending', planId: m.id } as Payment))])));
         // If nothing meaningful is selected yet, focus the newest real plan.
-        setSelectedPlan(cur => (cur && !cur.startsWith('plan-') ? cur : mapped[0].id));
+        setSelectedPlan(cur => (cur && mapped.some(plan => plan.id === cur) ? cur : (mapped[0]?.id || '')));
       } catch (err) {
         console.error('[MaintenancePlanTracker] Failed to load server plans:', err);
+        if (!cancelled) setLoadError('Could not load your plan records. Please refresh and try again.');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, 30000);
     return () => { cancelled = true; clearInterval(t); };
   }, [portalRole, ownerName]);
 
   const plan = plans.find(p => p.id === selectedPlan) || plans[0];
-  if (!plan) return null;
+  if (!plan) return (
+    <section className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-6 text-center">
+      <Package className="mx-auto mb-3 h-8 w-8 text-orange-400" />
+      <h2 className="text-lg font-semibold text-white">{cfg.title}</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">{loading ? 'Loading your live plan balance…' : loadError || 'No active plan is assigned to this portal yet.'}</p>
+      {!loading && <button onClick={() => window.location.reload()} className="mt-4 rounded-lg border border-[#3A3A3A] px-4 py-2 text-sm font-medium text-gray-200 transition hover:border-orange-500 hover:text-white">Refresh records</button>}
+    </section>
+  );
 
   const planUsage = usage[plan.id] || [];
   const planPayments = payments[plan.id] || [];
@@ -332,24 +342,22 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
   const usedPct = pct(Math.min(used, plan.hoursIncluded), plan.hoursIncluded);
   const overLimit = used > plan.hoursIncluded;
 
-  function logHours(entry: Omit<UsageEntry, 'id'>) {
-    const id = `u${Date.now()}`;
-    setUsage(prev => ({ ...prev, [plan.id]: [{ ...entry, id }, ...(prev[plan.id] || [])] }));
-    setPlans(prev => prev.map(p =>
-      p.id === plan.id ? { ...p, hoursUsed: +(p.hoursUsed + entry.hours).toFixed(2) } : p
-    ));
-    // For real (server-backed) plans, persist usage to the shared source of truth
-    // so it reflects in the live portal panel and the command center.
-    if (serverPlanIds.has(plan.id)) {
-      logPlanUsage(plan.id, {
-        hours: entry.hours,
-        description: entry.description,
-        tech: entry.tech,
-        date: entry.date,
-      }).catch(err => {
-        console.error('[MaintenancePlanTracker] Failed to persist usage:', err);
-        toast.error('Logged locally, but could not sync hours to the server.');
+  async function logHours(entry: Omit<UsageEntry, 'id'>) {
+    if (!serverPlanIds.has(plan.id)) {
+      toast.error('This plan is not connected to a saved account record.');
+      return;
+    }
+    try {
+      const hours = await logPlanUsage(plan.id, {
+        hours: entry.hours, description: entry.description, tech: entry.tech, date: entry.date,
       });
+      const id = `u${Date.now()}`;
+      setUsage(prev => ({ ...prev, [plan.id]: [{ ...entry, id }, ...(prev[plan.id] || [])] }));
+      setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, hoursIncluded: hours.included, hoursUsed: hours.used, overageRate: hours.overageRate } : p));
+      toast.success('Hours were recorded to the shared plan ledger.');
+    } catch (err) {
+      console.error('[MaintenancePlanTracker] Failed to persist usage:', err);
+      toast.error('Hours were not recorded. Please try again.');
     }
   }
 

@@ -238,7 +238,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getSessionWithTimeout();
 
     // Set up auth state listener (only once)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // A password-setup invitation signs the user in. Record that first real
+      // portal login server-side and complete the approved intake checklist.
+      if (event === 'SIGNED_IN' && session?.access_token) {
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/complete-onboarding`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        }).catch((error) => console.error('[Auth] Could not mark portal activation:', error));
+      }
+
       // Don't override demo mode state
       if (localStorage.getItem('demo_mode') === 'true') {
         return;

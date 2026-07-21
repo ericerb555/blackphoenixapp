@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Gift, Users, DollarSign, Plus, TrendingUp, Award, Search, Edit2, Share2, Copy, ArrowLeft, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { useAuth } from '../contexts/AuthContext';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface Referral {
   id: string;
@@ -24,59 +24,44 @@ interface Program {
   active: boolean;
 }
 
-const DEFAULT_REFERRALS: Referral[] = [
-  { id: 'REF-001', referrer: 'Sarah Johnson', referred: 'Mike Williams', status: 'rewarded', reward: 500, date: '2026-01-20', code: 'SJ2026' },
-  { id: 'REF-002', referrer: 'Robert Chen', referred: 'Lisa Martinez', status: 'converted', reward: 500, date: '2026-01-18', code: 'RC2026' },
-  { id: 'REF-003', referrer: 'Emily Williams', referred: 'John Davis', status: 'pending', reward: 500, date: '2026-01-15', code: 'EW2026' },
-];
-
-const DEFAULT_PROGRAMS: Program[] = [
-  { id: 'prog-1', name: 'Customer Referral', reward: '$500', referrals: 32, active: true },
-  { id: 'prog-2', name: 'VIP Referral', reward: '$1,000', referrals: 12, active: true },
-  { id: 'prog-3', name: 'Partner Referral', reward: '$750', referrals: 4, active: true },
-];
 
 export default function ReferralRewards() {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const { session } = useAuth();
   const [form, setForm] = useState({ name: '', reward: '' });
 
+  async function request(path: string, init: RequestInit = {}) {
+    if (!session?.access_token) throw new Error('Sign in with an administrator account to manage referrals.');
+    const res = await fetch(`${SERVER}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, ...(init.headers || {}) },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.success === false) throw new Error(json.error || 'Referral request failed.');
+    return json;
+  }
+
   useEffect(() => {
+    if (!session?.access_token) { setReferrals([]); setPrograms([]); return; }
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/referrals`, { headers: authHeaders });
-        const json = await res.json();
-        if (json.success) {
-          const r = Array.isArray(json.referrals) && json.referrals.length ? json.referrals : DEFAULT_REFERRALS;
-          const p = Array.isArray(json.programs) && json.programs.length ? json.programs : DEFAULT_PROGRAMS;
-          setReferrals(r);
-          setPrograms(p);
-          if (!Array.isArray(json.referrals) || !json.referrals.length || !Array.isArray(json.programs) || !json.programs.length) {
-            persist(r, p);
-          }
-        } else {
-          console.error('Failed to load referrals:', json.error);
-          setReferrals(DEFAULT_REFERRALS);
-          setPrograms(DEFAULT_PROGRAMS);
-        }
-      } catch (err) {
-        console.error('Network error loading referrals:', err);
-        setReferrals(DEFAULT_REFERRALS);
-        setPrograms(DEFAULT_PROGRAMS);
+        const json = await request('/referrals');
+        setReferrals(Array.isArray(json.referrals) ? json.referrals : []);
+        setPrograms(Array.isArray(json.programs) ? json.programs : []);
+      } catch (err: any) {
+        toast.error(err.message || 'Unable to load referral programs.');
+        setReferrals([]); setPrograms([]);
       }
     })();
-  }, []);
+  }, [session?.access_token]);
 
   async function persist(r: Referral[], p: Program[]) {
     try {
-      const res = await fetch(`${SERVER}/referrals`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ referrals: r, programs: p }) });
-      const json = await res.json();
-      if (!json.success) console.error('Failed to save referrals:', json.error);
-    } catch (err) {
-      console.error('Network error saving referrals:', err);
-    }
+      await request('/referrals', { method: 'POST', body: JSON.stringify({ referrals: r, programs: p }) });
+    } catch (err: any) { toast.error(err.message || 'Unable to save referral programs.'); }
   }
 
   function createProgram() {

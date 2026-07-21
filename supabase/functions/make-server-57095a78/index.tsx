@@ -812,100 +812,184 @@ app.delete('/make-server-57095a78/companies/:id', async (c) => {
 
 // ============================================
 // APPLICATIONS
+// Public applications are the entry point for technician, employee, vendor,
+// and partner workflows.  Keep the application, CRM contact, and pipeline lead
+// in sync here so an accepted browser request is never "successfully" lost.
 // ============================================
+const APPLICATIONS_KEY = 'applications';
+const CRM_CONTACTS_KEY = 'crm_contacts:default';
+const LEADS_KEY = 'leads:all';
 
-// Submit application
+function cleanApplicationText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function applicationApplicant(data: Record<string, unknown>) {
+  const name = cleanApplicationText(data.name) || cleanApplicationText(data.contact_name) ||
+    [cleanApplicationText(data.firstName), cleanApplicationText(data.lastName)].filter(Boolean).join(' ');
+  const email = (cleanApplicationText(data.email) || cleanApplicationText(data.contact_email)).toLowerCase();
+  const phone = cleanApplicationText(data.phone) || cleanApplicationText(data.contact_phone);
+  const location = [cleanApplicationText(data.city), cleanApplicationText(data.state)].filter(Boolean).join(', ') || cleanApplicationText(data.address);
+  return { name, email, phone, location };
+}
+
+async function saveApplicationAndCrm(data: Record<string, unknown>) {
+  const applicant = applicationApplicant(data);
+  if (!applicant.name || !applicant.email || !applicant.phone) {
+    throw new Error('Name, email, and phone are required.');
+  }
+
+  const now = new Date().toISOString();
+  const applicationType = cleanApplicationText(data.applicationType) || cleanApplicationText(data.type) || 'general';
+  const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+  const existingIndex = applications.findIndex((application: any) =>
+    String(application.email || application.contact_email || '').toLowerCase() === applicant.email &&
+    application.applicationType === applicationType &&
+    application.status === 'pending',
+  );
+  const id = existingIndex >= 0 ? applications[existingIndex].id : crypto.randomUUID();
+  const application = {
+    ...(existingIndex >= 0 ? applications[existingIndex] : {}),
+    ...data,
+    id,
+    applicationType,
+    type: applicationType,
+    name: applicant.name,
+    email: applicant.email,
+    phone: applicant.phone,
+    status: existingIndex >= 0 ? applications[existingIndex].status : 'pending',
+    submittedAt: existingIndex >= 0 ? applications[existingIndex].submittedAt : now,
+    updatedAt: now,
+  };
+  if (existingIndex >= 0) applications[existingIndex] = application;
+  else applications.unshift(application);
+  await kv.set(APPLICATIONS_KEY, applications);
+
+  const contacts: any[] = (await kv.get(CRM_CONTACTS_KEY)) || [];
+  const contactIndex = contacts.findIndex((contact: any) => String(contact.email || '').toLowerCase() === applicant.email);
+  const contact = {
+    ...(contactIndex >= 0 ? contacts[contactIndex] : {}),
+    id: contactIndex >= 0 ? contacts[contactIndex].id : `applicant_${id}`,
+    name: applicant.name,
+    email: applicant.email,
+    phone: applicant.phone,
+    company: cleanApplicationText(data.companyName) || cleanApplicationText(data.company_name) || undefined,
+    location: applicant.location || undefined,
+    type: applicationType === 'field_technician' ? 'employee' : 'partner',
+    status: 'lead',
+    source: 'application',
+    tags: Array.from(new Set([...(contactIndex >= 0 && Array.isArray(contacts[contactIndex].tags) ? contacts[contactIndex].tags : []), 'application', applicationType])),
+    applicationId: id,
+    updatedAt: now,
+    createdAt: contactIndex >= 0 ? contacts[contactIndex].createdAt : now,
+  };
+  if (contactIndex >= 0) contacts[contactIndex] = contact;
+  else contacts.unshift(contact);
+  await kv.set(CRM_CONTACTS_KEY, contacts);
+
+  const leads: any[] = (await kv.get(LEADS_KEY)) || [];
+  const leadIndex = leads.findIndex((lead: any) => String(lead.email || '').toLowerCase() === applicant.email);
+  const lead = {
+    ...(leadIndex >= 0 ? leads[leadIndex] : {}),
+    id: leadIndex >= 0 ? leads[leadIndex].id : `application_lead_${id}`,
+    name: applicant.name,
+    email: applicant.email,
+    phone: applicant.phone,
+    source: 'application',
+    applicationId: id,
+    applicationType,
+    status: 'new',
+    intent: 'warm',
+    score: 70,
+    lastSeen: now,
+    capturedAt: leadIndex >= 0 ? leads[leadIndex].capturedAt : now,
+    tags: Array.from(new Set([...(leadIndex >= 0 && Array.isArray(leads[leadIndex].tags) ? leads[leadIndex].tags : []), 'application', applicationType])),
+  };
+  if (leadIndex >= 0) leads[leadIndex] = lead;
+  else leads.unshift(lead);
+  await kv.set(LEADS_KEY, leads);
+
+  return { application, contact, updated: existingIndex >= 0 };
+}
+
 app.post('/make-server-57095a78/applications', async (c) => {
   try {
     const applicationData = await c.req.json();
-
-    // Get existing applications or initialize empty array
-    const applications = await kv.get('applications') || [];
-
-    // Create new application with metadata
-    const newApplication = {
-      id: crypto.randomUUID(),
-      ...applicationData,
-      status: 'pending',
-      submittedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    // Add to applications array
-    applications.push(newApplication);
-
-    // Save back to KV store
-    await kv.set('applications', applications);
-
-    console.log('Application submitted successfully:', newApplication.id);
-
+    const { application, updated } = await saveApplicationAndCrm(applicationData);
     return c.json({
       success: true,
-      applicationId: newApplication.id,
-      message: 'Application submitted successfully'
+      applicationId: application.id,
+      application,
+      message: updated ? 'Your application has been updated and is in review.' : 'Application received. Our team will review it and follow up soon.',
     });
   } catch (error: any) {
-    console.error('Error submitting application:', error);
-    return c.json({ error: `Application submission error: ${error.message}` }, 500);
+    console.error('Application submission error:', error);
+    return c.json({ success: false, error: error.message || 'Unable to submit application.' }, 400);
   }
 });
 
-// Get all applications
+// Backward-compatible endpoint used by earlier public application forms.
+app.post('/make-server-57095a78/applications/submit', async (c) => {
+  try {
+    const applicationData = await c.req.json();
+    const { application, updated } = await saveApplicationAndCrm(applicationData);
+    return c.json({ success: true, applicationId: application.id, application, message: updated ? 'Your application has been updated and is in review.' : 'Application received. Our team will review it and follow up soon.' });
+  } catch (error: any) {
+    console.error('Application submission error:', error);
+    return c.json({ success: false, error: error.message || 'Unable to submit application.' }, 400);
+  }
+});
+
 app.get('/make-server-57095a78/applications', async (c) => {
   try {
-    const applications = await kv.get('applications') || [];
-    return c.json(applications);
+    const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+    return c.json({ success: true, applications, total: applications.length });
   } catch (error: any) {
     console.error('Error fetching applications:', error);
-    return c.json({ error: error.message }, 500);
+    return c.json({ success: false, error: error.message, applications: [] }, 500);
   }
 });
 
-// Get application by ID
 app.get('/make-server-57095a78/applications/:id', async (c) => {
   try {
-    const id = c.req.param('id');
-    const applications = await kv.get('applications') || [];
-    const application = applications.find((app: any) => app.id === id);
-
-    if (!application) {
-      return c.json({ error: 'Application not found' }, 404);
-    }
-
-    return c.json(application);
+    const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === c.req.param('id'));
+    if (!application) return c.json({ success: false, error: 'Application not found' }, 404);
+    return c.json({ success: true, application });
   } catch (error: any) {
-    console.error('Error fetching application:', error);
-    return c.json({ error: error.message }, 500);
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
 
-// Update application status
 app.patch('/make-server-57095a78/applications/:id', async (c) => {
   try {
-    const id = c.req.param('id');
-    const updateData = await c.req.json();
-    const applications = await kv.get('applications') || [];
-
-    const index = applications.findIndex((app: any) => app.id === id);
-    if (index === -1) {
-      return c.json({ error: 'Application not found' }, 404);
-    }
-
-    applications[index] = {
-      ...applications[index],
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    };
-
-    await kv.set('applications', applications);
-
-    return c.json({
-      success: true,
-      application: applications[index]
-    });
+    const patch = await c.req.json();
+    const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+    const index = applications.findIndex((item: any) => item.id === c.req.param('id'));
+    if (index < 0) return c.json({ success: false, error: 'Application not found' }, 404);
+    applications[index] = { ...applications[index], ...patch, id: applications[index].id, updatedAt: new Date().toISOString() };
+    await kv.set(APPLICATIONS_KEY, applications);
+    return c.json({ success: true, application: applications[index] });
   } catch (error: any) {
-    console.error('Error updating application:', error);
-    return c.json({ error: error.message }, 500);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.get('/make-server-57095a78/crm/contacts', async (c) => {
+  try {
+    return c.json({ success: true, contacts: (await kv.get(CRM_CONTACTS_KEY)) || [], hidden: [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.post('/make-server-57095a78/crm/contacts', async (c) => {
+  try {
+    const { contacts, hidden } = await c.req.json();
+    if (Array.isArray(contacts)) await kv.set(CRM_CONTACTS_KEY, contacts);
+    if (Array.isArray(hidden)) await kv.set('crm_hidden_ids:default', hidden);
+    return c.json({ success: true, contacts, hidden });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
 
@@ -3386,6 +3470,498 @@ app.delete('/make-server-57095a78/leads/:id', async (c) => {
     await kv.set('leads:all', leads.filter((l: any) => l.id !== id));
     return c.json({ success: true });
   } catch (e: any) { return c.json({ error: e.message }, 500); }
+});
+
+
+// ============================================
+// GIFT CARDS — PURCHASE, ISSUANCE, BALANCE & REDEMPTION
+// ============================================
+// Gift-card value is issued only after Stripe confirms payment. A browser can
+// create a pending checkout, but it can never mark its own card as paid.
+const GIFT_CARD_PREFIX = 'giftcard:';
+const GIFT_PURCHASE_PREFIX = 'giftcard_purchase:';
+const GIFT_REDEMPTION_PREFIX = 'giftcard_redemption:';
+
+function normalizeGiftCardCode(value: unknown) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function formatGiftCardCode(value: unknown) {
+  const normalized = normalizeGiftCardCode(value);
+  return normalized.match(/.{1,4}/g)?.join('-') || '';
+}
+
+function createGiftCardCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const values = crypto.getRandomValues(new Uint8Array(16));
+  return formatGiftCardCode(Array.from(values, (value) => alphabet[value % alphabet.length]).join(''));
+}
+
+function validGiftCardEmail(value: unknown) {
+  return typeof value === 'string' && /^\S+@\S+\.\S+$/.test(value.trim());
+}
+
+function money(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+}
+
+async function stripeCheckoutSession(params: URLSearchParams) {
+  const stripeKey = Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
+  if (!stripeKey) throw new Error('Stripe gift-card checkout is not configured. Add STRIPE_SECRET_KEY_SERVICES to Supabase secrets.');
+  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${btoa(`${stripeKey}:`)}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || 'Unable to start secure Stripe checkout.');
+  return payload;
+}
+
+async function retrieveStripeCheckoutSession(sessionId: string) {
+  const stripeKey = Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
+  if (!stripeKey) throw new Error('Stripe gift-card checkout is not configured.');
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { Authorization: `Basic ${btoa(`${stripeKey}:`)}` },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || 'Unable to verify Stripe payment.');
+  return payload;
+}
+
+async function deliverGiftCardEmail(card: any, recipientEmail: string) {
+  const resendKey = Deno.env.get('RESEND_API_KEY') || '';
+  const from = Deno.env.get('GIFT_CARD_FROM_EMAIL') || Deno.env.get('RESEND_FROM_EMAIL') || '';
+  if (!resendKey || !from || !recipientEmail) return { attempted: false, delivered: false };
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [recipientEmail],
+      subject: `You've received a $${Number(card.amount).toFixed(2)} Black Phoenix gift card`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto"><h1 style="color:#ea580c">A gift from Black Phoenix</h1><p>${card.from || 'Someone special'} sent you a $${Number(card.amount).toFixed(2)} gift card.</p><p><strong>Code: ${card.code}</strong></p>${card.message ? `<blockquote>${card.message}</blockquote>` : ''}<p>Use this code at checkout with Black Phoenix.</p></div>`,
+    }),
+  });
+  return { attempted: true, delivered: response.ok };
+}
+
+async function issuePaidGiftCard(purchase: any) {
+  if (purchase.status === 'paid' && purchase.cardCode) {
+    const existing = await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(purchase.cardCode)}`);
+    if (existing) return existing;
+  }
+
+  const now = new Date().toISOString();
+  const code = purchase.cardCode || createGiftCardCode();
+  const card = {
+    id: purchase.cardId || crypto.randomUUID(),
+    code,
+    amount: money(purchase.amount),
+    balance: money(purchase.amount),
+    from: purchase.senderName || 'Anonymous',
+    to: purchase.recipientName || 'Friend',
+    recipientEmail: String(purchase.recipientEmail || '').toLowerCase(),
+    purchaserEmail: String(purchase.purchaserEmail || '').toLowerCase(),
+    message: String(purchase.message || ''),
+    design: purchase.design || 'classic',
+    planId: purchase.planId || null,
+    status: 'active',
+    purchasedAt: purchase.createdAt || now,
+    issuedAt: now,
+    stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+    redeemedAmount: 0,
+    redemptionHistory: [],
+  };
+  await kv.set(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(code)}`, card);
+  for (const email of new Set([card.recipientEmail, card.purchaserEmail].filter(Boolean))) {
+    const indexKey = `giftcard_owner:${email}`;
+    const codes: string[] = (await kv.get(indexKey)) || [];
+    if (!codes.includes(code)) await kv.set(indexKey, [code, ...codes]);
+  }
+  purchase.status = 'paid';
+  purchase.cardCode = code;
+  purchase.cardId = card.id;
+  purchase.paidAt = now;
+  purchase.updatedAt = now;
+  const email = await deliverGiftCardEmail(card, card.recipientEmail);
+  purchase.emailDelivery = email;
+  await kv.set(`${GIFT_PURCHASE_PREFIX}${purchase.id}`, purchase);
+  return card;
+}
+
+app.post('/make-server-57095a78/gift-cards/checkout', async (c) => {
+  try {
+    const body = await c.req.json();
+    const amount = money(body.amount);
+    if (amount < 10 || amount > 500) return c.json({ success: false, error: 'Gift card amount must be between $10 and $500.' }, 400);
+    if (!validGiftCardEmail(body.recipientEmail)) return c.json({ success: false, error: 'A valid recipient email is required.' }, 400);
+
+    const idempotencyKey = String(body.idempotencyKey || crypto.randomUUID()).slice(0, 128);
+    const purchaseKey = `${GIFT_PURCHASE_PREFIX}${idempotencyKey}`;
+    let purchase = await kv.get(purchaseKey) as any;
+    if (purchase?.status === 'paid') return c.json({ success: true, purchase, card: await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(purchase.cardCode)}`) });
+
+    if (!purchase) {
+      purchase = {
+        id: idempotencyKey,
+        status: 'pending_payment',
+        amount,
+        recipientName: String(body.recipientName || 'Friend').slice(0, 120),
+        recipientEmail: String(body.recipientEmail).toLowerCase().trim(),
+        senderName: String(body.senderName || 'Anonymous').slice(0, 120),
+        purchaserEmail: validGiftCardEmail(body.purchaserEmail) ? String(body.purchaserEmail).toLowerCase().trim() : '',
+        message: String(body.message || '').slice(0, 1000),
+        design: ['classic', 'celebrate', 'love', 'birthday'].includes(body.design) ? body.design : 'classic',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const session = await stripeCheckoutSession(new URLSearchParams({
+      'payment_method_types[]': 'card',
+      mode: 'payment',
+      success_url: `${appUrl}/gift-cards?gift_purchase_id=${encodeURIComponent(purchase.id)}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/gift-cards`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': `Black Phoenix Gift Card — $${amount.toFixed(2)}`,
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1',
+      customer_email: purchase.purchaserEmail || purchase.recipientEmail,
+      'metadata[gift_card_purchase_id]': purchase.id,
+    }));
+    purchase.stripeCheckoutSessionId = session.id;
+    purchase.checkoutUrl = session.url;
+    purchase.updatedAt = new Date().toISOString();
+    await kv.set(purchaseKey, purchase);
+    return c.json({ success: true, purchaseId: purchase.id, checkoutUrl: session.url });
+  } catch (error: any) {
+    console.error('[Gift cards] checkout error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to start secure gift-card checkout.' }, 500);
+  }
+});
+
+app.get('/make-server-57095a78/gift-cards/purchases/:id/confirm', async (c) => {
+  try {
+    const purchase = await kv.get(`${GIFT_PURCHASE_PREFIX}${c.req.param('id')}`) as any;
+    if (!purchase) return c.json({ success: false, error: 'Gift-card purchase not found.' }, 404);
+    if (purchase.status === 'paid') return c.json({ success: true, purchase, card: await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(purchase.cardCode)}`) });
+
+    const sessionId = String(c.req.query('session_id') || '');
+    if (!sessionId || sessionId !== purchase.stripeCheckoutSessionId) return c.json({ success: false, error: 'Payment session does not match this gift-card purchase.' }, 400);
+    const session = await retrieveStripeCheckoutSession(sessionId);
+    if (session.payment_status !== 'paid') return c.json({ success: false, pending: true, purchase, error: 'Stripe has not confirmed this payment yet.' }, 409);
+    const card = await issuePaidGiftCard(purchase);
+    return c.json({ success: true, purchase, card });
+  } catch (error: any) {
+    console.error('[Gift cards] confirmation error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to confirm gift-card payment.' }, 500);
+  }
+});
+
+app.get('/make-server-57095a78/gift-cards/owner/:email', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ success: false, error: 'Sign in to view your gift cards.' }, 401);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user?.email) return c.json({ success: false, error: 'Sign in to view your gift cards.' }, 401);
+    const email = String(c.req.param('email') || '').toLowerCase().trim();
+    if (user.email.toLowerCase() !== email) return c.json({ success: false, error: 'You may only view gift cards assigned to your account.' }, 403);
+    const codes: string[] = (await kv.get(`giftcard_owner:${email}`)) || [];
+    const cards = (await Promise.all(codes.map((code) => kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(code)}`))))
+      .filter((card: any) => card && card.status === 'active')
+      .map((card: any) => ({ ...card, recipientEmail: undefined, purchaserEmail: undefined }));
+    return c.json({ success: true, cards });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load gift cards.' }, 500);
+  }
+});
+
+app.get('/make-server-57095a78/gift-cards/:code', async (c) => {
+  try {
+    const card = await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(c.req.param('code'))}`) as any;
+    if (!card || card.status !== 'active') return c.json({ success: false, error: 'Gift card not found or inactive.' }, 404);
+    return c.json({ success: true, card: { ...card, recipientEmail: undefined, purchaserEmail: undefined } });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load gift card.' }, 500);
+  }
+});
+
+app.post('/make-server-57095a78/gift-cards/:code/redeem', async (c) => {
+  try {
+    const body = await c.req.json();
+    const code = normalizeGiftCardCode(c.req.param('code'));
+    const amount = money(body.amount);
+    const redemptionId = String(body.idempotencyKey || body.redemptionId || '');
+    const orderReference = String(body.orderId || body.invoiceId || body.checkoutId || '');
+    if (!redemptionId || !orderReference) return c.json({ success: false, error: 'A stable redemption ID and order, invoice, or checkout reference are required.' }, 400);
+    if (amount <= 0) return c.json({ success: false, error: 'A positive redemption amount is required.' }, 400);
+    const redemptionKey = `${GIFT_REDEMPTION_PREFIX}${code}:${redemptionId}`;
+    const prior = await kv.get(redemptionKey);
+    if (prior) return c.json({ success: true, duplicate: true, redemption: prior, card: await kv.get(`${GIFT_CARD_PREFIX}${code}`) });
+
+    const card = await kv.get(`${GIFT_CARD_PREFIX}${code}`) as any;
+    if (!card || card.status !== 'active') return c.json({ success: false, error: 'Gift card not found or inactive.' }, 404);
+    if (money(card.balance) < amount) return c.json({ success: false, error: 'Gift card balance is too low for this redemption.' }, 409);
+    const redemption = { id: redemptionId, amount, orderReference, redeemedAt: new Date().toISOString() };
+    card.balance = money(money(card.balance) - amount);
+    card.redeemedAmount = money(money(card.redeemedAmount) + amount);
+    card.redemptionHistory = [...(Array.isArray(card.redemptionHistory) ? card.redemptionHistory : []), redemption];
+    if (card.balance === 0) card.redeemedAt = redemption.redeemedAt;
+    await kv.set(`${GIFT_CARD_PREFIX}${code}`, card);
+    await kv.set(redemptionKey, redemption);
+    return c.json({ success: true, redemption, card });
+  } catch (error: any) {
+    console.error('[Gift cards] redemption error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to redeem gift card.' }, 500);
+  }
+});
+
+
+// ============================================
+// REWARDS — REFERRALS, LOYALTY & AFFILIATES
+// ============================================
+const REWARDS_ADMIN_ROLES = new Set(['owner', 'admin', 'master_admin', 'management']);
+
+async function rewardsActor(c: any) {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  return error || !user ? null : user;
+}
+
+async function rewardsAdmin(user: any) {
+  if (!user?.id) return false;
+  const { data, error } = await supabase.from('user_permissions').select('role_name').eq('user_id', user.id);
+  if (error) return false;
+  return (data || []).some((row: any) => REWARDS_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
+}
+
+function rewardsEmail(value: unknown) {
+  return String(value || '').toLowerCase().trim();
+}
+
+function rewardId(prefix: string) {
+  return `${prefix}_${crypto.randomUUID()}`;
+}
+
+function referralCodeFor(email: string) {
+  const safe = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 5) || 'PHX';
+  const random = crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(-5).toUpperCase();
+  return `${safe}${random}`;
+}
+
+function loyaltyTier(lifetimeSpend: number): 'bronze' | 'silver' | 'gold' | 'phoenix' {
+  if (lifetimeSpend >= 1000) return 'phoenix';
+  if (lifetimeSpend >= 500) return 'gold';
+  if (lifetimeSpend >= 250) return 'silver';
+  return 'bronze';
+}
+
+function publicLoyaltyAccount(account: any) {
+  // This account is returned only to its authenticated owner or an administrator.
+  return { ...account };
+}
+
+async function ownRewardsAccount(c: any, email: string) {
+  const user = await rewardsActor(c);
+  if (!user?.email) return { user: null, admin: false };
+  return { user, admin: await rewardsAdmin(user) };
+}
+
+// Owner/admin referral-program view. Program creation and status changes are
+// deliberately not exposed to anonymous browsers.
+app.get('/make-server-57095a78/referrals', async (c) => {
+  try {
+    const user = await rewardsActor(c);
+    if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    return c.json({ success: true, referrals: (await kv.get('referrals:all')) || [], programs: (await kv.get('referral_programs:all')) || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load referrals.' }, 500);
+  }
+});
+
+app.post('/make-server-57095a78/referrals', async (c) => {
+  try {
+    const user = await rewardsActor(c);
+    if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json();
+    if (!Array.isArray(body.referrals) || !Array.isArray(body.programs)) return c.json({ success: false, error: 'Both referrals and programs are required.' }, 400);
+    await kv.set('referrals:all', body.referrals);
+    await kv.set('referral_programs:all', body.programs);
+    return c.json({ success: true, referrals: body.referrals, programs: body.programs });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to save referrals.' }, 500);
+  }
+});
+
+app.get('/make-server-57095a78/loyalty/:email', async (c) => {
+  try {
+    const email = rewardsEmail(c.req.param('email'));
+    const { user, admin } = await ownRewardsAccount(c, email);
+    if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to view your loyalty account.' }, 403);
+    const account = await kv.get(`loyalty:${email}`);
+    return c.json({ success: true, account: account ? publicLoyaltyAccount(account) : null });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load loyalty account.' }, 500);
+  }
+});
+
+app.post('/make-server-57095a78/loyalty/:email/join', async (c) => {
+  try {
+    const email = rewardsEmail(c.req.param('email'));
+    const { user, admin } = await ownRewardsAccount(c, email);
+    if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to join loyalty.' }, 403);
+    const existing = await kv.get(`loyalty:${email}`);
+    if (existing) return c.json({ success: true, account: publicLoyaltyAccount(existing), existing: true });
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+    const account = {
+      email, name: String(body.name || user.user_metadata?.full_name || email.split('@')[0]).slice(0, 120),
+      points: 50, lifetimePoints: 50, lifetimeSpend: 0, tier: 'bronze', joinedAt: now,
+      referralCode: referralCodeFor(email), redeemedCodes: [],
+      history: [{ id: rewardId('loyalty'), type: 'bonus', points: 50, description: 'Welcome bonus — thanks for joining!', date: now }],
+    };
+    await kv.set(`loyalty:${email}`, account);
+    await kv.set(`loyalty_referral:${account.referralCode}`, email);
+    return c.json({ success: true, account: publicLoyaltyAccount(account) }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to join loyalty.' }, 500);
+  }
+});
+
+app.post('/make-server-57095a78/loyalty/:email/redeem', async (c) => {
+  try {
+    const email = rewardsEmail(c.req.param('email'));
+    const { user, admin } = await ownRewardsAccount(c, email);
+    if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to redeem loyalty points.' }, 403);
+    const body = await c.req.json();
+    const reward = body.reward || {};
+    const cost = Math.floor(Number(reward.points));
+    const idempotencyKey = String(body.idempotencyKey || '');
+    if (!idempotencyKey || !reward.id || !Number.isFinite(cost) || cost <= 0) return c.json({ success: false, error: 'A reward and stable redemption ID are required.' }, 400);
+    const eventKey = `loyalty_redemption:${email}:${idempotencyKey}`;
+    const existingEvent = await kv.get(eventKey);
+    const account = await kv.get(`loyalty:${email}`);
+    if (!account) return c.json({ success: false, error: 'Join the loyalty program first.' }, 404);
+    if (existingEvent) return c.json({ success: true, duplicate: true, account: publicLoyaltyAccount(account), redemption: existingEvent });
+    if (Number(account.points) < cost) return c.json({ success: false, error: 'Not enough points for this reward.' }, 409);
+    const event = { id: rewardId('loyalty'), type: 'redeem', points: -cost, description: String(reward.label || 'Loyalty reward'), date: new Date().toISOString(), rewardId: reward.id, code: reward.code || null };
+    account.points -= cost;
+    account.redeemedCodes = Array.from(new Set([...(account.redeemedCodes || []), reward.code].filter(Boolean)));
+    account.history = [event, ...(account.history || [])];
+    await kv.set(`loyalty:${email}`, account);
+    await kv.set(eventKey, event);
+    return c.json({ success: true, account: publicLoyaltyAccount(account), redemption: event });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to redeem reward.' }, 500);
+  }
+});
+
+// Purchase/invoice integrations call this trusted route from the server with a
+// configured secret. The browser cannot mint loyalty points.
+app.post('/make-server-57095a78/loyalty/events', async (c) => {
+  try {
+    const secret = Deno.env.get('LOYALTY_EVENT_SECRET') || '';
+    if (!secret || c.req.header('X-Loyalty-Event-Secret') !== secret) return c.json({ success: false, error: 'Unauthorized reward event.' }, 401);
+    const body = await c.req.json();
+    const email = rewardsEmail(body.email);
+    const eventId = String(body.eventId || body.orderId || body.invoiceId || '');
+    const spend = Number(body.spend || 0);
+    if (!email || !eventId || !Number.isFinite(spend) || spend <= 0) return c.json({ success: false, error: 'Email, event ID, and spend are required.' }, 400);
+    const account = await kv.get(`loyalty:${email}`);
+    if (!account) return c.json({ success: true, skipped: true, reason: 'not_enrolled' });
+    const eventKey = `loyalty_event:${email}:${eventId}`;
+    const prior = await kv.get(eventKey);
+    if (prior) return c.json({ success: true, duplicate: true, account: publicLoyaltyAccount(account), event: prior });
+    const multiplier = account.tier === 'phoenix' ? 2 : account.tier === 'gold' ? 1.5 : account.tier === 'silver' ? 1.25 : 1;
+    const points = Math.floor(spend * multiplier);
+    const event = { id: rewardId('loyalty'), type: 'earn', points, description: body.description || 'Purchase', date: new Date().toISOString(), eventId };
+    account.points += points; account.lifetimePoints += points; account.lifetimeSpend = Number(account.lifetimeSpend || 0) + spend; account.tier = loyaltyTier(account.lifetimeSpend); account.history = [event, ...(account.history || [])];
+    await kv.set(`loyalty:${email}`, account); await kv.set(eventKey, event);
+    return c.json({ success: true, account: publicLoyaltyAccount(account), event });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to award loyalty points.' }, 500); }
+});
+
+app.get('/make-server-57095a78/affiliates/:email', async (c) => {
+  try {
+    const email = rewardsEmail(c.req.param('email'));
+    const { user, admin } = await ownRewardsAccount(c, email);
+    if (!user?.email || (!admin && rewardsEmail(user.email) !== email)) return c.json({ success: false, error: 'Sign in to view your affiliate account.' }, 403);
+    return c.json({ success: true, stats: (await kv.get(`affiliate:${email}`)) || null });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to load affiliate account.' }, 500); }
+});
+
+app.post('/make-server-57095a78/affiliates/join', async (c) => {
+  try {
+    const user = await rewardsActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to join the affiliate program.' }, 401);
+    const email = rewardsEmail(user.email);
+    const existing = await kv.get(`affiliate:${email}`);
+    if (existing) return c.json({ success: true, stats: existing, existing: true });
+    const body = await c.req.json().catch(() => ({}));
+    const stats = { email, name: String(body.name || user.user_metadata?.full_name || email.split('@')[0]).slice(0, 120), code: `BP${referralCodeFor(email)}`, clicks: 0, signups: 0, conversions: 0, pendingCredit: 0, paidCredit: 0, history: [], joinedAt: new Date().toISOString() };
+    await kv.set(`affiliate:${email}`, stats); await kv.set(`affiliate_code:${stats.code}`, email);
+    return c.json({ success: true, stats }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to join affiliate program.' }, 500); }
+});
+
+
+// Checkout/order services use this protected endpoint after an order has been
+// paid. It is idempotent by affiliate + order ID so retries never award twice.
+app.post('/make-server-57095a78/affiliate-attributions', async (c) => {
+  try {
+    const secret = Deno.env.get('AFFILIATE_EVENT_SECRET') || '';
+    if (!secret || c.req.header('X-Affiliate-Event-Secret') !== secret) return c.json({ success: false, error: 'Unauthorized affiliate event.' }, 401);
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '');
+    const amount = Number(body.amount || 0);
+    const code = String(body.code || '').toUpperCase().trim();
+    if (!orderId || !code || !Number.isFinite(amount) || amount <= 0) return c.json({ success: false, error: 'Affiliate code, paid order ID, and positive amount are required.' }, 400);
+    const affiliateEmail = await kv.get(`affiliate_code:${code}`) as string | null;
+    if (!affiliateEmail) return c.json({ success: false, error: 'Affiliate code not found.' }, 404);
+    const eventKey = `affiliate_attribution:${affiliateEmail}:${orderId}`;
+    const prior = await kv.get(eventKey);
+    const stats = await kv.get(`affiliate:${affiliateEmail}`) as any;
+    if (!stats) return c.json({ success: false, error: 'Affiliate account not found.' }, 404);
+    if (prior) return c.json({ success: true, duplicate: true, stats, event: prior });
+    const credit = Math.round(amount * 0.1 * 100) / 100;
+    const event = { id: rewardId('affiliate'), type: 'sale', description: `10% credit from order ${orderId}`, credit, date: new Date().toISOString(), orderId };
+    stats.conversions = Number(stats.conversions || 0) + 1;
+    stats.pendingCredit = Math.round((Number(stats.pendingCredit || 0) + credit) * 100) / 100;
+    stats.history = [event, ...(Array.isArray(stats.history) ? stats.history : [])];
+    await kv.set(`affiliate:${affiliateEmail}`, stats);
+    await kv.set(eventKey, event);
+    return c.json({ success: true, stats, event });
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to attribute affiliate sale.' }, 500); }
+});
+
+// A referral is captured once from a referral code and a referred identity.
+// It stays pending until a trusted paid-order flow changes its status.
+app.post('/make-server-57095a78/referrals/attributions', async (c) => {
+  try {
+    const body = await c.req.json();
+    const code = String(body.code || '').toUpperCase().trim();
+    const referredEmail = rewardsEmail(body.referredEmail);
+    if (!code || !referredEmail) return c.json({ success: false, error: 'Referral code and referred email are required.' }, 400);
+    const referrerEmail = await kv.get(`loyalty_referral:${code}`) as string | null;
+    if (!referrerEmail) return c.json({ success: false, error: 'Referral code not found.' }, 404);
+    if (referrerEmail === referredEmail) return c.json({ success: false, error: 'You cannot refer yourself.' }, 400);
+    const key = `referral_attribution:${code}:${referredEmail}`;
+    const prior = await kv.get(key);
+    if (prior) return c.json({ success: true, duplicate: true, referral: prior });
+    const referral = { id: rewardId('referral'), referrerEmail, referredEmail, referrer: body.referrerName || referrerEmail, referred: body.referredName || referredEmail, code, status: 'pending', reward: 0, date: new Date().toISOString() };
+    const all: any[] = (await kv.get('referrals:all')) || [];
+    await kv.set('referrals:all', [referral, ...all]);
+    await kv.set(key, referral);
+    return c.json({ success: true, referral }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error?.message || 'Unable to record referral.' }, 500); }
 });
 
 Deno.serve(app.fetch);

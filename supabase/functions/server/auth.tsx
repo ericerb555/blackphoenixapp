@@ -431,6 +431,25 @@ authRouter.post("/make-server-57095a78/auth/complete-onboarding", async (c) => {
       return c.json({ error: "Failed to complete onboarding" }, 500);
     }
 
+    // Complete the matching approved-application activation trail, if this
+    // account originated from portal intake. Existing users without an
+    // application are unaffected.
+    const portalAccessRecords = await kv.getByPrefix('portal_access:');
+    const matchingAccess = portalAccessRecords.find((access: any) => access?.userId === user.id);
+    if (matchingAccess?.applicationId) {
+      const now = new Date().toISOString();
+      const intakeKey = `portal_onboarding:${matchingAccess.applicationId}`;
+      const intake = await kv.get(intakeKey);
+      await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active_pending_requirements', activatedAt: now, updatedAt: now });
+      if (intake) {
+        const checklist = (intake.checklist || []).map((item: any) => item.id === 'first_login' ? { ...item, completed: true, completedAt: now } : item);
+        const requirementsComplete = (intake.requiredTasks || []).every((task: any) => !task.required || task.status === 'complete');
+        await kv.set(intakeKey, { ...intake, status: requirementsComplete ? 'active' : 'active_pending_requirements', activatedAt: now, checklist, updatedAt: now });
+        if (requirementsComplete) await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active', activatedAt: now, updatedAt: now });
+      }
+      await kv.set(`application:${matchingAccess.applicationId}`, { ...(await kv.get(`application:${matchingAccess.applicationId}`)), onboardingStatus: requirementsComplete ? 'active' : 'active_pending_requirements', updatedAt: now });
+    }
+
     return c.json({ success: true, message: "Onboarding completed" });
   } catch (error) {
     console.error("Complete onboarding error:", error);

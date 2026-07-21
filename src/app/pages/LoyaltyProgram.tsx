@@ -8,23 +8,34 @@ import { Star, Gift, Zap, Crown, TrendingUp, Copy, CheckCircle, ChevronRight } f
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const STORAGE_KEY = 'bp_loyalty';
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const loyaltyAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
 
 // Server is the source of truth; localStorage is a synchronous mirror for callers
 // like the store checkout that award points without awaiting a network round-trip.
+async function loyaltyRequest(path: string, init: RequestInit = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Please sign in to access Phoenix Rewards.');
+  const res = await fetch(`${SERVER}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, ...(init.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) throw new Error(json.error || 'Loyalty request failed.');
+  return json;
+}
+
 export async function loadLoyaltyFromServer(email: string): Promise<LoyaltyAccount | null> {
   try {
-    const res = await fetch(`${SERVER}/loyalty/${encodeURIComponent(email)}`, { headers: loyaltyAuthHeaders });
-    const json = await res.json();
-    if (json.success && json.account) {
+    const json = await loyaltyRequest(`/loyalty/${encodeURIComponent(email)}`);
+    if (json.account) {
       localStorage.setItem(`${STORAGE_KEY}_${email}`, JSON.stringify(json.account));
       return json.account;
     }
-    if (!json.success) console.error('Failed to load loyalty account:', json.error);
     return null;
   } catch (err) {
     console.error('Network error loading loyalty account:', err);
@@ -78,14 +89,8 @@ export function getLoyaltyAccount(email: string): LoyaltyAccount | null {
 
 export function saveLoyaltyAccount(acct: LoyaltyAccount) {
   localStorage.setItem(`${STORAGE_KEY}_${acct.email}`, JSON.stringify(acct));
-  // Best-effort persistence to the server so accounts survive across devices.
-  fetch(`${SERVER}/loyalty/${encodeURIComponent(acct.email)}`, {
-    method: 'POST',
-    headers: loyaltyAuthHeaders,
-    body: JSON.stringify({ account: acct }),
-  }).then(res => res.json()).then(json => {
-    if (!json.success) console.error('Failed to save loyalty account:', json.error);
-  }).catch(err => console.error('Network error saving loyalty account:', err));
+  // Legacy synchronous callers retain a local mirror; live actions below use the authenticated API.
+
 }
 
 export function createLoyaltyAccount(email: string, name: string): LoyaltyAccount {
@@ -143,33 +148,36 @@ export default function LoyaltyProgram() {
     }
   }, [user]);
 
-  function handleJoin() {
+  async function handleJoin() {
     if (!user?.email || !joinName.trim()) return;
     setJoining(true);
-    setTimeout(() => {
-      const acct = createLoyaltyAccount(user.email!, joinName.trim());
-      setAccount(acct);
-      setJoining(false);
-      toast.success('Welcome to Black Phoenix Rewards! You earned 50 welcome points 🎉');
-    }, 800);
+    try {
+      const data = await loyaltyRequest(`/loyalty/${encodeURIComponent(user.email)}/join`, {
+        method: 'POST', body: JSON.stringify({ name: joinName.trim() }),
+      });
+      setAccount(data.account);
+      localStorage.setItem(`${STORAGE_KEY}_${user.email}`, JSON.stringify(data.account));
+      toast.success(data.existing ? 'Your Phoenix Rewards account is ready.' : 'Welcome to Black Phoenix Rewards! You earned 50 welcome points 🎉');
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to join Phoenix Rewards.');
+    } finally { setJoining(false); }
   }
 
-  function handleRedeem(reward: typeof REWARDS[0]) {
-    if (!account) return;
+  async function handleRedeem(reward: typeof REWARDS[0]) {
+    if (!account || !user?.email) return;
     if (account.points < reward.points) { toast.error(`Need ${reward.points - account.points} more points`); return; }
-    if (account.redeemedCodes.includes(reward.id)) { toast.info('Already redeemed — check your email for the code'); return; }
-    const updated = {
-      ...account,
-      points: account.points - reward.points,
-      redeemedCodes: [...account.redeemedCodes, reward.id],
-      history: [{ id: `redeem_${Date.now()}`, type: 'redeem' as const, points: -reward.points, description: `Redeemed: ${reward.label}`, date: new Date().toISOString() }, ...account.history],
-    };
-    saveLoyaltyAccount(updated);
-    setAccount(updated);
-    navigator.clipboard.writeText(reward.code);
-    setCopiedCode(reward.id);
-    setTimeout(() => setCopiedCode(''), 3000);
-    toast.success(`${reward.label} redeemed! Code ${reward.code} copied to clipboard 🎉`);
+    if (account.redeemedCodes.includes(reward.code)) { toast.info('Already redeemed — check your rewards history.'); return; }
+    try {
+      const data = await loyaltyRequest(`/loyalty/${encodeURIComponent(user.email)}/redeem`, {
+        method: 'POST', body: JSON.stringify({ reward, idempotencyKey: crypto.randomUUID() }),
+      });
+      setAccount(data.account);
+      localStorage.setItem(`${STORAGE_KEY}_${user.email}`, JSON.stringify(data.account));
+      navigator.clipboard.writeText(reward.code);
+      setCopiedCode(reward.id);
+      setTimeout(() => setCopiedCode(''), 3000);
+      toast.success(`${reward.label} redeemed! Code ${reward.code} copied to clipboard 🎉`);
+    } catch (error: any) { toast.error(error.message || 'Unable to redeem this reward.'); }
   }
 
   function copyReferral() {

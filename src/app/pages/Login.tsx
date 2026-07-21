@@ -10,6 +10,8 @@ import { Mail, Lock, Eye, EyeOff, ArrowRight, Building, Shield } from 'lucide-re
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { autoSyncBranding } from '../utils/autoSyncBranding';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
 
 interface LoginProps {
@@ -171,6 +173,28 @@ export default function Login({ onNavigate }: LoginProps) {
 
       toast.success(isOwnerEmail ? 'Welcome back, Platform Owner!' : 'Login successful!');
 
+      // Approved applicants are always routed to their required onboarding first.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        try {
+          const identityResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/me`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const identity = await identityResponse.json();
+          if (identity?.user?.role && !isOwnerEmail) {
+            profile.accountType = identity.user.role;
+            userProfiles[email.toLowerCase()] = profile;
+            localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
+            localStorage.setItem('currentUserProfile', JSON.stringify(profile));
+          }
+          const onboardingResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const onboarding = await onboardingResponse.json();
+          if (onboarding.success && onboarding.intake?.status !== 'active') {
+            onNavigate('portal-onboarding');
+            setIsLoading(false);
+            return;
+          }
+        } catch { /* Non-intake accounts continue to their normal portal. */ }
+      }
+
       // Navigate immediately — no polling, no artificial delays
       const elevatedRoles = ['admin', 'owner', 'master_admin', 'management'];
       if (elevatedRoles.includes(profile.accountType)) {
@@ -183,6 +207,10 @@ export default function Login({ onNavigate }: LoginProps) {
           vendor: 'vendor-portal',
           subcontractor: 'subcontractor-portal',
           employee: 'employee-portal',
+          service_provider: 'subcontractor-portal',
+          property_manager: 'property-manager-portal',
+          territory_owner: 'territory-portal',
+          territory: 'territory-portal',
         };
         onNavigate(portalRoutes[profile.accountType] || 'customer-portal-app');
       }

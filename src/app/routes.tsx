@@ -86,6 +86,7 @@ import PropertyManagementHub from "./pages/PropertyManagementHub";
 import PropertyManagementTest from "./components/PropertyManagementTest";
 import CalendarScheduleView from "./components/CalendarScheduleView";
 import ApplicationSubmissions from "./pages/ApplicationSubmissions";
+import PortalOnboarding from "./pages/PortalOnboarding";
 import BusinessProfilesHub from "./components/BusinessProfilesHub";
 import OwnersDashboard from "./pages/OwnersDashboard";
 import PortalsHub from "./pages/PortalsHub";
@@ -410,6 +411,8 @@ export const pageMap: Record<string, React.ComponentType<any>> = {
   "service-scheduling":  ServiceScheduling,
   "unified-calendar":    CalendarScheduleView,
   "application-submissions": ApplicationSubmissions,
+  "portal-onboarding": PortalOnboarding,
+  "onboarding": PortalOnboarding,
 
   // Financial & Payroll
   "unified-payment-center":     UnifiedPaymentCenter,

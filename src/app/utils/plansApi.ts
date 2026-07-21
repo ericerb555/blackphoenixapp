@@ -4,13 +4,15 @@
  */
 
 import { projectId, publicAnonKey } from './supabase/info';
+import { supabase } from '../lib/supabase';
 
 const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
-function authHeaders() {
+async function authHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${publicAnonKey}`,
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
   };
 }
 
@@ -47,7 +49,7 @@ export interface PlanRecord {
 export async function createPlan(input: Partial<PlanRecord>): Promise<PlanRecord> {
   const res = await fetch(`${BASE}/plans`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(input),
   });
   const data = await res.json();
@@ -60,7 +62,7 @@ export async function listPlans(params: {
 } = {}): Promise<PlanRecord[]> {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, String(v)); });
-  const res = await fetch(`${BASE}/plans?${qs.toString()}`, { headers: authHeaders() });
+  const res = await fetch(`${BASE}/plans?${qs.toString()}`, { headers: await authHeaders() });
   const data = await res.json();
   if (!res.ok || !data.success) throw new Error(data?.error || `Failed to load plans (${res.status})`);
   return (data.plans || []) as PlanRecord[];
@@ -105,7 +107,7 @@ export async function logPlanUsage(
 ): Promise<PlanHours> {
   const res = await fetch(`${BASE}/plans/${planId}/usage`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(entry),
   });
   const data = await res.json();
@@ -116,7 +118,7 @@ export async function logPlanUsage(
 export async function getPlanStats(): Promise<{
   total: number; active: number; mrr: number; giftIssued: number; hoursIncluded: number; hoursUsed: number;
 }> {
-  const res = await fetch(`${BASE}/plans-stats`, { headers: authHeaders() });
+  const res = await fetch(`${BASE}/plans-stats`, { headers: await authHeaders() });
   const data = await res.json();
   if (!res.ok || !data.success) throw new Error(data?.error || `Failed to load plan stats (${res.status})`);
   return data.stats;

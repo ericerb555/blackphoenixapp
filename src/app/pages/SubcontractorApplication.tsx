@@ -151,33 +151,25 @@ export default function SubcontractorApplication({ onNavigate }: SubcontractorAp
         certifications: formData.certifications,
         crew_size: formData.crewSize,
         work_radius: formData.workRadius,
+        applicationType: 'subcontractor',
         application_status: 'pending',
         submitted_at: new Date().toISOString()
       };
 
-      try {
-        const response = await fetch(`${API_BASE}/subcontractors/apply`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(subcontractorData),
-          signal: AbortSignal.timeout(12000),
-        }).catch(() => null);
+      const response = await fetch(`${API_BASE}/applications`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(subcontractorData),
+        signal: AbortSignal.timeout(15000),
+      });
+      const result = await response.json().catch(() => ({}));
 
-        if (response && response.ok) {
-          const result = await response.json();
-          toast.success(result.message || "Application submitted! We'll review it and contact you soon.");
-        } else {
-          throw new Error('Server unreachable');
-        }
-      } catch {
-        // Local fallback — data is never lost
-        const existing = JSON.parse(localStorage.getItem('subcontractor_applications_pending') || '[]');
-        existing.push({ id: `SUB-APP-${Date.now()}`, ...subcontractorData, _offline: true });
-        localStorage.setItem('subcontractor_applications_pending', JSON.stringify(existing));
-        toast.success("Application saved! We'll review it and contact you soon.");
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || `Submission failed (HTTP ${response.status})`);
       }
 
-      if (onNavigate) setTimeout(() => onNavigate('contractor-network-landing-page'), 2000);
+      toast.success(result.message || "Application submitted! We'll review it and contact you soon.");
+      if (onNavigate) setTimeout(() => onNavigate('contractor-network-landing-page'), 1600);
     } catch (error) {
       console.error('Application error:', error);
       toast.error('Failed to submit application. Please try again.');

@@ -138,10 +138,11 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
         phone: formData.phone,
         website: formData.website,
         service_category: formData.serviceCategory,
+        applicationType: 'service_provider',
         ...formData,
       };
 
-      const response = await fetch(`${API_BASE}/service-providers/apply`, {
+      const response = await fetch(`${API_BASE}/applications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify(payload),
@@ -164,8 +165,7 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
       const existing = JSON.parse(localStorage.getItem('service_provider_applications_pending') || '[]');
       existing.push({ id: `SP-APP-${Date.now()}`, ...formData, _offline: true, submitted_at: new Date().toISOString() });
       localStorage.setItem('service_provider_applications_pending', JSON.stringify(existing));
-      toast.success("Application saved! We'll review it within 24-48 hours.");
-      setTimeout(() => { if (onNavigate) onNavigate('contractor-network-landing-page'); }, 2000);
+      toast.error('We could not submit your application. It is saved only on this device; please try again shortly.');
     } finally {
       setSubmitting(false);
     }

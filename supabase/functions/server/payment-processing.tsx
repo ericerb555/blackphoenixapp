@@ -5,6 +5,7 @@
 
 import { Hono } from 'npm:hono';
 import * as kv from './kv_store.tsx';
+import { recordEntitlementEvent } from './entitlements.tsx';
 
 const app = new Hono();
 
@@ -333,10 +334,11 @@ app.post('/subscription/process-payment', async (c) => {
     subscription.paymentHistory = paymentHistory;
     await kv.set(`subscription:${subscriptionId}`, subscription);
 
-    // Process payment (simulate)
-    await processSubscriptionPayment(paymentId, payment);
-
-    console.log(`💳 Subscription payment created: ${paymentCode} (${paymentId})`);
+    // Do not simulate success or grant hours from a browser request. A verified
+    // processor confirmation must use the protected /payments/confirm route.
+    payment.payment.status = 'pending';
+    await kv.set(`subscription_payment:${paymentId}`, payment);
+    console.log(`💳 Subscription payment awaiting confirmation: ${paymentCode} (${paymentId})`);
 
     return c.json({ 
       success: true, 
@@ -448,19 +450,9 @@ async function processEcommercePayment(orderId: string, order: EcommerceOrder) {
   }, 2000);
 }
 
-async function processSubscriptionPayment(paymentId: string, payment: SubscriptionPayment) {
-  // Simulate payment processing
-  setTimeout(async () => {
-    const updatedPayment = await kv.get(`subscription_payment:${paymentId}`) as SubscriptionPayment;
-    if (updatedPayment) {
-      updatedPayment.payment.status = 'completed';
-      updatedPayment.payment.processedAt = new Date().toISOString();
-      updatedPayment.paidDate = new Date().toISOString();
-      updatedPayment.updatedAt = new Date().toISOString();
-      await kv.set(`subscription_payment:${paymentId}`, updatedPayment);
-      console.log(`✅ Payment completed for subscription: ${updatedPayment.paymentCode}`);
-    }
-  }, 2000);
-}
+// Subscription renewals are now recorded only through the protected
+// /make-server-57095a78/payments/confirm handler in the main server.
+// Keeping this module from auto-completing payments prevents duplicate hours.
+
 
 export default app;

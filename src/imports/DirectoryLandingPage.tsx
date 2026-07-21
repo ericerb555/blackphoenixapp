@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
-import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo-5.png';
+import PhoenixLogo from '../components/PhoenixLogo';
 import { DIRECTORY_SECTIONS } from '../config/directoryLandingSections';
 import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ReviewsSection from '../components/ReviewsSection';
@@ -19,49 +19,35 @@ interface DirectoryLandingPageProps {
   onNavigate?: (page: string) => void;
 }
 
-// The landing page is rendered once before browser storage is guaranteed to be
-// available. These guards keep the page visible in previews, SSR, and browsers
-// that block storage while preserving its existing stored settings when allowed.
-const readLandingStorage = (key: string): string | null => {
-  if (typeof window === 'undefined') return null;
-  try { return window.localStorage.getItem(key); } catch { return null; }
-};
-
-const writeLandingStorage = (key: string, value: string) => {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(key, value); } catch { /* storage unavailable */ }
-};
-
-const removeLandingStorage = (key: string) => {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.removeItem(key); } catch { /* storage unavailable */ }
-};
-
 export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPageProps) {
   console.log('🎯 [DirectoryLandingPage] Component mounting/rendering');
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
+  // Default to '' so the inline PhoenixLogo SVG renders immediately (no dependency
+  // on a bundled PNG that can fail to load in production). Only an http(s) Storage
+  // URL from branding will replace it with an <img>.
+  const [companyLogo, setCompanyLogo] = useState<string>('');
   const [companyName, setCompanyName] = useState('The Black Phoenix Company');
 
   // Live signup counters
   const [customerSignUps, setCustomerSignUps] = useState<number>(() => {
-    const stored = readLandingStorage('signUpCount_customers');
+    const stored = localStorage.getItem('signUpCount_customers');
     return stored ? parseInt(stored) : 0;
   });
   const [subcontractorSignUps, setSubcontractorSignUps] = useState<number>(() => {
-    const stored = readLandingStorage('signUpCount_subcontractors');
+    const stored = localStorage.getItem('signUpCount_subcontractors');
     return stored ? parseInt(stored) : 0;
   });
   const [advertiserSignUps, setAdvertiserSignUps] = useState<number>(() => {
-    const stored = readLandingStorage('signUpCount_advertisers');
+    const stored = localStorage.getItem('signUpCount_advertisers');
     return stored ? parseInt(stored) : 0;
   });
   const [vendorSignUps, setVendorSignUps] = useState<number>(() => {
-    const stored = readLandingStorage('signUpCount_vendors');
+    const stored = localStorage.getItem('signUpCount_vendors');
     return stored ? parseInt(stored) : 0;
   });
   const [serviceProviderSignUps, setServiceProviderSignUps] = useState<number>(() => {
-    const stored = readLandingStorage('signUpCount_serviceProviders');
+    const stored = localStorage.getItem('signUpCount_serviceProviders');
     return stored ? parseInt(stored) : 0;
   });
 
@@ -160,6 +146,14 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         if (profile) {
           console.log('📦 [DirectoryLandingPage] Branding profile found:', profile);
 
+          // Only override the default logo with a real Storage URL
+          const logoUrl = profile.logo_url || profile.logo_primary || (profile as any).logoPrimary;
+          if (logoUrl && logoUrl.startsWith('https://') && logoUrl !== 'null') {
+            setCompanyLogo(logoUrl);
+            console.log('✅ [DirectoryLandingPage] Logo updated from server:', logoUrl.substring(0, 80));
+          }
+          // If no Storage URL found, keep the bundled phoenixLogo default
+
           // Try multiple company name fields
           const name = profile.company_name || profile.dbaName || profile.businessName;
           if (name) {
@@ -199,7 +193,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   // Route to the correct quote form based on cohort type
   const handleGetQuote = (cohortType: string) => {
     // Store the cohort type for the quote request
-    writeLandingStorage('quote_request_cohort', cohortType);
+    localStorage.setItem('quote_request_cohort', cohortType);
 
     // Route to appropriate form based on service type
     const quoteRoutes: Record<string, string> = {
@@ -223,35 +217,35 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
   // Check for auto-open signup flag
   useEffect(() => {
-    const autoOpenSignup = readLandingStorage('autoOpenSignup');
+    const autoOpenSignup = localStorage.getItem('autoOpenSignup');
     if (autoOpenSignup) {
-      removeLandingStorage('autoOpenSignup');
+      localStorage.removeItem('autoOpenSignup');
       setShowSignUpModal(true);
     }
   }, []);
 
   // Save signup counters to localStorage
   useEffect(() => {
-    writeLandingStorage('signUpCount_customers', customerSignUps.toString());
+    localStorage.setItem('signUpCount_customers', customerSignUps.toString());
   }, [customerSignUps]);
 
   useEffect(() => {
-    writeLandingStorage('signUpCount_subcontractors', subcontractorSignUps.toString());
+    localStorage.setItem('signUpCount_subcontractors', subcontractorSignUps.toString());
   }, [subcontractorSignUps]);
 
   useEffect(() => {
-    writeLandingStorage('signUpCount_advertisers', advertiserSignUps.toString());
+    localStorage.setItem('signUpCount_advertisers', advertiserSignUps.toString());
   }, [advertiserSignUps]);
 
   useEffect(() => {
-    writeLandingStorage('signUpCount_vendors', vendorSignUps.toString());
+    localStorage.setItem('signUpCount_vendors', vendorSignUps.toString());
   }, [vendorSignUps]);
 
   // Load sections from localStorage override or use default config
   const [sections, setSections] = useState(() => {
     console.log('🔍 [DirectoryLanding] Initializing sections state...');
     console.log('🔍 [DirectoryLanding] DIRECTORY_SECTIONS imported:', DIRECTORY_SECTIONS?.length || 0, 'sections');
-    const override = readLandingStorage('directory_sections_override');
+    const override = localStorage.getItem('directory_sections_override');
     if (override) {
       try {
         const parsed = JSON.parse(override);
@@ -270,7 +264,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   // Listen for changes to directory sections
   useEffect(() => {
     const handleStorageChange = () => {
-      const override = readLandingStorage('directory_sections_override');
+      const override = localStorage.getItem('directory_sections_override');
       if (override) {
         try {
           setSections(JSON.parse(override));
@@ -386,12 +380,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
       >
         <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-          <img
-                  src={phoenixLogo}
-                  alt={companyName || 'Black Phoenix'}
-                  className="w-full h-full object-contain p-4"
-                  style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                />
+          {companyLogo && companyLogo.startsWith('http') ? (
+            <img
+              src={companyLogo}
+              alt={companyName}
+              className="w-full h-full object-contain p-4"
+              style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+              onError={() => setCompanyLogo('')}
+            />
+          ) : (
+            <PhoenixLogo
+              className="w-full h-full p-3"
+              title={companyName || 'Black Phoenix'}
+            />
+          )}
         </div>
       </motion.div>
 
@@ -481,12 +483,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             >
               <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900 rounded-full blur-2xl opacity-50 group-hover:opacity-75 transition-opacity" />
               <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-                <img
-                  src={phoenixLogo}
-                  alt={companyName || 'Black Phoenix'}
-                  className="w-full h-full object-contain p-4"
-                  style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                />
+                {companyLogo && companyLogo.startsWith('http') ? (
+                  <img
+                    src={companyLogo}
+                    alt={companyName}
+                    className="w-full h-full object-contain p-4"
+                    style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+                    onError={() => setCompanyLogo('')}
+                  />
+                ) : (
+                  <PhoenixLogo
+                    className="w-full h-full p-3"
+                    title={companyName || 'Black Phoenix'}
+                  />
+                )}
               </div>
             </motion.div>
           </div>

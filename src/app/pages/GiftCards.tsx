@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const STORAGE_KEY = 'bp_gift_cards';
 
 interface GiftCard {
   code: string;
@@ -31,12 +31,6 @@ const DESIGNS: { id: GiftCardDesign; label: string; emoji: string; bg: string; a
 
 const AMOUNTS = [25, 50, 75, 100, 150, 200];
 
-function generateCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 16 }, (_, i) =>
-    (i > 0 && i % 4 === 0 ? '-' : '') + chars[Math.floor(Math.random() * chars.length)]
-  ).join('');
-}
 
 function GiftCardVisual({ card, size = 'full' }: { card: Partial<GiftCard> & { design: GiftCardDesign; amount: number }; size?: 'full' | 'mini' }) {
   const d = DESIGNS.find(d => d.id === card.design) ?? DESIGNS[0];
@@ -114,48 +108,90 @@ export default function GiftCards() {
   const finalAmount = customAmount ? parseInt(customAmount) : amount;
   const d = DESIGNS.find(d => d.id === design)!;
 
+  async function request(path: string, init: RequestInit = {}) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`${SERVER}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+        ...(init.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.success === false) throw new Error(payload.error || 'Gift-card request failed.');
+    return payload;
+  }
+
+  async function loadMyCards() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.email) {
+      setMyCards([]);
+      return;
+    }
+    try {
+      const data = await request(`/gift-cards/owner/${encodeURIComponent(session.user.email)}`);
+      setMyCards(Array.isArray(data.cards) ? data.cards : []);
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to load your gift cards.');
+    }
+  }
+
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) setMyCards(JSON.parse(raw));
+    void loadMyCards();
+    const params = new URLSearchParams(window.location.search);
+    const purchaseId = params.get('gift_purchase_id');
+    const sessionId = params.get('session_id');
+    if (!purchaseId || !sessionId) return;
+
+    (async () => {
+      setProcessing(true);
+      try {
+        const data = await request(`/gift-cards/purchases/${encodeURIComponent(purchaseId)}/confirm?session_id=${encodeURIComponent(sessionId)}`);
+        if (data.card) {
+          setIssued(data.card);
+          setStep('done');
+          setActiveTab('buy');
+          toast.success('Payment confirmed — your gift card is active.');
+          void loadMyCards();
+        }
+        window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+      } catch (error: any) {
+        toast.error(error.message || 'We could not confirm the gift-card payment yet.');
+      } finally {
+        setProcessing(false);
+      }
+    })();
   }, []);
 
   async function purchase() {
     if (!recipientEmail.includes('@')) { toast.error('Valid recipient email required'); return; }
+    if (!Number.isFinite(finalAmount) || finalAmount < 10 || finalAmount > 500) {
+      toast.error('Gift cards must be between $10 and $500.');
+      return;
+    }
     setProcessing(true);
-
-    const card: GiftCard = {
-      code: generateCode(),
-      amount: finalAmount,
-      balance: finalAmount,
-      from: senderName || 'Anonymous',
-      to: recipientName || 'Friend',
-      message,
-      design,
-      purchasedAt: new Date().toISOString(),
-    };
-
-    // Capture lead + notify
     try {
-      await fetch(`${SERVER}/leads/capture`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const data = await request('/gift-cards/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
-          email: recipientEmail, name: recipientName,
-          source: 'gift_card_recipient',
-          notes: `Gift card $${finalAmount} from ${senderName}. Code: ${card.code}`,
+          amount: finalAmount,
+          recipientName,
+          recipientEmail,
+          senderName,
+          purchaserEmail: session?.user?.email || '',
+          message,
+          design,
+          idempotencyKey: crypto.randomUUID(),
         }),
       });
-    } catch (_) {}
-
-    // Save to localStorage
-    const updated = [card, ...myCards];
-    setMyCards(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    await new Promise(r => setTimeout(r, 1200));
-    setProcessing(false);
-    setIssued(card);
-    setStep('done');
+      if (!data.checkoutUrl) throw new Error('Secure checkout could not be started.');
+      window.location.assign(data.checkoutUrl);
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to start secure checkout.');
+      setProcessing(false);
+    }
   }
 
   function copyCode(code: string) {
@@ -165,11 +201,20 @@ export default function GiftCards() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function checkRedeem() {
-    const card = myCards.find(c => c.code.replace(/-/g, '') === redeemCode.replace(/-/g, ''));
-    if (!card) { toast.error('Code not found'); return; }
-    if (card.balance <= 0) { toast.error('This card has no remaining balance'); return; }
-    setRedeemResult(card);
+  async function checkRedeem() {
+    if (!redeemCode.trim()) return;
+    setProcessing(true);
+    try {
+      const data = await request(`/gift-cards/${encodeURIComponent(redeemCode)}`);
+      const card = data.card as GiftCard;
+      if (card.balance <= 0) throw new Error('This card has no remaining balance.');
+      setRedeemResult(card);
+    } catch (error: any) {
+      setRedeemResult(null);
+      toast.error(error.message || 'Gift card not found.');
+    } finally {
+      setProcessing(false);
+    }
   }
 
   return (
@@ -335,7 +380,7 @@ export default function GiftCards() {
 
               <div className="rounded-xl p-4 flex gap-3" style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
                 <Sparkles className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-gray-400">The gift card code will be emailed to <strong className="text-white">{recipientEmail}</strong> immediately after purchase. They can use it on anything in the store.</p>
+                <p className="text-xs text-gray-400">You will be redirected to secure Stripe checkout. The gift card is created only after Stripe confirms payment; delivery is sent to <strong className="text-white">{recipientEmail}</strong> when email delivery is configured.</p>
               </div>
 
               <div className="flex gap-3">
@@ -356,8 +401,8 @@ export default function GiftCards() {
               className="space-y-5 max-w-lg mx-auto">
               <div className="text-center">
                 <div className="text-5xl mb-3">🎉</div>
-                <h2 className="text-2xl font-black text-white">Gift Card Sent!</h2>
-                <p className="text-sm text-gray-400 mt-1">The code has been sent to <strong className="text-white">{recipientEmail}</strong></p>
+                <h2 className="text-2xl font-black text-white">Gift Card Activated!</h2>
+                <p className="text-sm text-gray-400 mt-1">Your payment is confirmed and this gift card is active.</p>
               </div>
 
               <GiftCardVisual card={issued} />

@@ -54,6 +54,8 @@ export interface ApplicationConfig {
   endpoint?: string;
   steps?: ApplicationStep[];
   fields?: ApplicationField[];
+  applicationType?: string;
+  onSuccess?: (result: any) => void;
 }
 
 interface GenericApplicationFormProps {
@@ -105,20 +107,59 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
   const currentStepData = steps[currentStep];
   const isLastStep = currentStep === steps.length - 1;
 
-  const handleNext = () => {
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
+  const requiredFields = steps.flatMap(step => step.fields || []).filter(field => field.required);
+
+  const getEmptyRequiredField = (fields: ApplicationField[]) => fields.find(field => {
+    if (!field.required) return false;
+    const value = formData[field.id];
+    if (field.type === 'checkbox') return value !== true;
+    if (field.type === 'skill') return !Array.isArray(value) || value.length === 0;
+    if (field.type === 'file') return !value || value.length === 0;
+    return value === undefined || value === null || String(value).trim() === '';
+  });
+
+  const validateFields = (fields: ApplicationField[]) => {
+    const missing = getEmptyRequiredField(fields);
+    if (missing) {
+      toast.error(`Please complete: ${missing.label}`);
+      return false;
     }
+    return true;
   };
 
-  const handlePrev = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+  const handleNext = () => {
+    if (!validateFields(currentStepData.fields || [])) return;
+    if (currentStep < steps.length - 1) setCurrentStep(currentStep + 1);
+  };
+
+  const handlePreview = () => {
+    if (!validateFields(requiredFields)) return;
+    setPreviewMode(true);
+  };
+
+  const serializeValue = (value: any): any => {
+    if (typeof FileList !== 'undefined' && value instanceof FileList) {
+      return Array.from(value).map(file => ({ name: file.name, size: file.size, type: file.type }));
     }
+    if (Array.isArray(value)) return value.map(serializeValue);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serializeValue(item)]));
+    return value;
   };
 
   const handleSubmit = async () => {
+    if (!validateFields(requiredFields)) {
+      setPreviewMode(false);
+      return;
+    }
+
     setIsSubmitting(true);
+    const applicationType = config.applicationType || (config.title.toLowerCase().includes('field tech') ? 'field_technician' : 'general');
+    const payload = {
+      ...Object.fromEntries(Object.entries(formData).map(([key, value]) => [key, serializeValue(value)])),
+      applicationType,
+      applicationTitle: config.title,
+      source: 'public_application',
+    };
 
     try {
       const response = await fetch(
@@ -126,31 +167,28 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-          body: JSON.stringify(formData),
-          signal: AbortSignal.timeout(12000),
-        }
-      ).catch(() => null);
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
 
-      if (response && response.ok) {
-        const result = await response.json();
-        toast.success(result.message || 'Application submitted successfully!');
-        setFormData({});
-        setCurrentStep(0);
-        setPreviewMode(false);
-        if (config.onSuccess) config.onSuccess(result);
-      } else {
-        throw new Error('Server unreachable');
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || `Submission failed (HTTP ${response.status})`);
       }
-    } catch (error) {
-      // Local fallback — save data so nothing is lost
-      const key = `generic_app_pending_${endpoint.replace(/\//g, '_')}`;
-      const existing = JSON.parse(localStorage.getItem(key) || '[]');
-      existing.push({ id: `APP-${Date.now()}`, ...formData, _offline: true, submitted_at: new Date().toISOString() });
-      localStorage.setItem(key, JSON.stringify(existing));
-      toast.success('Application saved! Our team will follow up with you soon.');
+
+      toast.success(result.message || 'Application submitted successfully.');
       setFormData({});
       setCurrentStep(0);
       setPreviewMode(false);
+      config.onSuccess?.(result);
+    } catch (error) {
+      const key = `generic_app_pending_${endpoint.replace(/\//g, '_')}`;
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      existing.push({ id: `APP-${Date.now()}`, ...payload, _offline: true, submitted_at: new Date().toISOString() });
+      localStorage.setItem(key, JSON.stringify(existing));
+      console.error('Application submission failed; queued locally:', error);
+      toast.error('We could not reach our application system. Your application is saved on this device and has not been submitted yet. Please try again shortly.');
     } finally {
       setIsSubmitting(false);
     }
@@ -441,7 +479,7 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
 
           {isLastStep ? (
             <button
-              onClick={() => setPreviewMode(true)}
+              onClick={handlePreview}
               className="flex-1 bg-[#ea580c] hover:bg-[#dc2626] text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Check className="w-5 h-5" />

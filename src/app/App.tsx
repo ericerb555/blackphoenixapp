@@ -97,6 +97,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { projectId } from "./utils/supabase/info";
 import { CompanyContextProvider, useCompany } from "./contexts/CompanyContext";
 import { ActiveCompanyProvider } from "./contexts/ActiveCompanyContext";
 import { CompanySwitcher } from "./components/CompanySwitcher";
@@ -919,6 +920,43 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const APPROVED_PORTAL_ROUTES = new Set([
+  "employee-portal", "vendor-portal", "advertiser-portal", "subcontractor-portal",
+  "investor-portal", "territory-portal", "property-manager-portal", "condo-manager-portal", "landlord-portal",
+]);
+
+/** Keeps an invited or unapproved applicant out of role portals while leaving
+ * owner/admin access intact. The server is the source of truth; this is only
+ * the user-facing gate before portal components load their data. */
+function PortalAccessGuard({ page, children }: { page: string; children: React.ReactNode }) {
+  const { session, isAdmin, isOwner, loading } = useAuth();
+  const [state, setState] = useState<"checking" | "allowed" | "blocked">("checking");
+  const needsGate = APPROVED_PORTAL_ROUTES.has(page);
+
+  useEffect(() => {
+    let active = true;
+    if (!needsGate || isAdmin || isOwner) { setState("allowed"); return; }
+    if (!session?.access_token) { setState("blocked"); return; }
+    setState("checking");
+    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }).then(async response => ({ response, data: await response.json() }))
+      .then(({ data }) => { if (active) setState(data?.success && data?.canEnterPortal ? "allowed" : "blocked"); })
+      .catch(() => { if (active) setState("blocked"); });
+    return () => { active = false; };
+  }, [needsGate, session?.access_token, isAdmin, isOwner, page]);
+
+  if (!needsGate || isAdmin || isOwner) return <>{children}</>;
+  if (loading || state === "checking") return <div className="min-h-[60vh] grid place-items-center text-gray-300">Checking portal access…</div>;
+  if (state === "blocked") return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-2xl">
+    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">Portal access pending</p>
+    <h1 className="mt-3 text-2xl font-semibold">Finish your approved onboarding first.</h1>
+    <p className="mt-3 text-sm leading-6 text-gray-400">This role portal unlocks after your application is approved, your invitation is accepted, and any required onboarding tasks are submitted or reviewed.</p>
+    <button type="button" onClick={() => { window.location.href = "/portal-onboarding"; }} className="mt-6 border border-orange-400 bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400">Open onboarding checklist</button>
+  </section>;
+  return <>{children}</>;
+}
+
 export default function App() {
   console.log("🚀 App component initializing...");
   console.log("🚀 Current URL:", window.location.href);
@@ -1590,14 +1628,14 @@ function AppContent() {
                         {isFullBleedPage(deferredPage) ? (
                           // Marketing / auth pages render edge-to-edge.
                           <div className="w-full flex justify-center">
-                            {renderPage()}
+                            <PortalAccessGuard page={deferredPage}>{renderPage()}</PortalAccessGuard>
                           </div>
                         ) : (
                           // Standard app pages share ONE responsive content width so
                           // every tab looks uniform on phone, tablet, laptop & desktop.
                           <div className="w-full flex justify-center">
                             <div className="w-full max-w-[1440px] px-3 sm:px-5 lg:px-8">
-                              {renderPage()}
+                              <PortalAccessGuard page={deferredPage}>{renderPage()}</PortalAccessGuard>
                             </div>
                           </div>
                         )}

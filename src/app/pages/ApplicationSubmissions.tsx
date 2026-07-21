@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   FileText, Users, CheckCircle, XCircle, Clock, Eye, Search, Filter, Download,
-  ArrowLeft, Loader2
+  ArrowLeft, Loader2, AlertCircle, Mail, Phone, Calendar, ShieldCheck
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -26,36 +27,57 @@ export default function ApplicationSubmissions() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [onboardingDetails, setOnboardingDetails] = useState<any | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadApplications();
   }, []);
+  const getAdminHeaders = async (withContentType = false) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in with an administrator account to manage applications.');
+    return { Authorization: `Bearer ${session.access_token}`, ...(withContentType ? { 'Content-Type': 'application/json' } : {}) };
+  };
+
+
+  useEffect(() => {
+    if (!selectedApplication?.id) { setOnboardingDetails(null); return; }
+    getAdminHeaders().then(headers => fetch(`${API_BASE}/intake/onboarding/${selectedApplication.id}`, { headers }))
+      .then(response => response.json())
+      .then(result => setOnboardingDetails(result.success ? result.intake : null))
+      .catch(() => setOnboardingDetails(null));
+  }, [selectedApplication?.id]);
 
   const loadApplications = async () => {
     try {
       setLoading(true);
       
-      // Check for offline vendor applications first
-      const offlineApps = localStorage.getItem('vendor_applications_pending');
-      let offlineVendorApps: any[] = [];
-      if (offlineApps) {
-        offlineVendorApps = JSON.parse(offlineApps).map((app: any) => ({
-          ...app,
-          type: 'vendor',
-          status: 'new',
-          _offline: true
-        }));
-        console.log('[ApplicationSubmissions] Found', offlineVendorApps.length, 'pending offline vendor applications');
-      }
+      // Recover every legacy local application queue, not only vendor forms.
+      const queueKeys = [
+        'generic_app_pending__applications',
+        'vendor_applications_pending',
+        'service_provider_applications_pending',
+        'subcontractor_applications_pending',
+        'territory_applications_pending',
+      ];
+      const offlineVendorApps = queueKeys.flatMap((key) => {
+        try {
+          return JSON.parse(localStorage.getItem(key) || '[]').map((app: any) => ({
+            ...app,
+            applicationType: app.applicationType || app.type || 'general',
+            status: app.status || 'new',
+            _offline: true,
+            _queueKey: key,
+          }));
+        } catch {
+          return [];
+        }
+      });
+      if (offlineVendorApps.length) console.log('[ApplicationSubmissions] Found', offlineVendorApps.length, 'queued offline applications');
       
       const response = await fetch(
         `${API_BASE}/applications`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        }
+        { headers: await getAdminHeaders() }
       ).catch(() => null);
 
       if (!response || !response.ok) {
@@ -92,7 +114,7 @@ export default function ApplicationSubmissions() {
             }
           }
           if (syncedCount === offlineVendorApps.length) {
-            localStorage.removeItem('vendor_applications_pending');
+            queueKeys.forEach((key) => localStorage.removeItem(key));
           } else if (syncedCount > 0) {
             // Keep only the ones that failed to sync
             const remaining = offlineVendorApps.slice(syncedCount).map((a: any) => {
@@ -107,7 +129,7 @@ export default function ApplicationSubmissions() {
           toast.success(`${syncedCount} offline application${syncedCount !== 1 ? 's' : ''} synced to the server`);
           // Re-fetch so the newly-synced records appear as real server records
           const refreshed = await fetch(`${API_BASE}/applications`, {
-            headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+            headers: await getAdminHeaders(),
           }).then(r => r.json()).catch(() => null);
           setApplications(refreshed?.applications || data.applications || []);
         } else {
@@ -135,10 +157,7 @@ export default function ApplicationSubmissions() {
         `${API_BASE}/applications/${id}`,
         {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await getAdminHeaders(true),
           body: JSON.stringify({ status }),
         }
       );
@@ -148,7 +167,7 @@ export default function ApplicationSubmissions() {
         setApplications(apps =>
           apps.map(app => app.id === id ? data.application : app)
         );
-        toast.success('Application status updated');
+        toast.success(status === 'accepted' ? 'Application accepted — portal account provisioning has started.' : 'Application status updated');
         if (selectedApplication?.id === id) {
           setSelectedApplication(data.application);
         }
@@ -161,13 +180,49 @@ export default function ApplicationSubmissions() {
     }
   };
 
+  const getAdminToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Please sign in as an administrator to review documents.');
+    return session.access_token;
+  };
+
+  const openDocument = async (documentId: string) => {
+    if (!selectedApplication) return;
+    try {
+      const accessToken = await getAdminToken();
+      const response = await fetch(`${API_BASE}/intake/onboarding/${selectedApplication.id}/documents/${documentId}/download`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not open document.');
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } catch (error: any) { toast.error(error.message || 'Could not open document.'); }
+  };
+
+  const reviewDocument = async (documentId: string, status: 'approved' | 'rejected') => {
+    if (!selectedApplication) return;
+    try {
+      const response = await fetch(`${API_BASE}/intake/onboarding/${selectedApplication.id}/documents/${documentId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${await getAdminToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Review failed');
+      setOnboardingDetails((current: any) => current ? { ...current, documents: result.documents, requiredTasks: result.requiredTasks } : current);
+      toast.success(status === 'approved' ? 'Document approved.' : 'Document returned to applicant.');
+    } catch (error: any) {
+      toast.error(error.message || 'Could not review document.');
+    }
+  };
+
   const exportToCSV = () => {
-    const headers = ['ID', 'Name', 'Email', 'Phone', 'Status', 'Submitted At'];
+    const headers = ['ID', 'Name', 'Email', 'Phone', 'Portal', 'Onboarding', 'Status', 'Submitted At'];
     const rows = filteredApplications.map(app => [
       app.id,
       getApplicantName(app),
       getApplicantEmail(app),
       getApplicantPhone(app),
+      getPortalLabel(app),
+      app.onboardingStatus || 'awaiting review',
       app.status,
       new Date(app.submittedAt).toLocaleString(),
     ]);
@@ -188,22 +243,19 @@ export default function ApplicationSubmissions() {
   };
 
   const getApplicantName = (app: Application) => {
-    if (app.personalInfo) {
-      return `${app.personalInfo.firstName || ''} ${app.personalInfo.lastName || ''}`.trim();
-    }
-    if (app.formData) {
-      return `${app.formData.firstName || ''} ${app.formData.lastName || ''}`.trim();
-    }
-    return 'N/A';
+    const nested = app.personalInfo || app.formData || {};
+    return app.name || app.full_name || app.contact_name ||
+      `${nested.firstName || app.firstName || ''} ${nested.lastName || app.lastName || ''}`.trim() || 'N/A';
   };
 
-  const getApplicantEmail = (app: Application) => {
-    return app.personalInfo?.email || app.formData?.email || 'N/A';
-  };
+  const getApplicantEmail = (app: Application) =>
+    app.email || app.contact_email || app.personalInfo?.email || app.formData?.email || 'N/A';
 
-  const getApplicantPhone = (app: Application) => {
-    return app.personalInfo?.phone || app.formData?.phone || 'N/A';
-  };
+  const getApplicantPhone = (app: Application) =>
+    app.phone || app.contact_phone || app.personalInfo?.phone || app.formData?.phone || 'N/A';
+
+  const getPortalLabel = (app: Application) =>
+    String(app.portalType || app.applicationType || app.type || 'general').replace(/_/g, ' ');
 
   const handleNavigation = (path: string) => {
     window.location.href = path;
@@ -360,6 +412,10 @@ export default function ApplicationSubmissions() {
                         {getStatusIcon(app.status)}
                         <span className="capitalize">{app.status}</span>
                       </span>
+                      <span className="px-3 py-1 rounded-full text-xs font-medium border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 capitalize flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        {getPortalLabel(app)} · {String(app.onboardingStatus || 'awaiting review').replace(/_/g, ' ')}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-6 text-sm text-gray-400">
@@ -456,6 +512,27 @@ export default function ApplicationSubmissions() {
                   )}
                 </div>
               </div>
+
+              <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-cyan-200/70 mb-1">Portal handoff</p>
+                <p className="text-white font-medium capitalize">{getPortalLabel(selectedApplication)} portal</p>
+                <p className="text-sm text-gray-400 mt-1">Onboarding: {String(selectedApplication.onboardingStatus || 'awaiting_review').replace(/_/g, ' ')}</p>
+                {selectedApplication.onboardingStatus === 'provisioning_failed' && <p className="text-sm text-red-300 mt-2">Portal provisioning failed. Check Admin Alerts for the specific recovery action.</p>}
+              </div>
+
+              {onboardingDetails && (
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-3">Onboarding document review</h3>
+                  <div className="space-y-3">
+                    {(onboardingDetails.documents || []).length === 0 ? <p className="text-sm text-gray-500">No onboarding documents have been submitted yet.</p> : onboardingDetails.documents.map((document: any) => (
+                      <div key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-3">
+                        <div><button type="button" onClick={() => openDocument(document.id)} className="text-left text-sm font-medium text-orange-200 underline underline-offset-4">{document.name}</button><p className="text-xs capitalize text-gray-500">{document.taskId.replace(/_/g, ' ')} · {document.status}</p></div>
+                        {document.status === 'submitted' && <div className="flex gap-2"><button onClick={() => reviewDocument(document.id, 'approved')} className="border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/10">Approve</button><button onClick={() => reviewDocument(document.id, 'rejected')} className="border border-red-500/40 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">Return</button></div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* All Application Data */}
               <div>
