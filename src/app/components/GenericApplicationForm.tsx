@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Send, Check, Upload, X } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import ApplicationPlanBuilderSection from './ApplicationPlanBuilderSection';
 
 export interface ApplicationField {
   id: string;
@@ -56,6 +57,8 @@ export interface ApplicationConfig {
   fields?: ApplicationField[];
   applicationType?: string;
   onSuccess?: (result: any) => void;
+  planBuilderPortalType?: 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor' | 'employee' | 'property_manager' | 'landlord' | 'condo_manager';
+  planBuilderOwnerNameField?: string;
 }
 
 interface GenericApplicationFormProps {
@@ -464,6 +467,16 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
             </div>
           )}
         </div>
+
+        {isLastStep && config.planBuilderPortalType && (
+          <div className="mt-6">
+            <ApplicationPlanBuilderSection
+              portalType={config.planBuilderPortalType}
+              ownerName={config.planBuilderOwnerNameField ? String(formData[config.planBuilderOwnerNameField] || '') : undefined}
+              onPlanDraftChange={(planPreference) => setFormData(previous => ({ ...previous, planPreference }))}
+            />
+          </div>
+        )}
 
         {/* Navigation */}
         <div className="flex gap-4">

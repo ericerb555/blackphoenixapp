@@ -27,7 +27,7 @@ interface WorkOrderDetailProps {
   workOrder: WorkOrder;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (order: WorkOrder) => void;
+  onSave: (order: WorkOrder) => Promise<boolean>;
   onStatusChange: (orderId: string, status: WorkOrderStatus) => void;
 }
 
@@ -42,10 +42,12 @@ export default function WorkOrderDetail({
   const [activeTab, setActiveTab] = useState<'details' | 'assignment' | 'progress' | 'materials' | 'photos'>('details');
   const [showAssignModal, setShowAssignModal] = useState(false);
 
-  const handleSave = () => {
-    onSave(editedOrder);
-    toast.success('Work order updated!');
-    onClose();
+  const handleSave = async () => {
+    const saved = await onSave(editedOrder);
+    if (saved) {
+      toast.success('Work order updated!');
+      onClose();
+    }
   };
 
   const getStatusColor = (status: WorkOrderStatus) => {

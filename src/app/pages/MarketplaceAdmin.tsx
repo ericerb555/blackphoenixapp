@@ -199,7 +199,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     features: ['AI-generated maintenance health score', 'System-by-system risk assessment', '90-day action plan', 'Estimated capital needs (1-3 year horizon)', 'NH seasonal risk flags', 'Vendor recommendation list', 'Executive summary PDF'],
     price: 7900, audience: ['Homeowners', 'Landlords', 'Property Managers'], rating: 4.9, reviews: 38,
     color: 'text-violet-400', badge: 'AI-POWERED', nhRelevant: true, popular: true,
-    deliveryMethod: 'generated', fileTypes: ['PDF'], visible: true, sortOrder: 14,
+fileTypes: ['PDF'], visible: true, sortOrder: 14,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
   },
   {
@@ -209,7 +209,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     features: ['Portfolio revenue gap analysis', 'Rent optimization recommendations', 'ADU feasibility assessment', 'Ancillary revenue opportunities', 'EV charging revenue model', 'Expense reduction targets', '12-month revenue growth roadmap'],
     price: 9900, audience: ['Landlords', 'Property Managers', 'Real Estate Investors'], rating: 4.8, reviews: 29,
     color: 'text-emerald-400', badge: 'AI-POWERED', nhRelevant: true,
-    deliveryMethod: 'generated', fileTypes: ['PDF'], visible: true, sortOrder: 15,
+fileTypes: ['PDF'], visible: true, sortOrder: 15,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
   },
   {
@@ -219,7 +219,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     features: ['Full component lifecycle model', 'Annual contribution schedule', '3 funding scenario comparison', 'Special assessment risk score', 'NH contractor cost benchmarks', 'Reserve fund growth projections', 'Board-ready presentation deck'],
     price: 12900, audience: ['Condo Boards', 'Property Managers', 'HOA Boards'], rating: 4.9, reviews: 17,
     color: 'text-orange-400', badge: 'AI-POWERED', nhRelevant: true,
-    deliveryMethod: 'generated', fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
+fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
   },
   {

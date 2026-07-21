@@ -221,6 +221,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
           source: formData.howHeard,
           plan,
           marketingEmails: formData.marketingEmails,
+          planPreference: (formData as any).planPreference || null,
         }),
       });
       if (!customerRes.ok) {
@@ -840,6 +841,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
                 <ApplicationPlanBuilderSection
                   portalType="customer"
                   ownerName={`${formData.firstName} ${formData.lastName}`.trim()}
+                  onPlanDraftChange={(planPreference) => setFormData(prev => ({ ...prev, planPreference } as any))}
                 />
               </div>
             </motion.div>

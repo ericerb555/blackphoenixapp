@@ -74,8 +74,10 @@ export default function PublicStore() {
   // ── Checkout ──────────────────────────────────────────────────────────────
   const [showCheckout, setShowCheckout] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<'info' | 'processing' | 'done'>('info');
-  const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', phone: '', address: '', city: '', zip: '' });
+  const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', phone: '', address: '', city: '', zip: '', giftCardCode: '' });
   const [checkoutError, setCheckoutError] = useState('');
+  const [giftCardBalance, setGiftCardBalance] = useState<number | null>(null);
+  const [checkingGiftCard, setCheckingGiftCard] = useState(false);
 
   // Stripe only creates the order after the payment session is verified by the
   // server. This also makes a browser refresh/retry safe and idempotent.
@@ -448,6 +450,29 @@ export default function PublicStore() {
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const checkoutShipping = cartTotal >= 500 ? 0 : 25;
+  const checkoutTax = Number((cartTotal * taxRate).toFixed(2));
+  const checkoutTotal = Number((cartTotal + checkoutShipping + checkoutTax).toFixed(2));
+  const giftCardCredit = Math.min(giftCardBalance || 0, checkoutTotal);
+  const amountDueAfterGiftCard = Number(Math.max(0, checkoutTotal - giftCardCredit).toFixed(2));
+
+  const applyGiftCard = async () => {
+    const code = checkoutForm.giftCardCode.trim();
+    if (!code) { setCheckoutError('Enter a gift card code first.'); return; }
+    setCheckingGiftCard(true); setCheckoutError('');
+    try {
+      const response = await fetch(`${SERVER}/gift-cards/${encodeURIComponent(code)}`, { headers: { apikey: publicAnonKey } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.success) throw new Error(data?.error || 'Gift card could not be verified.');
+      const balance = Number(data.card?.balance || 0);
+      if (balance <= 0) throw new Error('This gift card has no available balance.');
+      setGiftCardBalance(balance);
+      toast.success(`Gift card applied — up to $${Math.min(balance, checkoutTotal).toFixed(2)} will be used.`);
+    } catch (error: any) {
+      setGiftCardBalance(null);
+      setCheckoutError(error.message || 'Gift card could not be verified.');
+    } finally { setCheckingGiftCard(false); }
+  };
 
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.id === product.id);
@@ -1404,18 +1429,36 @@ export default function PublicStore() {
                   ))}
                   <div className="border-t pt-2 mt-2 flex justify-between text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                     <span className="text-gray-500">Shipping</span>
-                    <span className="text-white">{cartTotal >= 500 ? 'FREE' : '$25.00'}</span>
+                    <span className="text-white">{checkoutShipping === 0 ? 'FREE' : `$${checkoutShipping.toFixed(2)}`}</span>
                   </div>
                   {taxRate > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Tax</span>
-                      <span className="text-white">${(cartTotal * taxRate).toFixed(2)}</span>
+                      <span className="text-white">${checkoutTax.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="border-t pt-2 flex justify-between font-black" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                     <span className="text-white">Total</span>
-                    <span style={{ color: '#ea580c' }}>${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}</span>
+                    <span style={{ color: '#ea580c' }}>${checkoutTotal.toFixed(2)}</span>
                   </div>
+                </div>
+
+                <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Gift card</p>
+                  <div className="flex gap-2">
+                    <input
+                      value={checkoutForm.giftCardCode}
+                      onChange={event => { setCheckoutForm(form => ({ ...form, giftCardCode: event.target.value })); setGiftCardBalance(null); }}
+                      placeholder="BPB-XXXX-XXXX-XXXX"
+                      className="min-w-0 flex-1 px-3 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
+                      style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
+                    />
+                    <button type="button" onClick={applyGiftCard} disabled={checkingGiftCard} className="px-4 py-2 rounded-xl text-xs font-black text-orange-300 disabled:opacity-50" style={{ border: '1px solid rgba(234,88,12,0.4)', background: 'rgba(234,88,12,0.1)' }}>
+                      {checkingGiftCard ? 'Checking…' : 'Apply'}
+                    </button>
+                  </div>
+                  {giftCardBalance !== null && <div className="flex justify-between text-xs"><span className="text-green-400">Gift card credit reserved at payment</span><span className="font-black text-green-400">−${giftCardCredit.toFixed(2)}</span></div>}
+                  {giftCardBalance !== null && <p className="text-[10px] text-gray-500">Available card balance: ${giftCardBalance.toFixed(2)} · Amount due: ${amountDueAfterGiftCard.toFixed(2)}</p>}
                 </div>
 
                 <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Your Information</p>
@@ -1459,19 +1502,24 @@ export default function PublicStore() {
                     localStorage.setItem('bp_lead_name', checkoutForm.name);
 
                     try {
-                      const shipping = cartTotal >= 500 ? 0 : 25;
                       const res = await fetch(`${SERVER}/store/checkout`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
                         body: JSON.stringify({
                           items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.qty, image: item.image })),
                           customer: { name: checkoutForm.name, email: checkoutForm.email, phone: checkoutForm.phone, address: `${checkoutForm.address}, ${checkoutForm.city} ${checkoutForm.zip}` },
-                          shipping,
+                          shipping: checkoutShipping,
+                          tax: checkoutTax,
+                          giftCardCode: giftCardBalance !== null ? checkoutForm.giftCardCode.trim() : null,
                           coupon: null,
                         }),
                       });
                       const data = await res.json();
-                      if (data.url) {
+                      if (data.zeroBalanceOrder && data.order) {
+                        setCart([]); setShowCart(false); setShowCheckout(false); setCheckoutStep('info');
+                        setGiftCardBalance(null); setCheckoutForm(form => ({ ...form, giftCardCode: '' }));
+                        toast.success(`Order ${data.order.id} confirmed — your gift card covered the total.`);
+                      } else if (data.url) {
                         window.location.href = data.url;
                       } else {
                         setCheckoutError(data.error || 'Payment setup failed. Please try again.');
@@ -1483,7 +1531,7 @@ export default function PublicStore() {
                     }
                   }}
                 >
-                  <Lock className="w-4 h-4" /> Pay Now — Powered by Stripe
+                  <Lock className="w-4 h-4" /> {amountDueAfterGiftCard === 0 && giftCardBalance !== null ? 'Complete Gift Card Order' : `Pay $${amountDueAfterGiftCard.toFixed(2)} — Powered by Stripe`}
                 </button>
                 <p className="text-center text-[10px] text-gray-700">256-bit SSL encrypted · You will be redirected to Stripe's secure payment page</p>
               </div>

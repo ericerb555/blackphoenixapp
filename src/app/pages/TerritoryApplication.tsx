@@ -676,6 +676,7 @@ export default function TerritoryApplication({ onNavigate }: TerritoryApplicatio
                 <ApplicationPlanBuilderSection
                   portalType="property_manager"
                   ownerName={formData.companyName || `${formData.firstName} ${formData.lastName}`.trim()}
+                  onPlanDraftChange={(planPreference) => setFormData(prev => ({ ...prev, planPreference } as any))}
                 />
               </div>
 

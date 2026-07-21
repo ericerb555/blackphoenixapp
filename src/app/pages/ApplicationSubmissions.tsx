@@ -13,13 +13,13 @@ interface Application {
   id: string;
   personalInfo?: any;
   formData?: any;
-  status: 'new' | 'reviewed' | 'accepted' | 'rejected';
+  status: 'new' | 'reviewed' | 'accepted' | 'approved' | 'rejected';
   submittedAt: string;
   updatedAt: string;
   [key: string]: any;
 }
 
-type StatusFilter = 'all' | 'new' | 'reviewed' | 'accepted' | 'rejected';
+type StatusFilter = 'all' | 'new' | 'reviewed' | 'accepted' | 'approved' | 'rejected';
 
 export default function ApplicationSubmissions() {
   const [applications, setApplications] = useState<Application[]>([]);
@@ -29,6 +29,9 @@ export default function ApplicationSubmissions() {
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
   const [onboardingDetails, setOnboardingDetails] = useState<any | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [proposalQuote, setProposalQuote] = useState('');
+  const [proposalNotes, setProposalNotes] = useState('');
+  const [proposalSaving, setProposalSaving] = useState(false);
 
   useEffect(() => {
     loadApplications();
@@ -39,6 +42,12 @@ export default function ApplicationSubmissions() {
     return { Authorization: `Bearer ${session.access_token}`, ...(withContentType ? { 'Content-Type': 'application/json' } : {}) };
   };
 
+
+  useEffect(() => {
+    const proposal = selectedApplication?.planProposal;
+    setProposalQuote(proposal?.quotedMonthlyTotal === null || proposal?.quotedMonthlyTotal === undefined ? '' : String(proposal.quotedMonthlyTotal));
+    setProposalNotes(String(proposal?.notes || ''));
+  }, [selectedApplication?.id, selectedApplication?.planProposal?.updatedAt]);
 
   useEffect(() => {
     if (!selectedApplication?.id) { setOnboardingDetails(null); return; }
@@ -164,7 +173,7 @@ export default function ApplicationSubmissions() {
         setApplications(apps =>
           apps.map(app => app.id === id ? data.application : app)
         );
-        toast.success(status === 'accepted' ? 'Application accepted — portal account provisioning has started.' : 'Application status updated');
+        toast.success((status === 'accepted' || status === 'approved') ? 'Application approved — portal onboarding has started.' : 'Application status updated');
         if (selectedApplication?.id === id) {
           setSelectedApplication(data.application);
         }
@@ -175,6 +184,28 @@ export default function ApplicationSubmissions() {
       console.error('Error updating status:', error);
       toast.error('Failed to update status');
     }
+  };
+
+  const updatePlanProposal = async (status: 'quoted' | 'approved' | 'declined') => {
+    if (!selectedApplication?.id) return;
+    if ((status === 'quoted' || status === 'approved') && (proposalQuote.trim() === '' || Number.isNaN(Number(proposalQuote)) || Number(proposalQuote) < 0)) {
+      toast.error('Enter a valid monthly price before sending this plan decision.');
+      return;
+    }
+    setProposalSaving(true);
+    try {
+      const response = await fetch(`${API_BASE}/application-plan-proposals/${selectedApplication.id}`, {
+        method: 'PATCH', headers: await getAdminHeaders(true),
+        body: JSON.stringify({ status, quotedMonthlyTotal: proposalQuote.trim() === '' ? undefined : Number(proposalQuote), notes: proposalNotes }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not update plan proposal.');
+      const application = { ...selectedApplication, planProposal: result.proposal, planProposalId: result.proposal.id };
+      setSelectedApplication(application);
+      setApplications(apps => apps.map(app => app.id === application.id ? { ...app, planProposal: result.proposal, planProposalId: result.proposal.id } : app));
+      toast.success(status === 'approved' ? `Plan price approved. Invoice ${result.invoice?.invoice_number || result.proposal.invoiceNumber || ''} is now available in the customer's portal.` : status === 'quoted' ? 'Plan quote saved for review.' : 'Plan proposal declined.');
+    } catch (error: any) { toast.error(error.message || 'Could not update plan proposal.'); }
+    finally { setProposalSaving(false); }
   };
 
   const getAdminToken = async () => {
@@ -272,7 +303,7 @@ export default function ApplicationSubmissions() {
     all: applications.length,
     new: applications.filter(a => a.status === 'new').length,
     reviewed: applications.filter(a => a.status === 'reviewed').length,
-    accepted: applications.filter(a => a.status === 'accepted').length,
+    accepted: applications.filter(a => a.status === 'accepted' || a.status === 'approved').length,
     rejected: applications.filter(a => a.status === 'rejected').length,
   };
 
@@ -283,6 +314,7 @@ export default function ApplicationSubmissions() {
       case 'reviewed':
         return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
       case 'accepted':
+      case 'approved':
         return 'bg-green-500/20 text-green-400 border-green-500/30';
       case 'rejected':
         return 'bg-red-500/20 text-red-400 border-red-500/30';
@@ -298,6 +330,7 @@ export default function ApplicationSubmissions() {
       case 'reviewed':
         return <Eye className="w-4 h-4" />;
       case 'accepted':
+      case 'approved':
         return <CheckCircle className="w-4 h-4" />;
       case 'rejected':
         return <XCircle className="w-4 h-4" />;
@@ -531,6 +564,21 @@ export default function ApplicationSubmissions() {
                 </div>
               )}
 
+              {selectedApplication.planPreference && (
+                <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><p className="text-xs uppercase tracking-[0.14em] text-orange-200/70">Requested plan preference</p><h3 className="mt-1 text-lg font-bold text-white">{selectedApplication.planPreference.planName || 'Custom plan'}</h3><p className="mt-1 text-sm text-gray-400">{(selectedApplication.planPreference.serviceNames || []).join(' · ') || 'Services to be reviewed'}</p></div>
+                    <span className="rounded-full border border-orange-500/30 px-3 py-1 text-xs font-bold capitalize text-orange-200">{String(selectedApplication.planProposal?.status || 'awaiting application approval').replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-gray-500">Requested monthly estimate</p><p className="font-bold text-white">${Number(selectedApplication.planPreference.monthlyTotal || 0).toFixed(2)}</p></div><div><p className="text-gray-500">Frequency</p><p className="font-bold capitalize text-white">{String(selectedApplication.planPreference.frequencyId || 'monthly').replace(/_/g, ' ')}</p></div></div>
+                  {!selectedApplication.planProposal ? <p className="rounded-lg bg-black/20 p-3 text-sm text-gray-400">Approve this application first to open the controlled pricing review. No plan, service hours, or billing is activated yet.</p> : <>
+                    {selectedApplication.planProposal.invoiceNumber && <p className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-100">Payment invoice: <strong>{selectedApplication.planProposal.invoiceNumber}</strong> · {String(selectedApplication.planProposal.status) === 'active' ? 'Paid and activated' : 'Visible in the customer portal for secure payment.'}</p>}
+                    <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm text-gray-400">Approved monthly price<input value={proposalQuote} onChange={event => setProposalQuote(event.target.value)} type="number" min="0" step="0.01" placeholder="0.00" className="mt-1 w-full rounded-lg border border-[#333] bg-[#0F0F0F] px-3 py-2 text-white focus:border-orange-500 focus:outline-none" /></label><label className="text-sm text-gray-400">Pricing notes<textarea value={proposalNotes} onChange={event => setProposalNotes(event.target.value)} rows={2} placeholder="Scope, exclusions, or next steps" className="mt-1 w-full rounded-lg border border-[#333] bg-[#0F0F0F] px-3 py-2 text-white focus:border-orange-500 focus:outline-none" /></label></div>
+                    <div className="flex flex-wrap gap-2"><button disabled={proposalSaving} onClick={() => updatePlanProposal('quoted')} className="rounded-lg border border-sky-500/40 px-3 py-2 text-sm font-bold text-sky-200 disabled:opacity-50">Save Quote</button><button disabled={proposalSaving} onClick={() => updatePlanProposal('approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">Approve Price</button><button disabled={proposalSaving} onClick={() => updatePlanProposal('declined')} className="rounded-lg border border-red-500/40 px-3 py-2 text-sm font-bold text-red-200 disabled:opacity-50">Decline Plan</button></div>
+                  </>}
+                </div>
+              )}
+
               {/* All Application Data */}
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Application Details</h3>
@@ -549,7 +597,7 @@ export default function ApplicationSubmissions() {
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Update Status</h3>
                 <div className="grid grid-cols-4 gap-3">
-                  {(['new', 'reviewed', 'accepted', 'rejected'] as Application['status'][]).map((status) => (
+                  {(['new', 'reviewed', 'approved', 'rejected'] as Application['status'][]).map((status) => (
                     <button
                       key={status}
                       onClick={() => updateStatus(selectedApplication.id, status)}

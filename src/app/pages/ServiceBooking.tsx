@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -66,25 +67,42 @@ export default function ServiceBooking() {
 
   async function submitBooking() {
     setSubmitting(true);
-    const ref = 'BP-' + Date.now().toString(36).toUpperCase().slice(-6);
     try {
-      await fetch(`${SERVER}/leads/capture`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || publicAnonKey;
+      const workRequestResponse = await fetch(`${SERVER}/work-requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          email: form.email,
-          name: form.name,
-          phone: form.phone,
           source: 'service_booking',
-          page: '/book',
-          intent: form.urgency === 'asap' ? 'hot' : form.urgency === 'week' ? 'warm' : 'cold',
-          notes: `Service: ${form.service} | ${form.description} | Urgency: ${form.urgency} | Date: ${form.preferredDate} ${form.preferredTime} | Budget: ${form.budget} | Address: ${form.address}`,
+          serviceType: selectedService?.label || form.service,
+          project_type: form.service,
+          title: `${selectedService?.label || 'Service'} booking request`,
+          description: form.description,
+          urgency: form.urgency,
+          preferredDate: form.preferredDate || null,
+          preferredTime: form.preferredTime || null,
+          budget: form.budget || null,
+          service_address: form.address,
+          client_info: { name: form.name, email: form.email, phone: form.phone, address: form.address },
         }),
       });
-    } catch (_) {}
-    setBookingRef(ref);
-    setSubmitting(false);
-    setStep('done');
+      const workRequestResult = await workRequestResponse.json().catch(() => ({}));
+      if (!workRequestResponse.ok || !workRequestResult?.success) throw new Error(workRequestResult?.error || 'We could not save your booking request.');
+
+      // Keep the marketing/CRM lead capture in sync, but never let a noncritical
+      // marketing failure hide a successfully saved service request.
+      void fetch(`${SERVER}/leads/capture`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: form.email, name: form.name, phone: form.phone, source: 'service_booking', page: '/book', intent: form.urgency === 'asap' ? 'hot' : form.urgency === 'week' ? 'warm' : 'cold', workRequestId: workRequestResult.workRequest?.id, notes: `Service: ${form.service} | ${form.description} | Urgency: ${form.urgency} | Date: ${form.preferredDate} ${form.preferredTime} | Budget: ${form.budget} | Address: ${form.address}` }),
+      }).catch(() => {});
+      setBookingRef(workRequestResult.workRequest?.id || `BP-${Date.now().toString(36).toUpperCase().slice(-6)}`);
+      setStep('done');
+    } catch (error: any) {
+      toast.error(error.message || 'We could not save your booking request. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const canAdvanceDetails = form.name && form.email && form.phone && form.description;

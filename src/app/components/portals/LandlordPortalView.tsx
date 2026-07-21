@@ -1,9 +1,9 @@
-import { useState, Component, ReactNode } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { useState, useEffect, Component, ReactNode } from 'react';
+import { toast } from 'sonner';
 import {
   Home, DollarSign, Users, Wrench, Settings, Bell,
   Building2, BarChart3, ChevronRight, ArrowUpRight, Tag, MessageSquare,
-  TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles,
+  TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -13,6 +13,8 @@ import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -92,19 +94,114 @@ function getDemoProfile() {
 
 export default function LandlordPortalView() {
   const demoProfile = getDemoProfile();
-  const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
+  const { user, session } = useAuth();
+  const accountEmail = user?.email || '';
+  const { unread: unreadMessages, clearUnread } = usePortalMessages(user?.id || '', accountEmail);
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [maintenance, setMaintenance] = useState(MAINTENANCE);
-  const [name, setName] = useState(demoProfile?.name || 'Patricia Nguyen');
-  const [email, setEmail] = useState(demoProfile?.email || 'patricia@nguyenrentals.com');
+  const [maintenance, setMaintenance] = useState<any[]>([]);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true);
+  const [decisionId, setDecisionId] = useState<string | null>(null);
+  const [financials, setFinancials] = useState({ paidTotal: 0, pendingTotal: 0, openInvoiceTotal: 0, payments: [] as any[], invoices: [] as any[] });
+  const [financialsLoading, setFinancialsLoading] = useState(false);
+  const [properties, setProperties] = useState<any[]>([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
+  const [showPropertyForm, setShowPropertyForm] = useState(false);
+  const [savingProperty, setSavingProperty] = useState(false);
+  const [propertyDraft, setPropertyDraft] = useState({ name: '', address: '', units: '1', vacancies: '0' });
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+  const [showTenantForm, setShowTenantForm] = useState(false);
+  const [savingTenant, setSavingTenant] = useState(false);
+  const [tenantDraft, setTenantDraft] = useState({ name: '', unit: '', rent: '', status: 'current' });
+  const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Landlord');
+  const email = accountEmail || demoProfile?.email || '';
 
-  function approve(id: string) {
-    setMaintenance(prev => prev.map(m => m.id === id ? { ...m, status: 'approved' } : m));
-    toast.success('Maintenance request approved.');
+  const loadMaintenance = async () => {
+    if (!session?.access_token) { setMaintenance([]); setMaintenanceLoading(false); return; }
+    setMaintenanceLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load maintenance requests.');
+      setMaintenance(Array.isArray(payload.workRequests) ? payload.workRequests : []);
+    } catch (error: any) { setMaintenance([]); toast.error(error?.message || 'Unable to load maintenance requests.'); }
+    finally { setMaintenanceLoading(false); }
+  };
+
+  useEffect(() => { void loadMaintenance(); }, [session?.access_token]);
+
+  const loadProperties = async () => {
+    if (!session?.access_token) { setProperties([]); setPropertiesLoading(false); return; }
+    setPropertiesLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load properties.');
+      setProperties(Array.isArray(payload.properties) ? payload.properties : []);
+    } catch (error: any) { setProperties([]); toast.error(error?.message || 'Unable to load landlord properties.'); }
+    finally { setPropertiesLoading(false); }
+  };
+  useEffect(() => { void loadProperties(); }, [session?.access_token]);
+
+  const loadTenants = async () => {
+    if (!session?.access_token) { setTenants([]); setTenantsLoading(false); return; }
+    setTenantsLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load tenants.');
+      setTenants(Array.isArray(payload.tenants) ? payload.tenants : []);
+    } catch (error: any) { setTenants([]); toast.error(error?.message || 'Unable to load tenants.'); }
+    finally { setTenantsLoading(false); }
+  };
+  useEffect(() => { void loadTenants(); }, [session?.access_token]);
+
+  async function addTenant(event: React.FormEvent) {
+    event.preventDefault(); if (!session?.access_token || savingTenant) return; setSavingTenant(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...tenantDraft, rent: Number(tenantDraft.rent) }) });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add tenant.');
+      setTenants(current => [payload.tenant, ...current]); setTenantDraft({ name: '', unit: '', rent: '', status: 'current' }); setShowTenantForm(false); toast.success('Tenant saved to your roster.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to add tenant.'); } finally { setSavingTenant(false); }
   }
-  function reject(id: string) {
-    setMaintenance(prev => prev.map(m => m.id === id ? { ...m, status: 'rejected' } : m));
-    toast.error('Maintenance request rejected.');
+
+  async function addProperty(event: React.FormEvent) {
+    event.preventDefault(); if (!session?.access_token || savingProperty) return; setSavingProperty(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...propertyDraft, units: Number(propertyDraft.units), vacancies: Number(propertyDraft.vacancies) }) });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add property.');
+      setProperties(current => [payload.property, ...current]); setPropertyDraft({ name: '', address: '', units: '1', vacancies: '0' }); setShowPropertyForm(false); toast.success('Property added to your portfolio.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to add property.'); } finally { setSavingProperty(false); }
+  }
+
+  useEffect(() => {
+    if (tab !== 'financials' || !session?.access_token) return;
+    let cancelled = false;
+    const loadFinancials = async () => {
+      setFinancialsLoading(true);
+      try {
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load financial records.');
+        if (!cancelled) setFinancials({ ...payload.summary, payments: Array.isArray(payload.payments) ? payload.payments : [], invoices: Array.isArray(payload.invoices) ? payload.invoices : [] });
+      } catch (error: any) { if (!cancelled) { setFinancials({ paidTotal: 0, pendingTotal: 0, openInvoiceTotal: 0, payments: [], invoices: [] }); toast.error(error?.message || 'Unable to load financial records.'); } }
+      finally { if (!cancelled) setFinancialsLoading(false); }
+    };
+    void loadFinancials();
+    return () => { cancelled = true; };
+  }, [tab, session?.access_token]);
+
+  async function decide(id: string, decision: 'approved' | 'rejected') {
+    if (!session?.access_token || decisionId) return;
+    setDecisionId(id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to update maintenance request.');
+      setMaintenance(current => current.map(request => request.id === id ? payload.workRequest : request));
+      toast.success(decision === 'approved' ? 'Maintenance request approved and saved.' : 'Maintenance request rejected and saved.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to update maintenance request.'); }
+    finally { setDecisionId(null); }
   }
 
   return (
@@ -152,10 +249,10 @@ export default function LandlordPortalView() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Properties', value: String(PROPERTIES.length), icon: Building2 },
-                { label: 'Total Units', value: '32', icon: Home },
+                { label: 'Properties', value: String(properties.length), icon: Building2 },
+                { label: 'Total Units', value: String(properties.reduce((sum, property) => sum + Number(property.units || 0), 0)), icon: Home },
                 { label: 'Monthly Revenue', value: '$28,400', icon: DollarSign },
-                { label: 'Vacancies', value: String(PROPERTIES.reduce((a, p) => a + p.vacancies, 0)), icon: Wrench },
+                { label: 'Vacancies', value: String(properties.reduce((sum, property) => sum + Number(property.vacancies || 0), 0)), icon: Wrench },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -182,7 +279,7 @@ export default function LandlordPortalView() {
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {TENANTS.map(t => (
+                  {tenantsLoading ? <div className="py-4 text-sm text-gray-500">Loading tenant roster…</div> : tenants.length === 0 ? <div className="py-4 text-sm text-gray-500">Add tenants from the Tenants tab to track them here.</div> : tenants.slice(0, 3).map(t => (
                     <div key={t.id} className="bg-[#0A0A0A] rounded-lg p-4 flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold text-sm">{t.name}</p>
@@ -205,7 +302,7 @@ export default function LandlordPortalView() {
                   </button>
                 </div>
                 <div className="space-y-3">
-                  {maintenance.map(m => (
+                  {maintenanceLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading maintenance requests…</div> : maintenance.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No maintenance requests are currently assigned to this landlord account.</div> : maintenance.map(m => (
                     <div key={m.id} className="bg-[#0A0A0A] rounded-lg p-4 flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold text-sm">{m.title}</p>
@@ -222,48 +319,17 @@ export default function LandlordPortalView() {
 
         {tab === 'properties' && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Properties</h2>
-            {PROPERTIES.map(p => (
-              <div key={p.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-teal-500/30 transition">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-bold text-lg">{p.name}</p>
-                    <p className="text-gray-400 text-sm">{p.address}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold">{p.units}</p>
-                    <p className="text-gray-500 text-xs">Total Units</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-4 text-sm">
-                  <span className="text-green-400 font-semibold">{p.units - p.vacancies} Occupied</span>
-                  {p.vacancies > 0
-                    ? <span className="text-red-400 font-semibold">{p.vacancies} Vacant</span>
-                    : <span className="text-gray-500">Fully Occupied</span>
-                  }
-                </div>
-              </div>
-            ))}
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Properties</h2><p className="mt-1 text-sm text-gray-400">Your saved landlord portfolio.</p></div><button type="button" onClick={() => setShowPropertyForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add property</button></div>
+            {showPropertyForm && <form onSubmit={addProperty} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={propertyDraft.name} onChange={event => setPropertyDraft(value => ({ ...value, name: event.target.value }))} placeholder="Property name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required value={propertyDraft.address} onChange={event => setPropertyDraft(value => ({ ...value, address: event.target.value }))} placeholder="Street address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required min="1" type="number" value={propertyDraft.units} onChange={event => setPropertyDraft(value => ({ ...value, units: event.target.value }))} placeholder="Total units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" type="number" value={propertyDraft.vacancies} onChange={event => setPropertyDraft(value => ({ ...value, vacancies: event.target.value }))} placeholder="Vacant units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><div className="flex gap-2 sm:col-span-2"><button disabled={savingProperty} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingProperty ? 'Saving…' : 'Save property'}</button><button type="button" onClick={() => setShowPropertyForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
+            {propertiesLoading ? <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">Loading property portfolio…</div> : properties.length === 0 ? <div className="rounded-xl border border-dashed border-[#3a3a3a] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">No properties have been added to this account yet.</div> : properties.map(p => <div key={p.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-teal-500/30 transition"><div className="flex items-start justify-between"><div><p className="font-bold text-lg">{p.name}</p><p className="text-gray-400 text-sm">{p.address}</p></div><div className="text-right"><p className="text-2xl font-bold">{p.units}</p><p className="text-gray-500 text-xs">Total Units</p></div></div><div className="mt-3 flex gap-4 text-sm"><span className="text-green-400 font-semibold">{Math.max(0, Number(p.units || 0) - Number(p.vacancies || 0))} Occupied</span>{Number(p.vacancies || 0) > 0 ? <span className="text-red-400 font-semibold">{p.vacancies} Vacant</span> : <span className="text-gray-500">Fully Occupied</span>}</div></div>)}
           </div>
         )}
 
         {tab === 'tenants' && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Tenants</h2>
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {TENANTS.map(t => (
-                <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <div>
-                    <p className="font-bold">{t.name}</p>
-                    <p className="text-gray-500 text-sm">{t.unit}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold">${t.rent.toLocaleString()}/mo</span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Tenants</h2><p className="mt-1 text-sm text-gray-400">Your saved tenant roster and monthly rent status.</p></div><button type="button" onClick={() => setShowTenantForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add tenant</button></div>
+            {showTenantForm && <form onSubmit={addTenant} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={tenantDraft.name} onChange={event => setTenantDraft(value => ({ ...value, name: event.target.value }))} placeholder="Tenant full name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required value={tenantDraft.unit} onChange={event => setTenantDraft(value => ({ ...value, unit: event.target.value }))} placeholder="Unit / address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" step="0.01" type="number" value={tenantDraft.rent} onChange={event => setTenantDraft(value => ({ ...value, rent: event.target.value }))} placeholder="Monthly rent" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><select value={tenantDraft.status} onChange={event => setTenantDraft(value => ({ ...value, status: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"><option value="current">Current</option><option value="late">Late</option><option value="pending">Pending</option></select><div className="flex gap-2 sm:col-span-2"><button disabled={savingTenant} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingTenant ? 'Saving…' : 'Save tenant'}</button><button type="button" onClick={() => setShowTenantForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{tenantsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading tenants…</div> : tenants.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No tenants have been added to this account yet.</div> : tenants.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">{t.name}</p><p className="text-gray-500 text-sm">{t.unit}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(t.rent || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span></div></div>)}</div>
           </div>
         )}
 
@@ -279,10 +345,10 @@ export default function LandlordPortalView() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded text-xs font-bold border ${priorityBadge(m.priority)}`}>{m.priority}</span>
-                    {(m.status === 'open' || m.status === 'scheduled') ? (
+                    {(['open', 'pending', 'pending_approval', 'scheduled'].includes(m.status)) ? (
                       <>
-                        <button onClick={() => approve(m.id)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition">Approve</button>
-                        <button onClick={() => reject(m.id)} className="px-3 py-1.5 bg-red-600/80 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition">Reject</button>
+                        <button disabled={decisionId === m.id} onClick={() => decide(m.id, 'approved')} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 text-white rounded-lg text-xs font-bold transition">{decisionId === m.id ? 'Saving…' : 'Approve'}</button>
+                        <button disabled={decisionId === m.id} onClick={() => decide(m.id, 'rejected')} className="px-3 py-1.5 bg-red-600/80 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 text-white rounded-lg text-xs font-bold transition">Reject</button>
                       </>
                     ) : (
                       <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(m.status)}`}>{m.status}</span>
@@ -304,32 +370,15 @@ export default function LandlordPortalView() {
 
         {tab === 'financials' && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Financials</h2>
+            <div><h2 className="text-xl font-bold">Account Financials</h2><p className="mt-1 text-sm text-gray-400">Verified payment and invoice activity for this landlord account.</p></div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-              {[
-                { label: 'Monthly Income', value: '$28,400', color: 'text-green-400' },
-                { label: 'Monthly Expenses', value: '$6,800', color: 'text-red-400' },
-                { label: 'Net Cash Flow', value: '$21,600', color: 'text-teal-400' },
-              ].map((item, i) => (
-                <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
-                  <p className={`text-2xl font-bold ${item.color}`}>{item.value}</p>
-                  <p className="text-sm text-gray-400 mt-1">{item.label}</p>
-                </div>
-              ))}
+              {[{ label: 'Verified Payments', value: financials.paidTotal, color: 'text-green-400' }, { label: 'Pending Payments', value: financials.pendingTotal, color: 'text-amber-400' }, { label: 'Open Invoice Balance', value: financials.openInvoiceTotal, color: 'text-red-400' }].map((item, i) => <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5"><p className={`text-2xl font-bold ${item.color}`}>${Number(item.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className="text-sm text-gray-400 mt-1">{item.label}</p></div>)}
             </div>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {TENANTS.map(t => (
-                <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <div>
-                    <p className="font-bold">{t.name}</p>
-                    <p className="text-gray-500 text-sm">{t.unit}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold">${t.rent.toLocaleString()}/mo</span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span>
-                  </div>
-                </div>
-              ))}
+              {financialsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading financial activity…</div> : financials.payments.length === 0 && financials.invoices.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No invoices or payment activity are available for this account yet.</div> : <>
+                {financials.payments.map((payment: any) => <div key={`payment-${payment.id}`} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">{payment.invoice?.invoice_number || payment.subscription?.plan || 'Payment'}</p><p className="text-gray-500 text-sm">Payment · {new Date(payment.paidAt || payment.createdAt || Date.now()).toLocaleDateString()}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(payment.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(payment.status)}`}>{String(payment.status || 'pending').replace(/_/g, ' ')}</span></div></div>)}
+                {financials.invoices.filter((invoice: any) => !financials.payments.some((payment: any) => payment.invoiceId === invoice.id)).map((invoice: any) => <div key={`invoice-${invoice.id}`} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">{invoice.invoice_number || invoice.description || 'Invoice'}</p><p className="text-gray-500 text-sm">Invoice · {new Date(invoice.due_date || invoice.dueDate || invoice.createdAt || invoice.created_at || Date.now()).toLocaleDateString()}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(invoice.balance_due ?? invoice.balanceDue ?? invoice.amountDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(invoice.status)}`}>{String(invoice.status || 'open').replace(/_/g, ' ')}</span></div></div>)}
+              </>}
             </div>
           </div>
         )}

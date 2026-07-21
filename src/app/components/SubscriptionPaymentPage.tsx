@@ -1,22 +1,16 @@
 /**
- * Subscription Payment Page Component
- * Full-page payment interface for subscription billing
+ * Secure subscription payment handoff.
+ * Card and bank credentials are intentionally never collected in this app;
+ * Stripe Checkout owns the payment form and payment confirmation.
  */
 
-import { useState } from 'react';
-import { 
-  X, 
-  CreditCard, 
-  Building2, 
-  Calendar, 
-  DollarSign, 
-  Check,
-  Lock,
-  AlertCircle,
-  Clock,
-  Info
-} from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { useState } from "react";
+import { Building2, Calendar, Check, CreditCard, Info, Lock, X } from "lucide-react";
+import { toast } from "sonner@2.0.3";
+import { projectId } from "../utils/supabase/info";
+import { supabase } from "../lib/supabase";
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface SubscriptionPaymentPageProps {
   isOpen: boolean;
@@ -27,7 +21,7 @@ interface SubscriptionPaymentPageProps {
     plan: string;
     type: string;
     amount: number;
-    billingCycle: 'monthly' | 'quarterly' | 'annually';
+    billingCycle: "monthly" | "quarterly" | "annually";
     status: string;
     nextBillingDate?: string;
     hoursIncluded?: number;
@@ -37,384 +31,45 @@ interface SubscriptionPaymentPageProps {
   onPaymentSuccess: () => void;
 }
 
-export default function SubscriptionPaymentPage({
-  isOpen,
-  onClose,
-  subscription,
-  onPaymentSuccess,
-}: SubscriptionPaymentPageProps) {
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'ach'>('card');
+export default function SubscriptionPaymentPage({ isOpen, onClose, subscription }: SubscriptionPaymentPageProps) {
   const [processing, setProcessing] = useState(false);
-  
-  // Card form state
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-  const [cvv, setCvv] = useState('');
-  const [billingZip, setBillingZip] = useState('');
-  
-  // ACH form state
-  const [routingNumber, setRoutingNumber] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [accountName, setAccountName] = useState('');
-  const [accountType, setAccountType] = useState<'checking' | 'savings'>('checking');
-
   if (!isOpen) return null;
 
-  const handlePayment = async () => {
-    // Validate form
-    if (paymentMethod === 'card') {
-      if (!cardNumber || !cardName || !expiryDate || !cvv || !billingZip) {
-        toast.error('Please fill in all card details');
-        return;
-      }
-    } else {
-      if (!routingNumber || !accountNumber || !accountName) {
-        toast.error('Please fill in all bank account details');
-        return;
-      }
-    }
-
+  const startSecureCheckout = async () => {
     setProcessing(true);
-
     try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      toast.success(`Payment of $${subscription.amount.toFixed(2)} processed successfully!`);
-      onPaymentSuccess();
-      onClose();
-    } catch (error) {
-      toast.error('Payment failed. Please try again.');
-    } finally {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in before paying for a subscription.");
+      const response = await fetch(`${SERVER}/subscriptions/${encodeURIComponent(subscription.id)}/checkout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success || !result.checkoutUrl) throw new Error(result.error || "Unable to start secure checkout.");
+      window.location.assign(result.checkoutUrl);
+    } catch (error: any) {
+      toast.error(error.message || "Unable to start secure checkout.");
       setProcessing(false);
     }
   };
 
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = (matches && matches[0]) || '';
-    const parts = [];
-
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-
-    if (parts.length) {
-      return parts.join(' ');
-    } else {
-      return value;
-    }
-  };
-
-  const formatExpiryDate = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    if (v.length >= 2) {
-      return v.slice(0, 2) + '/' + v.slice(2, 4);
-    }
-    return v;
-  };
-
+  const hoursRemaining = subscription.hoursRemaining ?? Math.max(0, (subscription.hoursIncluded || 0) - (subscription.hoursUsed || 0));
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#0F0F0F] border border-[#1a1a1a] rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-[#0F0F0F] border-b border-[#1a1a1a] p-6 flex items-center justify-between z-10">
-          <div>
-            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-              <CreditCard className="w-6 h-6 text-[#ea580c]" />
-              Complete Payment
-            </h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Secure payment for {subscription.name}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-[#1a1a1a] rounded-lg transition"
-            disabled={processing}
-          >
-            <X className="w-5 h-5 text-gray-400" />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-[#2a2a2a] bg-[#0F0F0F] shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1a1a1a] bg-[#0F0F0F] p-6">
+          <div><h2 className="flex items-center gap-2 text-2xl font-bold text-white"><Lock className="h-6 w-6 text-[#ea580c]" />Secure Subscription Checkout</h2><p className="mt-1 text-sm text-gray-400">Payment details are securely handled by Stripe.</p></div>
+          <button onClick={onClose} disabled={processing} className="rounded-lg p-2 text-gray-400 transition hover:bg-[#1a1a1a] hover:text-white"><X className="h-6 w-6" /></button>
         </div>
-
-        <div className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Payment Form */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Payment Method Selection */}
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4">Payment Method</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setPaymentMethod('card')}
-                    className={`p-4 rounded-lg border-2 transition ${
-                      paymentMethod === 'card'
-                        ? 'border-[#ea580c] bg-[#ea580c]/10'
-                        : 'border-[#1a1a1a] hover:border-[#2a2a2a]'
-                    }`}
-                  >
-                    <CreditCard className={`w-6 h-6 mb-2 ${paymentMethod === 'card' ? 'text-[#ea580c]' : 'text-gray-400'}`} />
-                    <div className="text-sm font-medium text-white">Credit/Debit Card</div>
-                    <div className="text-xs text-gray-400">Visa, Mastercard, Amex</div>
-                  </button>
-                  
-                  <button
-                    onClick={() => setPaymentMethod('ach')}
-                    className={`p-4 rounded-lg border-2 transition ${
-                      paymentMethod === 'ach'
-                        ? 'border-[#ea580c] bg-[#ea580c]/10'
-                        : 'border-[#1a1a1a] hover:border-[#2a2a2a]'
-                    }`}
-                  >
-                    <Building2 className={`w-6 h-6 mb-2 ${paymentMethod === 'ach' ? 'text-[#ea580c]' : 'text-gray-400'}`} />
-                    <div className="text-sm font-medium text-white">Bank Account (ACH)</div>
-                    <div className="text-xs text-gray-400">Direct debit</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Card Payment Form */}
-              {paymentMethod === 'card' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Card Number
-                    </label>
-                    <input
-                      type="text"
-                      value={cardNumber}
-                      onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
-                      placeholder="1234 5678 9012 3456"
-                      maxLength={19}
-                      className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Cardholder Name
-                    </label>
-                    <input
-                      type="text"
-                      value={cardName}
-                      onChange={(e) => setCardName(e.target.value)}
-                      placeholder="John Doe"
-                      className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="col-span-1">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Expiry Date
-                      </label>
-                      <input
-                        type="text"
-                        value={expiryDate}
-                        onChange={(e) => setExpiryDate(formatExpiryDate(e.target.value))}
-                        placeholder="MM/YY"
-                        maxLength={5}
-                        className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                      />
-                    </div>
-
-                    <div className="col-span-1">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        CVV
-                      </label>
-                      <input
-                        type="text"
-                        value={cvv}
-                        onChange={(e) => setCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        placeholder="123"
-                        maxLength={4}
-                        className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                      />
-                    </div>
-
-                    <div className="col-span-1">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        ZIP Code
-                      </label>
-                      <input
-                        type="text"
-                        value={billingZip}
-                        onChange={(e) => setBillingZip(e.target.value.slice(0, 10))}
-                        placeholder="12345"
-                        className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ACH Payment Form */}
-              {paymentMethod === 'ach' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Account Type
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => setAccountType('checking')}
-                        className={`p-3 rounded-lg border-2 transition text-sm font-medium ${
-                          accountType === 'checking'
-                            ? 'border-[#ea580c] bg-[#ea580c]/10 text-white'
-                            : 'border-[#1a1a1a] text-gray-400 hover:border-[#2a2a2a]'
-                        }`}
-                      >
-                        Checking
-                      </button>
-                      <button
-                        onClick={() => setAccountType('savings')}
-                        className={`p-3 rounded-lg border-2 transition text-sm font-medium ${
-                          accountType === 'savings'
-                            ? 'border-[#ea580c] bg-[#ea580c]/10 text-white'
-                            : 'border-[#1a1a1a] text-gray-400 hover:border-[#2a2a2a]'
-                        }`}
-                      >
-                        Savings
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Routing Number
-                    </label>
-                    <input
-                      type="text"
-                      value={routingNumber}
-                      onChange={(e) => setRoutingNumber(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                      placeholder="123456789"
-                      maxLength={9}
-                      className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Account Number
-                    </label>
-                    <input
-                      type="text"
-                      value={accountNumber}
-                      onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 17))}
-                      placeholder="1234567890123"
-                      className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Account Holder Name
-                    </label>
-                    <input
-                      type="text"
-                      value={accountName}
-                      onChange={(e) => setAccountName(e.target.value)}
-                      placeholder="John Doe"
-                      className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    />
-                  </div>
-
-                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                    <div className="flex gap-3">
-                      <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                      <div className="text-sm text-blue-200">
-                        ACH payments typically take 3-5 business days to process. Your subscription will be activated immediately upon verification.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Security Notice */}
-              <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <Lock className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-sm font-medium text-white">Secure Payment</div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      Your payment information is encrypted and secure. We never store your full card details.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Order Summary */}
-            <div className="lg:col-span-1">
-              <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-6 sticky top-24">
-                <h3 className="text-lg font-semibold text-white mb-4">Order Summary</h3>
-                
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Subscription</span>
-                    <span className="text-white font-medium">{subscription.plan}</span>
-                  </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Stakeholder</span>
-                    <span className="text-white">{subscription.name}</span>
-                  </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Billing Cycle</span>
-                    <span className="text-white capitalize">{subscription.billingCycle}</span>
-                  </div>
-
-                  {subscription.hoursIncluded !== undefined && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Hours Included</span>
-                      <span className="text-white">{subscription.hoursIncluded}h</span>
-                    </div>
-                  )}
-
-                  {subscription.nextBillingDate && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Next Billing</span>
-                      <span className="text-white text-xs">{new Date(subscription.nextBillingDate).toLocaleDateString()}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="border-t border-[#2a2a2a] pt-4 mb-6">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-semibold text-white">Total Due</span>
-                    <span className="text-2xl font-bold text-[#ea580c]">
-                      ${subscription.amount.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handlePayment}
-                  disabled={processing}
-                  className="w-full px-6 py-4 bg-[#ea580c] hover:bg-[#ea580c]/90 disabled:bg-[#ea580c]/50 text-white rounded-lg font-medium transition flex items-center justify-center gap-2"
-                >
-                  {processing ? (
-                    <>
-                      <Clock className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-5 h-5" />
-                      Complete Payment
-                    </>
-                  )}
-                </button>
-
-                <p className="text-xs text-gray-500 text-center mt-4">
-                  By completing this payment, you agree to our Terms of Service and Privacy Policy.
-                </p>
-              </div>
-            </div>
+        <div className="grid gap-6 p-6 lg:grid-cols-5">
+          <div className="space-y-5 lg:col-span-3">
+            <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-5"><CreditCard className="mb-3 h-7 w-7 text-[#ea580c]" /><h3 className="text-lg font-bold text-white">Continue to Stripe Checkout</h3><p className="mt-2 text-sm leading-6 text-gray-400">You will enter card or eligible bank-payment details directly on Stripe's secure payment page. Black Phoenix never receives or stores those credentials.</p></div>
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5"><div className="flex gap-3"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-300" /><div><p className="font-semibold text-white">Activation happens after verified payment</p><p className="mt-1 text-sm text-gray-400">Your subscription, included hours, and portal benefits activate only after Stripe confirms the payment.</p></div></div></div>
+            <button onClick={startSecureCheckout} disabled={processing} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#ea580c] px-6 py-4 text-base font-bold text-white transition hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-60"><Lock className="h-5 w-5" />{processing ? "Redirecting to Stripe…" : `Pay $${Number(subscription.amount || 0).toFixed(2)} securely`}</button>
+            <p className="text-center text-xs text-gray-500">Stripe Checkout · Encrypted payment processing · No card data is stored in this app</p>
           </div>
+          <aside className="rounded-xl border border-[#2a2a2a] bg-[#0a0a0a] p-5 lg:col-span-2"><h3 className="mb-4 text-lg font-bold text-white">Subscription Summary</h3><div className="space-y-3 text-sm"><div className="flex justify-between gap-3"><span className="text-gray-400">Plan</span><span className="text-right font-semibold capitalize text-white">{subscription.plan || subscription.name}</span></div><div className="flex justify-between gap-3"><span className="text-gray-400">Billing cycle</span><span className="font-semibold capitalize text-white">{subscription.billingCycle}</span></div><div className="flex justify-between gap-3 border-t border-[#2a2a2a] pt-3"><span className="text-gray-400">Amount due</span><span className="text-xl font-bold text-[#ea580c]">${Number(subscription.amount || 0).toFixed(2)}</span></div>{subscription.hoursIncluded !== undefined && <div className="border-t border-[#2a2a2a] pt-3"><p className="mb-2 text-gray-400">Included service hours</p><div className="flex items-center justify-between"><span className="font-semibold text-white">{hoursRemaining} remaining</span><span className="text-xs text-gray-500">of {subscription.hoursIncluded} hours</span></div></div>}{subscription.nextBillingDate && <div className="flex items-center gap-2 border-t border-[#2a2a2a] pt-3 text-xs text-gray-400"><Calendar className="h-4 w-4" />Next billing: {new Date(subscription.nextBillingDate).toLocaleDateString()}</div>}</div><div className="mt-5 border-t border-[#2a2a2a] pt-4"><p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">What activates</p>{["Subscription access", "Plan benefits", "Included service-hour tracking"].map(item => <div key={item} className="mb-2 flex items-center gap-2 text-sm text-gray-300"><Check className="h-4 w-4 text-green-400" />{item}</div>)}</div></aside>
         </div>
       </div>
     </div>

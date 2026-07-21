@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { GenericApplicationForm, ApplicationConfig } from '../components/GenericApplicationForm';
-import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import {
   User, Mail, Phone, MapPin, Building2, DollarSign,
   Megaphone, Target, FileText, Briefcase, Calendar,
@@ -15,6 +14,8 @@ export default function AdvertiserApplication() {
     description: "Join our advertising network",
     apiEndpoint: "/applications",
     applicationType: "advertiser",
+    planBuilderPortalType: "advertiser",
+    planBuilderOwnerNameField: "company_name",
     steps: [
       {
         title: "Contact Information",
@@ -349,9 +350,6 @@ export default function AdvertiserApplication() {
           config={advertiserConfig}
           onNavigate={(page) => setView('landing')}
         />
-        <div className="max-w-6xl mx-auto px-6 pb-12">
-          <ApplicationPlanBuilderSection portalType="advertiser" />
-        </div>
       </>
     );
   }

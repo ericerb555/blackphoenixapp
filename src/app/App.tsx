@@ -752,32 +752,12 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     console.log('🔍 [ProtectedRoutes] currentPath:', currentPath);
     console.log('🔍 [ProtectedRoutes] accountType:', accountType);
 
-    // Redirect authenticated users away from login/signup to their portal or dashboard
-    // UNLESS they're trying to subscribe to a new plan (selected_cohort in localStorage)
-    const hasSelectedCohort = localStorage.getItem('selected_cohort');
-
-    if (!loading && isAuthenticated && (currentPath === 'login' || currentPath === 'signup') && currentPath !== '' && currentPath !== 'landing') {
-      // Allow signup if user is subscribing to a new plan
-      if (currentPath === 'signup' && hasSelectedCohort) {
-        console.log("✅ [ProtectedRoutes] Allowing signup - user subscribing to plan:", hasSelectedCohort);
-        // Don't redirect - let them proceed to signup/subscription page
-      } else if (isPlatformOwner || isElevated) {
-        // Elevated users (admin, owner, master_admin, management) go to command center
-        console.log("✅ [ProtectedRoutes] REDIRECTING TO COMMAND CENTER - elevated user");
-        setRedirecting(true);
-        setTimeout(() => {
-          window.location.href = '/unified-dashboard';
-        }, 100);
-        return;
-      } else {
-        const portalHome = portalHomePages[accountType] || 'customer-portal-app';
-        console.log(`👤 [ProtectedRoutes] REDIRECTING TO PORTAL - ${accountType} → ${portalHome}`);
-        setRedirecting(true);
-        setTimeout(() => {
-          window.location.href = `/${portalHome}`;
-        }, 100);
-        return;
-      }
+    // Login owns the post-auth destination. Redirecting from this guard at the
+    // same time creates a full-page reload race on mobile: the auth event fires,
+    // this effect reloads the app, and Login then tries to navigate again.
+    if (!loading && isAuthenticated && (currentPath === 'login' || currentPath === 'signup')) {
+      console.log('🔒 [ProtectedRoutes] Auth page navigation is being handled by the auth form.');
+      return;
     }
 
     // CRITICAL: Platform owner gets full access to admin routes
@@ -895,7 +875,6 @@ export default function App() {
     let disposed = false;
     const runOptionalSetup = async () => {
       try {
-        await import("./utils/suppressErrors");
         await import("./utils/cleanupLocalStorage");
         await import("./utils/dataPersistence");
         await Promise.all([
@@ -903,7 +882,6 @@ export default function App() {
           import("./utils/ensureDefaultCompany"),
           import("./utils/initializeBrandingProfile"),
           import("./utils/syncBrandingFromDatabase"),
-          import("./utils/autoSyncBranding"),
           import("./utils/setPublicBranding"),
           import("./utils/forceUploadLogo"),
           import("./utils/savePermanentLogo"),
@@ -938,105 +916,9 @@ export default function App() {
 
   const [isPageReady, setIsPageReady] = useState(true); // Start ready to avoid loading delays
 
-  // ULTRA-CRITICAL: Fix owner email account type on EVERY app load
-  useEffect(() => {
-    const OWNER_EMAIL = 'ericerb555@proton.me';
-    const currentUserProfile = localStorage.getItem('currentUserProfile');
-
-    // Define portal pages array (used in multiple places)
-    const portalPages = [
-      '/customer-portal-app',
-      '/investor-portal',
-      '/advertiser-portal',
-      '/vendor-portal',
-      '/subcontractor-portal',
-      '/employee-portal',
-      '/customer-portal',
-      '/property-manager-portal',
-      '/condo-manager-portal',
-      '/landlord-portal'
-    ];
-
-    // CRITICAL: If no one is logged in, auto-login the owner
-    if (!currentUserProfile) {
-      console.log('👑 [APP INIT] No user logged in - checking for owner profile');
-      let userProfiles: Record<string, any> = {};
-      try {
-        userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
-      } catch {
-        userProfiles = {};
-      }
-      const ownerProfile = userProfiles[OWNER_EMAIL.toLowerCase()];
-
-      // GUARD: Only ever attempt this reload ONCE per session. On mobile
-      // (e.g. iOS Safari private mode) localStorage writes may not persist,
-      // which would leave currentUserProfile null on every load and cause an
-      // infinite reload loop (the "blinking" screen). The sessionStorage flag
-      // breaks that loop.
-      const alreadyAttempted = sessionStorage.getItem('owner_autologin_attempted') === 'true';
-
-      if (ownerProfile && !alreadyAttempted) {
-        console.log('👑 [APP INIT] Found owner profile - auto-logging in');
-        try {
-          ownerProfile.accountType = 'owner'; // Ensure correct type
-          localStorage.setItem('currentUserProfile', JSON.stringify(ownerProfile));
-          sessionStorage.setItem('owner_autologin_attempted', 'true');
-          // Verify the write actually persisted before triggering a reload.
-          if (localStorage.getItem('currentUserProfile')) {
-            window.location.reload();
-          } else {
-            console.warn('👑 [APP INIT] Profile write did not persist (private mode?) - skipping reload to avoid blink loop');
-          }
-        } catch (err) {
-          console.warn('👑 [APP INIT] Could not persist owner profile - skipping reload:', err);
-        }
-        return;
-      }
-    }
-
-    if (currentUserProfile) {
-      try {
-        const profile = JSON.parse(currentUserProfile);
-        const userEmail = profile.email || '';
-        const currentPath = window.location.pathname;
-
-        if (userEmail.toLowerCase() === OWNER_EMAIL.toLowerCase()) {
-          console.log('👑 [APP INIT] Owner email detected:', userEmail);
-          console.log('👑 [APP INIT] Current accountType:', profile.accountType);
-          console.log('👑 [APP INIT] Current path:', currentPath);
-
-          let needsUpdate = false;
-
-          // Fix accountType if wrong
-          if (profile.accountType !== 'owner') {
-            console.log('👑🚨 [APP INIT] WRONG accountType - fixing...');
-            profile.accountType = 'owner';
-            profile.fullName = 'Eric Erb';
-            profile.phone = '6177100058';
-            needsUpdate = true;
-          }
-
-          // Save profile if it was updated
-          if (needsUpdate) {
-            localStorage.setItem('currentUserProfile', JSON.stringify(profile));
-            const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
-            userProfiles[userEmail.toLowerCase()] = profile;
-            localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-            console.log('👑✅ [APP INIT] Profile corrected');
-          }
-
-          // If owner is on a portal page, redirect to unified dashboard
-          if (portalPages.some(p => currentPath.startsWith(p))) {
-            console.log('👑🚨 [APP INIT] OWNER ON PORTAL PAGE - REDIRECTING TO COMMAND CENTER');
-            window.location.replace('/unified-dashboard');
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('Error checking owner profile:', e);
-      }
-    }
-  }, []); // Run once on mount
+  // Authentication and routing are driven by the live Supabase session inside
+  // ProtectedRoutes/Login. Do not mutate local profiles, reload, or redirect here:
+  // those client-side redirects race a mobile sign-in and cause a visible blink loop.
 
   // Suppress html2canvas iframe errors and fetch errors
   useEffect(() => {
@@ -1216,39 +1098,9 @@ function AppContent() {
   // Use deferred value to prevent suspension during navigation
   const deferredPage = useDeferredValue(currentPage);
 
-  // FORCE CLEAR ALL SERVICE WORKERS AND CACHES ON STARTUP
-  useEffect(() => {
-    const clearAllCachesAndServiceWorkers = async () => {
-      try {
-        // Unregister ALL service workers
-        if ("serviceWorker" in navigator) {
-          const registrations =
-            await navigator.serviceWorker.getRegistrations();
-          for (const registration of registrations) {
-            await registration.unregister();
-            console.log("🗑️ Service worker unregistered");
-          }
-        }
-
-        // Clear ALL caches
-        if ("caches" in window) {
-          const cacheNames = await caches.keys();
-          for (const cacheName of cacheNames) {
-            await caches.delete(cacheName);
-            console.log("🗑️ Cache deleted:", cacheName);
-          }
-        }
-
-        console.log(
-          "✅ All service workers and caches cleared",
-        );
-      } catch (error) {
-        // Silent - this is cleanup
-      }
-    };
-
-    clearAllCachesAndServiceWorkers();
-  }, []);
+  // Do not clear caches or unregister service workers during startup. Doing so
+  // invalidates code chunks while a mobile browser is restoring its session and
+  // can produce the visible white-screen/blink immediately after sign-in.
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [menuOpen, setMenuOpen] = useState(false);

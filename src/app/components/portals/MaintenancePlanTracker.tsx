@@ -258,7 +258,11 @@ const ROLE_TO_PORTAL: Partial<Record<PortalRole, string>> = {
 
 export default function MaintenancePlanTracker({ portalRole, ownerName }: Props) {
   const cfg = ROLE_CONFIG[portalRole];
-  const { user } = useAuth();
+  const { user, isAdmin, isOwner } = useAuth();
+  // Only company staff can reduce a plan's bank. The server independently enforces
+  // this rule, and owners still see every live balance and invoice in this tracker.
+  const metadataRole = String(user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase();
+  const canLogHours = isAdmin || isOwner || ['owner', 'admin', 'master_admin', 'management'].includes(metadataRole);
   // Start empty: this tracker must show persisted records, never sample balances.
   const [plans, setPlans] = useState<Plan[]>([]);
   const [usage, setUsage] = useState<Record<string, UsageEntry[]>>({});
@@ -345,6 +349,10 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
   const overLimit = used > plan.hoursIncluded;
 
   async function logHours(entry: Omit<UsageEntry, 'id'>) {
+    if (!canLogHours) {
+      toast.error('Only an authorized Black Phoenix administrator can record plan hours.');
+      return;
+    }
     if (!serverPlanIds.has(plan.id)) {
       toast.error('This plan is not connected to a saved account record.');
       return;
@@ -404,10 +412,16 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
           </h2>
           <p className="text-sm text-gray-400 mt-0.5">{cfg.subtitle}</p>
         </div>
-        <button onClick={() => setShowLogModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
-          <Plus className="w-4 h-4" /> Log {cfg.hoursLabel}
-        </button>
+        {canLogHours ? (
+          <button onClick={() => setShowLogModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
+            <Plus className="w-4 h-4" /> Log {cfg.hoursLabel}
+          </button>
+        ) : (
+          <div className="max-w-xs rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-xs text-gray-400">
+            Service hours are recorded by your assigned Black Phoenix team and update here automatically.
+          </div>
+        )}
       </div>
 
       {/* Plan selector (if multiple) */}

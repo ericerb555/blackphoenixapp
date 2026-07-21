@@ -5,8 +5,13 @@
  * Used across all portal types to upsell premium features
  */
 
-import { X, Check, Crown, Zap, Shield, Wrench, Clock, Star } from 'lucide-react';
+import { useState } from 'react';
+import { X, Check, Crown, Zap, Shield, Wrench, Clock, Star, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface SubscriptionTier {
   id: string;
@@ -43,6 +48,7 @@ export default function PortalUpgradeModal({
   currentTier = 'basic',
   lockedFeature
 }: PortalUpgradeModalProps) {
+  const [checkoutPlan, setCheckoutPlan] = useState<string | null>(null);
   if (!isOpen) return null;
 
   // Subscription tiers by portal type
@@ -286,20 +292,22 @@ export default function PortalUpgradeModal({
 
   const tiers = subscriptionTiers[portalType] || subscriptionTiers.customer;
 
-  const handleUpgrade = (tierId: string) => {
-    toast.success(`Upgrade to ${tierId} initiated! Redirecting to payment...`);
-    // In a real app, this would navigate to a payment page
-    setTimeout(() => {
-      onClose();
-    }, 1500);
+  const beginCheckout = async (planId: string, planName: string, price: string, type: string) => {
+    const amount = Number(String(price).replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) { toast.info('This plan does not require payment.'); return; }
+    setCheckoutPlan(planId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in before starting an upgrade checkout.');
+      const response = await fetch(`${SERVER}/subscriptions/checkout`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: planName, amount, type, billingCycle: 'monthly' }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success || !result.checkoutUrl) throw new Error(result.error || 'Unable to start secure checkout.');
+      window.location.assign(result.checkoutUrl);
+    } catch (error: any) { toast.error(error.message || 'Unable to start secure checkout.'); setCheckoutPlan(null); }
   };
 
-  const handleMaintenancePlan = (planId: string) => {
-    toast.success(`Maintenance plan ${planId} selected! Redirecting to payment...`);
-    setTimeout(() => {
-      onClose();
-    }, 1500);
-  };
+  const handleUpgrade = (tier: SubscriptionTier) => beginCheckout(tier.id, `${portalType} ${tier.name}`, tier.price, portalType);
+  const handleMaintenancePlan = (plan: MaintenancePlan) => beginCheckout(`maintenance-${plan.id}`, `${portalType} ${plan.name} maintenance`, plan.price, `${portalType}_maintenance`);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -380,8 +388,8 @@ export default function PortalUpgradeModal({
                 </ul>
 
                 <button
-                  onClick={() => handleUpgrade(tier.id)}
-                  disabled={currentTier === tier.id}
+                  onClick={() => handleUpgrade(tier)}
+                  disabled={currentTier === tier.id || checkoutPlan !== null}
                   className={`w-full py-3 rounded-lg font-semibold transition-all ${
                     currentTier === tier.id
                       ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
@@ -390,7 +398,7 @@ export default function PortalUpgradeModal({
                       : 'bg-[#0A0A0A] border border-[#2A2A2A] text-white hover:border-orange-500/50'
                   }`}
                 >
-                  {currentTier === tier.id ? 'Current Plan' : 'Upgrade Now'}
+                  {currentTier === tier.id ? 'Current Plan' : checkoutPlan === tier.id ? <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Secure checkout…</span> : 'Upgrade Now'}
                 </button>
               </div>
             ))}
@@ -440,10 +448,11 @@ export default function PortalUpgradeModal({
                   </ul>
 
                   <button
-                    onClick={() => handleMaintenancePlan(plan.id)}
-                    className="w-full py-3 rounded-lg font-semibold bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all"
+                    onClick={() => handleMaintenancePlan(plan)}
+                    disabled={checkoutPlan !== null}
+                    className="w-full py-3 rounded-lg font-semibold bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 transition-all disabled:opacity-60"
                   >
-                    Select Plan
+                    {checkoutPlan === `maintenance-${plan.id}` ? 'Opening secure checkout…' : 'Select Plan'}
                   </button>
                 </div>
               );

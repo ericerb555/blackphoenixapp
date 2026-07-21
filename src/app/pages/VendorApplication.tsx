@@ -633,7 +633,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
               )}
 
               <div className="mt-6">
-                <ApplicationPlanBuilderSection portalType="vendor" ownerName={formData.companyName} />
+                <ApplicationPlanBuilderSection portalType="vendor" ownerName={formData.companyName} onPlanDraftChange={(planPreference) => setFormData(prev => ({ ...prev, planPreference } as any))} />
               </div>
             </div>
           )}

@@ -4,7 +4,7 @@
  * Universal login page for all user types
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Building, Shield } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,6 +27,7 @@ export default function Login({ onNavigate }: LoginProps) {
   const [rememberMe, setRememberMe] = useState(true); // Default to true
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [showSignUpModal, setShowSignUpModal] = useState(false);
+  const navigationStarted = useRef(false);
 
   // Load remembered email on mount
   useEffect(() => {
@@ -114,8 +115,6 @@ export default function Login({ onNavigate }: LoginProps) {
       // ── signIn succeeded — Supabase session is live ───────────────────────
       // Update user profile in localStorage (sync, no network calls needed here)
       const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
-      const allUsers = Object.keys(userProfiles);
-      const hasOwner = allUsers.some(k => ['owner', 'admin', 'master_admin'].includes(userProfiles[k]?.accountType));
       const userName = email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
 
       let profile = userProfiles[email.toLowerCase()] || {
@@ -128,14 +127,15 @@ export default function Login({ onNavigate }: LoginProps) {
       // Ensure fullName is meaningful
       if (!profile.fullName || profile.fullName === 'User') profile.fullName = userName;
 
-      // Determine account type
+      // Never infer elevated access from browser storage. A user signing in on a
+      // new phone has an empty local profile, and their actual portal role is loaded
+      // from the authenticated server identity below.
       if (isOwnerEmail) {
         profile.accountType = 'owner';
         profile.phone = profile.phone || '6177100058';
-      } else if (!hasOwner || allUsers.length === 0) {
-        profile.accountType = 'owner'; // first user or no owner yet
-      } else if (!profile.accountType) {
-        profile.accountType = 'customer';
+      } else {
+        const locallyElevated = ['owner', 'admin', 'master_admin', 'management'].includes(String(profile.accountType || '').toLowerCase());
+        if (!profile.accountType || locallyElevated) profile.accountType = 'customer';
       }
 
       userProfiles[email.toLowerCase()] = profile;
@@ -163,7 +163,7 @@ export default function Login({ onNavigate }: LoginProps) {
         ...existingCurrentUser,
         email,
         name: userName,
-        role: roleMap[profile.accountType] || 'PLATFORM_OWNER',
+        role: roleMap[profile.accountType] || 'CUSTOMER',
         tenant_id: profile.accountType === 'owner' || profile.accountType === 'master_admin' ? null : 'tenant-001',
         status: 'active',
       }));
@@ -173,32 +173,56 @@ export default function Login({ onNavigate }: LoginProps) {
 
       toast.success(isOwnerEmail ? 'Welcome back, Platform Owner!' : 'Login successful!');
 
-      // Approved applicants are always routed to their required onboarding first.
+      // The identity/onboarding lookups are optional enrichment after Supabase has
+      // authenticated the user. Run them in parallel and bound them so an Edge Function
+      // timeout cannot leave a mobile sign-in spinner or race the route transition.
       const { data: { session } } = await supabase.auth.getSession();
+      let requiresOnboarding = false;
       if (session?.access_token) {
+        const optionalJson = async (url: string) => {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), 4000);
+          try {
+            const response = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` }, signal: controller.signal });
+            if (!response.ok) return null;
+            return await response.json();
+          } finally {
+            window.clearTimeout(timer);
+          }
+        };
         try {
-          const identityResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/me`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-          const identity = await identityResponse.json();
+          const [identity, onboarding] = await Promise.all([
+            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/me`),
+            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`),
+          ]);
           if (identity?.user?.role && !isOwnerEmail) {
             profile.accountType = identity.user.role;
             userProfiles[email.toLowerCase()] = profile;
             localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
             localStorage.setItem('currentUserProfile', JSON.stringify(profile));
           }
-          const onboardingResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-          const onboarding = await onboardingResponse.json();
-          if (onboarding.success && onboarding.intake?.status !== 'active') {
-            onNavigate('portal-onboarding');
-            setIsLoading(false);
-            return;
-          }
-        } catch { /* Non-intake accounts continue to their normal portal. */ }
+          requiresOnboarding = Boolean(onboarding?.success && onboarding.intake?.status !== 'active');
+        } catch {
+          // A noncritical backend delay must never block a successful Supabase sign-in.
+        }
       }
 
-      // Navigate immediately — no polling, no artificial delays
+      const navigateOnce = (page: string) => {
+        if (navigationStarted.current) return;
+        navigationStarted.current = true;
+        onNavigate(page);
+      };
+
+      if (requiresOnboarding) {
+        navigateOnce('portal-onboarding');
+        setIsLoading(false);
+        return;
+      }
+
+      // Navigate immediately — no polling, reloads, or duplicate redirects.
       const elevatedRoles = ['admin', 'owner', 'master_admin', 'management'];
       if (elevatedRoles.includes(profile.accountType)) {
-        onNavigate('owners-dashboard');
+        navigateOnce('owners-dashboard');
       } else {
         const portalRoutes: Record<string, string> = {
           customer: 'customer-portal-app',
@@ -212,7 +236,7 @@ export default function Login({ onNavigate }: LoginProps) {
           territory_owner: 'territory-portal',
           territory: 'territory-portal',
         };
-        onNavigate(portalRoutes[profile.accountType] || 'customer-portal-app');
+        navigateOnce(portalRoutes[profile.accountType] || 'customer-portal-app');
       }
 
       setIsLoading(false);

@@ -25,7 +25,7 @@ import WorkOrderDetail from './WorkOrderDetail';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-export type WorkRequestStatus = 'new' | 'reviewed' | 'approved' | 'rejected';
+export type WorkRequestStatus = 'new' | 'pending' | 'reviewed' | 'approved' | 'scheduled' | 'completed' | 'rejected';
 export type WorkOrderStatus = 'pending' | 'assigned' | 'in-progress' | 'on-hold' | 'completed' | 'cancelled';
 
 export interface WorkRequest {
@@ -143,13 +143,56 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
     try {
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`, { headers: await apiHeaders() });
       const records = await response.json(); if (!response.ok || !Array.isArray(records)) throw new Error(records.error || 'Could not load work requests.');
-      const requests = records.map((record: any) => ({ id: record.id, requestNumber: record.requestNumber || record.id, status: record.status || 'new', customerName: record.client_name || record.clientName || '', customerEmail: record.client_email || record.clientEmail || '', customerPhone: record.client_phone || record.clientPhone || '', serviceType: record.serviceType || '', title: record.project_name || record.title || 'Service request', description: record.description || '', location: record.address || '', urgency: record.urgency || 'medium', photos: record.photos || [], documents: record.documents || [], createdAt: record.created_at || record.createdAt || new Date().toISOString(), reviewedAt: record.reviewedAt, reviewedBy: record.reviewedBy, notes: record.notes }));
+      const requests = records.map((record: any) => ({ id: record.id, requestNumber: record.requestNumber || record.id, status: (record.status || 'pending') as WorkRequestStatus, customerName: record.client_name || record.clientName || '', customerEmail: record.client_email || record.clientEmail || '', customerPhone: record.client_phone || record.clientPhone || '', serviceType: record.serviceType || record.project_type || '', title: record.project_name || record.title || 'Service request', description: record.description || record.additionalNotes || '', location: record.address || record.siteAddress || '', urgency: record.urgency || 'medium', photos: record.photos || record.media_attachments?.photos || [], documents: record.documents || record.media_attachments?.blueprints || [], createdAt: record.created_at || record.createdAt || new Date().toISOString(), reviewedAt: record.reviewedAt, reviewedBy: record.reviewedBy, notes: record.notes }));
       setWorkRequests(requests); setWorkOrders(records.filter((record: any) => record.workOrder).map((record: any) => record.workOrder));
     } catch (error: any) { toast.error(error.message || 'Could not load live work orders.'); setWorkRequests([]); setWorkOrders([]); }
   };
 
   const saveRequests = (requests: WorkRequest[]) => setWorkRequests(requests);
   const saveOrders = (orders: WorkOrder[]) => setWorkOrders(orders);
+
+  const saveWorkOrder = async (order: WorkOrder): Promise<boolean> => {
+    if (!order.requestId) {
+      toast.error('This work order is not linked to a saved request.');
+      return false;
+    }
+    const updatedOrder = { ...order, updatedAt: new Date().toISOString() };
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(order.requestId)}`, {
+        method: 'PUT',
+        headers: await apiHeaders(true),
+        body: JSON.stringify({
+          status: updatedOrder.status === 'completed' ? 'completed' : 'approved',
+          workOrder: updatedOrder,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not save work order changes.');
+
+      if (updatedOrder.scheduledDate) {
+        const day = updatedOrder.scheduledDate.slice(0, 10);
+        const time = updatedOrder.scheduledTime || '09:00';
+        const scheduleResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(order.requestId)}/schedule`, {
+          method: 'POST',
+          headers: await apiHeaders(true),
+          body: JSON.stringify({
+            startAt: `${day}T${time.length === 5 ? `${time}:00` : time}`,
+            assignedTo: updatedOrder.assignedTo || null,
+            notes: updatedOrder.notes || '',
+            status: 'scheduled',
+          }),
+        });
+        const scheduleResult = await scheduleResponse.json();
+        if (!scheduleResponse.ok || !scheduleResult.success) throw new Error(scheduleResult.error || 'Work order saved, but its schedule could not be saved.');
+      }
+
+      saveOrders(workOrders.map((item) => item.id === updatedOrder.id ? updatedOrder : item));
+      return true;
+    } catch (error: any) {
+      toast.error(error.message || 'Could not save work order changes.');
+      return false;
+    }
+  };
 
   const convertRequestToOrder = async (request: WorkRequest) => {
     const newOrder: WorkOrder = {
@@ -404,12 +447,10 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
           workOrder={selectedOrder}
           isOpen={!!selectedOrder}
           onClose={() => setSelectedOrder(null)}
-          onSave={(updatedOrder) => {
-            const updatedOrders = workOrders.map(o =>
-              o.id === updatedOrder.id ? updatedOrder : o
-            );
-            saveOrders(updatedOrders);
-            setSelectedOrder(null);
+          onSave={async (updatedOrder) => {
+            const saved = await saveWorkOrder(updatedOrder);
+            if (saved) setSelectedOrder(null);
+            return saved;
           }}
           onStatusChange={updateOrderStatus}
         />
@@ -567,7 +608,7 @@ function WorkRequestDetailModal({
             >
               Close
             </button>
-            {request.status === 'new' && (
+            {['new', 'pending', 'reviewed'].includes(request.status) && (
               <button
                 onClick={() => {
                   onConvertToOrder(request);
@@ -664,7 +705,7 @@ function WorkRequestsList({
               <Eye className="w-4 h-4" />
               View Details
             </button>
-            {request.status === 'new' && (
+            {['new', 'pending', 'reviewed'].includes(request.status) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

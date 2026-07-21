@@ -1033,25 +1033,11 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // Test server connectivity first
-      console.log('[Work Request] Testing server connectivity...');
-      try {
-        const testResponse = await fetch(`${API_BASE}/health`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-        });
-        console.log('[Work Request] Health check response:', testResponse.status, testResponse.statusText);
-        if (testResponse.ok) {
-          const healthData = await testResponse.json();
-          console.log('[Work Request] Server is healthy:', healthData);
-        }
-      } catch (healthError: any) {
-        console.error('[Work Request] Health check failed:', healthError.message);
-        toast.error('Cannot connect to server. Please try again later.');
-        setIsSubmitting(false);
-        return;
-      }
-      
+      // The Edge Function is the source of truth. Use the signed-in session when
+      // available while preserving the supported public-intake path for new customers.
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token || publicAnonKey;
+      const uploadFailures: string[] = [];
       const totalProgramSqft = formData.rooms.reduce((acc, r) => acc + r.targetSqft, 0);
 
       // Upload videos to Supabase Storage
@@ -1070,6 +1056,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           console.log('✅ Video uploaded:', publicUrl);
         } else {
           console.error('❌ Video upload failed:', uploadError.message);
+          uploadFailures.push(`video: ${uploadError.message}`);
         }
       }
 
@@ -1089,6 +1076,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           console.log('✅ Photo uploaded:', publicUrl);
         } else {
           console.error('❌ Photo upload failed:', uploadError.message);
+          uploadFailures.push(`photo: ${uploadError.message}`);
         }
       }
 
@@ -1123,6 +1111,9 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
               filename: blueprint.name,
               base64
             });
+          } else {
+            console.error('❌ Blueprint upload failed:', uploadError.message);
+            uploadFailures.push(`blueprint: ${uploadError.message}`);
           }
         }
 
@@ -1133,7 +1124,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
+                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
@@ -1281,18 +1272,10 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         status: 'pending'
       };
 
-      // ── GUARANTEED SAVE: write directly to Supabase BEFORE server call ──
-      // This ensures data is NEVER lost even if the server is down
+      // Generate the client correlation ID, but let the authenticated Edge Function
+      // perform the only durable write. This avoids unauthorized client-side KV writes
+      // and eliminates split-brain request records.
       const wrId = `wr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const guaranteedPayload = { ...workRequestPayload, id: wrId };
-      try {
-        const { guaranteedSaveWorkRequest } = await import('../../utils/guaranteedSave');
-        await guaranteedSaveWorkRequest(guaranteedPayload);
-        console.log('✅ [Form] Guaranteed save complete:', wrId);
-      } catch (gErr) {
-        console.error('❌ [Form] Guaranteed save failed:', gErr);
-      }
-      // Set the ID so the server uses the same ID
       workRequestPayload.id = wrId;
 
       let workRequestResponse;
@@ -1309,7 +1292,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${publicAnonKey}`
+              'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify(workRequestPayload)
           }
@@ -1339,10 +1322,12 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         throw new Error(errorData.error || `Failed to create work request (${workRequestResponse.status})`);
       }
 
-      const project = await workRequestResponse.json();
-      console.log('[Work Request] Work request created successfully:', project.id);
+      const responsePayload = await workRequestResponse.json();
+      const workRequest = responsePayload?.workRequest;
+      if (!workRequest?.id) throw new Error('The work request was accepted but no saved request ID was returned.');
+      console.log('[Work Request] Work request created successfully:', workRequest.id);
 
-      if (project) {
+      if (workRequest) {
         // 🚨 NEW: Generate AI Floor Plan and Send Admin Alert
         if (formData.aiVideoAnalysis && formData.aiVideoAnalysis.floorPlan) {
           console.log('🎨 AI Floor Plan detected in work request - Triggering quote workflow...');
@@ -1355,7 +1340,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${publicAnonKey}`
+                  'Authorization': `Bearer ${authToken}`
                 },
                 body: JSON.stringify({
                   category: 'Work Requests',
@@ -1363,7 +1348,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                   description: `${formData.clientName} submitted a work request for ${formData.serviceType}. Budget: $${formData.budgetMin.toLocaleString()}-$${formData.budgetMax.toLocaleString()}. AI Video Analysis complete with floor plan generated. Ready for quote generation in Design Studio Pro.`,
                   priority: 'high',
                   metadata: {
-                    workRequestId: project.id,
+                    workRequestId: workRequest.id,
                     clientName: formData.clientName,
                     clientEmail: formData.clientEmail,
                     clientPhone: formData.clientPhone,
@@ -1400,10 +1385,10 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${publicAnonKey}`
+                  'Authorization': `Bearer ${authToken}`
                 },
                 body: JSON.stringify({
-                  workRequestId: project.id,
+                  workRequestId: workRequest.id,
                   clientName: formData.clientName,
                   clientEmail: formData.clientEmail,
                   clientPhone: formData.clientPhone,
@@ -1447,10 +1432,10 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${publicAnonKey}`
+                  'Authorization': `Bearer ${authToken}`
                 },
                 body: JSON.stringify({
-                  workRequestId: project.id,
+                  workRequestId: workRequest.id,
                   blueprintAnalysis: blueprintAnalysis,
                   clientInfo: {
                     name: formData.clientName,
@@ -1478,7 +1463,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`
+                    'Authorization': `Bearer ${authToken}`
                   },
                   body: JSON.stringify({
                     category: 'Work Requests',
@@ -1486,7 +1471,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                     description: `Quote ${quoteData.quoteNumber} auto-generated from blueprint analysis. Total: $${blueprintAnalysis.costEstimates?.total?.toLocaleString() || 'N/A'}. ${blueprintAnalysis.totalSquareFootage} sq ft, ${blueprintAnalysis.materials?.reduce((sum: number, cat: any) => sum + cat.items.length, 0) || 0} materials. Ready for review and approval.`,
                     priority: 'high',
                     metadata: {
-                      workRequestId: project.id,
+                      workRequestId: workRequest.id,
                       quoteNumber: quoteData.quoteNumber,
                       clientName: formData.clientName,
                       totalSquareFootage: blueprintAnalysis.totalSquareFootage,
@@ -1518,7 +1503,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         
         try {
           const workRequestData = {
-            id: project.id,
+            id: workRequest.id,
             title: formData.projectName,
             serviceType: formData.serviceType || formData.projectType,
             description: formData.additionalNotes || `${formData.serviceType} project for ${formData.clientName}`,
@@ -1543,7 +1528,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${publicAnonKey}`
+                'Authorization': `Bearer ${authToken}`
               },
               body: JSON.stringify({
                 workRequest: workRequestData
@@ -1563,7 +1548,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             // Store the auto-generated quote in the unified project pipeline
             try {
               const pipelineItem = {
-                id: project.id,
+                id: workRequest.id,
                 title: formData.projectName,
                 customer: formData.clientName,
                 stage: 'quote_pending', // Start at quote_pending with quote already generated
@@ -1604,10 +1589,10 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`
+                    'Authorization': `Bearer ${authToken}`
                   },
                   body: JSON.stringify({
-                    key: `pipeline:${project.id}`,
+                    key: `pipeline:${workRequest.id}`,
                     value: pipelineItem
                   })
                 }
@@ -1638,8 +1623,14 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           await autoSaveRef.current.clearAllDrafts();
         }
         
-        toast.success('Project created successfully!');
-        onProjectCreated(project.id);
+        if (uploadFailures.length > 0) {
+          toast.warning('Your request was saved, but some attachments could not be uploaded.', {
+            description: `${uploadFailures.length} attachment${uploadFailures.length === 1 ? '' : 's'} failed. You can add them again from your request.`
+          });
+        } else {
+          toast.success('Project created successfully!');
+        }
+        onProjectCreated(workRequest.id);
       }
     } catch (err: any) {
       console.error('Error creating project:', err);

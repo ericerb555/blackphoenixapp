@@ -94,7 +94,7 @@ export default function CustomerPortalView() {
 
         // Use the user's actual session token so the server can authenticate
         const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token || publicAnonKey;
+        if (!session?.access_token) throw new Error('Sign in to view your work requests.');
 
         const url = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`);
         url.searchParams.append('userId', user.id);
@@ -102,7 +102,7 @@ export default function CustomerPortalView() {
         if (user.email) url.searchParams.append('email', user.email);
 
         const response = await fetch(url.toString(), {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${session.access_token}` }
         });
 
         if (response.ok) {
@@ -255,7 +255,7 @@ export default function CustomerPortalView() {
         if (!response.ok || !data.success) throw new Error(data.error || 'Payment is still being confirmed.');
         if (data.subscription) setCustomerSubscription({ plan: data.subscription.plan || 'premium', hoursIncluded: Number(data.subscription.hoursIncluded || 0), hoursUsed: Number(data.subscription.hoursUsed || 0), hoursRollover: Number(data.subscription.hoursRollover || 0), hoursGifted: Number(data.subscription.hoursGifted || 0), nextBillingDate: data.subscription.renewalDate || '', price: Number(data.subscription.amount || 0) });
         window.history.replaceState({}, '', `${window.location.pathname}?tab=dashboard`);
-        toast.success('Payment confirmed. Your subscription is active.');
+        toast.success(data.planActivation ? 'Payment confirmed. Your approved plan and service-hour access are active.' : 'Payment confirmed. Your subscription is active.');
       } catch (error: any) { toast.error(error.message || 'Payment confirmation is still pending.'); }
     };
     void complete();
@@ -1280,7 +1280,8 @@ export default function CustomerPortalView() {
                       { key: 'quote-sent',  label: 'Quote Sent',   icon: '💰' },
                       { key: 'completed',   label: 'Completed',    icon: '✅' },
                     ];
-                    const currentStatus = request.status || 'pending';
+                    const rawStatus = request.status || 'pending';
+                    const currentStatus = ({ reviewed: 'opened', approved: 'opened', assigned: 'in-progress', scheduled: 'in-progress' } as Record<string, string>)[rawStatus] || rawStatus;
                     const currentIdx = STEPS.findIndex(s => s.key === currentStatus);
                     const stepIdx = currentIdx >= 0 ? currentIdx : 0;
 
@@ -1304,7 +1305,7 @@ export default function CustomerPortalView() {
                           </div>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(currentStatus)}`}>
-                          {currentStatus.replace('-', ' ').toUpperCase()}
+                          {rawStatus.replace('-', ' ').toUpperCase()}
                         </span>
                       </div>
 
@@ -1581,26 +1582,23 @@ export default function CustomerPortalView() {
             <div className="p-6">
               <ClientWorkRequestForm
                 onClose={() => setShowWorkRequestModal(false)}
-                onProjectCreated={async (projectId) => {
-                  toast.success('Work request submitted successfully!');
+                onProjectCreated={async (workRequestId) => {
                   setShowWorkRequestModal(false);
-                  console.log('Project created:', projectId);
-                  
-                  // Reload work requests
-                  if (user?.id) {
-                    try {
-                      const url = new URL(`${API_BASE_URL}/make-server-57095a78/work-requests`);
-                      url.searchParams.append('userId', user.id);
-                      const response = await fetch(url.toString(), {
-                        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-                      });
-                      if (response.ok) {
-                        const data = await response.json();
-                        setWorkRequests(data || []);
-                      }
-                    } catch (error) {
-                      console.error('Error reloading work requests:', error);
-                    }
+                  console.log('Work request created:', workRequestId);
+
+                  // Reload with the actual session; an anonymous key cannot read customer-scoped records.
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session?.access_token) throw new Error('Sign in to reload your work requests.');
+                    const response = await fetch(`${API_BASE_URL}/make-server-57095a78/work-requests`, {
+                      headers: { Authorization: `Bearer ${session.access_token}` },
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Could not reload your work requests.');
+                    setWorkRequests(Array.isArray(data) ? data : (data.workRequests || []));
+                  } catch (error) {
+                    console.error('Error reloading work requests:', error);
+                    toast.warning('Your request was saved, but we could not refresh the list yet.');
                   }
                 }}
               />

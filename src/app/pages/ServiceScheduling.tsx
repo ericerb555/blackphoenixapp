@@ -14,7 +14,9 @@ import {
   Cloud, Sun, CloudRain, Wind, Zap, Bell, ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 
 interface Employee {
   id: string;
@@ -62,8 +64,9 @@ interface WeatherData {
 
 export default function ServiceScheduling() {
   const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-  
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 0, 27));
+  const { user } = useAuth();
+
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
@@ -71,6 +74,7 @@ export default function ServiceScheduling() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [appointments, setAppointments] = useState<ServiceAppointment[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingWeather, setLoadingWeather] = useState(false);
   const [weatherData, setWeatherData] = useState<Map<string, WeatherData>>(new Map());
   const [selectedService, setSelectedService] = useState('hvac-repair');
@@ -96,7 +100,7 @@ export default function ServiceScheduling() {
     contractNumber: 'CT-20260122-0045',
     serviceTitle: selectedServiceData.name,
     location: '123 Main St, New York, NY 10001',
-    customerName: 'John Smith',
+    customerName: String(user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Customer'),
     estimatedDuration: selectedServiceData.duration,
     depositAmount: selectedServiceData.deposit,
     depositPaid: true,
@@ -192,53 +196,75 @@ export default function ServiceScheduling() {
     setCurrentDate(newDate);
   };
 
+  useEffect(() => {
+    let active = true;
+    const loadAppointments = async () => {
+      if (!user) {
+        if (active) setAppointments([]);
+        return;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      try {
+        const response = await fetch(`${API_BASE}/schedule/appointments`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load scheduled appointments.');
+        if (active) setAppointments(Array.isArray(result.appointments) ? result.appointments : []);
+      } catch (error) {
+        console.error('Error loading appointments:', error);
+        if (active) toast.error(error instanceof Error ? error.message : 'Unable to load scheduled appointments.');
+      }
+    };
+    void loadAppointments();
+    return () => { active = false; };
+  }, [API_BASE, user]);
+
   const handleConfirmAppointment = async () => {
     if (!selectedDate || !selectedTime || !selectedTechnician) {
       toast.error('Please select all required fields');
       return;
     }
 
-    try {
-      // This would sync to master schedule
-      const appointment: ServiceAppointment = {
-        id: `apt-${Date.now()}`,
-        ...contractData,
-        date: selectedDate,
-        time: selectedTime,
-        employeeId: selectedTechnician,
-        status: 'scheduled',
-      };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token || !user?.email) {
+      toast.error('Please sign in before scheduling an appointment.');
+      return;
+    }
 
-      // Save to master schedule via API
+    setIsSubmitting(true);
+    try {
       const response = await fetch(`${API_BASE}/schedule/appointments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
+          Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify(appointment)
+        body: JSON.stringify({
+          ...contractData,
+          customerEmail: user.email,
+          date: selectedDate,
+          time: selectedTime,
+          employeeId: selectedTechnician,
+          status: 'scheduled',
+        }),
       });
-
-      if (response.ok) {
-        toast.success('Appointment scheduled successfully!', {
-          description: 'Added to master schedule and technician notified'
-        });
-        setAppointments([...appointments, appointment]);
-        
-        // Reset selections
-        setSelectedDate('');
-        setSelectedTime('');
-        setSelectedTechnician('');
-      } else {
-        // Demo mode - just add locally
-        toast.success('Appointment scheduled successfully!', {
-          description: 'View in Master Schedule to see all appointments'
-        });
-        setAppointments([...appointments, appointment]);
-      }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to schedule this appointment.');
+      const appointment = result.appointment as ServiceAppointment;
+      setAppointments((current) => [...current.filter((item) => item.id !== appointment.id), appointment]);
+      toast.success('Appointment scheduled successfully!', {
+        description: 'It is saved to the master schedule.',
+      });
+      setSelectedDate('');
+      setSelectedTime('');
+      setSelectedTechnician('');
     } catch (error) {
       console.error('Error scheduling appointment:', error);
-      toast.error('Failed to schedule appointment');
+      toast.error(error instanceof Error ? error.message : 'Failed to schedule appointment.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -741,7 +767,7 @@ export default function ServiceScheduling() {
               
               <button
                 onClick={handleConfirmAppointment}
-                disabled={!selectedDate || !selectedTime || !selectedTechnician}
+                disabled={!selectedDate || !selectedTime || !selectedTechnician || isSubmitting}
                 className={`px-10 py-4 rounded-xl font-bold transition shadow-lg flex items-center gap-3 ${
                   selectedDate && selectedTime && selectedTechnician
                     ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white shadow-orange-500/20'
@@ -749,7 +775,7 @@ export default function ServiceScheduling() {
                 }`}
               >
                 <Check className="w-6 h-6" />
-                Confirm & Schedule
+                {isSubmitting ? 'Saving Appointment…' : 'Confirm & Schedule'}
               </button>
             </div>
           </div>

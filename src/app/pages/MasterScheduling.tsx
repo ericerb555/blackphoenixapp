@@ -31,7 +31,9 @@ import { toast } from 'sonner@2.0.3';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import CalendarScheduleView from '../components/CalendarScheduleView';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface Employee {
   id: string;
@@ -73,6 +75,7 @@ interface Job {
   description: string;
   color: string;
   requiredSkills: string[];
+  appointmentId?: string;
   weatherSensitivity?: 'low' | 'medium' | 'high' | 'critical';
   latitude?: number;
   longitude?: number;
@@ -98,8 +101,9 @@ interface WeatherData {
 
 export default function MasterScheduling() {
   const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-  
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 0, 20)); // Jan 20, 2026
+  const { user } = useAuth();
+
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'employees' | 'jobs' | 'combined'>('employees');
   const [showFilters, setShowFilters] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -271,6 +275,87 @@ export default function MasterScheduling() {
     { id: 's21', employeeId: 'e8', position: 'technician', startTime: '8a', endTime: '5p', date: '2026-01-23', color: '#4a5f7f', status: 'scheduled', jobId: 'WO-503' },
     { id: 's22', employeeId: 'e8', position: 'technician', startTime: '8a', endTime: '5p', date: '2026-01-24', color: '#4a5f7f', status: 'scheduled', jobId: 'WO-503' },
   ]);
+
+  // Customer bookings are stored in the shared appointment ledger. Load them into
+  // the operational calendar so the Master Schedule and customer portal never drift.
+  useEffect(() => {
+    let active = true;
+    const loadSharedAppointments = async () => {
+      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      try {
+        const response = await fetch(`${API_BASE}/schedule/appointments`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load shared appointments.');
+        const appointments = Array.isArray(result.appointments) ? result.appointments : [];
+        const appointmentJobs: Job[] = appointments.map((appointment: any) => ({
+          id: `appointment-${appointment.id}`,
+          appointmentId: String(appointment.id),
+          title: String(appointment.serviceTitle || appointment.title || 'Service appointment'),
+          customer: String(appointment.customerName || appointment.customer_name || appointment.customerEmail || 'Customer'),
+          status: ['scheduled', 'pending', 'completed', 'in-progress'].includes(appointment.status) ? appointment.status : 'scheduled',
+          priority: ['low', 'medium', 'high', 'urgent'].includes(appointment.priority) ? appointment.priority : 'medium',
+          startDate: String(appointment.date),
+          endDate: String(appointment.date),
+          estimatedHours: Number(String(appointment.estimatedDuration || '').match(/\d+/)?.[0] || 1),
+          assignedEmployees: appointment.employeeId ? [String(appointment.employeeId)] : [],
+          location: String(appointment.location || 'Location pending'),
+          value: Number(appointment.depositAmount || 0),
+          description: `Customer appointment • ${String(appointment.time || 'time pending')}`,
+          color: '#ea580c',
+          requiredSkills: [],
+        }));
+        const appointmentShifts: Shift[] = appointments.filter((appointment: any) => appointment.employeeId && appointment.date).map((appointment: any) => ({
+          id: `appointment-shift-${appointment.id}`,
+          employeeId: String(appointment.employeeId),
+          position: 'technician',
+          startTime: String(appointment.time || '8:00 AM'),
+          endTime: String(appointment.time || '8:00 AM'),
+          date: String(appointment.date),
+          color: '#ea580c',
+          status: appointment.status === 'pending' ? 'pending' : 'scheduled',
+          jobId: `appointment-${appointment.id}`,
+        }));
+        if (!active) return;
+        setJobs((current) => [...current.filter((job) => !job.appointmentId), ...appointmentJobs]);
+        setShifts((current) => [...current.filter((shift) => !shift.id.startsWith('appointment-shift-')), ...appointmentShifts]);
+      } catch (error) {
+        console.error('Error loading shared appointments:', error);
+        if (active) toast.error(error instanceof Error ? error.message : 'Unable to load shared appointments.');
+      }
+    };
+    void loadSharedAppointments();
+    return () => { active = false; };
+  }, [API_BASE, user]);
+
+  const updateSharedAppointmentStatus = async (job: Job, status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled') => {
+    if (!job.appointmentId) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error('Please sign in to update this appointment.');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE}/schedule/appointments/${job.appointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to update appointment status.');
+      const nextStatus = status === 'confirmed' ? 'scheduled' : status as Job['status'];
+      setJobs((current) => current.map((item) => item.appointmentId === job.appointmentId ? { ...item, status: nextStatus } : item));
+      setShifts((current) => current.map((item) => item.jobId === job.id ? { ...item, status: status === 'pending' ? 'pending' : 'scheduled' } : item));
+      setSelectedJob((current) => current?.appointmentId === job.appointmentId ? { ...current, status: nextStatus } : current);
+      toast.success('Appointment status saved to the master schedule.');
+    } catch (error) {
+      console.error('Error updating appointment status:', error);
+      toast.error(error instanceof Error ? error.message : 'Unable to update appointment status.');
+    }
+  };
 
   // Load weather data when date changes or source changes
   useEffect(() => {
@@ -999,6 +1084,7 @@ export default function MasterScheduling() {
           employees={employees}
           onClose={() => setSelectedJob(null)}
           onAssign={handleAssignEmployee}
+          onUpdateAppointmentStatus={updateSharedAppointmentStatus}
         />
       )}
 
@@ -1790,7 +1876,7 @@ function CombinedScheduleView({ weekDays, employees, jobs, shifts, getShiftsForE
 }
 
 // Job Details Modal
-function JobDetailsModal({ job, employees, onClose, onAssign }: any) {
+function JobDetailsModal({ job, employees, onClose, onAssign, onUpdateAppointmentStatus }: any) {
   const assignedEmps = employees.filter((e: any) => job.assignedEmployees.includes(e.id));
   const availableEmps = employees.filter((e: any) => !job.assignedEmployees.includes(e.id));
 
@@ -1886,6 +1972,27 @@ function JobDetailsModal({ job, employees, onClose, onAssign }: any) {
             <h3 className="text-sm font-bold text-gray-400 uppercase mb-2">Description</h3>
             <p className="text-sm text-gray-300">{job.description}</p>
           </div>
+
+          {job.appointmentId && (
+            <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-orange-200">Saved customer appointment</h3>
+                  <p className="text-xs text-orange-100/70 mt-1">Status updates are written to the shared schedule immediately.</p>
+                </div>
+                <select
+                  value={job.status === 'in-progress' ? 'scheduled' : job.status}
+                  onChange={(event) => onUpdateAppointmentStatus(job, event.target.value)}
+                  className="bg-[#0F0F0F] border border-orange-500/30 text-white rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="scheduled">Scheduled</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+          )}
 
           {/* Required Skills */}
           <div>

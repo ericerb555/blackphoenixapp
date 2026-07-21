@@ -953,6 +953,58 @@ async function syncPortalAccess(application: any, intake: any, statusOverride?: 
 const APPLICATIONS_KEY = 'applications';
 const CRM_CONTACTS_KEY = 'crm_contacts:default';
 const LEADS_KEY = 'leads:all';
+const APPLICATION_PLAN_PROPOSAL_PREFIX = 'application_plan_proposal:';
+
+async function ensureApplicationPlanProposal(application: any, reviewedBy: string) {
+  const preference = application?.planPreference;
+  if (!preference || typeof preference !== 'object') return null;
+  const key = `${APPLICATION_PLAN_PROPOSAL_PREFIX}${application.id}`;
+  const existing = await kv.get(key) as any;
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const proposal = {
+    id: `PLAN-PROP-${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`,
+    applicationId: application.id,
+    applicantName: application.name,
+    ownerEmail: String(application.email || '').toLowerCase(),
+    portalType: intakePortalType(application),
+    requestedPlan: preference,
+    requestedMonthlyTotal: money(preference.monthlyTotal),
+    quotedMonthlyTotal: null,
+    status: 'pending_pricing',
+    notes: '',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: reviewedBy,
+  };
+  await kv.set(key, proposal);
+  return proposal;
+}
+
+async function activatePaidApplicationPlan(invoice: any, payment: any) {
+  const applicationId = String(invoice?.planProposalApplicationId || invoice?.applicationId || '');
+  if (!applicationId) return null;
+  const proposalKey = `${APPLICATION_PLAN_PROPOSAL_PREFIX}${applicationId}`;
+  const proposal = await kv.get(proposalKey) as any;
+  if (!proposal || proposal.status === 'declined') return null;
+  if (proposal.status === 'active' && proposal.subscriptionId) return { proposal, subscription: await kv.get(subscriptionKey(proposal.subscriptionId)), plan: proposal.planId ? await kv.get(`plan:${proposal.planId}`) : null };
+  const now = new Date().toISOString();
+  const requested = proposal.requestedPlan || {};
+  const amount = money(proposal.quotedMonthlyTotal ?? invoice.total_amount ?? invoice.total ?? 0);
+  const includedHours = Math.max(0, Number(requested.hoursIncluded ?? requested.hours?.included ?? 0));
+  const planId = proposal.planId || `PLAN-${crypto.randomUUID()}`;
+  const subscriptionId = proposal.subscriptionId || `SUB-${crypto.randomUUID()}`;
+  const plan = { id: planId, planName: String(requested.planName || 'Approved Custom Plan'), portalType: proposal.portalType, owner: proposal.applicantName, ownerEmail: proposal.ownerEmail, status: 'active', entity: requested.entity || 'homeowner', skillId: requested.skillId || 'journeyman', frequencyId: requested.frequencyId || 'monthly', serviceIds: Array.isArray(requested.serviceIds) ? requested.serviceIds : [], serviceNames: Array.isArray(requested.serviceNames) ? requested.serviceNames : [], monthlyTotal: amount, annualTotal: amount * 12, hours: { included: includedHours, used: 0, overageRate: 0, bankId: `HRS-${crypto.randomUUID()}` }, applicationId, proposalId: proposal.id, invoiceId: invoice.id, activatedAt: now, createdAt: now, updatedAt: now };
+  const subscription = { id: subscriptionId, type: subscriptionType, stakeholderId: proposal.ownerEmail, stakeholderName: proposal.applicantName || proposal.ownerEmail, stakeholderEmail: proposal.ownerEmail, customerEmail: proposal.ownerEmail, plan: plan.planName, planId, applicationId, planProposalId: proposal.id, status: 'active', billingCycle: requested.frequencyId === 'annual' ? 'annual' : requested.frequencyId === 'quarterly' ? 'quarterly' : 'monthly', amount, startDate: now, renewalDate: nextRenewalDate({ billingCycle: requested.frequencyId === 'annual' ? 'annual' : requested.frequencyId === 'quarterly' ? 'quarterly' : 'monthly' }, new Date()).toISOString(), hoursIncluded: includedHours, hoursUsed: 0, hoursRollover: 0, hoursGifted: 0, autoRenew: false, paymentMethod: 'stripe', paymentId: payment.id, activatedAt: now, createdAt: now, updatedAt: now };
+  const activatedProposal = { ...proposal, status: 'active', planId, subscriptionId, invoiceId: invoice.id, activatedAt: now, activatedByPaymentId: payment.id, updatedAt: now };
+  await kv.set(`plan:${planId}`, plan);
+  await kv.set(subscriptionKey(subscriptionId), subscription);
+  await kv.set(proposalKey, activatedProposal);
+  const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+  const index = applications.findIndex((application: any) => application.id === applicationId);
+  if (index >= 0) { applications[index] = { ...applications[index], planProposal: activatedProposal, planProposalId: activatedProposal.id, planId, subscriptionId, updatedAt: now }; await kv.set(APPLICATIONS_KEY, applications); }
+  return { proposal: activatedProposal, plan, subscription };
+}
 
 function cleanApplicationText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -978,6 +1030,7 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
 
   const now = new Date().toISOString();
   const applicationType = cleanApplicationText(data.applicationType) || cleanApplicationText(data.type) || 'general';
+  const planPreference = data.planPreference && typeof data.planPreference === 'object' ? data.planPreference : null;
   const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
   const existingIndex = applications.findIndex((application: any) =>
     String(application.email || application.contact_email || '').toLowerCase() === applicant.email &&
@@ -1015,7 +1068,8 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     type: applicationType === 'field_technician' ? 'employee' : 'partner',
     status: 'lead',
     source: 'application',
-    tags: Array.from(new Set([...(contactIndex >= 0 && Array.isArray(contacts[contactIndex].tags) ? contacts[contactIndex].tags : []), 'application', applicationType])),
+    planPreference: planPreference || (contactIndex >= 0 ? contacts[contactIndex].planPreference : null),
+    tags: Array.from(new Set([...(contactIndex >= 0 && Array.isArray(contacts[contactIndex].tags) ? contacts[contactIndex].tags : []), 'application', applicationType, ...(planPreference ? ['plan_preference'] : [])])),
     applicationId: id,
     updatedAt: now,
     createdAt: contactIndex >= 0 ? contacts[contactIndex].createdAt : now,
@@ -1037,7 +1091,8 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     applicationType,
     status: 'new',
     intent: 'warm',
-    score: 70,
+    score: planPreference ? 78 : 70,
+    planPreference: planPreference || (leadIndex >= 0 ? leads[leadIndex].planPreference : null),
     lastSeen: now,
     capturedAt: leadIndex >= 0 ? leads[leadIndex].capturedAt : now,
     tags: Array.from(new Set([...(leadIndex >= 0 && Array.isArray(leads[leadIndex].tags) ? leads[leadIndex].tags : []), 'application', applicationType])),
@@ -1123,11 +1178,46 @@ app.patch('/make-server-57095a78/applications/:id', async (c) => {
     const allowed = { ...patch }; delete allowed.id; delete allowed.email; delete allowed.submittedAt;
     if (String(allowed.status || '').toLowerCase() === 'accepted') allowed.status = 'approved';
     applications[index] = { ...prior, ...allowed, id: prior.id, email: prior.email, submittedAt: prior.submittedAt, updatedAt: new Date().toISOString(), reviewedBy: user.email, reviewedAt: new Date().toISOString() };
-    await kv.set(APPLICATIONS_KEY, applications);
     const intake = ['approved', 'active'].includes(String(applications[index].status).toLowerCase()) ? await ensureIntake(applications[index]) : null;
     const access = intake ? await syncPortalAccess(applications[index], intake) : null;
-    return c.json({ success: true, application: applications[index], intake, access });
+    const planProposal = intake ? await ensureApplicationPlanProposal(applications[index], user.email) : null;
+    applications[index] = { ...applications[index], planProposal: planProposal || applications[index].planProposal || null, planProposalId: planProposal?.id || applications[index].planProposalId || null };
+    await kv.set(APPLICATIONS_KEY, applications);
+    return c.json({ success: true, application: applications[index], intake, access, planProposal });
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+app.get('/make-server-57095a78/application-plan-proposals', async (c) => {
+  try {
+    const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const proposals = await kv.getByPrefix(APPLICATION_PLAN_PROPOSAL_PREFIX) as any[] || [];
+    return c.json({ success: true, proposals: proposals.sort((a: any, b: any) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load plan proposals.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/application-plan-proposals/:applicationId', async (c) => {
+  try {
+    const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const applicationId = c.req.param('applicationId'); const key = `${APPLICATION_PLAN_PROPOSAL_PREFIX}${applicationId}`;
+    const current = await kv.get(key) as any; if (!current) return c.json({ success: false, error: 'Plan proposal not found. Approve the application first.' }, 404);
+    const body = await c.req.json(); const requestedStatus = String(body.status || current.status).toLowerCase();
+    if (!['pending_pricing', 'quoted', 'approved', 'declined'].includes(requestedStatus)) return c.json({ success: false, error: 'Invalid proposal status.' }, 400);
+    const quoteProvided = body.quotedMonthlyTotal !== undefined && body.quotedMonthlyTotal !== '';
+    const quote = quoteProvided ? money(body.quotedMonthlyTotal) : current.quotedMonthlyTotal;
+    if (['quoted', 'approved'].includes(requestedStatus) && !(Number(quote) >= 0)) return c.json({ success: false, error: 'Enter a valid monthly price before quoting or approving this plan.' }, 400);
+    let proposal = { ...current, status: requestedStatus, quotedMonthlyTotal: quote, notes: String(body.notes ?? current.notes ?? '').slice(0, 3000), updatedAt: new Date().toISOString(), pricedBy: user.email, pricedAt: new Date().toISOString() };
+    let invoice = null;
+    if (requestedStatus === 'approved' && !proposal.invoiceId) {
+      const invoiceId = crypto.randomUUID(); const now = new Date().toISOString(); const total = money(quote);
+      invoice = { id: invoiceId, invoice_id: `INV-PLAN-${now.slice(0, 10).replaceAll('-', '')}-${invoiceId.slice(0, 6).toUpperCase()}`, invoice_number: `INV-PLAN-${now.slice(0, 10).replaceAll('-', '')}-${invoiceId.slice(0, 6).toUpperCase()}`, clientEmail: proposal.ownerEmail, customerEmail: proposal.ownerEmail, customer_name: proposal.applicantName, planProposalId: proposal.id, planProposalApplicationId: applicationId, applicationId, description: `Approved plan: ${proposal.requestedPlan?.planName || 'Custom Plan'}`, line_items: [{ line_number: 1, description: proposal.requestedPlan?.planName || 'Approved custom maintenance plan', quantity: 1, unit_price: total, amount: total }], subtotal: total, tax_rate: 0, tax_amount: 0, discount_amount: 0, total_amount: total, paid_amount: 0, balance_due: total, status: 'pending', is_draft: false, createdAt: now, updatedAt: now, createdBy: user.email };
+      await kv.set(`invoice:${invoiceId}`, invoice);
+      proposal = { ...proposal, invoiceId, invoiceNumber: invoice.invoice_number, invoiceStatus: 'pending' };
+    }
+    await kv.set(key, proposal);
+    const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || []; const index = applications.findIndex((item: any) => item.id === applicationId);
+    if (index >= 0) { applications[index] = { ...applications[index], planProposal: proposal, planProposalId: proposal.id, updatedAt: proposal.updatedAt }; await kv.set(APPLICATIONS_KEY, applications); }
+    return c.json({ success: true, proposal, invoice });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update plan proposal.' }, 500); }
 });
 
 app.get('/make-server-57095a78/crm/contacts', async (c) => {
@@ -2403,6 +2493,252 @@ app.put('/make-server-57095a78/work-requests/:id', async (c) => {
   } catch (error: any) { return c.json({ error: error.message || 'Unable to update work request.' }, 500); }
 });
 
+// Property managers have a scoped operations queue.  Unlike the legacy
+// property-management routes, this route requires a signed-in portal user and
+// only returns requests explicitly assigned to that manager.
+async function propertyManagerActor(c: any) {
+  const user = await intakeActor(c);
+  if (!user?.email) return { user: null, admin: false, manager: false };
+  const admin = await intakeIsAdmin(user);
+  if (admin) return { user, admin: true, manager: true };
+  const email = String(user.email).toLowerCase();
+  const access = await kv.get(`portal_access:${email}:property_manager`) as any;
+  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const manager = ['property_manager', 'condo_manager'].includes(metadataRole) || access?.status === 'active';
+  return { user, admin: false, manager };
+}
+
+function assignedToPropertyManager(record: any, user: any) {
+  const email = String(user?.email || '').toLowerCase();
+  // A manager can always operate requests their own authenticated account created.
+  // Tenant/owner requests additionally require an explicit manager assignment.
+  return ownsWorkRequest(record, user) || Boolean(
+    (user?.id && [record.propertyManagerUserId, record.property_manager_user_id, record.assignedManagerUserId]
+      .some((value: any) => String(value || '') === String(user.id))) ||
+    (email && [record.propertyManagerEmail, record.property_manager_email, record.managerEmail, record.assignedManagerEmail]
+      .some((value: any) => String(value || '').toLowerCase() === email))
+  );
+}
+
+function assignedToCondoManager(record: any, user: any) {
+  const email = String(user?.email || '').toLowerCase();
+  return ownsWorkRequest(record, user) || Boolean(
+    (user?.id && [record.condoManagerUserId, record.condo_manager_user_id, record.assignedManagerUserId]
+      .some((value: any) => String(value || '') === String(user.id))) ||
+    (email && [record.condoManagerEmail, record.condo_manager_email, record.managerEmail, record.assignedManagerEmail]
+      .some((value: any) => String(value || '').toLowerCase() === email))
+  );
+}
+
+app.get('/make-server-57095a78/condo-manager/work-requests', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view condo work requests.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active condo-manager portal is required.' }, 403);
+    const records = await readWorkRequests();
+    return c.json({ success: true, workRequests: (actor.admin ? records : records.filter((record: any) => assignedToCondoManager(record, actor.user))).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load condo work requests.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/condo-manager/work-requests/:id/decision', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in before making a decision.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active condo-manager portal is required.' }, 403);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!actor.admin && !assignedToCondoManager(record, actor.user)) return c.json({ success: false, error: 'This request is not assigned to your condo-management account.' }, 403);
+    const body = await c.req.json(); const decision = String(body.decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) return c.json({ success: false, error: 'Decision must be approved or rejected.' }, 400);
+    const now = new Date().toISOString(); const updated = { ...record, status: decision, approvalHistory: [...(Array.isArray(record.approvalHistory) ? record.approvalHistory : []), { status: decision, note: String(body.note || '').slice(0, 2000), actorEmail: actor.user.email, decidedAt: now }], lastDecisionBy: actor.user.email, lastDecisionAt: now, updated_at: now };
+    await persistWorkRequest(updated);
+    return c.json({ success: true, workRequest: stripBase64(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update condo work request.' }, 500); }
+});
+
+async function landlordActor(c: any) {
+  const user = await intakeActor(c);
+  if (!user?.email) return { user: null, admin: false, landlord: false };
+  const admin = await intakeIsAdmin(user);
+  if (admin) return { user, admin: true, landlord: true };
+  const email = String(user.email).toLowerCase();
+  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  // Earlier landlord applications used the property_manager intake type. Keep
+  // those approved accounts working while allowing the explicit landlord role.
+  const access = await kv.get(`portal_access:${email}:property_manager`) as any || await kv.get(`portal_access:${email}:landlord`) as any;
+  return { user, admin: false, landlord: metadataRole === 'landlord' || access?.status === 'active' };
+}
+
+app.get('/make-server-57095a78/landlord/work-requests', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view maintenance requests.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const records = await readWorkRequests();
+    const scoped = actor.admin ? records : records.filter((record: any) => ownsWorkRequest(record, actor.user) || String(record.landlordEmail || '').toLowerCase() === String(actor.user.email).toLowerCase() || String(record.ownerEmail || '').toLowerCase() === String(actor.user.email).toLowerCase());
+    return c.json({ success: true, workRequests: scoped.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load maintenance requests.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/landlord/work-requests/:id/decision', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in before making a decision.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Maintenance request not found.' }, 404);
+    const owns = ownsWorkRequest(record, actor.user) || String(record.landlordEmail || '').toLowerCase() === String(actor.user.email).toLowerCase() || String(record.ownerEmail || '').toLowerCase() === String(actor.user.email).toLowerCase();
+    if (!actor.admin && !owns) return c.json({ success: false, error: 'This request is not assigned to your landlord account.' }, 403);
+    const body = await c.req.json(); const decision = String(body.decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) return c.json({ success: false, error: 'Decision must be approved or rejected.' }, 400);
+    const now = new Date().toISOString();
+    const updated = { ...record, status: decision, approvalHistory: [...(Array.isArray(record.approvalHistory) ? record.approvalHistory : []), { status: decision, note: String(body.note || '').slice(0, 2000), actorEmail: actor.user.email, decidedAt: now }], lastDecisionBy: actor.user.email, lastDecisionAt: now, updated_at: now };
+    await persistWorkRequest(updated);
+    return c.json({ success: true, workRequest: stripBase64(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update maintenance request.' }, 500); }
+});
+
+function landlordTenantsKey(email: string) { return `landlord_tenants:${String(email).toLowerCase()}`; }
+
+app.get('/make-server-57095a78/landlord/tenants', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view tenants.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    return c.json({ success: true, tenants: ((await kv.get(landlordTenantsKey(actor.user.email))) as any[] || []).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load tenants.' }, 500); }
+});
+
+app.post('/make-server-57095a78/landlord/tenants', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a tenant.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const body = stripBase64(await c.req.json()); const name = String(body.name || '').trim(); const unit = String(body.unit || '').trim(); const rent = Number(body.rent);
+    const status = ['current', 'late', 'pending'].includes(String(body.status || 'current')) ? String(body.status) : 'current';
+    if (!name) return c.json({ success: false, error: 'Tenant name is required.' }, 400);
+    if (!unit) return c.json({ success: false, error: 'Unit is required.' }, 400);
+    if (!Number.isFinite(rent) || rent < 0) return c.json({ success: false, error: 'Monthly rent must be zero or greater.' }, 400);
+    const now = new Date().toISOString(); const tenant = { id: `tenant_${crypto.randomUUID()}`, name, unit, rent: Math.round(rent * 100) / 100, status, landlordEmail: actor.user.email, landlordUserId: actor.user.id, createdAt: now, updatedAt: now };
+    const key = landlordTenantsKey(actor.user.email); const existing = (await kv.get(key) as any[]) || []; await kv.set(key, [tenant, ...existing]);
+    return c.json({ success: true, tenant }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add tenant.' }, 500); }
+});
+
+function landlordPortfolioKey(email: string) { return `landlord_portfolio:${String(email).toLowerCase()}`; }
+
+app.get('/make-server-57095a78/landlord/properties', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your properties.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const saved = (await kv.get(landlordPortfolioKey(email)) as any[]) || [];
+    const legacy = (await kv.get('properties') as any[]) || [];
+    const compatible = legacy.filter((property: any) => String(property.landlordEmail || property.ownerEmail || '').toLowerCase() === email || (actor.user?.id && String(property.landlordUserId || property.ownerUserId || '') === String(actor.user.id)));
+    const seen = new Set(saved.map((property: any) => String(property.id)));
+    return c.json({ success: true, properties: [...saved, ...compatible.filter((property: any) => !seen.has(String(property.id)))].map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load landlord properties.' }, 500); }
+});
+
+app.post('/make-server-57095a78/landlord/properties', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a property.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const body = stripBase64(await c.req.json()); const name = String(body.name || '').trim(); const address = String(body.address || '').trim(); const suppliedUnits = Number(body.units); const suppliedVacancies = Number(body.vacancies || 0);
+    if (!name) return c.json({ success: false, error: 'Property name is required.' }, 400);
+    if (!address) return c.json({ success: false, error: 'Property address is required.' }, 400);
+    if (!Number.isFinite(suppliedUnits) || suppliedUnits < 1) return c.json({ success: false, error: 'Enter at least one unit.' }, 400);
+    if (!Number.isFinite(suppliedVacancies) || suppliedVacancies < 0) return c.json({ success: false, error: 'Vacancies must be zero or greater.' }, 400);
+    const units = Math.floor(suppliedUnits); const vacancies = Math.min(units, Math.floor(suppliedVacancies)); const now = new Date().toISOString();
+    const property = { id: `landlord_property_${crypto.randomUUID()}`, name, address, units, vacancies, ownerEmail: actor.user.email, landlordEmail: actor.user.email, landlordUserId: actor.user.id, createdAt: now, updatedAt: now };
+    const key = landlordPortfolioKey(actor.user.email); const existing = (await kv.get(key) as any[]) || []; await kv.set(key, [property, ...existing]);
+    return c.json({ success: true, property }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add property.' }, 500); }
+});
+
+function propertyPortfolioKey(email: string) { return `property_manager_portfolio:${String(email).toLowerCase()}`; }
+
+app.get('/make-server-57095a78/property-manager/properties', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your property portfolio.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active property-manager portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const saved = (await kv.get(propertyPortfolioKey(email)) as any[]) || [];
+    // Read compatible legacy records only when they are already explicitly assigned;
+    // do not expose the old shared collection to a portal user.
+    const legacy = (await kv.get('properties') as any[]) || [];
+    const compatible = legacy.filter((property: any) => assignedToPropertyManager(property, actor.user));
+    const seen = new Set(saved.map((property: any) => String(property.id)));
+    const properties = [...saved, ...compatible.filter((property: any) => !seen.has(String(property.id)))];
+    return c.json({ success: true, properties: properties.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load properties.' }, 500); }
+});
+
+app.post('/make-server-57095a78/property-manager/properties', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a property.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active property-manager portal is required.' }, 403);
+    const body = stripBase64(await c.req.json());
+    const name = String(body.name || '').trim();
+    const address = String(body.address || '').trim();
+    const suppliedUnits = Number(body.units);
+    const suppliedOccupied = Number(body.occupied || 0);
+    if (!name) return c.json({ success: false, error: 'Property name is required.' }, 400);
+    if (!address) return c.json({ success: false, error: 'Property address is required.' }, 400);
+    if (!Number.isFinite(suppliedUnits) || suppliedUnits < 1) return c.json({ success: false, error: 'Enter at least one unit.' }, 400);
+    if (!Number.isFinite(suppliedOccupied) || suppliedOccupied < 0) return c.json({ success: false, error: 'Occupied units must be zero or greater.' }, 400);
+    const units = Math.floor(suppliedUnits);
+    const occupied = Math.min(units, Math.floor(suppliedOccupied));
+    const now = new Date().toISOString();
+    const property = { id: `property_${crypto.randomUUID()}`, name, address, units, occupied, ownerEmail: actor.user.email, propertyManagerEmail: actor.user.email, propertyManagerUserId: actor.user.id, createdAt: now, updatedAt: now };
+    const key = propertyPortfolioKey(actor.user.email);
+    const existing = (await kv.get(key) as any[]) || [];
+    await kv.set(key, [property, ...existing]);
+    return c.json({ success: true, property }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add property.' }, 500); }
+});
+
+app.get('/make-server-57095a78/property-manager/work-requests', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view property work requests.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active property-manager portal is required.' }, 403);
+    const requests = await readWorkRequests();
+    const scoped = actor.admin ? requests : requests.filter((record: any) => assignedToPropertyManager(record, actor.user));
+    return c.json({ success: true, workRequests: scoped.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load property work requests.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/property-manager/work-requests/:id/decision', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in before making a decision.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active property-manager portal is required.' }, 403);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!actor.admin && !assignedToPropertyManager(record, actor.user)) return c.json({ success: false, error: 'This request is not assigned to your property-management account.' }, 403);
+    const body = await c.req.json();
+    const decision = String(body.decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) return c.json({ success: false, error: 'Decision must be approved or rejected.' }, 400);
+    const now = new Date().toISOString();
+    const history = Array.isArray(record.approvalHistory) ? record.approvalHistory : [];
+    const updated = {
+      ...record,
+      status: decision,
+      approvalHistory: [...history, { status: decision, note: String(body.note || '').slice(0, 2000), actorEmail: actor.user.email, decidedAt: now }],
+      lastDecisionBy: actor.user.email,
+      lastDecisionAt: now,
+      updated_at: now,
+    };
+    await persistWorkRequest(updated);
+    return c.json({ success: true, workRequest: stripBase64(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update work request.' }, 500); }
+});
+
 app.post('/make-server-57095a78/work-requests/:id/schedule', async (c) => {
   try {
     const { user, admin } = await workRequestActor(c);
@@ -2412,8 +2748,10 @@ app.post('/make-server-57095a78/work-requests/:id/schedule', async (c) => {
     const body = await c.req.json();
     const startAt = String(body.startAt || body.start_at || '');
     if (Number.isNaN(Date.parse(startAt))) return c.json({ error: 'A valid scheduled start time is required.' }, 400);
-    const schedule = { id: `schedule_${crypto.randomUUID()}`, startAt, endAt: body.endAt || body.end_at || null, assignedTo: body.assignedTo || body.assigned_to || null, notes: String(body.notes || ''), scheduledBy: user.email, createdAt: new Date().toISOString() };
-    const record = { ...existing, schedule, status: body.status || 'scheduled', updated_at: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const previousSchedule = existing.schedule || {};
+    const schedule = { id: previousSchedule.id || `schedule_${crypto.randomUUID()}`, startAt, endAt: body.endAt || body.end_at || null, assignedTo: body.assignedTo || body.assigned_to || null, notes: String(body.notes || ''), scheduledBy: user.email, createdAt: previousSchedule.createdAt || now, updatedAt: now };
+    const record = { ...existing, schedule, status: body.status || 'scheduled', updated_at: now };
     await persistWorkRequest(record);
     await kv.set(`schedule:${schedule.id}`, { ...schedule, workRequestId: record.id, clientEmail: record.client_email });
     return c.json({ success: true, workRequest: stripBase64(record), schedule });
@@ -3666,9 +4004,23 @@ function money(value: unknown) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
 }
 
-async function stripeCheckoutSession(params: URLSearchParams) {
-  const stripeKey = Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
-  if (!stripeKey) throw new Error('Stripe gift-card checkout is not configured. Add STRIPE_SECRET_KEY_SERVICES to Supabase secrets.');
+type StripeAccount = 'services' | 'tbpco_ecommerce';
+
+// Separate Stripe accounts are intentionally selected server-side by workflow.
+// Services, invoices, subscriptions, maintenance, and gift cards remain on Black
+// Phoenix Builds. Store merchandise uses the TBPCO e-commerce account.
+function stripeKeyFor(account: StripeAccount = 'services') {
+  if (account === 'tbpco_ecommerce') return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY') || '';
+  return Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
+}
+
+function stripeAccountLabel(account: StripeAccount) {
+  return account === 'tbpco_ecommerce' ? 'TBPCO E-commerce' : 'Black Phoenix Builds Services';
+}
+
+async function stripeCheckoutSession(params: URLSearchParams, account: StripeAccount = 'services') {
+  const stripeKey = stripeKeyFor(account);
+  if (!stripeKey) throw new Error(`${stripeAccountLabel(account)} Stripe checkout is not configured.`);
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: {
@@ -3682,9 +4034,9 @@ async function stripeCheckoutSession(params: URLSearchParams) {
   return payload;
 }
 
-async function retrieveStripeCheckoutSession(sessionId: string) {
-  const stripeKey = Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
-  if (!stripeKey) throw new Error('Stripe gift-card checkout is not configured.');
+async function retrieveStripeCheckoutSession(sessionId: string, account: StripeAccount = 'services') {
+  const stripeKey = stripeKeyFor(account);
+  if (!stripeKey) throw new Error(`${stripeAccountLabel(account)} Stripe checkout is not configured.`);
   const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
     headers: { Authorization: `Basic ${btoa(`${stripeKey}:`)}` },
   });
@@ -3868,7 +4220,7 @@ app.post('/make-server-57095a78/gift-cards/:code/redeem', async (c) => {
 
     const card = await kv.get(`${GIFT_CARD_PREFIX}${code}`) as any;
     if (!card || card.status !== 'active') return c.json({ success: false, error: 'Gift card not found or inactive.' }, 404);
-    if (money(card.balance) < amount) return c.json({ success: false, error: 'Gift card balance is too low for this redemption.' }, 409);
+    if ((await availableGiftCardBalance(code, card)) < amount) return c.json({ success: false, error: 'Gift card balance is reserved or too low for this redemption.' }, 409);
     const redemption = { id: redemptionId, amount, orderReference, redeemedAt: new Date().toISOString() };
     card.balance = money(money(card.balance) - amount);
     card.redeemedAmount = money(money(card.redeemedAmount) + amount);
@@ -4222,6 +4574,34 @@ async function intakeOwnedBy(c: any, applicationId: string, allowAdmin = true) {
   return { user, admin, intake };
 }
 
+// Authenticated portal identity. Login uses this after Supabase sign-in rather
+// than trusting a role cached in a particular browser or phone.
+app.get('/make-server-57095a78/auth/me', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const allowedRoles = new Set(['owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
+    const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().trim();
+    let role = allowedRoles.has(metadataRole) ? metadataRole : '';
+    if (!role) {
+      try {
+        const { data } = await supabase.from('user_permissions').select('role_name, level').eq('user_id', user.id).order('level', { ascending: true }).limit(10);
+        const roles = (data || []).map((row: any) => String(row.role_name || '').toLowerCase()).filter((value: string) => allowedRoles.has(value));
+        role = roles.find((value: string) => INTAKE_ADMIN_ROLES.has(value)) || roles[0] || '';
+      } catch { /* Fall through to the approved application role. */ }
+    }
+    let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
+    let intake = applicationId ? await kv.get(`intake:onboarding:${applicationId}`) as any : null;
+    if (!intake) {
+      const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+      const application = applications.find((item: any) => String(item.email || '').toLowerCase() === String(user.email).toLowerCase() && ['approved', 'active'].includes(String(item.status || '').toLowerCase()));
+      if (application) { intake = await ensureIntake(application); applicationId = intake.applicationId; }
+    }
+    if (!role && intake?.portalType) role = String(intake.portalType);
+    return c.json({ success: true, user: { id: user.id, email: user.email, role: role || 'customer', onboardingStatus: intake?.status || null, applicationId: applicationId || null } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load authenticated identity.' }, 500); }
+});
+
 app.get('/make-server-57095a78/intake/my-onboarding', async (c) => {
   try {
     const user = await intakeActor(c);
@@ -4364,8 +4744,22 @@ app.post('/make-server-57095a78/contracts', async (c) => {
   catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 app.post('/make-server-57095a78/contracts/:id/sign', async (c) => {
-  try { const { user, admin } = await financialActor(c); const record = await kv.get(`contract:${c.req.param('id')}`) as any; if (!record) return c.json({ success: false, error: 'Contract not found.' }, 404); if (!user?.email || (!admin && !ownsFinancialRecord(record, user.email))) return c.json({ success: false, error: 'You may only sign your own contract.' }, 403); const body = await c.req.json(); if (body.acceptTerms !== true) return c.json({ success: false, error: 'Terms must be accepted before signing.' }, 400); const signed = { ...record, status: 'active', signedAt: new Date().toISOString(), signedBy: user.email, signatureName: String(body.signatureName || user.user_metadata?.full_name || user.email), updatedAt: new Date().toISOString() }; await kv.set(`contract:${signed.id}`, signed); return c.json({ success: true, contract: signed }); }
-  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+  try {
+    const { user, admin } = await financialActor(c);
+    const record = await kv.get(`contract:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Contract not found.' }, 404);
+    if (!user?.email || (!admin && !ownsFinancialRecord(record, user.email))) return c.json({ success: false, error: 'You may only sign your own contract.' }, 403);
+    if (record.signedAt || ['active', 'signed', 'completed'].includes(String(record.status || '').toLowerCase())) return c.json({ success: false, error: 'This contract has already been signed and cannot be replaced.' }, 409);
+    const body = await c.req.json();
+    if (body.acceptTerms !== true) return c.json({ success: false, error: 'Terms must be accepted before signing.' }, 400);
+    const signatureName = String(body.signatureName || '').trim();
+    if (!signatureName) return c.json({ success: false, error: 'Your full legal name is required to sign.' }, 400);
+    const signedAt = new Date().toISOString();
+    const signature = { name: signatureName, signerEmail: String(user.email).toLowerCase(), acceptedTermsAt: signedAt, method: 'portal_typed_name' };
+    const signed = { ...record, status: 'active', signedAt, signedBy: signature.signerEmail, signatureName, signature, updatedAt: signedAt, history: [...(Array.isArray(record.history) ? record.history : []), { ts: signedAt, type: 'contract_signed', note: `Signed by ${signatureName}` }] };
+    await kv.set(`contract:${signed.id}`, signed);
+    return c.json({ success: true, contract: signed });
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
 app.get('/make-server-57095a78/invoices', async (c) => {
@@ -4410,6 +4804,57 @@ app.put('/make-server-57095a78/invoices/:id', async (c) => {
 app.delete('/make-server-57095a78/invoices/:id', async (c) => {
   try { const { admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const existing = await kv.get(`invoice:${c.req.param('id')}`); if (!existing) return c.json({ success: false, error: 'Invoice not found.' }, 404); await kv.del(`invoice:${c.req.param('id')}`); return c.json({ success: true }); }
   catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete invoice.' }, 500); }
+});
+
+app.get('/make-server-57095a78/payments', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const payments = (await kv.getByPrefix('payment:')) as any[] || [];
+    const subscriptions = (await kv.getByPrefix('subscription:')) as any[] || [];
+    const invoices = (await kv.getByPrefix('invoice:')) as any[] || [];
+    const records = payments.map((payment: any) => ({ ...payment, subscription: payment.subscriptionId ? subscriptions.find((subscription: any) => subscription.id === payment.subscriptionId) || null : null, invoice: payment.invoiceId ? invoices.find((invoice: any) => invoice.id === payment.invoiceId) || null : null }));
+    return c.json({ success: true, payments: records.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load payments.' }, 500); }
+});
+
+// A property manager sees only the financial records owned by their portal
+// account.  The global /payments route remains restricted to admins.
+app.get('/make-server-57095a78/property-manager/payments', async (c) => {
+  try {
+    const actor = await propertyManagerActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view property payments.' }, 401);
+    if (!actor.manager) return c.json({ success: false, error: 'An active property-manager portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const [payments, invoices, subscriptions] = await Promise.all([
+      kv.getByPrefix('payment:'), kv.getByPrefix('invoice:'), kv.getByPrefix('subscription:'),
+    ]);
+    const visiblePayments = actor.admin ? (payments as any[] || []) : (payments as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const visibleInvoices = actor.admin ? (invoices as any[] || []) : (invoices as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const records = visiblePayments.map((payment: any) => ({
+      ...payment,
+      invoice: payment.invoiceId ? visibleInvoices.find((invoice: any) => invoice.id === payment.invoiceId) || null : null,
+      subscription: payment.subscriptionId ? (subscriptions as any[] || []).find((subscription: any) => subscription.id === payment.subscriptionId && (actor.admin || ownsFinancialRecord(subscription, email))) || null : null,
+    }));
+    return c.json({ success: true, payments: records.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()), invoices: visibleInvoices.sort((a: any, b: any) => new Date(b.createdAt || b.created_at || 0).getTime() - new Date(a.createdAt || a.created_at || 0).getTime()) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load property payment records.' }, 500); }
+});
+
+// Landlord financial history is limited to invoices and verified payment
+// attempts owned by that landlord account; it never exposes the admin ledger.
+app.get('/make-server-57095a78/landlord/financials', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view financial records.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const [payments, invoices] = await Promise.all([kv.getByPrefix('payment:'), kv.getByPrefix('invoice:')]);
+    const visiblePayments = actor.admin ? (payments as any[] || []) : (payments as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const visibleInvoices = actor.admin ? (invoices as any[] || []) : (invoices as any[] || []).filter((record: any) => ownsFinancialRecord(record, email));
+    const paidTotal = visiblePayments.filter((record: any) => ['paid', 'completed'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.amount), 0);
+    const pendingTotal = visiblePayments.filter((record: any) => !['paid', 'completed', 'failed', 'refunded'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.amount), 0);
+    const openInvoiceTotal = visibleInvoices.filter((record: any) => !['paid', 'completed', 'void', 'cancelled'].includes(String(record.status || '').toLowerCase())).reduce((sum: number, record: any) => sum + money(record.balance_due ?? record.balanceDue ?? record.amountDue ?? record.total_amount ?? record.total ?? record.amount), 0);
+    return c.json({ success: true, summary: { paidTotal, pendingTotal, openInvoiceTotal }, payments: visiblePayments.sort((a: any, b: any) => new Date(b.paidAt || b.createdAt || 0).getTime() - new Date(a.paidAt || a.createdAt || 0).getTime()), invoices: visibleInvoices.sort((a: any, b: any) => new Date(b.createdAt || b.created_at || 0).getTime() - new Date(a.createdAt || a.created_at || 0).getTime()) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load landlord financial records.' }, 500); }
 });
 
 app.post('/make-server-57095a78/payments/create-checkout', async (c) => {
@@ -4495,7 +4940,17 @@ app.post('/make-server-57095a78/payments/complete', async (c) => {
         if (planId) await recordEntitlementEvent({ planId, sourceType: 'payment', sourceId: payment.id, amountDelta: Number(payment.amount || 0), invoiceId: invoice.id, note: `Invoice ${invoice.invoice_number || invoice.number || invoice.id} paid` });
       }
     }
-    return c.json({ success: true, payment, subscription, invoice });
+    let planActivation = null;
+    if (invoice?.status === 'paid' && invoice?.planProposalApplicationId) {
+      planActivation = await activatePaidApplicationPlan(invoice, payment);
+      if (planActivation?.plan) {
+        invoice = { ...invoice, planId: planActivation.plan.id, subscriptionId: planActivation.subscription?.id || null, updatedAt: new Date().toISOString() };
+        await kv.set(`invoice:${invoice.id}`, invoice);
+        await recordEntitlementEvent({ planId: planActivation.plan.id, sourceType: 'payment', sourceId: payment.id, amountDelta: Number(payment.amount || 0), invoiceId: invoice.id, note: `Approved plan invoice ${invoice.invoice_number || invoice.id} paid and activated` });
+        subscription = planActivation.subscription;
+      }
+    }
+    return c.json({ success: true, payment, subscription, invoice, planActivation });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to complete payment.' }, 500); }
 });
 
@@ -4504,7 +4959,70 @@ app.post('/make-server-57095a78/payments/complete', async (c) => {
 // after this protected confirmation route verifies Stripe's paid status.
 function storeOrderKey(id: string) { return `store:order:${id}`; }
 function storeCheckoutKey(id: string) { return `store:checkout:${id}`; }
+function giftReservationKey(code: string, checkoutId: string) { return `giftcard_reservation:${normalizeGiftCardCode(code)}:${checkoutId}`; }
 function validStoreItems(items: any) { return Array.isArray(items) && items.length > 0 && items.every((item: any) => String(item?.id || '').trim() && String(item?.name || '').trim() && Number(item?.price) >= 0 && Number(item?.qty || item?.quantity) > 0); }
+
+async function activeGiftCardReservations(code: string) {
+  const now = Date.now();
+  const reservations = await kv.getByPrefix(`giftcard_reservation:${normalizeGiftCardCode(code)}:`) as any[] || [];
+  return reservations.filter((reservation: any) => reservation?.status === 'reserved' && new Date(reservation.expiresAt || 0).getTime() > now);
+}
+
+async function availableGiftCardBalance(code: string, card?: any) {
+  const storedCard = card || await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(code)}`) as any;
+  if (!storedCard || storedCard.status !== 'active') return 0;
+  const reserved = (await activeGiftCardReservations(code)).reduce((sum: number, reservation: any) => sum + money(reservation.amount), 0);
+  return Math.max(0, money(storedCard.balance) - reserved);
+}
+
+async function reserveGiftCardForStore(codeValue: unknown, checkoutId: string, orderTotal: number) {
+  const code = normalizeGiftCardCode(codeValue);
+  if (!code) return null;
+  const card = await kv.get(`${GIFT_CARD_PREFIX}${code}`) as any;
+  if (!card || card.status !== 'active') throw new Error('Gift card not found or inactive.');
+  const amount = money(Math.min(await availableGiftCardBalance(code, card), orderTotal));
+  if (amount <= 0) throw new Error('This gift card has no available balance.');
+  const reservation = { id: `GCR-${crypto.randomUUID()}`, code, checkoutId, amount, status: 'reserved', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 31 * 60 * 1000).toISOString() };
+  await kv.set(giftReservationKey(code, checkoutId), reservation);
+  return reservation;
+}
+
+async function captureStoreGiftCardReservation(checkout: any, orderId: string) {
+  const reservation = checkout?.giftCardReservation;
+  if (!reservation?.code || !reservation?.amount) return null;
+  const key = giftReservationKey(reservation.code, checkout.id);
+  const stored = await kv.get(key) as any;
+  if (!stored || stored.status === 'captured') return stored || null;
+  const card = await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(reservation.code)}`) as any;
+  if (!card || card.status !== 'active' || money(card.balance) < money(stored.amount)) throw new Error('Gift card balance is no longer available.');
+  const redemption = { id: stored.id, amount: money(stored.amount), orderReference: orderId, redeemedAt: new Date().toISOString(), source: 'store_checkout' };
+  card.balance = money(money(card.balance) - redemption.amount);
+  card.redeemedAmount = money(money(card.redeemedAmount) + redemption.amount);
+  card.redemptionHistory = [...(Array.isArray(card.redemptionHistory) ? card.redemptionHistory : []), redemption];
+  if (card.balance === 0) card.redeemedAt = redemption.redeemedAt;
+  await kv.set(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(reservation.code)}`, card);
+  const captured = { ...stored, status: 'captured', capturedAt: redemption.redeemedAt, orderId };
+  await kv.set(key, captured);
+  await kv.set(`${GIFT_REDEMPTION_PREFIX}${normalizeGiftCardCode(reservation.code)}:${stored.id}`, redemption);
+  return captured;
+}
+
+function createStoreOrder(checkout: any, verified: any, now: string) {
+  const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+  return { id: orderId, stripe_account: checkout.stripeAccount || 'services', stripe_session_id: verified?.id || null, stripe_payment_intent: verified?.payment_intent || null, customer_name: checkout.customer.name, customer_email: checkout.customer.email, customer_phone: checkout.customer.phone, shipping_address: checkout.customer.address, items: checkout.items, subtotal: checkout.subtotal, shipping: checkout.shipping, tax: checkout.tax, gift_card_amount: checkout.giftCardReservation?.amount || 0, amount_due: checkout.amountDue, amount_total: checkout.total, currency: 'usd', status: 'paid', payment_status: checkout.amountDue > 0 ? 'paid' : 'gift_card_paid', fulfillment_status: 'pending', created_at: now, updated_at: now };
+}
+
+async function finalizeStoreOrder(checkout: any, verified: any) {
+  if (checkout.orderId) return await kv.get(storeOrderKey(checkout.orderId));
+  const now = new Date().toISOString();
+  const order = createStoreOrder(checkout, verified, now);
+  await captureStoreGiftCardReservation(checkout, order.id);
+  const rewards = await settlePaidStoreRewards(order);
+  Object.assign(order, { rewards });
+  await kv.set(storeOrderKey(order.id), order);
+  await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId: order.id, paidAt: now, updatedAt: now, rewards });
+  return order;
+}
 
 app.post('/make-server-57095a78/store/checkout', async (c) => {
   try {
@@ -4513,14 +5031,39 @@ app.post('/make-server-57095a78/store/checkout', async (c) => {
     const customer = body.customer || {}; const email = String(customer.email || '').trim().toLowerCase();
     if (!email || !String(customer.name || '').trim() || !String(customer.address || '').trim()) return c.json({ error: 'Name, email, and shipping address are required.' }, 400);
     const items = body.items.map((item: any) => ({ id: String(item.id), name: String(item.name), price: money(item.price), qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' }));
-    const subtotal = items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0); const shipping = Math.max(0, money(body.shipping)); const checkoutId = crypto.randomUUID();
+    const subtotal = money(items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0));
+    const shipping = Math.max(0, money(body.shipping));
+    const tax = Math.max(0, money(body.tax));
+    const total = money(subtotal + shipping + tax);
+    const checkoutId = crypto.randomUUID();
+    const giftCardReservation = await reserveGiftCardForStore(body.giftCardCode, checkoutId, total);
+    const amountDue = money(total - money(giftCardReservation?.amount));
+    const checkout = { id: checkoutId, stripeAccount: 'tbpco_ecommerce' as StripeAccount, items, subtotal, shipping, tax, total, amountDue, giftCardReservation, customer: { name: String(customer.name), email, phone: String(customer.phone || ''), address: String(customer.address) }, status: 'pending_confirmation', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any;
+    if (amountDue <= 0) {
+      await kv.set(storeCheckoutKey(checkoutId), checkout);
+      const order = await finalizeStoreOrder(checkout, null);
+      return c.json({ success: true, checkoutId, order, zeroBalanceOrder: true });
+    }
     const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
-    const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/store?checkout=cancelled`, 'metadata[store_checkout_id]': checkoutId });
-    items.forEach((item: any, index: number) => { params.set(`line_items[${index}][price_data][currency]`, 'usd'); params.set(`line_items[${index}][price_data][product_data][name]`, item.name); params.set(`line_items[${index}][price_data][unit_amount]`, String(Math.round(item.price * 100))); params.set(`line_items[${index}][quantity]`, String(item.qty)); });
-    if (shipping > 0) { const index = items.length; params.set(`line_items[${index}][price_data][currency]`, 'usd'); params.set(`line_items[${index}][price_data][product_data][name]`, 'Shipping'); params.set(`line_items[${index}][price_data][unit_amount]`, String(Math.round(shipping * 100))); params.set(`line_items[${index}][quantity]`, '1'); }
-    const session = await stripeCheckoutSession(params);
-    await kv.set(storeCheckoutKey(checkoutId), { id: checkoutId, items, subtotal, shipping, total: subtotal + shipping, customer: { name: String(customer.name), email, phone: String(customer.phone || ''), address: String(customer.address) }, status: 'pending_confirmation', stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    return c.json({ success: true, checkoutId, url: session.url });
+    const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
+    const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/store?checkout=cancelled`, expires_at: String(expiresAt), 'metadata[store_checkout_id]': checkoutId, 'metadata[commerce_account]': 'TBPCO_ECOMMERCE', 'metadata[gift_card_amount]': String(money(giftCardReservation?.amount)) });
+    let remainingCredit = money(giftCardReservation?.amount);
+    let lineIndex = 0;
+    for (const item of items) {
+      for (let quantity = 0; quantity < item.qty; quantity += 1) {
+        const credit = Math.min(remainingCredit, item.price); remainingCredit = money(remainingCredit - credit);
+        const charge = money(item.price - credit); if (charge <= 0) continue;
+        params.set(`line_items[${lineIndex}][price_data][currency]`, 'usd'); params.set(`line_items[${lineIndex}][price_data][product_data][name]`, item.name); params.set(`line_items[${lineIndex}][price_data][unit_amount]`, String(Math.round(charge * 100))); params.set(`line_items[${lineIndex}][quantity]`, '1'); lineIndex += 1;
+      }
+    }
+    for (const [label, amount] of [['Shipping', shipping], ['Sales tax', tax]] as [string, number][]) {
+      const credit = Math.min(remainingCredit, amount); remainingCredit = money(remainingCredit - credit); const charge = money(amount - credit);
+      if (charge > 0) { params.set(`line_items[${lineIndex}][price_data][currency]`, 'usd'); params.set(`line_items[${lineIndex}][price_data][product_data][name]`, label); params.set(`line_items[${lineIndex}][price_data][unit_amount]`, String(Math.round(charge * 100))); params.set(`line_items[${lineIndex}][quantity]`, '1'); lineIndex += 1; }
+    }
+    const session = await stripeCheckoutSession(params, 'tbpco_ecommerce');
+    checkout.stripeCheckoutSessionId = session.id;
+    await kv.set(storeCheckoutKey(checkoutId), checkout);
+    return c.json({ success: true, checkoutId, amountDue, giftCardAmount: money(giftCardReservation?.amount), url: session.url });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to start secure checkout.' }, 500); }
 });
 
@@ -4528,9 +5071,8 @@ app.post('/make-server-57095a78/store/checkouts/:id/confirm', async (c) => {
   try {
     const secret = Deno.env.get('PAYMENT_CONFIRMATION_SECRET') || ''; if (!secret || c.req.header('X-Payment-Confirmation-Secret') !== secret) return c.json({ error: 'Unauthorized payment confirmation.' }, 401);
     const checkout = await kv.get(storeCheckoutKey(c.req.param('id'))) as any; if (!checkout) return c.json({ error: 'Checkout not found.' }, 404); if (checkout.orderId) return c.json({ success: true, duplicate: true, order: await kv.get(storeOrderKey(checkout.orderId)) });
-    const body = await c.req.json(); const verified = await retrieveStripeCheckoutSession(String(body.sessionId || checkout.stripeCheckoutSessionId)); if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ error: 'Stripe has not confirmed this payment.' }, 409);
-    const now = new Date().toISOString(); const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`; const order = { id: orderId, stripe_session_id: verified.id, stripe_payment_intent: verified.payment_intent || null, customer_name: checkout.customer.name, customer_email: checkout.customer.email, customer_phone: checkout.customer.phone, shipping_address: checkout.customer.address, items: checkout.items, amount_total: checkout.total, currency: 'usd', status: 'paid', payment_status: 'paid', fulfillment_status: 'pending', created_at: now, updated_at: now };
-    await kv.set(storeOrderKey(orderId), order); await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId, paidAt: now, updatedAt: now }); return c.json({ success: true, order });
+    const body = await c.req.json(); const verified = await retrieveStripeCheckoutSession(String(body.sessionId || checkout.stripeCheckoutSessionId), checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services'); if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ error: 'Stripe has not confirmed this payment.' }, 409);
+    const order = await finalizeStoreOrder(checkout, verified); return c.json({ success: true, order });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to confirm store checkout.' }, 500); }
 });
 
@@ -4543,12 +5085,9 @@ app.post('/make-server-57095a78/store/checkouts/:id/complete', async (c) => {
     if (checkout.orderId) return c.json({ success: true, duplicate: true, order: await kv.get(storeOrderKey(checkout.orderId)) });
     const body = await c.req.json(); const sessionId = String(body.sessionId || '');
     if (!sessionId || sessionId !== checkout.stripeCheckoutSessionId) return c.json({ success: false, error: 'Payment session does not match this checkout.' }, 400);
-    const verified = await retrieveStripeCheckoutSession(sessionId);
+    const verified = await retrieveStripeCheckoutSession(sessionId, checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services');
     if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment yet.' }, 409);
-    const now = new Date().toISOString(); const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
-    const order = { id: orderId, stripe_session_id: verified.id, stripe_payment_intent: verified.payment_intent || null, customer_name: checkout.customer.name, customer_email: checkout.customer.email, customer_phone: checkout.customer.phone, shipping_address: checkout.customer.address, items: checkout.items, amount_total: checkout.total, currency: 'usd', status: 'paid', payment_status: 'paid', fulfillment_status: 'pending', created_at: now, updated_at: now };
-    const rewards = await settlePaidStoreRewards(order); Object.assign(order, { rewards });
-    await kv.set(storeOrderKey(orderId), order); await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId, paidAt: now, updatedAt: now, rewards });
+    const order = await finalizeStoreOrder(checkout, verified);
     return c.json({ success: true, order });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to complete store checkout.' }, 500); }
 });
@@ -4584,10 +5123,22 @@ app.post('/make-server-57095a78/ai/vision', async (c) => {
 function appointmentKey(id: string) { return `appointment:${id}`; }
 app.post('/make-server-57095a78/schedule/appointments', async (c) => {
   try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
     const body = await c.req.json();
     if (!String(body.date || '').trim() || !String(body.time || '').trim() || !String(body.employeeId || '').trim()) return c.json({ error: 'Date, time, and assigned technician are required.' }, 400);
-    const { user } = await financialActor(c);
-    const record = { ...stripBase64(body), id: String(body.id || `apt_${crypto.randomUUID()}`), status: body.status || 'scheduled', created_at: body.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), requested_by: user?.email || String(body.customerEmail || '').toLowerCase() || null };
+    const requestedCustomerEmail = String(body.customerEmail || body.customer_email || '').trim().toLowerCase();
+    if (!admin && requestedCustomerEmail && requestedCustomerEmail !== String(user.email).toLowerCase()) return c.json({ error: 'You can only schedule appointments for your own account.' }, 403);
+    const now = new Date().toISOString();
+    const record = {
+      ...stripBase64(body),
+      id: String(body.id || `apt_${crypto.randomUUID()}`),
+      status: body.status || 'scheduled',
+      customerEmail: admin ? (requestedCustomerEmail || String(user.email).toLowerCase()) : String(user.email).toLowerCase(),
+      created_at: now,
+      updated_at: now,
+      requested_by: String(user.email).toLowerCase(),
+    };
     await kv.set(appointmentKey(record.id), record);
     return c.json({ success: true, appointment: record }, 201);
   } catch (error: any) { return c.json({ error: error.message || 'Unable to schedule appointment.' }, 500); }
@@ -4598,6 +5149,21 @@ app.get('/make-server-57095a78/schedule/appointments', async (c) => {
     const all = (await kv.getByPrefix('appointment:')) || []; const records = admin ? all : all.filter((item: any) => [item.requested_by, item.customerEmail, item.customer_email].some((value: any) => String(value || '').toLowerCase() === String(user.email).toLowerCase()));
     return c.json({ success: true, appointments: records.sort((a: any, b: any) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)) });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to load appointments.' }, 500); }
+});
+app.patch('/make-server-57095a78/schedule/appointments/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ error: 'Administrator access is required to change schedule status.' }, 403);
+    const existing = await kv.get(appointmentKey(c.req.param('id'))) as any;
+    if (!existing) return c.json({ error: 'Appointment not found.' }, 404);
+    const body = await c.req.json();
+    const status = String(body.status || '').trim().toLowerCase();
+    if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
+    const record = { ...existing, status, updated_at: new Date().toISOString(), status_updated_by: String(user.email).toLowerCase() };
+    await kv.set(appointmentKey(record.id), record);
+    return c.json({ success: true, appointment: record });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to update appointment status.' }, 500); }
 });
 
 // ── MAINTENANCE PLAN COMPATIBILITY ────────────────────────────────────────────
@@ -4725,11 +5291,32 @@ async function applyGiftHours(subscription: any, hours: number, reason: string, 
   await kv.set(`subscription_hour_gift:${gift.id}`, gift);
   return { record, gift };
 }
+const PORTAL_UPGRADE_PRICES: Record<string, number> = {
+  'customer:customer pro': 29, 'customer:customer premium': 79,
+  'vendor:vendor basic': 99, 'vendor:vendor professional': 199, 'vendor:vendor premium': 399, 'vendor:vendor elite': 799,
+  'subcontractor:subcontractor basic': 49, 'subcontractor:subcontractor pro': 99, 'subcontractor:subcontractor enterprise': 199,
+  'advertiser:advertiser starter': 199, 'advertiser:advertiser growth': 499, 'advertiser:advertiser enterprise': 999,
+  'investor:investor premium': 299, 'employee:employee pro': 5,
+  'property_manager:property_manager basic': 149, 'property_manager:property_manager professional': 299, 'property_manager:property_manager enterprise': 599,
+  'landlord:landlord basic': 29, 'landlord:landlord premium': 79, 'condo_manager:condo_manager basic': 199, 'condo_manager:condo_manager premium': 399,
+  'customer_maintenance:customer standard maintenance': 99, 'customer_maintenance:customer priority maintenance': 199, 'customer_maintenance:customer premium maintenance': 399,
+  'vendor_maintenance:vendor standard maintenance': 99, 'vendor_maintenance:vendor priority maintenance': 199, 'vendor_maintenance:vendor premium maintenance': 399,
+  'subcontractor_maintenance:subcontractor standard maintenance': 99, 'subcontractor_maintenance:subcontractor priority maintenance': 199, 'subcontractor_maintenance:subcontractor premium maintenance': 399,
+  'advertiser_maintenance:advertiser standard maintenance': 99, 'advertiser_maintenance:advertiser priority maintenance': 199, 'advertiser_maintenance:advertiser premium maintenance': 399,
+  'investor_maintenance:investor standard maintenance': 99, 'investor_maintenance:investor priority maintenance': 199, 'investor_maintenance:investor premium maintenance': 399,
+  'employee_maintenance:employee standard maintenance': 99, 'employee_maintenance:employee priority maintenance': 199, 'employee_maintenance:employee premium maintenance': 399,
+  'property_manager_maintenance:property_manager standard maintenance': 99, 'property_manager_maintenance:property_manager priority maintenance': 199, 'property_manager_maintenance:property_manager premium maintenance': 399,
+  'landlord_maintenance:landlord standard maintenance': 99, 'landlord_maintenance:landlord priority maintenance': 199, 'landlord_maintenance:landlord premium maintenance': 399,
+  'condo_manager_maintenance:condo_manager standard maintenance': 99, 'condo_manager_maintenance:condo_manager priority maintenance': 199, 'condo_manager_maintenance:condo_manager premium maintenance': 399,
+};
+
 app.post('/make-server-57095a78/subscriptions/checkout', async (c) => {
   try {
     const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in before starting a subscription.' }, 401);
-    const body = await c.req.json(); const plan = String(body.plan || 'premium'); const amount = money(body.amount ?? 49);
-    if (plan !== 'premium' || amount <= 0) return c.json({ success: false, error: 'A valid paid plan is required.' }, 400);
+    const body = await c.req.json(); const plan = String(body.plan || 'premium').slice(0, 120); const amount = money(body.amount ?? 49); const requestedType = String(body.type || '').slice(0, 80); const subscriptionType = requestedType || 'customer';
+    if (!plan || amount <= 0) return c.json({ success: false, error: 'A valid paid plan is required.' }, 400);
+    if (requestedType) { const catalogAmount = PORTAL_UPGRADE_PRICES[`${requestedType}:${plan.toLowerCase()}`]; if (catalogAmount === undefined || money(catalogAmount) !== amount) return c.json({ success: false, error: 'The selected portal plan or price is invalid.' }, 400); }
+    else if (plan !== 'premium' || amount !== 49) return c.json({ success: false, error: 'A valid paid plan is required.' }, 400);
     const now = new Date().toISOString(); const subscriptionId = `SUB-${crypto.randomUUID()}`;
     const subscription = { id: subscriptionId, type: 'customer', stakeholderId: user.id || user.email, stakeholderName: String(body.name || user.user_metadata?.full_name || user.email.split('@')[0]), stakeholderEmail: user.email, plan, status: 'pending_payment', billingCycle: body.billingCycle === 'annual' ? 'annual' : 'monthly', amount, startDate: now, renewalDate: new Date(Date.now() + (body.billingCycle === 'annual' ? 365 : 30) * 86400000).toISOString(), hoursIncluded: Number(body.hoursIncluded || 0), hoursUsed: 0, hoursRollover: 0, hoursGifted: 0, autoRenew: true, paymentMethod: 'stripe', createdAt: now, updatedAt: now, createdBy: user.email };
     const paymentId = crypto.randomUUID(); const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
@@ -4741,6 +5328,22 @@ app.post('/make-server-57095a78/subscriptions/checkout', async (c) => {
 });
 
 app.get('/make-server-57095a78/subscriptions', async (c) => { try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('subscription:')) || []; return c.json({ success: true, subscriptions: admin ? records : records.filter((r: any) => ownsSubscription(r, user.email)) }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+app.post('/make-server-57095a78/subscriptions/:id/checkout', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in before starting checkout.' }, 401);
+    const subscription = await kv.get(subscriptionKey(c.req.param('id'))) as any;
+    if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
+    if (!admin && !ownsSubscription(subscription, user.email)) return c.json({ success: false, error: 'You may only pay your own subscription.' }, 403);
+    const amount = money(subscription.amount); if (amount <= 0) return c.json({ success: false, error: 'This subscription does not have a payable amount.' }, 400);
+    const now = new Date().toISOString(); const paymentId = crypto.randomUUID(); const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const session = await stripeCheckoutSession(new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', success_url: `${appUrl}/customer-portal-app?tab=dashboard&payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/customer-portal-app?tab=dashboard&subscription=cancelled`, 'line_items[0][price_data][currency]': 'usd', 'line_items[0][price_data][product_data][name]': `Black Phoenix ${subscription.plan || 'subscription'} payment`, 'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)), 'line_items[0][quantity]': '1', customer_email: user.email, 'metadata[payment_id]': paymentId, 'metadata[subscription_id]': subscription.id }));
+    const payment = { id: paymentId, subscriptionId: subscription.id, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: now, updatedAt: now };
+    await kv.set(`payment:${paymentId}`, payment);
+    await kv.set(subscriptionKey(subscription.id), { ...subscription, status: subscription.status === 'active' ? 'active' : 'pending_payment', paymentId, checkoutSessionId: session.id, updatedAt: now });
+    return c.json({ success: true, paymentId, checkoutUrl: session.url });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
 app.post('/make-server-57095a78/subscriptions', async (c) => { try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); if (!body.stakeholderEmail || !body.plan || !(Number(body.amount) >= 0)) return c.json({ error: 'Stakeholder email, plan, and amount are required.' }, 400); const now = new Date().toISOString(); const id = String(body.id || `SUB-${crypto.randomUUID()}`); const record = { ...stripBase64(body), id, status: body.status || 'pending', createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email, paymentHistory: body.paymentHistory || [] }; await kv.set(subscriptionKey(id), record); return c.json({ success: true, subscription: record }, 201); } catch (error: any) { return c.json({ error: error.message }, 500); } });
 app.post('/make-server-57095a78/subscriptions/:id/gift-hours', async (c) => {
   try {

@@ -1,9 +1,9 @@
-import { useState, Component, ReactNode } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { useState, useEffect, Component, ReactNode } from 'react';
+import { toast } from 'sonner';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, BarChart3, ChevronRight, ArrowUpRight, CheckCircle, Tag, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Sparkles,
+  TrendingUp, Zap, Star, Package, Car, Sparkles, LoaderCircle,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -13,6 +13,8 @@ import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -86,19 +88,36 @@ function getDemoProfile() {
 
 export default function CondoManagerPortalView() {
   const demoProfile = getDemoProfile();
-  const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
+  const { user, session } = useAuth();
+  const accountEmail = user?.email || '';
+  const { unread: unreadMessages, clearUnread } = usePortalMessages(user?.id || '', accountEmail);
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [requests, setRequests] = useState(WORK_REQUESTS);
-  const [name, setName] = useState(demoProfile?.name || 'Brian Foster');
-  const [email, setEmail] = useState(demoProfile?.email || 'bfoster@lakewoodhoa.com');
+  const [requests, setRequests] = useState<any[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [decisionId, setDecisionId] = useState<string | null>(null);
+  const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Condo Manager');
+  const email = accountEmail || demoProfile?.email || '';
 
-  function approve(id: string) {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' } : r));
-    toast.success('Work request approved.');
-  }
-  function reject(id: string) {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
-    toast.error('Work request rejected.');
+  const loadRequests = async () => {
+    if (!session?.access_token) { setRequests([]); setRequestsLoading(false); return; }
+    setRequestsLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load work requests.');
+      setRequests(Array.isArray(payload.workRequests) ? payload.workRequests : []);
+    } catch (error: any) { setRequests([]); toast.error(error?.message || 'Unable to load condo work requests.'); }
+    finally { setRequestsLoading(false); }
+  };
+  useEffect(() => { void loadRequests(); }, [session?.access_token]);
+
+  async function decide(id: string, decision: 'approved' | 'rejected') {
+    if (!session?.access_token || decisionId) return; setDecisionId(id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to update work request.');
+      setRequests(current => current.map(request => request.id === id ? payload.workRequest : request)); toast.success(decision === 'approved' ? 'Work request approved and saved.' : 'Work request rejected and saved.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to update work request.'); } finally { setDecisionId(null); }
   }
 
   return (
@@ -149,7 +168,7 @@ export default function CondoManagerPortalView() {
                 { label: 'Total Units', value: '180', icon: Building2 },
                 { label: 'Occupancy Rate', value: '96%', icon: CheckCircle },
                 { label: 'HOA Dues Collected', value: '$48K', icon: DollarSign },
-                { label: 'Open Requests', value: String(requests.filter(r => r.status === 'open' || r.status === 'pending').length), icon: Wrench },
+                { label: 'Open Requests', value: String(requests.filter(r => ['open', 'pending', 'pending_approval'].includes(r.status)).length), icon: Wrench },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -257,7 +276,7 @@ export default function CondoManagerPortalView() {
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Work Requests</h2>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {requests.map(r => (
+              {requestsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading assigned requests…</div> : requests.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No work requests are currently assigned to this condo-management account.</div> : requests.map(r => (
                 <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
                   <div>
                     <p className="font-bold">{r.title}</p>
@@ -265,10 +284,10 @@ export default function CondoManagerPortalView() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded text-xs font-bold border ${priorityBadge(r.priority)}`}>{r.priority}</span>
-                    {(r.status === 'open' || r.status === 'pending') ? (
+                    {(['open', 'pending', 'pending_approval'].includes(r.status)) ? (
                       <>
-                        <button onClick={() => approve(r.id)} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition">Approve</button>
-                        <button onClick={() => reject(r.id)} className="px-3 py-1.5 bg-red-600/80 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition">Reject</button>
+                        <button disabled={decisionId === r.id} onClick={() => decide(r.id, 'approved')} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 text-white rounded-lg text-xs font-bold transition">{decisionId === r.id ? 'Saving…' : 'Approve'}</button>
+                        <button disabled={decisionId === r.id} onClick={() => decide(r.id, 'rejected')} className="px-3 py-1.5 bg-red-600/80 hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 text-white rounded-lg text-xs font-bold transition">Reject</button>
                       </>
                     ) : (
                       <span className={`px-2 py-0.5 rounded text-xs font-bold border ${statusBadge(r.status)}`}>{r.status}</span>

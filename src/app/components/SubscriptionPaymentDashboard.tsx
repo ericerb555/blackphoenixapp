@@ -3,7 +3,7 @@
  * Comprehensive payment tracking and analytics dashboard
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { 
   X, 
   DollarSign, 
@@ -25,6 +25,11 @@ import {
   Receipt,
   AlertTriangle
 } from 'lucide-react';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+import { toast } from 'sonner@2.0.3';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
 interface SubscriptionPaymentDashboardProps {
   isOpen: boolean;
@@ -64,91 +69,54 @@ export default function SubscriptionPaymentDashboard({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
   const [dateRange, setDateRange] = useState<'7days' | '30days' | '90days' | 'year'>('30days');
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
-  // Mock payment data
-  const mockPayments: PaymentRecord[] = [
-    {
-      id: 'PAY-001',
-      stakeholderName: 'Acme Construction',
-      stakeholderType: 'Subcontractor',
-      subscriptionPlan: 'Professional Plan',
-      amount: 299.00,
-      status: 'completed',
-      paymentMethod: 'Visa ****1234',
-      transactionId: 'txn_1234567890',
-      date: '2026-03-15T10:30:00',
-      billingCycle: 'monthly'
-    },
-    {
-      id: 'PAY-002',
-      stakeholderName: 'Johnson Plumbing',
-      stakeholderType: 'Vendor',
-      subscriptionPlan: 'Enterprise Plan',
-      amount: 599.00,
-      status: 'completed',
-      paymentMethod: 'ACH ****5678',
-      transactionId: 'txn_0987654321',
-      date: '2026-03-14T15:45:00',
-      billingCycle: 'monthly'
-    },
-    {
-      id: 'PAY-003',
-      stakeholderName: 'Elite Services LLC',
-      stakeholderType: 'Subcontractor',
-      subscriptionPlan: 'Basic Plan',
-      amount: 149.00,
-      status: 'pending',
-      paymentMethod: 'Mastercard ****9012',
-      transactionId: 'txn_1122334455',
-      date: '2026-03-16T09:15:00',
-      billingCycle: 'monthly'
-    },
-    {
-      id: 'PAY-004',
-      stakeholderName: 'Superior Electric',
-      stakeholderType: 'Vendor',
-      subscriptionPlan: 'Professional Plan',
-      amount: 299.00,
-      status: 'failed',
-      paymentMethod: 'Visa ****3456',
-      transactionId: 'txn_5566778899',
-      date: '2026-03-13T11:20:00',
-      billingCycle: 'monthly'
-    },
-    {
-      id: 'PAY-005',
-      stakeholderName: 'Metro Contractors',
-      stakeholderType: 'Subcontractor',
-      subscriptionPlan: 'Enterprise Plan',
-      amount: 599.00,
-      status: 'completed',
-      paymentMethod: 'ACH ****7890',
-      transactionId: 'txn_6677889900',
-      date: '2026-03-12T14:30:00',
-      billingCycle: 'quarterly'
-    },
-  ];
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const load = async () => {
+      setLoadingPayments(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sign in with an administrator account to view payments.');
+        const response = await fetch(`${SERVER}/payments`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load payment records.');
+        const mapped = (result.payments || []).map((payment: any): PaymentRecord => ({
+          id: String(payment.id),
+          stakeholderName: payment.subscription?.stakeholderName || payment.invoice?.customer_name || payment.customerEmail || 'Customer',
+          stakeholderType: payment.subscription?.type || (payment.invoice ? 'Invoice customer' : 'Customer'),
+          subscriptionPlan: payment.subscription?.plan || payment.invoice?.description || 'Payment',
+          amount: Number(payment.amount || 0),
+          status: payment.status === 'paid' ? 'completed' : payment.status === 'failed' ? 'failed' : payment.status === 'refunded' ? 'refunded' : 'pending',
+          paymentMethod: payment.status === 'paid' ? 'Stripe Checkout' : 'Stripe Checkout — awaiting confirmation',
+          transactionId: String(payment.stripePaymentIntentId || payment.stripeCheckoutSessionId || payment.id),
+          date: payment.paidAt || payment.createdAt || new Date().toISOString(),
+          billingCycle: payment.subscription?.billingCycle || 'one-time',
+        }));
+        if (!cancelled) setPayments(mapped);
+      } catch (error: any) { if (!cancelled) { setPayments([]); toast.error(error.message || 'Unable to load payment records.'); } }
+      finally { if (!cancelled) setLoadingPayments(false); }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
-  const mockStats: PaymentStats = {
-    totalRevenue: 12847.50,
-    revenueChange: 12.5,
-    totalTransactions: 47,
-    transactionsChange: 8.3,
-    successRate: 94.5,
-    successRateChange: 2.1,
-    averagePayment: 273.35,
-    averagePaymentChange: -3.2,
-    pendingAmount: 447.00,
-    failedAmount: 299.00,
-  };
+  const filteredPayments = useMemo(() => {
+    const rangeDays = dateRange === '7days' ? 7 : dateRange === '30days' ? 30 : dateRange === '90days' ? 90 : 365;
+    const cutoff = Date.now() - rangeDays * 86400000;
+    return payments.filter(payment => (new Date(payment.date).getTime() >= cutoff) && (payment.stakeholderName.toLowerCase().includes(searchTerm.toLowerCase()) || payment.transactionId.toLowerCase().includes(searchTerm.toLowerCase())) && (filterStatus === 'all' || payment.status === filterStatus));
+  }, [payments, dateRange, searchTerm, filterStatus]);
 
-  const filteredPayments = mockPayments.filter(payment => {
-    const matchesSearch = payment.stakeholderName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.transactionId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || payment.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
-
+  const stats: PaymentStats = useMemo(() => {
+    const completed = filteredPayments.filter(payment => payment.status === 'completed');
+    const attempted = filteredPayments.filter(payment => payment.status !== 'pending');
+    const totalRevenue = completed.reduce((sum, payment) => sum + payment.amount, 0);
+    const pendingAmount = filteredPayments.filter(payment => payment.status === 'pending').reduce((sum, payment) => sum + payment.amount, 0);
+    const failedAmount = filteredPayments.filter(payment => payment.status === 'failed').reduce((sum, payment) => sum + payment.amount, 0);
+    return { totalRevenue, revenueChange: 0, totalTransactions: filteredPayments.length, transactionsChange: 0, successRate: attempted.length ? Math.round((completed.length / attempted.length) * 1000) / 10 : 0, successRateChange: 0, averagePayment: completed.length ? totalRevenue / completed.length : 0, averagePaymentChange: 0, pendingAmount, failedAmount };
+  }, [filteredPayments]);
   if (!isOpen) return null;
 
   const getStatusColor = (status: string) => {
@@ -213,18 +181,18 @@ export default function SubscriptionPaymentDashboard({
                 <DollarSign className="w-4 h-4 text-[#ea580c]" />
               </div>
               <div className="text-2xl font-bold text-white mb-1">
-                ${mockStats.totalRevenue.toLocaleString()}
+                ${stats.totalRevenue.toLocaleString()}
               </div>
               <div className="flex items-center gap-1 text-xs">
-                {mockStats.revenueChange >= 0 ? (
+                {stats.revenueChange >= 0 ? (
                   <>
                     <ArrowUpRight className="w-3 h-3 text-green-400" />
-                    <span className="text-green-400">+{mockStats.revenueChange}%</span>
+                    <span className="text-green-400">+{stats.revenueChange}%</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownRight className="w-3 h-3 text-red-400" />
-                    <span className="text-red-400">{mockStats.revenueChange}%</span>
+                    <span className="text-red-400">{stats.revenueChange}%</span>
                   </>
                 )}
                 <span className="text-gray-500">vs last period</span>
@@ -238,18 +206,18 @@ export default function SubscriptionPaymentDashboard({
                 <Receipt className="w-4 h-4 text-blue-400" />
               </div>
               <div className="text-2xl font-bold text-white mb-1">
-                {mockStats.totalTransactions}
+                {stats.totalTransactions}
               </div>
               <div className="flex items-center gap-1 text-xs">
-                {mockStats.transactionsChange >= 0 ? (
+                {stats.transactionsChange >= 0 ? (
                   <>
                     <ArrowUpRight className="w-3 h-3 text-green-400" />
-                    <span className="text-green-400">+{mockStats.transactionsChange}%</span>
+                    <span className="text-green-400">+{stats.transactionsChange}%</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownRight className="w-3 h-3 text-red-400" />
-                    <span className="text-red-400">{mockStats.transactionsChange}%</span>
+                    <span className="text-red-400">{stats.transactionsChange}%</span>
                   </>
                 )}
                 <span className="text-gray-500">vs last period</span>
@@ -263,18 +231,18 @@ export default function SubscriptionPaymentDashboard({
                 <CheckCircle className="w-4 h-4 text-green-400" />
               </div>
               <div className="text-2xl font-bold text-white mb-1">
-                {mockStats.successRate}%
+                {stats.successRate}%
               </div>
               <div className="flex items-center gap-1 text-xs">
-                {mockStats.successRateChange >= 0 ? (
+                {stats.successRateChange >= 0 ? (
                   <>
                     <ArrowUpRight className="w-3 h-3 text-green-400" />
-                    <span className="text-green-400">+{mockStats.successRateChange}%</span>
+                    <span className="text-green-400">+{stats.successRateChange}%</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownRight className="w-3 h-3 text-red-400" />
-                    <span className="text-red-400">{mockStats.successRateChange}%</span>
+                    <span className="text-red-400">{stats.successRateChange}%</span>
                   </>
                 )}
                 <span className="text-gray-500">vs last period</span>
@@ -288,18 +256,18 @@ export default function SubscriptionPaymentDashboard({
                 <TrendingUp className="w-4 h-4 text-purple-400" />
               </div>
               <div className="text-2xl font-bold text-white mb-1">
-                ${mockStats.averagePayment.toFixed(2)}
+                ${stats.averagePayment.toFixed(2)}
               </div>
               <div className="flex items-center gap-1 text-xs">
-                {mockStats.averagePaymentChange >= 0 ? (
+                {stats.averagePaymentChange >= 0 ? (
                   <>
                     <ArrowUpRight className="w-3 h-3 text-green-400" />
-                    <span className="text-green-400">+{mockStats.averagePaymentChange}%</span>
+                    <span className="text-green-400">+{stats.averagePaymentChange}%</span>
                   </>
                 ) : (
                   <>
                     <ArrowDownRight className="w-3 h-3 text-red-400" />
-                    <span className="text-red-400">{mockStats.averagePaymentChange}%</span>
+                    <span className="text-red-400">{stats.averagePaymentChange}%</span>
                   </>
                 )}
                 <span className="text-gray-500">vs last period</span>
@@ -308,30 +276,30 @@ export default function SubscriptionPaymentDashboard({
           </div>
 
           {/* Alerts */}
-          {(mockStats.pendingAmount > 0 || mockStats.failedAmount > 0) && (
+          {(stats.pendingAmount > 0 || stats.failedAmount > 0) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {mockStats.pendingAmount > 0 && (
+              {stats.pendingAmount > 0 && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <Clock className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <div className="text-sm font-medium text-yellow-300">Pending Payments</div>
                       <div className="text-xs text-yellow-400/80 mt-1">
-                        ${mockStats.pendingAmount.toFixed(2)} in pending transactions requiring attention
+                        ${stats.pendingAmount.toFixed(2)} in pending transactions requiring attention
                       </div>
                     </div>
                   </div>
                 </div>
               )}
               
-              {mockStats.failedAmount > 0 && (
+              {stats.failedAmount > 0 && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <div className="text-sm font-medium text-red-300">Failed Payments</div>
                       <div className="text-xs text-red-400/80 mt-1">
-                        ${mockStats.failedAmount.toFixed(2)} in failed transactions need retry
+                        ${stats.failedAmount.toFixed(2)} in failed transactions need retry
                       </div>
                     </div>
                   </div>

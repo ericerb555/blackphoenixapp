@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { GenericApplicationForm, ApplicationConfig } from '../components/GenericApplicationForm';
-import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import {
   User, Mail, Phone, MapPin, Building2, DollarSign,
   TrendingUp, Target, FileText, Briefcase, Calendar,
@@ -54,6 +53,7 @@ export default function InvestorApplication() {
     description: "Join our network of property investors",
     apiEndpoint: "/applications",
     applicationType: "investor",
+    planBuilderPortalType: "investor",
     steps: [
       {
         title: "Personal Information",
@@ -392,9 +392,6 @@ export default function InvestorApplication() {
         }}
       />
 
-      <div className="max-w-6xl mx-auto px-6 pb-12">
-        <ApplicationPlanBuilderSection portalType="investor" />
-      </div>
     </div>
   );
 }

@@ -490,7 +490,7 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
       </div>
 
       <div className="mt-6">
-        <ApplicationPlanBuilderSection portalType="subcontractor" ownerName={formData.companyName} />
+        <ApplicationPlanBuilderSection portalType="subcontractor" ownerName={formData.companyName} onPlanDraftChange={(planPreference) => setFormData(prev => ({ ...prev, planPreference } as any))} />
       </div>
     </div>
   );

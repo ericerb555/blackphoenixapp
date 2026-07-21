@@ -30,10 +30,26 @@ type PortalType =
   | 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor'
   | 'employee' | 'property_manager' | 'landlord' | 'condo_manager';
 
+export interface ApplicationPlanDraft {
+  planName: string;
+  portalType: PortalType;
+  entity: EntityType;
+  skillId: string;
+  frequencyId: string;
+  serviceIds: string[];
+  serviceNames: string[];
+  monthlyTotal: number;
+  annualTotal: number;
+  needs: string;
+  aiRationale?: string;
+}
+
 interface PlanBuilderTabProps {
   portalType: PortalType;
   ownerName?: string;
   currentTier?: string;
+  /** Used by an application flow to persist a draft with the application, not activate billing. */
+  onPlanDraftChange?: (draft: ApplicationPlanDraft | null) => void;
 }
 
 // Map a portal to the most natural property/entity type for its plan catalog.
@@ -49,7 +65,7 @@ const DEFAULT_ENTITY: Record<PortalType, EntityType> = {
   employee: 'homeowner',
 };
 
-export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'basic' }: PlanBuilderTabProps) {
+export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'basic', onPlanDraftChange }: PlanBuilderTabProps) {
   const { user } = useAuth();
   const [entity, setEntity] = useState<EntityType>(DEFAULT_ENTITY[portalType] || 'homeowner');
   const [needs, setNeeds] = useState('');
@@ -82,6 +98,14 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     ),
     [selectedServices, skill, frequency],
   );
+
+  // Application flows receive a live draft. They never activate a subscription
+  // or issue entitlements before the application is reviewed and approved.
+  useEffect(() => {
+    if (!onPlanDraftChange) return;
+    if (!selectedServices.length) { onPlanDraftChange(null); return; }
+    onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: Array.from(selectedIds), serviceNames: selectedServices.map(service => service.name), monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
+  }, [onPlanDraftChange, planName, portalType, entity, skillId, frequencyId, selectedIds, selectedServices, monthlyTotal, needs, aiRationale]);
 
   const toggleService = (id: string) => {
     setSelectedIds(prev => {
@@ -163,6 +187,11 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
       return;
     }
     if (!user?.email) {
+      if (onPlanDraftChange) {
+        onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: Array.from(selectedIds), serviceNames: selectedServices.map(service => service.name), monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
+        toast.success('Your plan preference will be included with this application for review.');
+        return;
+      }
       toast.error('Sign in before activating a plan. Your selections stay on this device until your account is ready.');
       return;
     }

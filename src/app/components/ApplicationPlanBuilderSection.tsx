@@ -4,13 +4,13 @@
  * A self-contained, optional "build your maintenance plan with AI" section that
  * drops into any application / registration flow. It's collapsed by default so it
  * never gets in the way of the core application, and expands to reveal the full
- * AI-powered PlanBuilderTab. Applicants can build (and save) a plan while they
- * apply — completely optional.
+ * AI-powered PlanBuilderTab. Applicants can attach a plan preference to their
+ * application for review — completely optional.
  */
 
 import { useState } from 'react';
 import { Sparkles, ChevronDown } from 'lucide-react';
-import PlanBuilderTab from './portals/PlanBuilderTab';
+import PlanBuilderTab, { type ApplicationPlanDraft } from './portals/PlanBuilderTab';
 
 type PortalType =
   | 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor'
@@ -21,12 +21,15 @@ interface ApplicationPlanBuilderSectionProps {
   ownerName?: string;
   /** Start expanded instead of collapsed. */
   defaultOpen?: boolean;
+  /** Saves an optional plan preference into the application payload. */
+  onPlanDraftChange?: (draft: ApplicationPlanDraft | null) => void;
 }
 
 export default function ApplicationPlanBuilderSection({
   portalType,
   ownerName,
   defaultOpen = false,
+  onPlanDraftChange,
 }: ApplicationPlanBuilderSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -44,7 +47,7 @@ export default function ApplicationPlanBuilderSection({
           <span>
             <span className="block text-white font-semibold">Add a maintenance plan with AI</span>
             <span className="block text-xs text-gray-400">
-              Optional — describe your needs and build a custom plan while you apply.
+              Optional — describe your needs and attach a custom plan preference for review.
             </span>
           </span>
         </span>
@@ -53,7 +56,7 @@ export default function ApplicationPlanBuilderSection({
 
       {open && (
         <div className="border-t border-orange-500/20 p-5">
-          <PlanBuilderTab portalType={portalType} ownerName={ownerName} />
+          <PlanBuilderTab portalType={portalType} ownerName={ownerName} onPlanDraftChange={onPlanDraftChange} />
         </div>
       )}
     </div>
