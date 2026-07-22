@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, BarChart3, ChevronRight, ArrowUpRight, CheckCircle, Tag, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Sparkles, LoaderCircle, Plus,
+  TrendingUp, Zap, Star, Package, Car, Sparkles, LoaderCircle, Plus, FileText,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
