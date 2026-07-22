@@ -87,14 +87,29 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
     }
   }, [config]);
 
-  // Handle both old (fields) and new (steps) config formats
-  const steps = config.steps || (config.fields ? [{
+  // Handle both old (fields) and new (steps) config formats. Technician and
+  // employee applications always include a reviewable tax-document selection,
+  // so a candidate can request the W-9/1099 contractor path without being
+  // automatically classified as a contractor.
+  const applicationType = config.applicationType || (config.title.toLowerCase().includes('field tech') ? 'field_technician' : 'general');
+  const baseSteps = config.steps || (config.fields ? [{
     title: config.title,
     description: config.description,
     icon: config.icon,
     fields: config.fields
   }] : []);
-
+  const isEmployeeOrTechnician = /employee|technician|field_tech|field tech|maintenance tech/.test(applicationType.toLowerCase());
+  const hasTaxClassification = baseSteps.some(step => (step.fields || []).some(field => field.id === 'taxClassificationRequest'));
+  const taxClassificationStep: ApplicationStep = {
+    title: 'Work Classification & Tax Documents',
+    description: 'Tell us which documentation path you would like considered. Black Phoenix reviews and confirms the final classification before onboarding.',
+    icon: FileText,
+    fields: [
+      { id: 'taxClassificationRequest', label: 'Preferred onboarding path', type: 'select', required: true, options: ['', 'Employee — W-4 employment paperwork', 'Independent contractor request — W-9 / 1099 paperwork'] },
+      { id: 'taxClassificationNotes', label: 'Notes for payroll or onboarding (optional)', type: 'textarea', rows: 3, placeholder: 'For example: availability, business entity, or questions for the onboarding team' },
+    ],
+  };
+  const steps = isEmployeeOrTechnician && !hasTaxClassification ? [...baseSteps, taxClassificationStep] : baseSteps;
   const endpoint = config.endpoint || config.apiEndpoint || '/applications';
 
   if (!steps || steps.length === 0) {
@@ -156,7 +171,6 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
     }
 
     setIsSubmitting(true);
-    const applicationType = config.applicationType || (config.title.toLowerCase().includes('field tech') ? 'field_technician' : 'general');
     const payload = {
       ...Object.fromEntries(Object.entries(formData).map(([key, value]) => [key, serializeValue(value)])),
       applicationType,

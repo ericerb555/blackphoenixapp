@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
@@ -21,7 +22,7 @@ export default function EmployeePortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'messages' | 'guide'>('dashboard');
 
   // Mock employee data — pulled from RoleSwitcher demo profile if present
   const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
@@ -252,7 +253,8 @@ export default function EmployeePortalView() {
               { id: 'plan-tracker', label: 'Hour Banking', icon: BarChart3 },
               { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
               { id: 'performance', label: 'Performance', icon: BarChart3 },
-              { id: 'referrals', label: 'Referrals', icon: Award }
+              { id: 'referrals', label: 'Referrals', icon: Award },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -277,6 +279,8 @@ export default function EmployeePortalView() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Dashboard Tab */}
+        {activeTab === 'guide' && <PortalFeatureGuide portal="employee" />}
+
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             {/* Welcome Section */}

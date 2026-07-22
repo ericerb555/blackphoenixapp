@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Sparkles, Building2, Mail, Phone, MapPin, User, Globe, FileText,
   ArrowLeft, CheckCircle, AlertCircle, DollarSign, Award, Shield, Zap
@@ -109,6 +109,44 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
     }
   ];
 
+  const buildPayload = (values: ServiceProviderForm) => ({
+    name: values.contactName,
+    company_name: values.companyName,
+    contact_name: values.contactName,
+    contact_email: values.email,
+    email: values.email,
+    contact_phone: values.phone,
+    phone: values.phone,
+    website: values.website,
+    service_category: values.serviceCategory,
+    applicationType: 'service_provider',
+    ...values,
+  });
+
+  const postApplication = async (values: ServiceProviderForm) => {
+    const response = await fetch(`${API_BASE}/applications`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` }, body: JSON.stringify(buildPayload(values)), signal: AbortSignal.timeout(12000) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) throw new Error(result.error || 'Unable to submit application.');
+    return result;
+  };
+
+  // Recover a locally queued public application automatically when the user
+  // returns after a temporary network/Edge Function outage.
+  useEffect(() => {
+    const retryQueuedApplications = async () => {
+      let queued: any[] = [];
+      try { queued = JSON.parse(localStorage.getItem('service_provider_applications_pending') || '[]'); } catch { return; }
+      if (!queued.length) return;
+      const remaining: any[] = [];
+      for (const item of queued) {
+        try { await postApplication(item as ServiceProviderForm); } catch { remaining.push(item); }
+      }
+      if (remaining.length) localStorage.setItem('service_provider_applications_pending', JSON.stringify(remaining));
+      else { localStorage.removeItem('service_provider_applications_pending'); toast.success('Your previously queued service-provider application was submitted.'); }
+    };
+    retryQueuedApplications();
+  }, []);
+
   const handleInputChange = (field: keyof ServiceProviderForm, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -128,33 +166,8 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
     setSubmitting(true);
 
     try {
-      const payload = {
-        name: formData.companyName,
-        company_name: formData.companyName,
-        contact_name: formData.contactName,
-        contact_email: formData.email,
-        email: formData.email,
-        contact_phone: formData.phone,
-        phone: formData.phone,
-        website: formData.website,
-        service_category: formData.serviceCategory,
-        applicationType: 'service_provider',
-        ...formData,
-      };
-
-      const response = await fetch(`${API_BASE}/applications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(12000),
-      }).catch(() => null);
-
-      if (response && response.ok) {
-        const result = await response.json();
-        toast.success(result.message || "Application submitted! We'll review it within 24-48 hours.");
-      } else {
-        throw new Error('Server unreachable');
-      }
+      const result = await postApplication(formData);
+      toast.success(result.message || "Application submitted! We'll review it within 24-48 hours.");
 
       setTimeout(() => {
         if (onNavigate) onNavigate('contractor-network-landing-page');
@@ -165,7 +178,7 @@ export default function ServiceProviderApplication({ onNavigate }: { onNavigate?
       const existing = JSON.parse(localStorage.getItem('service_provider_applications_pending') || '[]');
       existing.push({ id: `SP-APP-${Date.now()}`, ...formData, _offline: true, submitted_at: new Date().toISOString() });
       localStorage.setItem('service_provider_applications_pending', JSON.stringify(existing));
-      toast.error('We could not submit your application. It is saved only on this device; please try again shortly.');
+      toast.error('The application could not reach the server. It is queued on this device and will retry automatically when you return online.');
     } finally {
       setSubmitting(false);
     }

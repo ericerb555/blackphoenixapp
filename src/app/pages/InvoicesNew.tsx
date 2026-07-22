@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   FileText, Search, Filter, Download, Plus, Grid, List,
   DollarSign, Clock, CheckCircle, XCircle, AlertCircle,
-  Calendar, User, TrendingUp, Activity, Edit2, Trash2, Eye, ArrowLeft
+  Calendar, User, TrendingUp, Activity, Edit2, Trash2, Eye, ArrowLeft, CreditCard, Wallet, Copy
 } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '../components/ui/table';
 import DeleteConfirmationModal from '../components/ui/DeleteConfirmationModal';
@@ -10,11 +10,15 @@ import CreateInvoiceModal from '../components/invoices/CreateInvoiceModal';
 import InvoicePreviewModal from '../components/invoices/InvoicePreviewModal';
 import { InvoiceService, type Invoice } from '../lib/services/invoiceService';
 import { toast } from 'sonner@2.0.3';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'draft' | 'pending' | 'paid' | 'overdue';
 
 export default function InvoicesNew() {
+  const { user, isOwner } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +34,11 @@ export default function InvoicesNew() {
   const [invoiceToEdit, setInvoiceToEdit] = useState<Invoice | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [pendingProjectData, setPendingProjectData] = useState<any>(null);
+  const [stellarInvoice, setStellarInvoice] = useState<Invoice | null>(null);
+  const [stellarInstructions, setStellarInstructions] = useState<any>(null);
+  const [stellarTransactionHash, setStellarTransactionHash] = useState('');
+  const [stellarAmount, setStellarAmount] = useState('');
+  const [stellarLoading, setStellarLoading] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     draft: 0,
@@ -119,6 +128,42 @@ export default function InvoicesNew() {
     e.stopPropagation();
     setInvoiceToPreview(invoice);
     setShowPreviewModal(true);
+  };
+
+  const handlePayInvoice = async (invoice: Invoice, e: React.MouseEvent, paymentMethod: 'card' | 'us_bank_account' = 'card') => {
+    e.stopPropagation();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in to pay this invoice.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`, {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId: invoice.id, amount: invoice.balance_due, paymentMethod, description: `Invoice #${invoice.invoice_number}` }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.checkoutUrl) throw new Error(result.error || 'Unable to start secure checkout.');
+      window.location.assign(result.checkoutUrl);
+    } catch (error: any) { toast.error(error?.message || 'Unable to start payment.'); }
+  };
+
+
+  const openStellarInstructions = async (invoice: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation(); setStellarInvoice(invoice); setStellarInstructions(null); setStellarTransactionHash(''); setStellarAmount(''); setStellarLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/invoices/${encodeURIComponent(invoice.id)}/stellar-instructions`, { headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
+      const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Stellar payments are not currently available.'); setStellarInstructions(result);
+    } catch (error: any) { toast.error(error?.message || 'Could not load Stellar instructions.'); setStellarInvoice(null); }
+    finally { setStellarLoading(false); }
+  };
+
+  const submitStellarPayment = async () => {
+    if (!stellarInvoice || !stellarTransactionHash) return;
+    try {
+      setStellarLoading(true); const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/invoices/${encodeURIComponent(stellarInvoice.id)}/stellar-payment-submissions`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionHash: stellarTransactionHash, amount: stellarAmount, assetCode: stellarInstructions?.wallet?.assetCode }) });
+      const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not submit Stellar payment.'); toast.success('Stellar transaction submitted for reconciliation.'); setStellarInvoice(null);
+    } catch (error: any) { toast.error(error?.message || 'Could not submit Stellar payment.'); }
+    finally { setStellarLoading(false); }
   };
 
   const handleDeleteClick = (invoice: Invoice, e: React.MouseEvent) => {
@@ -531,31 +576,11 @@ export default function InvoicesNew() {
                 </div>
 
                 {/* Actions */}
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={(e) => handleViewInvoice(invoice, e)}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/10 hover:bg-orange-600/20 rounded-lg text-orange-400 text-sm font-semibold transition border border-orange-500/20"
-                  >
-                    <Eye className="w-4 h-4" />
-                    View
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setInvoiceToEdit(invoice); setShowCreateModal(true);
-                    }}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                    Edit
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteClick(invoice, e)}
-                    className="flex items-center justify-center gap-2 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 rounded-lg text-red-400 text-sm font-semibold transition border border-red-500/20"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={(e) => handleViewInvoice(invoice, e)} className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/10 hover:bg-orange-600/20 rounded-lg text-orange-400 text-sm font-semibold transition border border-orange-500/20"><Eye className="w-4 h-4" /> View</button>
+                  {isOwner ? <button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"><Edit2 className="w-4 h-4" /> Edit</button> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="grid grid-cols-2 gap-2"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="flex items-center justify-center gap-1 px-2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold transition"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH bank</button></div> : <span className="flex items-center justify-center rounded-lg border border-white/10 text-sm text-gray-400">{invoice.status === 'paid' ? 'Paid' : 'No payment due'}</span>}
+                  {isOwner && <button onClick={(e) => handleDeleteClick(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 rounded-lg text-red-400 text-sm font-semibold transition border border-red-500/20"><Trash2 className="w-4 h-4" /> Delete</button>}
+                  {!isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && <button onClick={(e) => openStellarInstructions(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/35 px-3 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/10"><Wallet className="w-4 h-4" /> Pay with Stellar</button>}
                 </div>
               </div>
             );
@@ -670,26 +695,8 @@ export default function InvoicesNew() {
                   >
                     <Eye className="w-4 h-4 text-orange-400" />
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setInvoiceToEdit(invoice); setShowCreateModal(true);
-                    }}
-                    className="p-2 hover:bg-blue-600/10 rounded-lg transition border border-transparent hover:border-blue-500/20"
-                    title="Edit invoice"
-                  >
-                    <Edit2 className="w-4 h-4 text-blue-400" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteClick(invoice, e);
-                    }}
-                    className="p-2 hover:bg-red-600/10 rounded-lg transition border border-transparent hover:border-red-500/20"
-                    title="Delete invoice"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                  </button>
+                  {isOwner ? <><button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="p-2 hover:bg-blue-600/10 rounded-lg transition border border-transparent hover:border-blue-500/20" title="Edit invoice"><Edit2 className="w-4 h-4 text-blue-400" /></button><button onClick={(e) => { e.stopPropagation(); handleDeleteClick(invoice, e); }} className="p-2 hover:bg-red-600/10 rounded-lg transition border border-transparent hover:border-red-500/20" title="Delete invoice"><Trash2 className="w-4 h-4 text-red-400" /></button></> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="flex gap-1"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH</button></div> : null}
+                  {!isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && <button onClick={(e) => openStellarInstructions(invoice, e)} className="rounded-lg border border-cyan-500/35 px-2 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/10" title="Pay with Stellar"><Wallet className="w-4 h-4" /></button>}
                 </div>
               ),
               align: 'right',
@@ -704,6 +711,8 @@ export default function InvoicesNew() {
           pageSizeOptions={[10, 15, 25, 50]}
         />
       )}
+
+      {stellarInvoice && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-2xl border border-cyan-500/25 bg-[#121212] p-6 text-white shadow-2xl"><div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Stellar payment instructions</p><h2 className="mt-1 text-xl font-bold">Invoice {stellarInvoice.invoice_number}</h2><p className="mt-1 text-sm text-gray-400">Crypto transfers are reconciled before this USD invoice is marked paid.</p></div><button onClick={() => setStellarInvoice(null)} className="text-gray-400 hover:text-white"><XCircle className="h-5 w-5" /></button></div>{stellarLoading ? <p className="py-8 text-center text-gray-400">Loading secure payment instructions…</p> : stellarInstructions ? <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-black/25 p-4"><div className="mb-2 flex justify-between text-sm"><span className="text-gray-400">Network</span><strong>{stellarInstructions.wallet.network === 'testnet' ? 'Testnet' : 'Public Network'}</strong></div><div className="mb-2 flex justify-between text-sm"><span className="text-gray-400">Asset</span><strong>{stellarInstructions.wallet.assetCode}</strong></div><p className="mb-1 text-xs text-gray-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/50 p-2 text-xs text-cyan-200">{stellarInstructions.wallet.publicKey}</code><button onClick={() => navigator.clipboard?.writeText(stellarInstructions.wallet.publicKey)} className="rounded-lg border border-white/10 px-3 text-cyan-300 hover:bg-white/5"><Copy className="h-4 w-4" /></button></div>{stellarInstructions.wallet.assetIssuer && <p className="mt-3 break-all text-xs text-gray-400">Issuer: {stellarInstructions.wallet.assetIssuer}</p>}{stellarInstructions.wallet.memoInstructions && <p className="mt-3 text-sm text-amber-200">Memo: {stellarInstructions.wallet.memoInstructions}</p>}</div><div className="grid gap-3"><input value={stellarAmount} onChange={(e) => setStellarAmount(e.target.value)} placeholder={`Amount sent in ${stellarInstructions.wallet.assetCode}`} className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><input value={stellarTransactionHash} onChange={(e) => setStellarTransactionHash(e.target.value.trim())} placeholder="64-character Stellar transaction hash" className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><button onClick={submitStellarPayment} disabled={stellarLoading || stellarTransactionHash.length !== 64} className="rounded-lg bg-cyan-600 px-4 py-3 font-bold text-white hover:bg-cyan-500 disabled:opacity-50">Submit transaction for reconciliation</button></div></div> : null}</div></div>}
 
       {/* Delete Confirmation Modal */}
       {invoiceToDelete && (

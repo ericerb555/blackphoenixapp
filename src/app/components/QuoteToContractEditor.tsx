@@ -701,18 +701,24 @@ export function QuoteToContractEditor({
     toast.success('Schedule generated from process steps');
   };
 
-  const exportScheduleToCalendar = () => {
-    toast.success('Schedule ready for Master Scheduling', {
-      description: `${projectSchedule.length} tasks prepared for scheduling system`,
-    });
-    // This would integrate with the MasterScheduling page
-    // For now, we'll store it in localStorage for the scheduling system to pick up
-    localStorage.setItem('pending_project_schedule', JSON.stringify({
-      workRequestId: workRequest.id,
-      quoteNumber: currentQuote?.quoteNumber,
-      projectTitle: workRequest.title,
-      tasks: projectSchedule,
-    }));
+  const exportScheduleToCalendar = async () => {
+    if (!projectSchedule.length) {
+      toast.error('Add at least one project task before publishing the schedule.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(workRequest.id)}/project-schedule`,
+        { method: 'PUT', headers: await quoteAuthHeaders(true), body: JSON.stringify({ quoteNumber: currentQuote?.quoteNumber, projectTitle: workRequest.title, tasks: projectSchedule }) }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to publish the project schedule.');
+      toast.success('Schedule published to Master Scheduling', { description: `${projectSchedule.length} tasks are now attached to this project.` });
+    } catch (error: any) {
+      console.error('Error publishing schedule:', error);
+      toast.error(error.message || 'Unable to publish the project schedule.');
+    } finally { setLoading(false); }
   };
 
   // Recalculate quote totals

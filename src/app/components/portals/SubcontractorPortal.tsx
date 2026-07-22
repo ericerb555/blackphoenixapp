@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
@@ -73,7 +74,7 @@ function badge(s: string) {
   return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
 
-type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages';
+type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'guide';
 
 function getDemoProfile() {
   try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
@@ -205,6 +206,7 @@ export default function SubcontractorPortal() {
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   return (
@@ -268,6 +270,8 @@ export default function SubcontractorPortal() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {/* DASHBOARD */}
+        {tab === 'guide' && <PortalFeatureGuide portal="subcontractor" />}
+
         {tab === 'dashboard' && (
           <div className="space-y-6">
 

@@ -20,8 +20,8 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { WorkOrderCompletionReport } from '../components/WorkOrderCompletionReport';
-import { generateCompletionReportData } from '../utils/generateCompletionReport';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -45,33 +45,16 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
   }, [completedWorkOrders, searchTerm, dateFilter]);
 
   const loadCompletedWorkOrders = async () => {
-    // Source of truth is the server pipeline; fall back to the local pipeline
-    // cache ('pipeline-items-demo') if the server is unreachable.
-    let allWorkOrders: any[] = [];
     try {
-      const res = await fetch(`${SERVER}/pipeline/items`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
-      });
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SERVER}/work-orders/completion-reports`, { headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` } });
       const data = await res.json();
-      if (data.success && Array.isArray(data.items)) {
-        allWorkOrders = data.items;
-      }
-    } catch (err) {
-      console.error('WorkOrderCompletionReports: failed to load pipeline from server, using cache:', err);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Unable to load completion reports.');
+      setCompletedWorkOrders(Array.isArray(data.reports) ? data.reports : []);
+    } catch (error: any) {
+      console.error('WorkOrderCompletionReports:', error);
+      setCompletedWorkOrders([]);
     }
-
-    if (allWorkOrders.length === 0) {
-      try {
-        allWorkOrders = JSON.parse(localStorage.getItem('pipeline-items-demo') || '[]');
-      } catch { allWorkOrders = []; }
-    }
-
-    // Filter for completed and paid work orders
-    const completed = allWorkOrders.filter((wo: any) =>
-      wo.stage === 'payment' || wo.invoicePaidDate
-    );
-
-    setCompletedWorkOrders(completed);
   };
 
   const filterWorkOrders = () => {
@@ -109,10 +92,8 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
   };
 
   const viewReport = (workOrderId: string) => {
-    const reportData = generateCompletionReportData(workOrderId);
-    if (reportData) {
-      setSelectedReport(reportData);
-    }
+    const reportData = completedWorkOrders.find((workOrder) => workOrder.id === workOrderId);
+    if (reportData) setSelectedReport(reportData);
   };
 
   const formatCurrency = (amount: number) => {
@@ -135,16 +116,9 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
     sum + (wo.finalInvoiceAmount || wo.estimatedValue || 0), 0
   );
 
-  const totalProfit = completedWorkOrders.reduce((sum, wo) => {
-    const reportData = generateCompletionReportData(wo.id);
-    return sum + (reportData?.profitAmount || 0);
-  }, 0);
-
+  const totalProfit = completedWorkOrders.reduce((sum, wo) => sum + (wo.profitAmount || 0), 0);
   const avgProfitMargin = completedWorkOrders.length > 0
-    ? completedWorkOrders.reduce((sum, wo) => {
-        const reportData = generateCompletionReportData(wo.id);
-        return sum + (reportData?.profitMargin || 0);
-      }, 0) / completedWorkOrders.length
+    ? completedWorkOrders.reduce((sum, wo) => sum + (wo.profitMargin || 0), 0) / completedWorkOrders.length
     : 0;
 
   return (
@@ -267,8 +241,7 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
         ) : (
           <div className="space-y-4">
             {filteredWorkOrders.map((wo) => {
-              const reportData = generateCompletionReportData(wo.id);
-              
+              const reportData = wo;
               return (
                 <Card
                   key={wo.id}

@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
@@ -31,7 +32,7 @@ interface CondoUser {
 }
 
 export default function CondoAssociationPortalView() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'referrals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'referrals' | 'guide'>('dashboard');
   const [loading, setLoading] = useState(false);
   const [condoData, setCondoData] = useState<any>(null);
   const [workRequests, setWorkRequests] = useState<any[]>([]);
@@ -468,7 +469,8 @@ export default function CondoAssociationPortalView() {
       { id: 'team', label: 'Team', icon: UserCheck, visible: canApproveExpenses },
       { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
       { id: 'revenue-ai', label: '💡 Revenue AI', icon: TrendingUp, visible: canViewFinancials },
-      { id: 'referrals', label: 'Referral Rewards', icon: Award, visible: true }
+      { id: 'referrals', label: 'Referral Rewards', icon: Award, visible: true },
+      { id: 'guide', label: 'Portal Guide', icon: FileText, visible: true }
     );
 
     return baseTabs.filter(tab => tab.visible);
@@ -578,6 +580,8 @@ export default function CondoAssociationPortalView() {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {activeTab === 'guide' && <PortalFeatureGuide portal="condo_association" />}
+
         {activeTab === 'dashboard' && (
           <>
             {/* Stats Grid */}

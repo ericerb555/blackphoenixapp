@@ -11,6 +11,10 @@ import {
   CircleDot
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 import {
   materialsHubService,
   Material,
@@ -208,16 +212,18 @@ export function QuoteProcessEnhancements({
     toast.success('Schedule generated from process steps');
   };
 
-  const exportScheduleToCalendar = () => {
-    toast.success('Schedule ready for Master Scheduling', {
-      description: `${projectSchedule.length} tasks prepared for scheduling system`,
-    });
-    localStorage.setItem('pending_project_schedule', JSON.stringify({
-      workRequestId,
-      quoteNumber,
-      projectTitle,
-      tasks: projectSchedule,
-    }));
+  const exportScheduleToCalendar = async () => {
+    if (!projectSchedule.length) return toast.error('Add at least one project task before publishing the schedule.');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${SERVER}/work-requests/${encodeURIComponent(workRequestId)}/project-schedule`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteNumber, projectTitle, tasks: projectSchedule }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to publish the project schedule.');
+      toast.success('Schedule published to Master Scheduling', { description: `${projectSchedule.length} tasks are now attached to this project.` });
+    } catch (error: any) { toast.error(error.message || 'Unable to publish the project schedule.'); }
   };
 
   return (

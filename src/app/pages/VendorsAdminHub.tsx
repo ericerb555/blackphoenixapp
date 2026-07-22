@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
-import { vendorPortalService, VendorProfile } from '../lib/services/vendorPortalService';
+import { VendorProfile } from '../lib/services/vendorPortalService';
+import { supabase } from '../lib/supabase';
 import { vendorPriorityService } from '../lib/services/vendorPriorityService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -152,36 +153,29 @@ function VendorRelationshipsTab() {
     loadVendors();
   }, []);
 
-  const loadVendors = () => {
-    const allVendors = vendorPortalService.getAllVendors();
-    setVendors(allVendors);
+  const loadVendors = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in as an owner or administrator to manage vendors.');
+      const response = await fetch(`${API_BASE}/applications`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load vendor applications.');
+      const records = (data.applications || []).filter((item: any) => ['vendor', 'supplier', 'manufacturer', 'distributor', 'retailer'].includes(String(item.applicationType || item.type || '').toLowerCase()));
+      setVendors(records.map((item: any) => ({ id: item.id, vendorKey: item.vendorKey || item.id, companyName: item.company_name || item.companyName || item.name || 'Vendor', email: item.contact_email || item.email || '', phone: item.contact_phone || item.phone || '', website: item.website || '', description: item.products_services || item.description || '', categories: Array.isArray(item.categories) ? item.categories : [], certifications: item.certifications || [], subscriptionTier: item.subscriptionTier || 'none', connectedAt: item.submittedAt || item.createdAt || new Date().toISOString(), status: item.status === 'approved' ? 'active' : item.status === 'rejected' ? 'suspended' : item.status === 'active' ? 'active' : 'pending' })));
+    } catch (error: any) { toast.error(error.message || 'Unable to load vendor applications.'); setVendors([]); }
   };
 
-  const handleApprove = (id: string) => {
-    vendorPortalService.updateStatus(id, 'active');
-    toast.success('Vendor approved successfully');
-    loadVendors();
+  const updateVendorStatus = async (id: string, status: 'approved' | 'rejected' | 'active') => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_BASE}/applications/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to update vendor.');
+      await loadVendors(); toast.success(status === 'rejected' ? 'Vendor application rejected.' : status === 'active' ? 'Vendor reactivated.' : 'Vendor approved and portal intake created.');
+    } catch (error: any) { toast.error(error.message || 'Unable to update vendor.'); }
   };
-
-  const handleReject = (id: string) => {
-    if (!confirm('Are you sure you want to reject this vendor application?')) return;
-    vendorPortalService.deleteVendor(id);
-    toast.success('Vendor application rejected');
-    loadVendors();
-  };
-
-  const handleSuspend = (id: string) => {
-    if (!confirm('Are you sure you want to suspend this vendor?')) return;
-    vendorPortalService.updateStatus(id, 'suspended');
-    toast.success('Vendor suspended');
-    loadVendors();
-  };
-
-  const handleReactivate = (id: string) => {
-    vendorPortalService.updateStatus(id, 'active');
-    toast.success('Vendor reactivated');
-    loadVendors();
-  };
+  const handleApprove = (id: string) => void updateVendorStatus(id, 'approved');
+  const handleReject = (id: string) => { if (confirm('Reject this vendor application?')) void updateVendorStatus(id, 'rejected'); };
+  const handleSuspend = (id: string) => { if (confirm('Suspend this vendor?')) void updateVendorStatus(id, 'rejected'); };
+  const handleReactivate = (id: string) => void updateVendorStatus(id, 'active');
 
   const filteredVendors = vendors.filter(v => {
     const matchesSearch = v.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||

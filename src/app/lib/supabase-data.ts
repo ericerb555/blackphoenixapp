@@ -131,31 +131,22 @@ export interface Referral {
 }
 
 export async function getReferrals(): Promise<Referral[]> {
-  return getFromStorage<Referral>('referral:');
+  const data = await serverRequest('/referrals');
+  return (data.referrals || []).map(normalizeReferral);
+}
+
+function normalizeReferral(item: any): Referral {
+  return { id: item.id, referrerId: item.referrerId || item.referrerEmail || '', referrerType: item.referrerType || (item.source === 'affiliate' ? 'Affiliate' : 'Customer'), referrerName: item.referrerName || item.referrer || item.referrerEmail || '', referredId: item.referredId || item.referredEmail || '', referredType: item.referredType || 'Customer', referredName: item.referredName || item.referred || item.referredEmail || '', status: item.status === 'converted' ? 'completed' : item.status === 'paid' ? 'paid' : 'pending', rewardAmount: Number(item.rewardAmount ?? item.reward ?? 0), dateReferred: item.dateReferred || item.date || item.createdAt || new Date().toISOString(), dateCompleted: item.dateCompleted || item.convertedAt || undefined, datePaid: item.datePaid || item.paidAt || undefined, conversionValue: Number(item.conversionValue ?? item.orderAmount ?? 0), createdAt: item.createdAt || item.date || new Date().toISOString(), updatedAt: item.updatedAt || item.date || new Date().toISOString() };
 }
 
 export async function createReferral(data: Omit<Referral, 'id' | 'createdAt' | 'updatedAt'>): Promise<Referral> {
-  const id = `REF-${Date.now()}`;
-  const referral: Referral = {
-    ...data,
-    id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`referral:${id}`, referral);
-  return referral;
+  const result = await serverRequest('/referrals/records', { method: 'POST', body: JSON.stringify(data) });
+  return normalizeReferral(result.referral);
 }
 
 export async function updateReferral(id: string, data: Partial<Referral>): Promise<Referral> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const existing = JSON.parse(localStorage.getItem(`referral:${id}`) || '{}');
-  const updated: Referral = {
-    ...existing,
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`referral:${id}`, updated);
-  return updated;
+  const result = await serverRequest(`/referrals/records/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
+  return normalizeReferral(result.referral);
 }
 
 // ============================================================================
@@ -180,7 +171,8 @@ export interface GiftCard {
 }
 
 export async function getGiftCards(): Promise<GiftCard[]> {
-  return getFromStorage<GiftCard>('giftcard:');
+  const data = await serverRequest('/gift-cards');
+  return (data.cards || []).map((item: any) => ({ id: item.id, code: item.code, type: item.type || 'dollar', value: Number(item.initialBalance ?? item.value ?? 0), balance: Number(item.balance ?? 0), purchasedBy: item.purchaserEmail || item.senderName || '', recipientEmail: item.recipientEmail, recipientName: item.recipientName, status: item.status || 'active', purchaseDate: item.purchasedAt || item.createdAt || new Date().toISOString(), expiryDate: item.expiryDate || '', redeemedDate: item.redeemedAt, createdAt: item.createdAt || new Date().toISOString(), updatedAt: item.updatedAt || item.createdAt || new Date().toISOString() }));
 }
 
 export async function getGiftCard(code: string): Promise<GiftCard> {
@@ -295,39 +287,13 @@ export interface WorkOrder {
   updatedAt: string;
 }
 
-export async function getWorkOrders(): Promise<WorkOrder[]> {
-  return getFromStorage<WorkOrder>('workorder:');
+function normalizeWorkOrder(record: any): WorkOrder {
+  return { id: record.id, customerId: record.customerId || record.client_email || record.clientEmail || '', customerName: record.customerName || record.client_name || record.clientName || '', title: record.title || record.project_name || 'Work request', description: record.description || '', status: ['pending','in-progress','completed','cancelled'].includes(record.status) ? record.status : 'pending', priority: ['low','medium','high','urgent'].includes(record.priority) ? record.priority : 'medium', assignedTo: record.assignedTo || record.schedule?.assignedTo, scheduledDate: record.scheduledDate || record.schedule?.startAt || record.projectSchedule?.tasks?.[0]?.startDate, completedDate: record.completedDate || record.completionDate, estimatedHours: Number(record.estimatedHours || 0), actualHours: Number(record.actualHours || 0) || undefined, materials: Array.isArray(record.materials) ? record.materials : [], totalCost: Number(record.totalCost || record.quote?.totalCost || 0), createdAt: record.created_at || record.createdAt || new Date().toISOString(), updatedAt: record.updated_at || record.updatedAt || new Date().toISOString() };
 }
-
-export async function getWorkOrder(id: string): Promise<WorkOrder> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const data = localStorage.getItem(`workorder:${id}`);
-  if (!data) throw new Error('Work order not found');
-  return JSON.parse(data);
-}
-
-export async function createWorkOrder(data: Omit<WorkOrder, 'id' | 'createdAt' | 'updatedAt'>): Promise<WorkOrder> {
-  const id = `WO-${Date.now()}`;
-  const workOrder: WorkOrder = {
-    ...data,
-    id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`workorder:${id}`, workOrder);
-  return workOrder;
-}
-
-export async function updateWorkOrder(id: string, data: Partial<WorkOrder>): Promise<WorkOrder> {
-  const existing = await getWorkOrder(id);
-  const updated: WorkOrder = {
-    ...existing,
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`workorder:${id}`, updated);
-  return updated;
-}
+export async function getWorkOrders(): Promise<WorkOrder[]> { const data = await serverRequest('/work-requests'); return (Array.isArray(data) ? data : data.workRequests || []).map(normalizeWorkOrder); }
+export async function getWorkOrder(id: string): Promise<WorkOrder> { const data = await serverRequest(`/work-requests/${encodeURIComponent(id)}`); return normalizeWorkOrder(data.workRequest || data); }
+export async function createWorkOrder(data: Omit<WorkOrder, 'id' | 'createdAt' | 'updatedAt'>): Promise<WorkOrder> { const result = await serverRequest('/work-requests', { method: 'POST', body: JSON.stringify({ ...data, clientEmail: data.customerId.includes('@') ? data.customerId : '', clientName: data.customerName, serviceType: data.title, project_type: data.title }) }); return normalizeWorkOrder(result.workRequest); }
+export async function updateWorkOrder(id: string, data: Partial<WorkOrder>): Promise<WorkOrder> { const result = await serverRequest(`/work-requests/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); return normalizeWorkOrder(result.workRequest); }
 
 // ============================================================================
 // INVOICES
@@ -350,39 +316,14 @@ export interface Invoice {
   updatedAt: string;
 }
 
-export async function getInvoices(): Promise<Invoice[]> {
-  return getFromStorage<Invoice>('invoice:');
+function normalizeInvoice(record: any): Invoice {
+  const lineItems = Array.isArray(record.line_items) ? record.line_items : (Array.isArray(record.items) ? record.items : []);
+  return { id: record.id, customerId: record.customerId || record.customerEmail || record.clientEmail || '', customerName: record.customerName || record.customer_name || record.clientName || '', workOrderId: record.workOrderId || record.work_request_id || record.workRequestId || undefined, amount: Number(record.subtotal ?? record.amount ?? 0), tax: Number(record.tax_amount ?? record.tax ?? 0), total: Number(record.total_amount ?? record.total ?? 0), status: record.status === 'pending' ? 'sent' : record.status, dueDate: record.due_date || record.dueDate || '', paidDate: record.paidAt || record.paidDate || undefined, items: lineItems.map((item: any) => ({ description: item.description || '', quantity: Number(item.quantity || 0), rate: Number(item.unit_price ?? item.rate ?? 0), amount: Number(item.amount || 0) })), notes: record.notes || '', createdAt: record.createdAt || new Date().toISOString(), updatedAt: record.updatedAt || new Date().toISOString() } as Invoice;
 }
-
-export async function getInvoice(id: string): Promise<Invoice> {
-  if (!isBrowser) throw new Error('Not in browser environment');
-  const data = localStorage.getItem(`invoice:${id}`);
-  if (!data) throw new Error('Invoice not found');
-  return JSON.parse(data);
-}
-
-export async function createInvoice(data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt'>): Promise<Invoice> {
-  const id = `INV-${Date.now()}`;
-  const invoice: Invoice = {
-    ...data,
-    id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`invoice:${id}`, invoice);
-  return invoice;
-}
-
-export async function updateInvoice(id: string, data: Partial<Invoice>): Promise<Invoice> {
-  const existing = await getInvoice(id);
-  const updated: Invoice = {
-    ...existing,
-    ...data,
-    updatedAt: new Date().toISOString(),
-  };
-  saveToStorage(`invoice:${id}`, updated);
-  return updated;
-}
+export async function getInvoices(): Promise<Invoice[]> { const data = await serverRequest('/invoices'); return (data.invoices || []).map(normalizeInvoice); }
+export async function getInvoice(id: string): Promise<Invoice> { const invoices = await getInvoices(); const invoice = invoices.find((item) => item.id === id); if (!invoice) throw new Error('Invoice not found'); return invoice; }
+export async function createInvoice(data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt'>): Promise<Invoice> { const customerEmail = data.customerId.includes('@') ? data.customerId : ''; const result = await serverRequest('/invoices', { method: 'POST', body: JSON.stringify({ customerEmail, customerName: data.customerName, workRequestId: data.workOrderId, line_items: data.items.map((item, index) => ({ line_number: index + 1, description: item.description, quantity: item.quantity, unit_price: item.rate, amount: item.amount })), tax_amount: data.tax, total_amount: data.total, dueDate: data.dueDate, notes: data.notes, is_draft: !customerEmail, status: !customerEmail ? 'draft' : 'pending' }) }); return normalizeInvoice(result.invoice); }
+export async function updateInvoice(id: string, data: Partial<Invoice>): Promise<Invoice> { const result = await serverRequest(`/invoices/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ ...data, line_items: data.items?.map((item, index) => ({ line_number: index + 1, description: item.description, quantity: item.quantity, unit_price: item.rate, amount: item.amount })) }) }); return normalizeInvoice(result.invoice); }
 
 // ============================================================================
 // SUBCONTRACTORS
@@ -632,11 +573,11 @@ export async function getSubscriptionAnalytics(): Promise<SubscriptionAnalytics>
     totalRevenue,
     monthlyRecurringRevenue,
     activeSubscriptions: activeSubscriptions.length,
-    churnRate: 0.05, // Mock value
+    churnRate: 0,
     averageRevenuePerUser: activeSubscriptions.length > 0 ? totalRevenue / activeSubscriptions.length : 0,
-    customerLifetimeValue: 5000, // Mock value
+    customerLifetimeValue: 0,
     revenueByType,
-    revenueGrowth: [], // Mock empty array
+    revenueGrowth: [],
   };
 }
 

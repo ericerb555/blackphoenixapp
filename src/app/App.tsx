@@ -845,10 +845,14 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
   const { session, isAdmin, isOwner, loading } = useAuth();
   const [state, setState] = useState<"checking" | "allowed" | "blocked">("checking");
   const needsGate = APPROVED_PORTAL_ROUTES.has(page);
+  // RoleSwitcher is restricted to the platform owner. Its preview flag lives
+  // only in this browser tab and bypasses *only* this visual onboarding gate;
+  // it never provisions an account or changes Supabase authentication.
+  const isOwnerRolePreview = typeof window !== 'undefined' && sessionStorage.getItem('role_switching') === 'owner_preview';
 
   useEffect(() => {
     let active = true;
-    if (!needsGate || isAdmin || isOwner) { setState("allowed"); return; }
+    if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setState("allowed"); return; }
     if (!session?.access_token) { setState("blocked"); return; }
     setState("checking");
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, {
@@ -857,9 +861,9 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
       .then(({ data }) => { if (active) setState(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
       .catch(() => { if (active) setState("blocked"); });
     return () => { active = false; };
-  }, [needsGate, session?.access_token, isAdmin, isOwner, page]);
+  }, [needsGate, session?.access_token, isAdmin, isOwner, isOwnerRolePreview, page]);
 
-  if (!needsGate || isAdmin || isOwner) return <>{children}</>;
+  if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) return <>{children}</>;
   if (loading || state === "checking") return <div className="min-h-[60vh] grid place-items-center text-gray-300">Checking portal access…</div>;
   if (state === "blocked") return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-2xl">
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">Portal access pending</p>

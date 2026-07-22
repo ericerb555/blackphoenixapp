@@ -41,6 +41,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ModuleCard {
   label: string;
@@ -60,9 +61,13 @@ interface TabCategory {
 }
 
 export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  // Get current user and role
+  // `useUser` supports the view-only RoleSwitcher preview. Never let that
+  // browser-only preview override the authenticated Supabase owner identity.
   const { user } = useUser();
-  const currentRole = user?.role || UserRole.PLATFORM_OWNER;
+  const { user: authUser, isOwner: authIsOwner } = useAuth();
+  const authRole = String(authUser?.app_metadata?.role || authUser?.user_metadata?.role || authUser?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const isAuthenticatedOwner = authIsOwner || ['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management'].includes(authRole) || String(authUser?.email || '').toLowerCase() === 'ericerb555@proton.me';
+  const currentRole = isAuthenticatedOwner ? UserRole.PLATFORM_OWNER : (user?.role || UserRole.CUSTOMER);
 
   // ALL state hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,80 +150,34 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     fetchCompanyBranding();
   }, []);
 
-  // Fetch metrics
+  // Command Center metrics are calculated from canonical invoices, payments,
+  // applications, CRM contacts, and work requests—not browser demo data.
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-
-        // Fetch revenue data
-        try {
-          const revenueResponse = await fetch(`${API_BASE}/metrics/revenue`, {
-            headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-          });
-
-          if (revenueResponse.ok) {
-            const data = await revenueResponse.json();
-            if (data.chartData !== undefined) setRevenueData(data.chartData);
-            if (data.total !== undefined) setTotalRevenue(data.total);
-            if (data.trend !== undefined) setRevenueTrend(data.trend);
-          }
-        } catch (err) {
-          console.error('[Dashboard] Error fetching revenue metrics:', err);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}`, Accept: 'application/json' }, cache: 'no-store' });
+        const body = await response.text();
+        let result: any;
+        try { result = JSON.parse(body); }
+        catch {
+          // Some proxies have previously prepended a stale token to an otherwise
+          // valid JSON payload. Recover only the object payload, never execute it.
+          const first = body.indexOf('{'); const last = body.lastIndexOf('}');
+          if (first >= 0 && last > first) {
+            try { result = JSON.parse(body.slice(first, last + 1)); console.warn('[Dashboard] Recovered malformed Command Center response.'); }
+            catch { throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`); }
+          } else throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`);
         }
-
-        // Fetch jobs count
-        try {
-          const jobsResponse = await fetch(`${API_BASE}/jobs/active-count`, {
-            headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-          });
-
-          if (jobsResponse.ok) {
-            const data = await jobsResponse.json();
-            if (data.count !== undefined) setActiveJobsCount(data.count);
-            if (typeof data.trend === 'number') setJobsTrend(data.trend);
-          }
-        } catch (err) {
-          console.error('[Dashboard] Error fetching jobs count:', err);
-        }
-
-        // Fetch customers count
-        try {
-          const customersResponse = await fetch(`${API_BASE}/customers/count`, {
-            headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-          });
-
-          if (customersResponse.ok) {
-            const data = await customersResponse.json();
-            if (data.count !== undefined) setCustomersCount(data.count);
-            if (typeof data.trend === 'number') setCustomersTrend(data.trend);
-          }
-        } catch (err) {
-          console.error('[Dashboard] Error fetching customers count:', err);
-        }
-
-        // Fetch team count
-        try {
-          const teamResponse = await fetch(`${API_BASE}/employees/count`, {
-            headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-          });
-
-          if (teamResponse.ok) {
-            const data = await teamResponse.json();
-            if (data.count !== undefined) setTeamCount(data.count);
-          }
-        } catch (err) {
-          console.error('[Dashboard] Error fetching team count:', err);
-        }
-
-      } catch (error) {
-        console.error('[Dashboard] Error fetching metrics:', error);
-      }
+        if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center metrics.');
+        const summary = result.summary;
+        setRevenueData(summary.chartData || []); setTotalRevenue(Number(summary.totalRevenue || 0));
+        setActiveJobsCount(Number(summary.activeJobsCount || 0)); setCustomersCount(Number(summary.customersCount || 0)); setTeamCount(Number(summary.teamCount || 0));
+        setRevenueTrend(0); setJobsTrend(0); setCustomersTrend(0);
+      } catch (error) { console.error('[Dashboard] Error fetching Command Center metrics:', error); }
     };
-
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 60000); // Refresh every minute
-    return () => clearInterval(interval);
+    fetchMetrics(); const interval = setInterval(fetchMetrics, 60000); return () => clearInterval(interval);
   }, []);
 
   // Restore sidebar preference
@@ -248,9 +207,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Redirect non-Platform Owners to their respective portals
+  // Redirect non-owners only after their real session is available. An owner
+  // always stays in the Command Center even when a stale local preview role exists.
   useEffect(() => {
-    if (!user) return;
+    if (isAuthenticatedOwner) return;
+    if (!authUser && !user) return;
 
     // Define portal routes for each role
     const portalRoutes: Partial<Record<UserRole, string>> = {
@@ -277,7 +238,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       // Use replace to avoid back button issues
       window.location.replace(targetRoute);
     }
-  }, [currentRole, user]);
+  }, [authUser, currentRole, isAuthenticatedOwner, user]);
 
   // Generate mock revenue data
   const generateMockRevenueData = () => {

@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
 import { useState } from 'react';
@@ -50,7 +51,7 @@ export default function VendorPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'messages' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -181,6 +182,7 @@ export default function VendorPortalView() {
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'api-settings', label: 'API Settings', icon: Code },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   return (
@@ -242,6 +244,8 @@ export default function VendorPortalView() {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {activeTab === 'guide' && <PortalFeatureGuide portal="vendor" />}
+
         {activeTab === 'dashboard' && (
           <>
             {/* Stats Grid */}

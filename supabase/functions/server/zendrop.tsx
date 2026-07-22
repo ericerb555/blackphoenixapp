@@ -1,8 +1,8 @@
 /**
  * Zendrop Integration Module
  * Real Zendrop API connection: verify credentials, pull top products, and
- * import them into the SAME inventory the public store reads
- * (`dropshipper_inventory:` KV prefix, via the dropshipper module).
+ * publish them into the canonical product catalog the public store reads
+ * (`product_` KV prefix), while retaining a supplier-inventory mirror.
  *
  * Docs: https://developers.zendrop.com
  *
@@ -207,10 +207,51 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
     .map((r) => normalize(r, markupType, markupValue))
     .filter((p) => p.name && p.cost >= 0);
 
-  // Write each product into the SAME inventory keyspace the store reads.
-  const writes = normalized.map((p) =>
-    kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)),
-  );
+  // Keep a supplier-inventory mirror for internal dropship operations and
+  // publish the same records to the canonical catalog consumed by /products.
+  // Reusing the SKU makes repeated syncs updates instead of duplicate listings.
+  const writes = normalized.flatMap((p) => {
+    const productKey = `product_${p.sku}`;
+    return [
+      kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)),
+      (async () => {
+        const existing = await kv.get(productKey) as any;
+        await kv.set(productKey, {
+          ...(existing || {}),
+          id: p.sku,
+          vendorId: 'dropshipper_zendrop',
+          vendorName: 'Zendrop',
+          name: p.name,
+          description: p.description,
+          category: p.category || 'General',
+          price: p.price,
+          costPrice: p.cost,
+          inventoryQuantity: p.stock,
+          trackInventory: true,
+          images: p.images,
+          primaryImage: p.images[0] || '',
+          isActive: true,
+          isFeatured: existing?.isFeatured || false,
+          slug: String(p.name || p.sku).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+          sku: p.sku,
+          rating: p.rating,
+          orderCount: Number(existing?.orderCount || 0),
+          viewCount: Number(existing?.viewCount || 0),
+          createdAt: existing?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          source: PROVIDER_ID,
+          providerId: PROVIDER_ID,
+          providerProductId: p.providerProductId,
+          _dropshipper: {
+            source: PROVIDER_ID,
+            providerId: PROVIDER_ID,
+            providerProductId: p.providerProductId,
+            syncedAt: p.lastSynced,
+          },
+        });
+      })(),
+    ];
+  });
   await Promise.all(writes);
 
   await config.updateLastSync();
@@ -314,10 +355,15 @@ zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {
     const provider = await config.getProvider(PROVIDER_ID);
     const cfg = await loadServerConfig();
     const inventory = await kv.getByPrefix(INVENTORY_KEY_PREFIX);
+    const catalog = await kv.getByPrefix('product_');
+    const publishedProducts = catalog.filter((product: any) =>
+      String(product?.providerId || product?.source || product?._dropshipper?.providerId || '').toLowerCase() === PROVIDER_ID,
+    );
     return c.json({
       success: true,
       connected: !!provider?.enabled,
-      productsInStore: inventory.length,
+      productsInStore: publishedProducts.length,
+      supplierInventoryCount: inventory.length,
       lastSync: cfg.lastSync || null,
       productCount: cfg.productCount || 0,
     });

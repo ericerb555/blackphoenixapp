@@ -3,7 +3,7 @@
  * Allows switching between user roles to test different permission levels
  */
 
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
@@ -13,14 +13,25 @@ import { NavigationContext } from '../App';
 const OWNER_EMAILS = ['ericerb555@proton.me'];
 
 export function RoleSwitcher() {
-  const { user, switchRole } = useUser();
+  const { user, switchRole, login } = useUser();
   const { isOwner, isAdmin, user: authUser } = useAuth();
   const { navigate } = useContext(NavigationContext);
   const [isOpen, setIsOpen] = useState(false);
 
-  // Hard block — never show to non-owner/non-admin users
-  const canUse = isOwner || isAdmin || OWNER_EMAILS.includes(authUser?.email ?? '');
-  if (!user || !canUse) return null;
+  // Hard block — never show to non-owner/non-admin users. The email fallback
+  // keeps the real Platform Owner available while ownership tables load or are
+  // temporarily unavailable.
+  const authEmail = String(authUser?.email || '').trim().toLowerCase();
+  const canUse = isOwner || isAdmin || OWNER_EMAILS.includes(authEmail);
+
+  // Supabase sign-in and the legacy preview context load independently. Restore
+  // the owner preview identity from the authenticated owner instead of hiding
+  // the switcher when current_user was cleared by a sign-out or cache cleanup.
+  useEffect(() => {
+    if (canUse && !user && authEmail) login(authEmail, '').catch(() => undefined);
+  }, [canUse, user, authEmail, login]);
+
+  if (!canUse || !user) return null;
 
   // Map roles to their portal routes (no leading slash — navigate() handles that)
   const rolePortalMap: Record<UserRole, string> = {
@@ -110,6 +121,11 @@ export function RoleSwitcher() {
   };
 
   const handleRoleChange = (newRole: UserRole) => {
+    // This is an owner-only, browser-session preview. It never changes Supabase
+    // identity, provisioning, invitations, or real portal access records.
+    if (newRole === UserRole.PLATFORM_OWNER) sessionStorage.removeItem('role_switching');
+    else sessionStorage.setItem('role_switching', 'owner_preview');
+
     // Inject mock profile for this role so the portal shows realistic demo data
     const mockProfile = roleMockProfiles[newRole];
     if (mockProfile) {

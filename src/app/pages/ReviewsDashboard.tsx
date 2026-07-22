@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Star, ThumbsUp, Trash2, Eye, CheckCircle, XCircle, Search, Filter, TrendingUp, MessageSquare, Award, BarChart2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getStoreReviews, type StoreReview } from '../components/StoreReviews';
+import { type StoreReview } from '../components/StoreReviews';
+import { supabase } from '../lib/supabase';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const ALL_PRODUCT_IDS = ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10'];
 
@@ -27,53 +27,39 @@ export default function ReviewsDashboard() {
   const [approved, setApproved] = useState<string[]>([]);
   const [hidden, setHidden] = useState<string[]>([]);
 
-  useEffect(() => {
-    const reviews = ALL_PRODUCT_IDS.flatMap(id => getStoreReviews(id));
-    const deduped = Array.from(new Map(reviews.map(r => [r.id, r])).values());
-    deduped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    setAllReviews(deduped);
-    (async () => {
-      try {
-        const res = await fetch(`${SERVER}/reviews/moderation`, { headers: authHeaders });
-        const json = await res.json();
-        if (json.success) { setApproved(json.approved || []); setHidden(json.hidden || []); }
-        else console.error('Failed to load review moderation:', json.error);
-      } catch (err) { console.error('Network error loading review moderation:', err); }
-    })();
-  }, []);
+  async function ownerHeaders() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in as an owner or administrator to moderate reviews.');
+    return { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` };
+  }
 
-  // Persist moderation state to the server so it's shared across admins/devices.
-  async function persistModeration(nextApproved: string[], nextHidden: string[]) {
+  async function loadReviews() {
     try {
-      await fetch(`${SERVER}/reviews/moderation`, {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ approved: nextApproved, hidden: nextHidden }),
-      });
-    } catch (err) { console.error('Failed to persist review moderation:', err); }
+      const response = await fetch(`${SERVER}/reviews?status=all`, { headers: await ownerHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load reviews.');
+      const records = (data.reviews || []).map((review: any) => ({
+        id: String(review.id), productId: String(review.serviceType || '').replace(/^store:/, ''), author: String(review.customerName || 'Customer'), rating: Number(review.rating || 0), title: String(review.reviewTitle || 'Customer review'), body: String(review.reviewText || ''), verified: Boolean(review.verifiedPurchase), helpful: Number(review.helpful || 0), date: review.createdAt ? new Date(review.createdAt).toLocaleDateString() : '', status: String(review.status || 'pending'),
+      }));
+      setAllReviews(records); setApproved(records.filter((review: any) => review.status === 'approved').map((review: any) => review.id)); setHidden(records.filter((review: any) => ['hidden', 'rejected'].includes(review.status)).map((review: any) => review.id));
+    } catch (error: any) { toast.error(error?.message || 'Unable to load reviews.'); setAllReviews([]); }
   }
 
-  function approve(id: string) {
-    const next = [...approved, id];
-    setApproved(next);
-    persistModeration(next, hidden);
-    toast.success('Review approved and published');
+  useEffect(() => { void loadReviews(); }, []);
+
+  async function updateReviewStatus(id: string, status: 'approved' | 'hidden' | 'pending') {
+    try {
+      const response = await fetch(`${SERVER}/reviews/${id}`, { method: 'PATCH', headers: await ownerHeaders(), body: JSON.stringify({ status }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to update review.');
+      await loadReviews();
+      toast.success(status === 'approved' ? 'Review approved and published' : status === 'hidden' ? 'Review hidden from store' : 'Review restored to pending');
+    } catch (error: any) { toast.error(error?.message || 'Unable to update review.'); }
   }
 
-  function hide(id: string) {
-    const next = [...hidden, id];
-    setHidden(next);
-    persistModeration(approved, next);
-    toast('Review hidden from store');
-  }
-
-  function restore(id: string) {
-    const nextH = hidden.filter(x => x !== id);
-    const nextA = approved.filter(x => x !== id);
-    setHidden(nextH);
-    setApproved(nextA);
-    persistModeration(nextA, nextH);
-    toast('Review restored to pending');
-  }
+  function approve(id: string) { void updateReviewStatus(id, 'approved'); }
+  function hide(id: string) { void updateReviewStatus(id, 'hidden'); }
+  function restore(id: string) { void updateReviewStatus(id, 'pending'); }
 
   const visible = allReviews.filter(r => {
     if (tab === 'pending' && (approved.includes(r.id) || hidden.includes(r.id))) return false;

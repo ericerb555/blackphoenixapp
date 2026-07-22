@@ -5,6 +5,7 @@ import {
   Search, Filter, Star, MapPin, Radio, Smartphone, Mail
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { projectId } from '../../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
 import { DataTable } from '../ui/table/DataTable';
 import type { DataTableColumn } from '../ui/table/DataTable';
@@ -51,91 +52,15 @@ export default function ReferralSourceReport() {
   const loadReportData = async () => {
     setIsLoading(true);
     try {
-      // Load from localStorage since tables don't exist yet
-      const referralDataLocal = localStorage.getItem('referral_source_data');
-      const funnelDataLocal = localStorage.getItem('onboarding_funnel_data');
-      
-      if (referralDataLocal) {
-        setReferralData(JSON.parse(referralDataLocal));
-      } else {
-        // Set demo data if nothing exists
-        setReferralData([
-          {
-            source_name: 'Google Search',
-            category: 'organic',
-            color: '#4285F4',
-            total_signups: 124,
-            signups_last_30_days: 45,
-            signups_last_7_days: 12,
-            total_value: 186000,
-            avg_value_per_signup: 1500,
-            first_signup: '2024-01-15',
-            last_signup: new Date().toISOString().split('T')[0],
-            user_roles: ['contractor', 'client']
-          },
-          {
-            source_name: 'Direct Traffic',
-            category: 'direct',
-            color: '#34A853',
-            total_signups: 89,
-            signups_last_30_days: 32,
-            signups_last_7_days: 8,
-            total_value: 133500,
-            avg_value_per_signup: 1500,
-            first_signup: '2024-01-20',
-            last_signup: new Date().toISOString().split('T')[0],
-            user_roles: ['contractor']
-          },
-          {
-            source_name: 'Social Media',
-            category: 'social',
-            color: '#FBBC05',
-            total_signups: 67,
-            signups_last_30_days: 28,
-            signups_last_7_days: 9,
-            total_value: 100500,
-            avg_value_per_signup: 1500,
-            first_signup: '2024-02-01',
-            last_signup: new Date().toISOString().split('T')[0],
-            user_roles: ['client', 'contractor']
-          },
-          {
-            source_name: 'Referral',
-            category: 'referral',
-            color: '#EA4335',
-            total_signups: 43,
-            signups_last_30_days: 18,
-            signups_last_7_days: 5,
-            total_value: 64500,
-            avg_value_per_signup: 1500,
-            first_signup: '2024-02-10',
-            last_signup: new Date().toISOString().split('T')[0],
-            user_roles: ['contractor', 'client']
-          }
-        ]);
-      }
-      
-      if (funnelDataLocal) {
-        setFunnelData(JSON.parse(funnelDataLocal));
-      } else {
-        // Set demo funnel data
-        setFunnelData({
-          started_count: 450,
-          completed_count: 323,
-          skipped_count: 45,
-          abandoned_count: 82,
-          completion_rate: 71.8,
-          avg_completion_time_minutes: 8.5
-        });
-      }
-    } catch (err: any) {
-      console.error('Error loading report data:', err);
-      toast.error('Failed to load referral data');
-    } finally {
-      setIsLoading(false);
-    }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in as the Platform Owner to view referral reporting.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/reporting/referral-sources`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load referral reporting.');
+      setReferralData(result.sources || []); setFunnelData(result.funnel || null);
+    } catch (err: any) { console.error('Error loading referral report:', err); toast.error(err?.message || 'Failed to load referral data'); setReferralData([]); setFunnelData(null); }
+    finally { setIsLoading(false); }
   };
-
   const filteredData = referralData
     .filter(item => {
       const matchesSearch = item.source_name.toLowerCase().includes(searchTerm.toLowerCase());

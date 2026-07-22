@@ -111,10 +111,10 @@ export default function CustomersNew() {
       const data = await getCustomers();
       setCustomers(data);
     } catch (err: any) {
-      // getCustomers already handles errors and returns mock data
-      // No need to show error to user
-      console.log('Using fallback customer data');
-      setError(null);
+      console.error('Could not load canonical customer records:', err);
+      setCustomers([]);
+      setError(err?.message || 'Unable to load customer records. Please retry.');
+      toast.error(err?.message || 'Unable to load customer records.');
     } finally {
       setLoading(false);
     }

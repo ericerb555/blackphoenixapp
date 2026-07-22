@@ -47,7 +47,6 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
 import { useNavigate } from '../hooks/useNavigate';
-import { seedPipelineData } from '../utils/seedPipelineData';
 
 type PipelineStage = 'quote-draft' | 'quote-sent' | 'quote-approved' | 'contract' | 'invoice' | 'payment';
 
@@ -216,24 +215,18 @@ export default function UnifiedProjectPipeline() {
   // Helper function to save a single item to backend
   const saveItemToBackend = async (item: PipelineItem) => {
     try {
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/pipeline/items/${item.id}`;
-      
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(item)
-      });
-
-      if (!response.ok) {
-        console.error('[Pipeline] Failed to save item:', item.id);
-      } else {
-        console.log('[Pipeline] Successfully saved item:', item.id);
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in as an owner or administrator before updating the pipeline.');
+      const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/pipeline/items`;
+      const headers = { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
+      let response = await fetch(`${base}/${encodeURIComponent(item.id)}`, { method: 'PUT', headers, body: JSON.stringify(item) });
+      if (response.status === 404) response = await fetch(base, { method: 'POST', headers, body: JSON.stringify(item) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || `Unable to save project ${item.itemNumber}.`);
+      return data.item as PipelineItem;
     } catch (error) {
       console.error('[Pipeline] Error saving item:', error);
+      throw error;
     }
   };
 
@@ -243,17 +236,8 @@ export default function UnifiedProjectPipeline() {
       console.log('[Pipeline] 🚀 Starting data load');
       setIsLoading(true);
 
-      // Step 1: Load demo items from localStorage
+      // Work requests and pipeline records are loaded from the authenticated server only.
       let localItems: PipelineItem[] = [];
-      try {
-        const cached = localStorage.getItem('pipeline-items-demo');
-        if (cached) {
-          localItems = JSON.parse(cached);
-          console.log('[Pipeline] ✅ Loaded from localStorage:', localItems.length, 'demo items');
-        }
-      } catch (e) {
-        console.error('[Pipeline] Failed to parse cached items:', e);
-      }
 
       // Step 2: Load ALL submitted work requests directly from all_work_requests KV
       // This ensures every work request ever submitted always appears in the pipeline
@@ -279,10 +263,7 @@ export default function UnifiedProjectPipeline() {
             const serviceType = wr.serviceType  || wr.project_type || 'General Service';
             const budgetMax   = wr.budget_range?.max || wr.budget_range?.min || 0;
 
-            // Check if a pre-generated quote exists in localStorage from "Open in Pipeline"
-            const localCached = JSON.parse(localStorage.getItem('pipeline-items-demo') || '[]');
-            const prebuilt = localCached.find((i: any) => i.id === wr.id);
-            const quote = prebuilt?.quote || wr.quote || undefined;
+            const quote = wr.quote || undefined;
 
             // Build the submission object from wherever photos/videos are stored
             const media = wr.media_attachments || wr.media || {};
@@ -328,7 +309,7 @@ export default function UnifiedProjectPipeline() {
               workRequest: wr,
               submission,
               quote,
-              floorPlan: wr.floorPlan || prebuilt?.floorPlan || undefined,
+              floorPlan: wr.floorPlan || undefined,
             };
           });
         }
@@ -336,58 +317,21 @@ export default function UnifiedProjectPipeline() {
         console.warn('[Pipeline] Could not load work requests from server:', err);
       }
 
-      // Also load pipeline: KV items (items with pre-generated quotes)
+      // Load server-owned pipeline state (quotes, stage transitions, contracts) with the same signed-in session.
       let kvItems: PipelineItem[] = [];
       try {
-        const kvRes = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/kv/get-by-prefix?prefix=pipeline:`,
-          { headers: { Authorization: `Bearer ${publicAnonKey}` } }
-        );
-        if (kvRes.ok) {
-          const kvData = await kvRes.json();
-          if (kvData.values && Array.isArray(kvData.values)) {
-            kvItems = kvData.values
-              .filter((item: any) => item && item.id)
-              .map((item: any) => ({
-                id: item.id,
-                itemNumber: item.id?.toUpperCase?.() || 'WR-001',
-                stage: (item.stage || 'quote-draft') as any,
-                customerName: item.customerName || item.customer || item.clientInfo?.name || 'Customer',
-                customerEmail: item.customerEmail || item.contact?.email || item.clientInfo?.email || '',
-                customerPhone: item.customerPhone || item.contact?.phone || item.clientInfo?.phone || '',
-                location: item.location || '',
-                serviceType: item.serviceType || 'General Service',
-                title: item.title || 'Work Request',
-                description: item.description || '',
-                estimatedValue: item.estimatedValue || 0,
-                priority: (item.priority || 'high') as any,
-                createdDate: item.createdDate || item.createdAt || new Date().toISOString(),
-                lastModified: item.lastModified || item.updatedAt || new Date().toISOString(),
-                workRequest: item.workRequest,
-                floorPlan: item.floorPlan || undefined,
-                quote: item.quote ? {
-                  id: `qt-${item.id}`,
-                  quoteNumber: item.quote.quoteNumber || `Q-${new Date().getFullYear()}-001`,
-                  materials: item.quote.materials || item.quote.materialItems || [],
-                  labor: item.quote.labor || item.quote.laborItems || [],
-                  processSteps: item.quote.processSteps || [],
-                  materialsSubtotal: item.quote.materialsSubtotal || item.quote.subtotals?.materials || 0,
-                  laborSubtotal: item.quote.laborSubtotal || item.quote.subtotals?.labor || 0,
-                  taxRate: 0.08,
-                  taxAmount: item.quote.taxAmount || item.quote.subtotals?.tax || 0,
-                  totalCost: item.quote.totalCost || item.quote.total || 0,
-                  generatedAt: item.quote.generatedAt || new Date().toISOString(),
-                  approvalStatus: (item.quote.approvalStatus || 'pending') as any,
-                } : undefined,
-              }));
-          }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/pipeline/items`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const data = await response.json();
+          if (response.ok && data.success && Array.isArray(data.items)) kvItems = data.items as PipelineItem[];
         }
-      } catch {}
+      } catch (error) { console.warn('[Pipeline] Could not load saved pipeline records:', error); }
 
       // Merge: KV pipeline items (with quotes) take priority over plain work requests
       // Deduplicate by ID — prefer the one with a quote
       const allById = new Map<string, PipelineItem>();
-      [...serverItems, ...localItems].forEach(i => allById.set(i.id, i));
+      serverItems.forEach(i => allById.set(i.id, i));
       kvItems.forEach(i => allById.set(i.id, i)); // KV wins (has quote)
 
       const merged = Array.from(allById.values());
@@ -440,19 +384,13 @@ export default function UnifiedProjectPipeline() {
                 
                 toast.success(`Updated ${materials.length} materials in quote #${item.itemNumber}`);
                 
-                return {
+                const updated = {
                   ...item,
-                  quote: item.quote ? {
-                    ...item.quote,
-                    materials,
-                    labor,
-                    materialsSubtotal,
-                    laborSubtotal,
-                    taxAmount,
-                    totalCost,
-                  } : undefined,
-                  lastModified: new Date().toLocaleDateString()
+                  quote: item.quote ? { ...item.quote, materials, labor, materialsSubtotal, laborSubtotal, taxAmount, totalCost } : undefined,
+                  lastModified: new Date().toISOString()
                 };
+                void saveItemToBackend(updated).catch((error) => toast.error(error.message || 'Unable to save materials to the quote.'));
+                return updated;
               }
               return item;
             }));
@@ -469,21 +407,7 @@ export default function UnifiedProjectPipeline() {
     checkMaterialsUpdate();
   }, []); // Run once on mount to check for returning from Materials Hub
 
-  // Sync items to backend when they change (debounced)
-  useEffect(() => {
-    // Skip backend sync - we're using localStorage for demo data
-    // Auto-sync disabled to prevent 404 errors
-
-    // Save to localStorage instead
-    if (!isLoading && items.length > 0) {
-      try {
-        localStorage.setItem('pipeline-items-demo', JSON.stringify(items));
-        console.log('[Pipeline] Saved to localStorage:', items.length, 'items');
-      } catch (err) {
-        console.error('[Pipeline] Failed to save to localStorage:', err);
-      }
-    }
-  }, [items]); // Run whenever items change
+  // Pipeline records are explicitly written by workflow actions; browser storage is never used as a project source of truth.
 
   // Convert PipelineItem to WorkRequest format for the editor
   const convertToWorkRequest = (item: PipelineItem) => {
@@ -714,14 +638,15 @@ export default function UnifiedProjectPipeline() {
         totalCost: demoQuote.totalCost
       });
 
-      setItems(items.map(i => i.id === item.id ? updatedItem : i));
-      
-      toast.success('✨ Quote generated (Demo Mode)', {
-        id: 'auto-gen',
-        description: `Generated ${demoQuote.materials.length} materials, ${demoQuote.labor.length} labor items - Deploy server for AI generation`
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes`, {
+        method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: updatedItem.quote?.id, number: updatedItem.quote?.quoteNumber, clientName: updatedItem.customerName, clientEmail: updatedItem.customerEmail, clientPhone: updatedItem.customerPhone, items: [...(updatedItem.quote?.materials || []), ...(updatedItem.quote?.labor || [])], notes: updatedItem.description, status: 'draft', workRequestId: updatedItem.id, total: updatedItem.quote?.totalCost })
       });
-      
-      setSelectedItem(updatedItem);
+      const savedItem = await saveItemToBackend(updatedItem);
+      setItems(items.map(i => i.id === item.id ? savedItem : i));
+      toast.success('Quote estimate generated and saved', { id: 'auto-gen', description: `Generated ${demoQuote.materials.length} materials and ${demoQuote.labor.length} labor items for review.` });
+      setSelectedItem(savedItem);
       setShowQuoteEditor(true);
     }
   };
@@ -813,11 +738,9 @@ export default function UnifiedProjectPipeline() {
       const data = await res.json();
       if (res.ok && data.approvalUrl) {
         // Update pipeline stage
-        setItems(items.map(i =>
-          i.id === item.id
-            ? { ...i, stage: 'quote-sent' as PipelineStage, quote: i.quote ? { ...i.quote, sentAt: new Date().toISOString() } : undefined, lastModified: new Date().toISOString() }
-            : i
-        ));
+        const updated = { ...item, stage: 'quote-sent' as PipelineStage, quote: item.quote ? { ...item.quote, sentAt: new Date().toISOString() } : undefined, lastModified: new Date().toISOString() };
+        const saved = await saveItemToBackend(updated);
+        setItems(items.map(i => i.id === item.id ? saved : i));
         // Schedule automated follow-ups (3-day and 7-day)
         fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/follow-ups/schedule`, {
           method: 'POST',
@@ -851,105 +774,32 @@ export default function UnifiedProjectPipeline() {
     }
   };
 
-  const handleSimulateQuoteApproval = (item: PipelineItem) => {
-    // Simulate customer approving the quote (in production, this would come from customer portal)
-    setItems(items.map(i => 
-      i.id === item.id 
-        ? { 
-            ...i, 
-            stage: 'quote-approved' as PipelineStage,
-            quote: i.quote ? { 
-              ...i.quote, 
-              approvalStatus: 'approved',
-              approvedAt: new Date().toISOString(),
-              approvedBy: i.customerName
-            } : undefined,
-            lastModified: new Date().toISOString()
-          }
-        : i
-    ));
-    toast.success('✅ Customer Approved Quote!', {
-      description: `${item.customerName} has approved the quote. Ready to create contract.`
-    });
+  const handleSimulateQuoteApproval = (_item: PipelineItem) => {
+    toast.info('Customer approval is recorded from the customer quote/portal flow. This owner view cannot self-approve a customer quote.');
   };
 
   const handleConvertToContract = (item: PipelineItem) => {
-    // IMPORTANT: Only allow conversion if quote is approved
     if (!item.quote || item.quote.approvalStatus !== 'approved') {
-      toast.error('Cannot create contract - Quote must be approved by customer first!', {
-        description: 'Wait for customer approval before proceeding to contract.'
-      });
+      toast.error('A customer-approved quote is required before creating a contract.');
       return;
     }
-
-    setItems(items.map(i => 
-      i.id === item.id 
-        ? { 
-            ...i, 
-            stage: 'contract' as PipelineStage,
-            contract: {
-              id: `ct-${Date.now()}`,
-              contractNumber: `CT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`,
-              contractType: 'standard', // Default, customer will choose
-              startDate: new Date().toISOString().split('T')[0],
-              terms: 'Standard terms and conditions apply.',
-              status: 'draft' // Start as draft, must be sent and signed
-            },
-            lastModified: new Date().toISOString()
-          }
-        : i
-    ));
-    toast.success('Contract created!', {
-      description: 'Configure contract type and send to customer for signature.'
-    });
+    setSelectedItem(item);
+    setShowQuoteEditor(true);
+    toast.info('Open the contract action in the quote editor to create the canonical contract.');
   };
 
-  const handleSimulateContractSigned = (item: PipelineItem) => {
-    // Simulate customer signing the contract (in production, this would come from e-signature service)
-    if (!item.contract) {
-      toast.error('No contract exists');
-      return;
-    }
-
-    if (item.contract.status === 'draft') {
-      toast.error('Contract must be sent to customer first!');
-      return;
-    }
-
-    setItems(items.map(i => 
-      i.id === item.id 
-        ? { 
-            ...i, 
-            contract: i.contract ? {
-              ...i.contract,
-              status: 'signed',
-              signedDate: new Date().toISOString(),
-              signedBy: i.customerName,
-              customerSignature: 'Customer Digital Signature'
-            } : undefined,
-            lastModified: new Date().toISOString()
-          }
-        : i
-    ));
-    toast.success('✅ Contract Signed!', {
-      description: `${item.customerName} has signed the contract. Ready to proceed to invoicing.`
-    });
+  const handleSimulateContractSigned = (_item: PipelineItem) => {
+    toast.info('Contracts are signed by the customer from the Contracts tab in their portal.');
   };
 
-  const handleSaveQuote = (updatedItem: any) => {
-    setItems(items.map(i => 
-      i.id === updatedItem.id 
-        ? {
-            ...i,
-            stage: i.stage === 'work-request' ? 'quote-draft' as PipelineStage : i.stage,
-            quote: updatedItem.quote,
-            estimatedValue: updatedItem.quote?.totalCost || i.estimatedValue,
-            lastModified: new Date().toISOString()
-          }
-        : i
-    ));
-    setShowQuoteEditor(false);
-    toast.success('Quote saved successfully!');
+  const handleSaveQuote = async (updatedItem: any) => {
+    const current = items.find(i => i.id === updatedItem.id);
+    if (!current) return;
+    const next = { ...current, stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage, quote: updatedItem.quote, estimatedValue: updatedItem.quote?.totalCost || current.estimatedValue, lastModified: new Date().toISOString() };
+    try {
+      const saved = await saveItemToBackend(next);
+      setItems(items.map(i => i.id === saved.id ? saved : i)); setSelectedItem(saved); setShowQuoteEditor(false); toast.success('Quote saved to the project record.');
+    } catch (error: any) { toast.error(error.message || 'Unable to save quote.'); }
   };
 
   const handleViewProjectDetails = async (item: PipelineItem) => {
@@ -997,392 +847,9 @@ export default function UnifiedProjectPipeline() {
     setShowEmployeeNotes(true);
   };
 
-  // Handle seeding sample data
+  // Sample records are intentionally disabled in production operations.
   const handleSeedData = async () => {
-    console.log('[Pipeline] 🌱 Starting seed data creation...');
-    console.log('[Pipeline] Current items count:', items.length);
-    console.log('[Pipeline] Current items:', items);
-    setIsSeeding(true);
-    toast.loading('🌱 Generating sample projects...', { id: 'seed-data' });
-    
-    try {
-      // Create inline demo data (no server call - instant load!)
-      const demoItems: PipelineItem[] = [
-        (() => {
-          const demoQuote = generateDemoQuote({
-            id: 'demo-1',
-            title: 'Kitchen Remodel - Modern Update',
-            description: 'Complete kitchen renovation with custom cabinets, countertops, and appliances',
-            serviceType: 'Kitchen Renovation',
-            estimatedValue: 45000
-          });
-          return {
-            id: 'demo-1',
-            itemNumber: 'WR-2026-001',
-            stage: 'quote-draft' as PipelineStage,
-            title: 'Kitchen Remodel - Modern Update',
-            description: 'Complete kitchen renovation with custom cabinets, countertops, and appliances',
-            customerName: 'Sarah Johnson',
-            customerEmail: 'sarah.j@example.com',
-            customerPhone: '(555) 123-4567',
-            location: '123 Oak Street, Boston MA',
-            serviceType: 'Kitchen Renovation',
-            estimatedValue: 45000,
-            priority: 'high' as 'low' | 'medium' | 'high' | 'urgent',
-            createdDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-            lastModified: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-            submission: {
-              photos: [
-                { id: 'p1', url: 'https://images.unsplash.com/photo-1556912173-46c336c7fd55?w=800', filename: 'kitchen-before-1.jpg', uploadedAt: new Date().toISOString() },
-                { id: 'p2', url: 'https://images.unsplash.com/photo-1556912998-c57cc6b7e50f?w=800', filename: 'kitchen-before-2.jpg', uploadedAt: new Date().toISOString() }
-              ],
-              videos: [],
-              plans: [],
-              documents: []
-            },
-            quote: {
-              id: 'quote-1',
-              quoteNumber: 'QT-20260523-0001',
-              materials: demoQuote.materials,
-              labor: demoQuote.labor,
-              processSteps: demoQuote.processSteps,
-              materialsSubtotal: demoQuote.materialsSubtotal,
-              laborSubtotal: demoQuote.laborSubtotal,
-              taxRate: demoQuote.taxRate,
-              taxAmount: demoQuote.taxAmount,
-              totalCost: demoQuote.totalCost,
-              generatedAt: new Date().toISOString(),
-              approvalStatus: 'pending' as const,
-            }
-          };
-        })(),
-        (() => {
-          const demoQuote = generateDemoQuote({
-            id: 'demo-2',
-            title: 'HVAC System Installation',
-            description: 'Install new 5-ton heat pump system with ductwork',
-            serviceType: 'HVAC Installation',
-            estimatedValue: 28000
-          });
-          return {
-            id: 'demo-2',
-            itemNumber: 'WR-2026-002',
-            stage: 'quote-sent' as PipelineStage,
-            title: 'HVAC System Installation',
-            description: 'Install new 5-ton heat pump system with ductwork',
-            customerName: 'Michael Chen',
-            customerEmail: 'michael.c@example.com',
-            customerPhone: '(555) 234-5678',
-            location: '456 Maple Ave, Cambridge MA',
-            serviceType: 'HVAC Installation',
-            estimatedValue: 28000,
-            priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
-            createdDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-            lastModified: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-            submission: {
-              photos: [{ id: 'p3', url: 'https://images.unsplash.com/photo-1581094271901-8022df4466f9?w=800', filename: 'hvac-current.jpg', uploadedAt: new Date().toISOString() }],
-              videos: [],
-              plans: [],
-              documents: []
-            },
-            quote: {
-              id: 'quote-2',
-              quoteNumber: 'QT-20260523-0002',
-              materials: demoQuote.materials,
-              labor: demoQuote.labor,
-              processSteps: demoQuote.processSteps,
-              materialsSubtotal: demoQuote.materialsSubtotal,
-              laborSubtotal: demoQuote.laborSubtotal,
-              taxRate: demoQuote.taxRate,
-              taxAmount: demoQuote.taxAmount,
-              totalCost: demoQuote.totalCost,
-              generatedAt: new Date().toISOString(),
-              approvalStatus: 'pending' as const,
-            }
-          };
-        })(),
-        (() => {
-          const demoQuote = generateDemoQuote({
-            id: 'demo-3',
-            title: 'Deck Construction - Backyard Expansion',
-            description: '500 sq ft composite deck with railing and stairs',
-            serviceType: 'Deck Installation',
-            estimatedValue: 18000
-          });
-          return {
-            id: 'demo-3',
-            itemNumber: 'WR-2026-003',
-            stage: 'contract' as PipelineStage,
-            title: 'Deck Construction - Backyard Expansion',
-            description: '500 sq ft composite deck with railing and stairs',
-            customerName: 'Emily Rodriguez',
-            customerEmail: 'emily.r@example.com',
-            customerPhone: '(555) 345-6789',
-            serviceType: 'Deck Installation',
-            estimatedValue: 18000,
-            priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
-            createdDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-            lastModified: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-            submission: {
-              photos: [{ id: 'p6', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800', filename: 'backyard-before.jpg', uploadedAt: new Date().toISOString() }],
-              videos: [],
-              plans: [],
-              documents: []
-            },
-            quote: {
-              id: 'quote-3',
-              quoteNumber: 'QT-20260523-0003',
-              materials: demoQuote.materials,
-              labor: demoQuote.labor,
-              processSteps: demoQuote.processSteps,
-              materialsSubtotal: demoQuote.materialsSubtotal,
-              laborSubtotal: demoQuote.laborSubtotal,
-              taxRate: demoQuote.taxRate,
-              taxAmount: demoQuote.taxAmount,
-              totalCost: demoQuote.totalCost,
-              generatedAt: new Date().toISOString(),
-              approvalStatus: 'approved' as const,
-            },
-            contract: {
-              id: 'contract-3',
-              contractNumber: 'CT-20260523-0003',
-              contractType: 'standard' as 'standard' | 'soroban-smart-contract',
-              signedDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-              signedBy: 'Emily Rodriguez',
-              startDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              endDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              terms: 'Standard terms and conditions apply.',
-              status: 'signed' as 'draft' | 'sent' | 'awaiting-signature' | 'signed' | 'active' | 'completed'
-            }
-          };
-        })(),
-        (() => {
-          const demoQuote = generateDemoQuote({
-            id: 'demo-4',
-            title: 'Roof Repair - Storm Damage',
-            description: 'Emergency roof repair needed - shingles damaged in storm',
-            serviceType: 'Roofing',
-            estimatedValue: 12500
-          });
-          return {
-            id: 'demo-4',
-            itemNumber: 'WR-2026-004',
-            stage: 'invoice' as PipelineStage,
-            title: 'Roof Repair - Storm Damage',
-            description: 'Emergency roof repair needed - shingles damaged in storm',
-            customerName: 'David Thompson',
-            customerEmail: 'david.t@example.com',
-            customerPhone: '(555) 456-7890',
-            serviceType: 'Roofing',
-            estimatedValue: 12500,
-            priority: 'high' as 'low' | 'medium' | 'high' | 'urgent',
-            createdDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-            lastModified: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-            submission: {
-              photos: [
-                { id: 'p4', url: 'https://images.unsplash.com/photo-1632778149955-e80f8ceca2e8?w=800', filename: 'roof-damage-1.jpg', uploadedAt: new Date().toISOString() },
-                { id: 'p5', url: 'https://images.unsplash.com/photo-1565008576549-57569a49371d?w=800', filename: 'roof-damage-2.jpg', uploadedAt: new Date().toISOString() }
-              ],
-              videos: [],
-              plans: [],
-              documents: []
-            },
-            quote: {
-              id: 'quote-4',
-              quoteNumber: 'QT-20260523-0004',
-              materials: demoQuote.materials,
-              labor: demoQuote.labor,
-              processSteps: demoQuote.processSteps,
-              materialsSubtotal: demoQuote.materialsSubtotal,
-              laborSubtotal: demoQuote.laborSubtotal,
-              taxRate: demoQuote.taxRate,
-              taxAmount: demoQuote.taxAmount,
-              totalCost: demoQuote.totalCost,
-              generatedAt: new Date().toISOString(),
-              approvalStatus: 'approved' as const,
-            },
-            contract: {
-              id: 'contract-4',
-              contractNumber: 'CT-20260523-0004',
-              contractType: 'standard' as 'standard' | 'soroban-smart-contract',
-              signedDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-              signedBy: 'David Thompson',
-              startDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              endDate: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              terms: 'Standard terms and conditions apply.',
-              status: 'completed' as 'draft' | 'sent' | 'awaiting-signature' | 'signed' | 'active' | 'completed'
-            },
-            invoice: {
-              id: 'invoice-4',
-              invoiceNumber: 'INV-2026-004',
-              dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-              paymentStatus: 'pending' as 'pending' | 'partial' | 'paid',
-              amountPaid: 0
-            }
-          };
-        })(),
-        (() => {
-          const demoQuote = generateDemoQuote({
-            id: 'demo-5',
-            title: 'Painting - Exterior House',
-            description: 'Full exterior painting - 2 story home',
-            serviceType: 'Painting',
-            estimatedValue: 8500
-          });
-          return {
-            id: 'demo-5',
-            itemNumber: 'WR-2026-005',
-            stage: 'payment' as PipelineStage,
-            title: 'Painting - Exterior House',
-            description: 'Full exterior painting - 2 story home',
-            customerName: 'Lisa Martinez',
-            customerEmail: 'lisa.m@example.com',
-            customerPhone: '(555) 567-8901',
-            serviceType: 'Painting',
-            estimatedValue: 8500,
-            priority: 'low' as 'low' | 'medium' | 'high' | 'urgent',
-            createdDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-            lastModified: new Date().toISOString(),
-            submission: {
-              photos: [{ id: 'p7', url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800', filename: 'house-exterior.jpg', uploadedAt: new Date().toISOString() }],
-              videos: [],
-              plans: [],
-              documents: []
-            },
-            quote: {
-              id: 'quote-5',
-              quoteNumber: 'QT-20260523-0005',
-              materials: demoQuote.materials,
-              labor: demoQuote.labor,
-              processSteps: demoQuote.processSteps,
-              materialsSubtotal: demoQuote.materialsSubtotal,
-              laborSubtotal: demoQuote.laborSubtotal,
-              taxRate: demoQuote.taxRate,
-              taxAmount: demoQuote.taxAmount,
-              totalCost: demoQuote.totalCost,
-              generatedAt: new Date().toISOString(),
-              approvalStatus: 'approved' as const,
-            },
-            contract: {
-              id: 'contract-5',
-              contractNumber: 'CT-20260523-0005',
-              contractType: 'standard' as 'standard' | 'soroban-smart-contract',
-              signedDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
-              signedBy: 'Lisa Martinez',
-              startDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              endDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              terms: 'Standard terms and conditions apply.',
-              status: 'completed' as 'draft' | 'sent' | 'awaiting-signature' | 'signed' | 'active' | 'completed'
-            },
-            invoice: {
-              id: 'invoice-5',
-              invoiceNumber: 'INV-2026-005',
-              dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-              paidDate: new Date().toISOString(),
-              paymentStatus: 'paid' as 'pending' | 'partial' | 'paid',
-              amountPaid: demoQuote.totalCost
-            }
-          };
-        })()
-      ];
-
-      console.log('[Pipeline] ✅ Demo items created:', demoItems.length, 'items');
-      console.log('[Pipeline] Demo items data:', demoItems);
-      
-      // Store in localStorage for persistence across refreshes
-      localStorage.setItem('pipeline-items-demo', JSON.stringify(demoItems));
-      console.log('[Pipeline] ✅ Saved to localStorage');
-      
-      // Update state immediately - no server needed!
-      console.log('[Pipeline] About to call setItems with:', demoItems);
-      setItems(demoItems);
-      console.log('[Pipeline] ✅ setItems called - state should update on next render');
-      
-      toast.success(`✅ Created ${demoItems.length} sample projects!`, { id: 'seed-data' });
-      setIsSeeding(false);
-      return;
-      
-      // Reload items from backend
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/pipeline/items`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.items && Array.isArray(data.items)) {
-          const loadedItems = data.items.map((item: any) => {
-            return {
-              id: item.id,
-              itemNumber: item.itemNumber || item.id.toUpperCase(),
-              stage: item.stage || 'quote-draft',
-              customerName: item.customer || item.customerName,
-              customerEmail: item.contact?.email || item.customerEmail || '',
-              customerPhone: item.contact?.phone || item.customerPhone,
-              location: item.location,
-              serviceType: item.serviceType,
-              title: item.title,
-              description: item.description || '',
-              estimatedValue: item.estimatedValue || 0,
-              priority: item.priority || 'medium',
-              createdDate: new Date(item.createdAt || item.createdDate).toLocaleDateString(),
-              lastModified: new Date(item.updatedAt || item.lastModified).toLocaleDateString(),
-              assignedTo: item.assignedTo,
-              submission: item.media ? {
-                photos: item.media.photos?.map((url: string | any, idx: number) => (
-                  typeof url === 'string' ? {
-                    id: `photo-${idx}`,
-                    url,
-                    filename: `photo-${idx}.jpg`,
-                    uploadedAt: item.createdAt
-                  } : url
-                )) || [],
-                videos: item.media.videos?.map((url: string | any, idx: number) => (
-                  typeof url === 'string' ? {
-                    id: `video-${idx}`,
-                    url,
-                    filename: `video-${idx}.mp4`,
-                    uploadedAt: item.createdAt
-                  } : url
-                )) || [],
-                documents: item.media.documents || [],
-                plans: item.media.blueprints?.map((url: string | any, idx: number) => (
-                  typeof url === 'string' ? {
-                    id: `blueprint-${idx}`,
-                    url,
-                    filename: `blueprint-${idx}.pdf`,
-                    uploadedAt: item.createdAt
-                  } : url
-                )) || item.media.plans || [],
-                blueprintAnalysis: item.media.blueprintAnalysis
-              } : undefined,
-              quote: item.quote,
-              contract: item.contract,
-              invoice: item.invoice
-            } as PipelineItem;
-          });
-          
-          setItems(loadedItems);
-        }
-      }
-      
-      toast.success(`✅ Created ${count} sample projects!`, { 
-        id: 'seed-data',
-        description: 'Projects with contracts and payment schedules added to pipeline'
-      });
-    } catch (error: any) {
-      console.error('Failed to seed data:', error);
-      toast.error('Failed to generate sample data', { 
-        id: 'seed-data',
-        description: error.message || 'Server may not be deployed'
-      });
-    } finally {
-      setIsSeeding(false);
-    }
+    toast.error('Sample pipeline data is disabled. Create or review a real work request instead.');
   };
 
   // Define pipeline stages
@@ -1433,27 +900,6 @@ export default function UnifiedProjectPipeline() {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Load Test Data Button */}
-            <button
-              onClick={async () => {
-                try {
-                  toast.loading('Loading test data...');
-                  const count = await seedPipelineData();
-                  toast.dismiss();
-                  toast.success(`Loaded ${count} test projects!`);
-                  setTimeout(() => window.location.reload(), 1000);
-                } catch (error) {
-                  toast.dismiss();
-                  toast.error('Failed to load test data');
-                  console.error('Seed error:', error);
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600/10 to-emerald-600/10 border-2 border-green-500/30 hover:border-green-500 text-green-400 hover:text-white font-semibold rounded-lg transition-all hover:shadow-lg hover:shadow-green-500/20"
-            >
-              <Database className="w-5 h-5" />
-              Load Test Data
-            </button>
-
             {/* Refresh Button */}
             <button
               onClick={() => window.location.reload()}
@@ -1599,29 +1045,9 @@ export default function UnifiedProjectPipeline() {
             </div>
             <h2 className="text-3xl font-bold mb-3">No Projects Yet</h2>
             <p className="text-gray-400 mb-6 leading-relaxed">
-              Your unified project pipeline is empty. Get started by loading test projects to see how it works.
+              Your pipeline will populate when a customer submits a work request. Create a real work request or review incoming intake records from the Command Center.
             </p>
-            <div className="flex items-center justify-center gap-4">
-              <button
-                onClick={async () => {
-                  try {
-                    toast.loading('Loading test data...');
-                    const count = await seedPipelineData();
-                    toast.dismiss();
-                    toast.success(`Loaded ${count} test projects! Refreshing...`);
-                    setTimeout(() => window.location.reload(), 1500);
-                  } catch (error) {
-                    toast.dismiss();
-                    toast.error('Failed to load test data');
-                    console.error('Seed error:', error);
-                  }
-                }}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-green-500/50"
-              >
-                <Database className="w-5 h-5" />
-                Load Test Projects
-              </button>
-            </div>
+
           </div>
         </div>
       ) : (
@@ -1978,15 +1404,12 @@ export default function UnifiedProjectPipeline() {
             setProjectDetailsInitialTab('overview'); // Reset to overview for next time
           }}
           onUpdate={(updatedItem) => {
-            setItems(items.map(i => i.id === updatedItem.id ? updatedItem : i));
-            toast.success('Project updated successfully!');
+            void saveItemToBackend(updatedItem).then((saved) => { setItems(items.map(i => i.id === saved.id ? saved : i)); toast.success('Project updated successfully!'); }).catch((error: any) => toast.error(error.message || 'Unable to save project update.'));
           }}
           onStageChange={(newStage) => {
             if (selectedItem) {
               const updatedItem = { ...selectedItem, stage: newStage as PipelineStage };
-              setItems(items.map(i => i.id === updatedItem.id ? updatedItem : i));
-              setSelectedItem(updatedItem);
-              toast.success(`Project moved to ${newStage}!`);
+              void saveItemToBackend(updatedItem).then((saved) => { setItems(items.map(i => i.id === saved.id ? saved : i)); setSelectedItem(saved); toast.success(`Project moved to ${newStage}!`); }).catch((error: any) => toast.error(error.message || 'Unable to move project.'));
             }
           }}
           onOpenQuoteEditor={(item) => {

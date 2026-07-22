@@ -29,6 +29,7 @@ const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortal
 const AdminAlerts = lazy(() => import("./pages/AdminAlerts"));
 const CustomersNew = lazy(() => import("./pages/CustomersNew"));
 const InvoicesNew = lazy(() => import("./pages/InvoicesNew"));
+const PaymentComplete = lazy(() => import("./pages/PaymentComplete"));
 const ProjectsNew = lazy(() => import("./pages/ProjectsNew"));
 const DesignStudioPro = lazy(() => import("./pages/DesignStudioPro"));
 const StructuralDesign = lazy(() => import("./pages/StructuralDesign"));
@@ -224,6 +225,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "customers":    CustomersNew,
   "invoices":     InvoicesNew,
   "invoices-new": InvoicesNew,
+  "payment-complete": PaymentComplete,
   "projects":     ProjectsNew,
   "projects-new": ProjectsNew,
   "payroll":      HREmployeeHub,

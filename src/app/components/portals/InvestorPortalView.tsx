@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
@@ -600,7 +601,8 @@ export default function InvestorPortalView() {
     { id: 'plan-tracker', label: 'Fee Tracker', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
-    { id: 'referrals', label: 'Referral Rewards', icon: Award }
+    { id: 'referrals', label: 'Referral Rewards', icon: Award },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   const handleOpenOpportunity = (opportunity: any) => {
@@ -1154,6 +1156,8 @@ export default function InvestorPortalView() {
       {/* Content */}
       <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
       <div className="px-6 py-6 space-y-6" style={{ maxWidth: '80rem', width: '100%', display: 'block' }}>
+        {activeTab === 'guide' && <PortalFeatureGuide portal="investor" />}
+
         {activeTab === 'dashboard' && (
           <>
             {/* Stats Grid */}

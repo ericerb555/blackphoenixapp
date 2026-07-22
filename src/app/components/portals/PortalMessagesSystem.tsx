@@ -95,8 +95,8 @@ export function MessagesTabBadge({ unread }: { unread: number }) {
 }
 
 // ── Full Messages Tab ─────────────────────────────────────────────────────────
-interface TabProps { userId: string; userEmail: string; userName?: string; onTabOpen?: () => void; }
-export function MessagesTab({ userId, userEmail, userName, onTabOpen }: TabProps) {
+interface TabProps { userId: string; userEmail: string; userName?: string; senderRole?: string; onTabOpen?: () => void; }
+export function MessagesTab({ userId, userEmail, userName, senderRole = 'customer', onTabOpen }: TabProps) {
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -138,7 +138,7 @@ export function MessagesTab({ userId, userEmail, userName, onTabOpen }: TabProps
       const token = await getToken();
       const res = await window.fetch(`${SERVER}/messaging/messages`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: selectedConv.id, senderId: userId || userEmail, senderName: userName || userEmail?.split('@')[0] || 'User', senderRole: 'customer', content: reply.trim() }),
+        body: JSON.stringify({ conversationId: selectedConv.id, senderId: userId || userEmail, senderName: userName || userEmail?.split('@')[0] || 'User', senderRole, content: reply.trim() }),
       });
       if (res.ok) { const d = await res.json(); setMessages(p => [...p, d.message || d]); setReply(''); }
     } catch {}

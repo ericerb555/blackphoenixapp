@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { X, Send, DollarSign, Calendar, Clock, Package, FileText } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 interface SendOfferModalProps {
   workRequest: any;
@@ -38,7 +39,7 @@ export default function SendOfferModal({ workRequest, propertyType, onClose, onS
       const response = await fetch(`${API_BASE}/offers/send`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({

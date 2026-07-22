@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
@@ -56,7 +57,7 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'revenue-ai' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'revenue-ai' | 'messages' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -71,6 +72,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
 ];
 
 const CONDO_MGR_OPPS = [
@@ -204,6 +206,8 @@ export default function CondoManagerPortalView() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        {tab === 'guide' && <PortalFeatureGuide portal="condo_manager" />}
 
         {tab === 'dashboard' && (
           <div className="space-y-6">

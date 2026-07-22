@@ -9,10 +9,11 @@ import {
   CheckCircle, Phone, Mail, ArrowRight, AlertCircle, Play
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+async function adminHeaders() { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage live chat.'); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }; }
 
 interface ChatConfig {
   enabled: boolean;
@@ -64,7 +65,7 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/chat/config`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/chat/config`);
         const json = await res.json();
         if (json.success && json.config) {
           setConfig(v => ({ ...v, ...json.config }));
@@ -78,7 +79,7 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/chat/leads`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/chat/leads`, { headers: await adminHeaders() });
         const json = await res.json();
         if (json.success) setLeads(json.leads);
         else console.error('Failed to load chat leads:', json.error);
@@ -94,7 +95,7 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
     setHasChanges(false);
     // …and persist to the server so it's shared across devices/admins.
     try {
-      const res = await fetch(`${SERVER}/chat/config`, { method: 'POST', headers: authHeaders, body: JSON.stringify(config) });
+      const res = await fetch(`${SERVER}/chat/config`, { method: 'POST', headers: await adminHeaders(), body: JSON.stringify(config) });
       const json = await res.json();
       if (json.success) toast.success('Chat widget settings saved');
       else toast.error(json.error || 'Save failed');
@@ -124,7 +125,7 @@ export default function LiveChatManager({ onNavigate }: { onNavigate?: (page: st
     localStorage.removeItem('chat_leads');
     setLeads([]);
     try {
-      await fetch(`${SERVER}/chat/leads`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/chat/leads`, { method: 'DELETE', headers: await adminHeaders() });
       toast.success('Leads cleared');
     } catch (err) { console.error('Failed to clear chat leads:', err); toast.error('Network error clearing leads'); }
   }

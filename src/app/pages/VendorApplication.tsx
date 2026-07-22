@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Store, Building2, Mail, Phone, MapPin, User, Globe, FileText,
   ArrowLeft, CheckCircle, AlertCircle, Code, Key, Link as LinkIcon,
@@ -78,6 +78,22 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
     apiNotes: ''
   });
 
+  useEffect(() => {
+    const retryPending = async () => {
+      const pending = JSON.parse(localStorage.getItem('vendor_applications_pending') || '[]');
+      if (!pending.length) return;
+      const remaining: any[] = [];
+      for (const application of pending) {
+        try {
+          const response = await fetch(`${API_BASE}/applications`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, body: JSON.stringify(application), signal: AbortSignal.timeout(12000) });
+          if (!response.ok) remaining.push(application);
+        } catch { remaining.push(application); }
+      }
+      if (remaining.length) localStorage.setItem('vendor_applications_pending', JSON.stringify(remaining)); else localStorage.removeItem('vendor_applications_pending');
+    };
+    void retryPending(); window.addEventListener('online', retryPending); return () => window.removeEventListener('online', retryPending);
+  }, []);
+
   const businessTypes = [
     { value: 'supplier', label: 'Supplier/Wholesaler' },
     { value: 'manufacturer', label: 'Manufacturer' },
@@ -147,7 +163,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
       api_integration: formData.hasApiIntegration ? {
         enabled: true,
         endpoint: formData.apiEndpoint,
-        api_key: formData.apiKey,
+        credential_status: formData.apiKey ? 'vendor will provide credentials securely after approval' : 'no credentials supplied',
         documentation_url: formData.apiDocumentationUrl,
         webhook_url: formData.webhookUrl,
         notes: formData.apiNotes,
@@ -575,7 +591,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
                       <Key className="w-4 h-4 inline mr-2" />
-                      API Key / Authentication Token
+                      API credentials (do not enter a secret here)
                     </label>
                     <input
                       type="password"

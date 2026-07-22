@@ -52,6 +52,7 @@ import DataBackupRestore from '../components/DataBackupRestore';
 import DatabaseMigrationTool from '../components/DatabaseMigrationTool';
 import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
+import { RoleSwitcher } from '../components/RoleSwitcher';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -92,10 +93,18 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const [showFreePortalInvite, setShowFreePortalInvite] = useState(false);
   const [sendingFreePortalInvite, setSendingFreePortalInvite] = useState(false);
   const [freePortalInvite, setFreePortalInvite] = useState({ name: '', email: '', phone: '', portalType: 'customer' });
+  const [commandSummary, setCommandSummary] = useState<any>({ totalRevenue: 0, openInvoiceTotal: 0, customersCount: 0, activeJobsCount: 0, teamCount: 0, pendingApplications: 0, pendingWorkRequests: 0, chartData: [] });
 
   // SIMPLE STORE: Get companies directly from localStorage
   const [userCompanies, setUserCompanies] = useState<CompanyStore.Company[]>([]);
   const [activeCompany, setActiveCompany] = useState<CompanyStore.Company | null>(null);
+
+  useEffect(() => {
+    const loadCommandSummary = async () => {
+      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}`, Accept: 'application/json' }, cache: 'no-store' }); const body = await response.text(); let result: any; try { result = JSON.parse(body); } catch { const first = body.indexOf('{'); const last = body.lastIndexOf('}'); if (first >= 0 && last > first) { try { result = JSON.parse(body.slice(first, last + 1)); console.warn('[OwnersDashboard] Recovered malformed Command Center response.'); } catch { throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`); } } else throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`); } if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center summary.'); setCommandSummary(result.summary); } catch (error) { console.error('[OwnersDashboard] Command Center summary unavailable:', error); }
+    };
+    loadCommandSummary(); const interval = setInterval(loadCommandSummary, 60000); return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -137,35 +146,35 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const executiveMetrics = [
     {
       label: 'Total Revenue',
-      value: '$1,250,000',
-      change: '+21.7%',
+      value: `$${Number(commandSummary.totalRevenue || 0).toLocaleString()}`,
+      change: 'Verified payments',
       trend: 'up',
       icon: DollarSign,
       color: 'from-green-500/20 to-emerald-600/20',
       iconColor: 'text-green-500'
     },
     {
-      label: 'Total Net Profit',
-      value: '$612,000',
-      change: '+19.4%',
+      label: 'Open Invoice Balance',
+      value: `$${Number(commandSummary.openInvoiceTotal || 0).toLocaleString()}`,
+      change: 'Awaiting payment',
       trend: 'up',
       icon: TrendingUp,
       color: 'from-blue-500/20 to-cyan-600/20',
       iconColor: 'text-blue-500'
     },
     {
-      label: 'Total Employees',
-      value: '97',
-      change: '+8 this quarter',
+      label: 'Active Team',
+      value: String(commandSummary.teamCount || 0),
+      change: 'Approved staff',
       trend: 'up',
       icon: Users,
       color: 'from-purple-500/20 to-pink-600/20',
       iconColor: 'text-purple-500'
     },
     {
-      label: 'Active Projects',
-      value: '213',
-      change: '+45 this month',
+      label: 'Active Work',
+      value: String(commandSummary.activeJobsCount || 0),
+      change: `${Number(commandSummary.pendingWorkRequests || 0)} awaiting review`,
       trend: 'up',
       icon: Briefcase,
       color: 'from-orange-500/20 to-red-600/20',
@@ -174,11 +183,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   ];
 
   // Revenue trend data (consolidated)
-  const revenueData = [
-    { id: 'jan-2026', month: 'Jan', revenue: 1245000, profit: 587000, expenses: 658000 },
-    { id: 'feb-2026', month: 'Feb', revenue: 1310000, profit: 625000, expenses: 685000 },
-    { id: 'mar-2026', month: 'Mar', revenue: 1456000, profit: 712000, expenses: 744000 },
-  ];
+  const revenueData = (commandSummary.chartData || []).map((item: any) => ({ id: item.month, month: item.month, revenue: Number(item.revenue || 0), profit: 0, expenses: 0 }));
 
   // Quick Action Modules - ALL MODULES
   const moduleCategories = [
@@ -409,7 +414,8 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <RoleSwitcher />
               <button
                 onClick={() => handleNavigate('master-admin-dashboard')}
                 className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 border border-red-500/50 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition-all flex items-center gap-2 shadow-lg shadow-red-500/30 font-semibold"

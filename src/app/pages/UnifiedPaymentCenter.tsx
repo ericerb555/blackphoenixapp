@@ -54,17 +54,15 @@ import { toast } from 'sonner@2.0.3';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import UnifiedPaymentService from '../lib/services/unifiedPaymentService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const PC_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const pcAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+async function paymentCenterHeaders() { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage payment gateways.'); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }; }
 
 // Persist only non-secret gateway state to the server; API keys/secrets stay local.
-function pushGatewayState(configs: Record<string, any>) {
-  fetch(`${PC_SERVER}/payment-gateways`, {
-    method: 'POST',
-    headers: pcAuthHeaders,
-    body: JSON.stringify({ configs }),
-  }).catch((err) => console.error('[UnifiedPaymentCenter] gateway state sync failed:', err));
+async function pushGatewayState(configs: Record<string, any>) {
+  const response = await fetch(`${PC_SERVER}/payment-gateways`, { method: 'POST', headers: await paymentCenterHeaders(), body: JSON.stringify({ configs }) });
+  const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not save gateway configuration.');
 }
 import type {
   UnifiedPayment,
@@ -153,6 +151,9 @@ export default function UnifiedPaymentCenter() {
   const [filterStatus, setFilterStatus] = useState<PaymentStatus | 'all'>('all');
   const [gatewayConfigs, setGatewayConfigs] = useState<Record<string, GatewayConfig>>({});
   const [editingGateway, setEditingGateway] = useState<PaymentGateway | null>(null);
+  const [stellarWallet, setStellarWallet] = useState({ enabled: false, network: 'public', publicKey: '', assetCode: 'XLM', assetIssuer: '', memoInstructions: '' });
+  const [stellarSaving, setStellarSaving] = useState(false);
+  const [stellarCanManage, setStellarCanManage] = useState(false);
   const [gatewayFormData, setGatewayFormData] = useState({
     api_key: '',
     api_secret: '',
@@ -181,12 +182,38 @@ export default function UnifiedPaymentCenter() {
 
       // Load gateway configs
       loadGatewayConfigs();
+      loadStellarWallet();
     } catch (error) {
       console.error('Error loading payment data:', error);
       toast.error('Failed to load payment data');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const stellarHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in as the platform owner to manage the Stellar wallet.');
+    return { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
+  };
+
+  const loadStellarWallet = async () => {
+    try {
+      const response = await fetch(`${PC_SERVER}/payment-wallets/stellar`, { headers: await stellarHeaders() });
+      const result = await response.json();
+      if (response.ok && result.success) { setStellarWallet(result.wallet); setStellarCanManage(Boolean(result.canManage)); }
+    } catch (error) { console.warn('Stellar wallet is not available for this account yet.', error); }
+  };
+
+  const saveStellarWallet = async () => {
+    try {
+      setStellarSaving(true);
+      const response = await fetch(`${PC_SERVER}/payment-wallets/stellar`, { method: 'PUT', headers: await stellarHeaders(), body: JSON.stringify(stellarWallet) });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not save Stellar wallet.');
+      setStellarWallet(result.wallet); toast.success('Stellar receiving wallet saved. No secret key was stored.');
+    } catch (error: any) { toast.error(error?.message || 'Could not save Stellar wallet.'); }
+    finally { setStellarSaving(false); }
   };
 
   const loadGatewayConfigs = async () => {
@@ -209,7 +236,7 @@ export default function UnifiedPaymentCenter() {
     // Server holds the authoritative non-secret state (active/test mode). Merge it
     // over the local config so enable/disable persists and is shared across devices.
     try {
-      const res = await fetch(`${PC_SERVER}/payment-gateways`, { headers: pcAuthHeaders });
+      const res = await fetch(`${PC_SERVER}/payment-gateways`, { headers: await paymentCenterHeaders() });
       const json = await res.json();
       if (json.success && json.configs) {
         for (const [id, remote] of Object.entries<any>(json.configs)) {
@@ -246,7 +273,7 @@ export default function UnifiedPaymentCenter() {
     localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(config));
     const next = { ...gatewayConfigs, [gateway]: config };
     setGatewayConfigs(next);
-    pushGatewayState(next);
+    pushGatewayState(next).catch((err) => { console.error('[UnifiedPaymentCenter] gateway sync failed:', err); toast.error(err.message || 'Could not sync gateway settings'); });
     setEditingGateway(null);
     toast.success(`${gateway} configuration saved`);
   };
@@ -257,7 +284,7 @@ export default function UnifiedPaymentCenter() {
     localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(updated));
     const next = { ...gatewayConfigs, [gateway]: updated };
     setGatewayConfigs(next);
-    pushGatewayState(next);
+    pushGatewayState(next).catch((err) => { console.error('[UnifiedPaymentCenter] gateway sync failed:', err); toast.error(err.message || 'Could not sync gateway settings'); });
     toast.success(`${gateway} ${updated.is_active ? 'enabled' : 'disabled'}`);
   };
 
@@ -550,6 +577,11 @@ export default function UnifiedPaymentCenter() {
         <div className="mb-6">
           <h3 className="text-xl font-bold text-white mb-2">Payment Gateway Configuration</h3>
           <p className="text-gray-400">Manage and configure payment processors for your business</p>
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h4 className="flex items-center gap-2 text-lg font-bold text-white"><Wallet className="h-5 w-5 text-cyan-300" /> Stellar receiving wallet</h4><p className="mt-1 max-w-2xl text-sm text-gray-400">Receive-only configuration for invoice payment instructions. Enter a public Stellar address only—never a secret key. Sending payouts will require a separate approval-based wallet integration.</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${stellarWallet.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-gray-400'}`}>{stellarWallet.enabled ? 'Receiving enabled' : 'Not enabled'}</span></div>
+          {stellarCanManage ? <div className="grid gap-3 md:grid-cols-2"><label className="flex items-center gap-2 text-sm font-semibold text-gray-200 md:col-span-2"><input type="checkbox" checked={stellarWallet.enabled} onChange={(e) => setStellarWallet({ ...stellarWallet, enabled: e.target.checked })} className="h-4 w-4 accent-cyan-500" /> Enable Stellar payment instructions</label><select value={stellarWallet.network} onChange={(e) => setStellarWallet({ ...stellarWallet, network: e.target.value })} className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white"><option value="public">Stellar Public Network</option><option value="testnet">Stellar Testnet</option></select><input value={stellarWallet.publicKey} onChange={(e) => setStellarWallet({ ...stellarWallet, publicKey: e.target.value.trim() })} placeholder="Public wallet address (starts with G)" className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><input value={stellarWallet.assetCode} onChange={(e) => setStellarWallet({ ...stellarWallet, assetCode: e.target.value.toUpperCase() })} placeholder="Asset code, e.g. XLM or USDC" className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><input value={stellarWallet.assetIssuer} onChange={(e) => setStellarWallet({ ...stellarWallet, assetIssuer: e.target.value.trim() })} placeholder="Asset issuer (required except XLM)" className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><textarea value={stellarWallet.memoInstructions} onChange={(e) => setStellarWallet({ ...stellarWallet, memoInstructions: e.target.value })} placeholder="Optional memo instructions" className="min-h-20 rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600 md:col-span-2" /><div className="md:col-span-2"><button onClick={saveStellarWallet} disabled={stellarSaving} className="rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-cyan-500 disabled:opacity-50">{stellarSaving ? 'Saving…' : 'Save Stellar receiving wallet'}</button></div></div> : <p className="text-sm text-gray-400">Only the Platform Owner can configure the company Stellar receiving wallet.</p>}
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">

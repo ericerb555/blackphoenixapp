@@ -23,6 +23,7 @@ import aiFloorplanRouter from "../server/ai-floorplan.tsx";
 import maintenanceConfigRouter from "../server/maintenance-config.tsx";
 import { productsRouter } from "../server/ecommerce-products.tsx";
 import { cartRouter } from "../server/ecommerce-cart.tsx";
+import { ordersRouter } from "../server/ecommerce-orders.tsx";
 import crmContentRouter from "../server/crm-content.tsx";
 import growthMarketingRouter from "../server/growth-marketing.tsx";
 import { marketingAssetsRouter } from "../server/marketing-assets.tsx";
@@ -35,6 +36,7 @@ import { companyConfigRouter } from "../server/company-config.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "../server/dropshipper-config.tsx";
 import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook } from "../server/dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "../server/dropshipper-catalog.tsx";
+import zendropRouter from "../server/zendrop.tsx";
 
 const app = new Hono();
 
@@ -58,6 +60,46 @@ app.use("/*", cors({
 }));
 
 app.use('*', logger(console.log));
+app.use('/make-server-57095a78/pipeline/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  await next();
+});
+
+app.use('/make-server-57095a78/orders/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required to access order operations.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  await next();
+});
+app.use('/make-server-57095a78/vendor-orders/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  await next();
+});
+app.use('/make-server-57095a78/admin/orders/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  await next();
+});
+app.use('/make-server-57095a78/products/*', async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'OPTIONS') return next();
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required to change products.' }, 403);
+  await next();
+});
+
+// Zendrop credentials, configuration, and supplier inventory are restricted to
+// signed-in owners/admins. The storefront only receives the already-published
+// canonical product records through its public /products feed.
+app.use('/make-server-57095a78/zendrop/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required to manage Zendrop.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required to manage Zendrop.' }, 403);
+  await next();
+});
+
 
 // Entitlement records are financial/account data. Keep the shared read model
 // available to the signed-in plan owner, while reserving cross-account reads
@@ -100,6 +142,8 @@ app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-57095a78", productsRouter);
 app.route("/make-server-57095a78", cartRouter);
+app.route("/make-server-57095a78", ordersRouter);
+app.route("/", zendropRouter);
 app.route("/", crmContentRouter);
 app.route("/", growthMarketingRouter);
 app.route("/make-server-57095a78", marketingAssetsRouter);
@@ -927,9 +971,10 @@ function intakePortalType(application: any) {
   return 'customer';
 }
 
-function intakeTasks(portalType: string) {
+function intakeTasks(portalType: string, application?: any) {
   const base = [{ id: 'identity', label: 'Government-issued photo ID', required: true, status: 'pending' }];
-  if (['employee', 'subcontractor', 'vendor'].includes(portalType)) base.push({ id: 'w9_or_tax', label: portalType === 'employee' ? 'Employment tax forms' : 'W-9 / tax documentation', required: true, status: 'pending' });
+  const contractorRequest = application?.taxClassification?.requestedPath === 'independent_contractor_1099';
+  if (['employee', 'subcontractor', 'vendor'].includes(portalType)) base.push({ id: 'w9_or_tax', label: contractorRequest ? 'W-9 / 1099 contractor documentation (pending classification approval)' : portalType === 'employee' ? 'Employment tax forms (W-4 path)' : 'W-9 / tax documentation', required: true, status: 'pending' });
   if (['subcontractor', 'vendor', 'property_manager'].includes(portalType)) base.push({ id: 'insurance', label: 'Certificate of insurance', required: true, status: 'pending' });
   if (portalType === 'employee') base.push({ id: 'background', label: 'Background-check authorization', required: true, status: 'pending' });
   return base;
@@ -940,7 +985,7 @@ async function ensureIntake(application: any) {
   const existing = await kv.get(key) as any;
   if (existing) return existing;
   const now = new Date().toISOString();
-  const intake = { id: application.id, applicationId: application.id, applicantEmail: String(application.email || '').toLowerCase(), applicantName: application.name || 'Applicant', portalType: intakePortalType(application), status: 'pending_documents', requiredTasks: intakeTasks(intakePortalType(application)), documents: [], createdAt: now, updatedAt: now };
+  const intake = { id: application.id, applicationId: application.id, applicantEmail: String(application.email || '').toLowerCase(), applicantName: application.name || 'Applicant', portalType: intakePortalType(application), taxClassification: application.taxClassification || null, status: 'pending_documents', requiredTasks: intakeTasks(intakePortalType(application), application), documents: [], createdAt: now, updatedAt: now };
   await kv.set(key, intake);
   await kv.set(`intake:email:${intake.applicantEmail}`, intake.applicationId);
   return intake;
@@ -1027,6 +1072,18 @@ function applicationApplicant(data: Record<string, unknown>) {
   return { name, email, phone, location };
 }
 
+function applicationTaxClassification(data: Record<string, unknown>) {
+  const request = cleanApplicationText(data.taxClassificationRequest || data.tax_classification_request || data.engagement_preference).toLowerCase();
+  const isContractorRequest = /contractor|w-?9|1099/.test(request);
+  return {
+    requestedPath: isContractorRequest ? 'independent_contractor_1099' : 'employee_w4',
+    requestedLabel: isContractorRequest ? 'Independent contractor request — W-9 / 1099 paperwork' : 'Employee — W-4 employment paperwork',
+    reviewStatus: 'pending_review',
+    requestedAt: new Date().toISOString(),
+    notes: cleanApplicationText(data.taxClassificationNotes || data.tax_classification_notes).slice(0, 3000),
+  };
+}
+
 async function saveApplicationAndCrm(data: Record<string, unknown>) {
   const applicant = applicationApplicant(data);
   if (!applicant.name || !applicant.email || !applicant.phone) {
@@ -1036,6 +1093,8 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
   const now = new Date().toISOString();
   const applicationType = cleanApplicationText(data.applicationType) || cleanApplicationText(data.type) || 'general';
   const planPreference = data.planPreference && typeof data.planPreference === 'object' ? data.planPreference : null;
+  const employeeOrTechnician = /employee|technician|field_tech|field tech|maintenance tech/.test(applicationType.toLowerCase());
+  const taxClassification = employeeOrTechnician ? applicationTaxClassification(data) : null;
   const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
   const existingIndex = applications.findIndex((application: any) =>
     String(application.email || application.contact_email || '').toLowerCase() === applicant.email &&
@@ -1052,6 +1111,7 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     name: applicant.name,
     email: applicant.email,
     phone: applicant.phone,
+    taxClassification: taxClassification || (existingIndex >= 0 ? applications[existingIndex].taxClassification : null),
     status: existingIndex >= 0 ? applications[existingIndex].status : 'pending',
     submittedAt: existingIndex >= 0 ? applications[existingIndex].submittedAt : now,
     updatedAt: now,
@@ -1073,8 +1133,9 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     type: applicationType === 'field_technician' ? 'employee' : 'partner',
     status: 'lead',
     source: 'application',
+    taxClassification: taxClassification || (contactIndex >= 0 ? contacts[contactIndex].taxClassification : null),
     planPreference: planPreference || (contactIndex >= 0 ? contacts[contactIndex].planPreference : null),
-    tags: Array.from(new Set([...(contactIndex >= 0 && Array.isArray(contacts[contactIndex].tags) ? contacts[contactIndex].tags : []), 'application', applicationType, ...(planPreference ? ['plan_preference'] : [])])),
+    tags: Array.from(new Set([...(contactIndex >= 0 && Array.isArray(contacts[contactIndex].tags) ? contacts[contactIndex].tags : []), 'application', applicationType, ...(planPreference ? ['plan_preference'] : []), ...(taxClassification ? ['tax_classification_review', taxClassification.requestedPath] : [])])),
     applicationId: id,
     updatedAt: now,
     createdAt: contactIndex >= 0 ? contacts[contactIndex].createdAt : now,
@@ -1097,6 +1158,7 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     status: 'new',
     intent: 'warm',
     score: planPreference ? 78 : 70,
+    taxClassification: taxClassification || (leadIndex >= 0 ? leads[leadIndex].taxClassification : null),
     planPreference: planPreference || (leadIndex >= 0 ? leads[leadIndex].planPreference : null),
     lastSeen: now,
     capturedAt: leadIndex >= 0 ? leads[leadIndex].capturedAt : now,
@@ -1562,35 +1624,17 @@ app.post('/make-server-57095a78/property-management/landlords/:id/work-requests'
 app.put('/make-server-57095a78/property-management/landlords/:id/work-requests/:requestId', async (c) => {
   try { const rows = (await kv.get('work_requests')) || []; const index = rows.findIndex((item: any) => item.id === c.req.param('requestId') && item.landlordId === c.req.param('id')); if (index < 0) return c.json({ success: false, error: 'Work request not found' }, 404); rows[index] = { ...rows[index], ...stripBase64(await c.req.json()), id: rows[index].id, landlordId: rows[index].landlordId, updated_at: new Date().toISOString() }; await kv.set('work_requests', rows); return c.json({ success: true, data: rows[index] }); } catch (error: any) { return c.json({ error: error.message }, 500); }
 });
+function propertyAdminAlert(title: string, description: string, data: any) { return { id: `property_${crypto.randomUUID()}`, type: 'info', category: 'Property Management', title, description, status: 'unread', source: 'property-management-hub', data, timestamp: new Date().toISOString() }; }
+async function requirePropertyAdmin(c: any) { const user = await intakeActor(c); return await intakeIsAdmin(user) ? user : null; }
 app.get('/make-server-57095a78/property-management/stats', async (c) => {
-  try { const [condos, landlords, managers, requests] = await Promise.all([kv.get('condos'), kv.get('landlords'), kv.get('property-managers'), kv.get('work_requests')]); const all = requests || []; return c.json({ success: true, data: { condos: (condos || []).length, landlords: (landlords || []).length, propertyManagers: (managers || []).length, pendingRequests: all.filter((item: any) => item.status === 'pending_approval').length, approvedRequests: all.filter((item: any) => item.status === 'approved').length } }); } catch (error: any) { return c.json({ error: error.message }, 500); }
+  try { if (!await requirePropertyAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [condos, landlords, managers, requests, properties] = await Promise.all([kv.get('condos'), kv.get('landlords'), kv.get('property-managers'), kv.get('work_requests'), kv.getByPrefix('property_manager_portfolio:')]); const all = requests || []; const portfolios = (properties || []).flatMap((item: any) => Array.isArray(item) ? item : []); return c.json({ success: true, data: { totalCondos: (condos || []).length, totalLandlords: (landlords || []).length, totalPropertyManagers: (managers || []).length, totalProperties: portfolios.length, pendingApproval: all.filter((item: any) => item.status === 'pending_approval').length, approved: all.filter((item: any) => item.status === 'approved').length, inProgress: all.filter((item: any) => ['assigned', 'in-progress'].includes(item.status)).length, completed: all.filter((item: any) => item.status === 'completed').length, totalWorkRequests: all.length } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
-// Get all pending work requests
-app.get('/make-server-57095a78/property-management/work-requests/pending', async (c) => {
-  try {
-    const allWorkRequests = await kv.get('work_requests') || [];
-    const pending = allWorkRequests.filter((wr: any) => wr.status === 'pending_approval');
-
-    return c.json({ success: true, data: pending });
-  } catch (error: any) {
-    console.error('Error fetching pending work requests:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-// Get all approved work requests
-app.get('/make-server-57095a78/property-management/work-requests/approved', async (c) => {
-  try {
-    const allWorkRequests = await kv.get('work_requests') || [];
-    const approved = allWorkRequests.filter((wr: any) => wr.status === 'approved');
-
-    return c.json({ success: true, data: approved });
-  } catch (error: any) {
-    console.error('Error fetching approved work requests:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
+app.get('/make-server-57095a78/property-management/work-requests/pending', async (c) => { try { if (!await requirePropertyAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const allWorkRequests = await kv.get('work_requests') || []; return c.json({ success: true, data: allWorkRequests.filter((wr: any) => wr.status === 'pending_approval') }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/property-management/work-requests/approved', async (c) => { try { if (!await requirePropertyAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const allWorkRequests = await kv.get('work_requests') || []; return c.json({ success: true, data: allWorkRequests.filter((wr: any) => ['approved', 'offered', 'assigned', 'in-progress'].includes(wr.status)) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/property-management/work-requests/:id/offer', async (c) => { try { const user = await requirePropertyAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const rows = (await kv.get('work_requests') as any[]) || []; const index = rows.findIndex((item: any) => item.id === c.req.param('id')); if (index < 0) return c.json({ success: false, error: 'Work request not found.' }, 404); const now = new Date().toISOString(); const request = rows[index] = { ...rows[index], status: 'offered', offerMessage: String(body.message || '').trim().slice(0, 2000), offeredAt: now, offeredBy: user.email, updated_at: now }; await kv.set('work_requests', rows); const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift(propertyAdminAlert(`Offer prepared: ${request.title || request.id}`, `Property offer created by ${user.email}.`, { workRequestId: request.id })); await kv.set('admin_alerts', alerts.slice(0, 200)); return c.json({ success: true, data: request, delivery: { queued: true, emailSent: false }, message: 'Offer recorded and queued for delivery. Configure an email provider to send email automatically.' }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/property-management/offers/send', async (c) => { try { const user = await requirePropertyAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const workRequestId = String(body.workRequestId || ''); const recipientEmail = String(body.recipientEmail || '').trim().toLowerCase(); if (!workRequestId || !/^\S+@\S+\.\S+$/.test(recipientEmail)) return c.json({ success: false, error: 'A work request and valid recipient email are required.' }, 400); const rows = (await kv.get('work_requests') as any[]) || []; const index = rows.findIndex((item: any) => item.id === workRequestId); if (index < 0) return c.json({ success: false, error: 'Work request not found.' }, 404); const now = new Date().toISOString(); const offer = { id: crypto.randomUUID(), workRequestId, propertyType: String(body.propertyType || ''), recipientEmail, recipientName: String(body.recipientName || '').trim().slice(0, 120), details: stripBase64(body.offerDetails || {}), status: 'queued', createdAt: now, createdBy: user.email }; const offers = (await kv.get('property_offers') as any[]) || []; offers.unshift(offer); await kv.set('property_offers', offers.slice(0, 1000)); const request = rows[index] = { ...rows[index], status: 'offered', offerId: offer.id, offerRecipientEmail: recipientEmail, offeredAt: now, offeredBy: user.email, updated_at: now }; await kv.set('work_requests', rows); const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift(propertyAdminAlert(`Offer queued: ${request.title || request.id}`, `Offer queued for ${recipientEmail}.`, { workRequestId, offerId: offer.id })); await kv.set('admin_alerts', alerts.slice(0, 200)); return c.json({ success: true, data: request, offer, delivery: { queued: true, emailSent: false }, message: 'Offer saved and queued. Configure email delivery to send it externally.' }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/property-management/work-requests/:id/assign', async (c) => { try { const user = await requirePropertyAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const crewName = String(body.crewName || '').trim().slice(0, 160); if (!crewName) return c.json({ success: false, error: 'Choose a crew or technician before assigning this request.' }, 400); const rows = (await kv.get('work_requests') as any[]) || []; const index = rows.findIndex((item: any) => item.id === c.req.param('id')); if (index < 0) return c.json({ success: false, error: 'Work request not found.' }, 404); const now = new Date().toISOString(); const request = rows[index] = { ...rows[index], status: 'assigned', assignedTo: crewName, assignedAt: now, assignedBy: user.email, updated_at: now }; await kv.set('work_requests', rows); const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift(propertyAdminAlert(`Crew assigned: ${request.title || request.id}`, `${crewName} assigned by ${user.email}.`, { workRequestId: request.id, crewName })); await kv.set('admin_alerts', alerts.slice(0, 200)); return c.json({ success: true, data: request }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 
 // ============================================
 // DOBA DROPSHIPPING INTEGRATION
@@ -2221,6 +2265,24 @@ app.get('/make-server-57095a78/data/restore', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to restore backup.' }, 500); }
 });
 
+// ── LIVE CHAT & PAYMENT GATEWAY SETTINGS ─────────────────────────────────────
+// Public chat appearance is intentionally readable without authentication. Every
+// administrative write and every lead read requires an actual owner/admin session.
+const CHAT_CONFIG_KEY = 'live_chat_config';
+const CHAT_LEADS_KEY = 'live_chat_leads';
+const PAYMENT_GATEWAYS_KEY = 'payment_gateway_configs';
+const defaultChatConfig = { enabled: true, businessName: 'Black Phoenix Builds', welcomeMessage: 'Hi there! How can we help you today?', accentColor: '#ea580c', position: 'bottom-right', agentName: 'Phoenix Support', collectLeads: true, aiEnabled: true, businessHours: { start: 8, end: 18 }, quickReplies: ['Get a free estimate', 'What services do you offer?', 'How much does it cost?', 'Schedule a call'] };
+function cleanChatConfig(value: any) { const body = value || {}; const color = /^#[0-9a-fA-F]{6}$/.test(String(body.accentColor || '')) ? body.accentColor : defaultChatConfig.accentColor; return { enabled: Boolean(body.enabled), businessName: String(body.businessName || defaultChatConfig.businessName).trim().slice(0, 100), welcomeMessage: String(body.welcomeMessage || defaultChatConfig.welcomeMessage).trim().slice(0, 1000), accentColor: color, position: body.position === 'bottom-left' ? 'bottom-left' : 'bottom-right', agentName: String(body.agentName || defaultChatConfig.agentName).trim().slice(0, 100), collectLeads: body.collectLeads !== false, aiEnabled: body.aiEnabled !== false, businessHours: { start: Math.max(0, Math.min(23, Number(body.businessHours?.start ?? 8))), end: Math.max(0, Math.min(23, Number(body.businessHours?.end ?? 18))) }, quickReplies: Array.isArray(body.quickReplies) ? body.quickReplies.map((item: any) => String(item).trim().slice(0, 160)).filter(Boolean).slice(0, 12) : defaultChatConfig.quickReplies }; }
+app.get('/make-server-57095a78/chat/config', async (c) => { try { return c.json({ success: true, config: cleanChatConfig(await kv.get(CHAT_CONFIG_KEY)) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/chat/config', async (c) => { try { const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const config = { ...cleanChatConfig(await c.req.json()), updatedAt: new Date().toISOString(), updatedBy: user.email }; await kv.set(CHAT_CONFIG_KEY, config); return c.json({ success: true, config: cleanChatConfig(config) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/chat/leads', async (c) => { try { const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, leads: (await kv.get(CHAT_LEADS_KEY) as any[]) || [] }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/chat/leads', async (c) => { try { const body = await c.req.json(); const email = String(body.email || '').trim().toLowerCase(); const name = String(body.name || '').trim().slice(0, 120); if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'A valid email is required.' }, 400); const leads = (await kv.get(CHAT_LEADS_KEY) as any[]) || []; const lead = { id: crypto.randomUUID(), email, name: name || email.split('@')[0], source: String(body.source || 'live_chat').slice(0, 80), capturedAt: new Date().toISOString() }; const index = leads.findIndex((item: any) => String(item.email).toLowerCase() === email); if (index >= 0) leads[index] = { ...leads[index], ...lead, id: leads[index].id }; else leads.unshift(lead); await kv.set(CHAT_LEADS_KEY, leads.slice(0, 1000)); return c.json({ success: true, lead }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.delete('/make-server-57095a78/chat/leads', async (c) => { try { const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); await kv.set(CHAT_LEADS_KEY, []); return c.json({ success: true }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
+// Gateway state is shared across devices but never accepts API keys or secrets.
+app.get('/make-server-57095a78/payment-gateways', async (c) => { try { const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, configs: (await kv.get(PAYMENT_GATEWAYS_KEY)) || {} }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/payment-gateways', async (c) => { try { const user = await intakeActor(c); if (!await intakeIsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const supplied = (await c.req.json()).configs || {}; const allowed = ['stripe', 'paypal', 'square', 'bank_of_america', 'stellar', 'xdc']; const configs: Record<string, any> = {}; for (const id of allowed) if (supplied[id]) configs[id] = { is_active: Boolean(supplied[id].is_active), test_mode: supplied[id].test_mode !== false, updated_at: new Date().toISOString(), updated_by: user.email }; await kv.set(PAYMENT_GATEWAYS_KEY, configs); return c.json({ success: true, configs }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
 // ── ADMIN ALERTS — cross-device notification system ───────────────────────────
 // Work requests submitted from any device are stored here and fetched by the admin panel.
 
@@ -2437,12 +2499,12 @@ app.post('/make-server-57095a78/work-requests', async (c) => {
   try {
     await ensureStorageBuckets().catch(() => {});
     const body = await c.req.json();
-    const { user } = await workRequestActor(c);
+    const { user, admin } = await workRequestActor(c);
     const suppliedEmail = String(body.client_info?.email || body.clientEmail || body.email || '').trim().toLowerCase();
-    if (user?.email && suppliedEmail && suppliedEmail !== String(user.email).toLowerCase()) {
+    if (!admin && user?.email && suppliedEmail && suppliedEmail !== String(user.email).toLowerCase()) {
       return c.json({ error: 'The request email must match the signed-in account.' }, 403);
     }
-    const clientEmail = String(user?.email || suppliedEmail).toLowerCase();
+    const clientEmail = String((admin && suppliedEmail) ? suppliedEmail : (user?.email || suppliedEmail)).toLowerCase();
     if (!clientEmail) return c.json({ error: 'A customer email is required.' }, 400);
     const clientName = body.client_info?.name || body.clientName || body.name || user?.user_metadata?.full_name || '';
     const record = {
@@ -2497,6 +2559,90 @@ app.put('/make-server-57095a78/work-requests/:id', async (c) => {
     await persistWorkRequest(record);
     return c.json({ success: true, workRequest: stripBase64(record) });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to update work request.' }, 500); }
+});
+
+// ── PROJECT SCHEDULES + INTERNAL FIELD NOTES ────────────────────────────────
+// These records stay on the canonical work request so scheduling and field notes
+// survive browser changes and are visible to the authorized operations team.
+function internalWorkAccess(record: any, user: any, admin: boolean) {
+  if (admin) return true;
+  const role = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (['employee', 'technician', 'field_technician', 'maintenance_tech', 'subcontractor', 'service_provider'].includes(role)) return true;
+  const email = String(user?.email || '').toLowerCase();
+  return Boolean(email && [record.assignedToEmail, record.assigned_to_email, record.assignedTechnicianEmail, record.assigned_technician_email, record.employeeEmail, record.employee_email]
+    .some((value: any) => String(value || '').toLowerCase() === email));
+}
+
+app.put('/make-server-57095a78/work-requests/:id/project-schedule', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user || !admin) return c.json({ success: false, error: 'Administrator access is required to publish a project schedule.' }, 403);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    const body = await c.req.json();
+    if (!Array.isArray(body.tasks) || !body.tasks.length) return c.json({ success: false, error: 'Add at least one schedule task before publishing.' }, 400);
+    const tasks = body.tasks.slice(0, 100).map((task: any, index: number) => {
+      const title = String(task.title || '').trim().slice(0, 180);
+      const startDate = String(task.startDate || ''); const endDate = String(task.endDate || '');
+      if (!title || Number.isNaN(Date.parse(startDate)) || Number.isNaN(Date.parse(endDate))) throw new Error(`Task ${index + 1} needs a title, start date, and end date.`);
+      return { id: String(task.id || `task_${crypto.randomUUID()}`), title, startDate, endDate, duration: Math.max(0, Number(task.duration) || 0), assignedTo: String(task.assignedTo || '').slice(0, 180), dependencies: Array.isArray(task.dependencies) ? task.dependencies.slice(0, 30).map(String) : [], status: ['not-started', 'in-progress', 'completed'].includes(String(task.status)) ? task.status : 'not-started', color: String(task.color || '#3b82f6').slice(0, 24) };
+    });
+    const now = new Date().toISOString();
+    const projectSchedule = { id: record.projectSchedule?.id || `project_schedule_${crypto.randomUUID()}`, tasks, quoteNumber: String(body.quoteNumber || '').slice(0, 100), projectTitle: String(body.projectTitle || record.title || record.project_name || '').slice(0, 220), publishedBy: user.email, publishedAt: record.projectSchedule?.publishedAt || now, updatedAt: now };
+    const updated = { ...record, projectSchedule, updated_at: now };
+    await persistWorkRequest(updated);
+    await kv.set(`project_schedule:${projectSchedule.id}`, { ...projectSchedule, workRequestId: record.id });
+    return c.json({ success: true, workRequest: stripBase64(updated), projectSchedule });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to publish project schedule.' }, 500); }
+});
+
+app.get('/make-server-57095a78/work-requests/:id/notes', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to view project notes.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!internalWorkAccess(record, user, admin)) return c.json({ success: false, error: 'This internal project record is not assigned to your account.' }, 403);
+    return c.json({ success: true, notes: Array.isArray(record.internalNotesLog) ? record.internalNotesLog : [] });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load project notes.' }, 500); }
+});
+
+app.post('/make-server-57095a78/work-requests/:id/notes', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in before adding a project note.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!internalWorkAccess(record, user, admin)) return c.json({ success: false, error: 'This internal project record is not assigned to your account.' }, 403);
+    const content = String((await c.req.json()).content || '').trim().slice(0, 10000);
+    if (!content) return c.json({ success: false, error: 'Note content cannot be empty.' }, 400);
+    const now = new Date().toISOString(); const note = { id: `note_${crypto.randomUUID()}`, content, author: String(user.user_metadata?.full_name || user.email), authorEmail: user.email, authorId: user.id, createdAt: now };
+    const updated = { ...record, internalNotesLog: [note, ...(Array.isArray(record.internalNotesLog) ? record.internalNotesLog : [])].slice(0, 500), updated_at: now };
+    await persistWorkRequest(updated); return c.json({ success: true, note }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add project note.' }, 500); }
+});
+
+app.put('/make-server-57095a78/work-requests/:id/notes/:noteId', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c); if (!user) return c.json({ success: false, error: 'Sign in before editing a project note.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any; if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!internalWorkAccess(record, user, admin)) return c.json({ success: false, error: 'This internal project record is not assigned to your account.' }, 403);
+    const notes = Array.isArray(record.internalNotesLog) ? record.internalNotesLog : []; const noteIndex = notes.findIndex((note: any) => note.id === c.req.param('noteId'));
+    if (noteIndex < 0) return c.json({ success: false, error: 'Note not found.' }, 404); if (!admin && String(notes[noteIndex].authorId || '') !== String(user.id)) return c.json({ success: false, error: 'You may only edit your own note.' }, 403);
+    const content = String((await c.req.json()).content || '').trim().slice(0, 10000); if (!content) return c.json({ success: false, error: 'Note content cannot be empty.' }, 400);
+    const now = new Date().toISOString(); notes[noteIndex] = { ...notes[noteIndex], content, updatedAt: now }; await persistWorkRequest({ ...record, internalNotesLog: notes, updated_at: now }); return c.json({ success: true, note: notes[noteIndex] });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to edit project note.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/work-requests/:id/notes/:noteId', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c); if (!user) return c.json({ success: false, error: 'Sign in before deleting a project note.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any; if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+    if (!internalWorkAccess(record, user, admin)) return c.json({ success: false, error: 'This internal project record is not assigned to your account.' }, 403);
+    const notes = Array.isArray(record.internalNotesLog) ? record.internalNotesLog : []; const note = notes.find((item: any) => item.id === c.req.param('noteId'));
+    if (!note) return c.json({ success: false, error: 'Note not found.' }, 404); if (!admin && String(note.authorId || '') !== String(user.id)) return c.json({ success: false, error: 'You may only delete your own note.' }, 403);
+    await persistWorkRequest({ ...record, internalNotesLog: notes.filter((item: any) => item.id !== note.id), updated_at: new Date().toISOString() }); return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete project note.' }, 500); }
 });
 
 // Property managers have a scoped operations queue.  Unlike the legacy
@@ -3824,6 +3970,63 @@ Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "o
   } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
 
+// ── ABANDONED CARTS ─────────────────────────────────────────────────────────
+const ABANDONED_CART_PREFIX = 'abandoned_cart:';
+function abandonedCartKey(id: string) { return `${ABANDONED_CART_PREFIX}${id}`; }
+function validAbandonedCartItems(items: unknown) {
+  return Array.isArray(items) && items.length > 0 && items.length <= 100 && items.every((item: any) => String(item?.name || '').trim() && Number.isFinite(Number(item?.price)) && Number(item?.price) >= 0 && Number(item?.qty || item?.quantity || 1) > 0);
+}
+
+// The storefront may create a cart record only for its own captured customer.
+// Reading, emailing, and marking recovery remain owner/admin operations.
+app.post('/make-server-57095a78/abandoned-carts', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email) || !validAbandonedCartItems(body.items)) return c.json({ success: false, error: 'A valid email and at least one valid cart item are required.' }, 400);
+    const items = body.items.map((item: any) => ({ id: String(item.id || ''), name: String(item.name).slice(0, 300), price: money(item.price), qty: Math.max(1, Math.min(99, Number(item.qty || item.quantity || 1))) }));
+    const total = money(items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0));
+    const signature = JSON.stringify(items.map((item: any) => [item.id, item.qty])); const now = new Date().toISOString();
+    const existing = ((await kv.getByPrefix(ABANDONED_CART_PREFIX)) || []).find((item: any) => item?.email === email && item?.signature === signature && ['abandoned', 'emailed'].includes(String(item.status)));
+    const record = existing ? { ...existing, items, total, name: String(body.name || existing.name || '').slice(0, 160), source: String(body.source || existing.source || 'PublicStore').slice(0, 100), lastSeenAt: now, updatedAt: now } : { id: `AC-${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`, email, name: String(body.name || '').slice(0, 160), items, total, signature, source: String(body.source || 'PublicStore').slice(0, 100), status: 'abandoned', emailsSent: 0, abandonedAt: now, lastSeenAt: now, createdAt: now, updatedAt: now };
+    await kv.set(abandonedCartKey(record.id), record);
+    return c.json({ success: true, cart: record, duplicate: Boolean(existing) }, existing ? 200 : 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to record abandoned cart.' }, 500); }
+});
+
+app.get('/make-server-57095a78/abandoned-carts', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const carts = ((await kv.getByPrefix(ABANDONED_CART_PREFIX)) || []).sort((a: any, b: any) => Date.parse(b.updatedAt || b.abandonedAt || '') - Date.parse(a.updatedAt || a.abandonedAt || ''));
+    return c.json({ success: true, carts });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load abandoned carts.' }, 500); }
+});
+
+async function sendAbandonedCartRecoveryEmail(cart: any, subject: string, body: string) {
+  const resendKey = Deno.env.get('RESEND_API_KEY') || ''; const from = Deno.env.get('RESEND_FROM_EMAIL') || Deno.env.get('GIFT_CARD_FROM_EMAIL') || '';
+  if (!resendKey || !from) throw new Error('Recovery email is not configured. Add RESEND_API_KEY and RESEND_FROM_EMAIL.');
+  const html = String(body || `Hi ${cart.name || 'there'},\n\nYour cart is still waiting for you.`).replace(/\n/g, '<br/>');
+  const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to: [cart.email], subject: String(subject || 'Your Black Phoenix cart is waiting').slice(0, 200), html }) });
+  const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload?.message || payload?.error || 'Unable to send recovery email.'); return payload;
+}
+
+app.post('/make-server-57095a78/abandoned-carts/:id/recover', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const cart = await kv.get(abandonedCartKey(c.req.param('id'))) as any; if (!cart) return c.json({ success: false, error: 'Abandoned cart not found.' }, 404);
+    const body = await c.req.json().catch(() => ({})); const delivery = await sendAbandonedCartRecoveryEmail(cart, body.subject, body.body); const now = new Date().toISOString();
+    const updated = { ...cart, status: 'emailed', emailsSent: Number(cart.emailsSent || 0) + 1, lastEmailed: now, lastEmailId: delivery?.id || null, updatedAt: now, updatedBy: actor.user.email };
+    await kv.set(abandonedCartKey(updated.id), updated); return c.json({ success: true, cart: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send recovery email.' }, 500); }
+});
+
+app.post('/make-server-57095a78/abandoned-carts/:id/mark-recovered', async (c) => {
+  try {
+    const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const cart = await kv.get(abandonedCartKey(c.req.param('id'))) as any; if (!cart) return c.json({ success: false, error: 'Abandoned cart not found.' }, 404);
+    const now = new Date().toISOString(); const updated = { ...cart, status: 'recovered', recoveredAt: now, updatedAt: now, updatedBy: actor.user.email }; await kv.set(abandonedCartKey(updated.id), updated); return c.json({ success: true, cart: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to mark cart recovered.' }, 500); }
+});
+
 // Get all leads
 app.get('/make-server-57095a78/leads', async (c) => {
   try {
@@ -4077,6 +4280,22 @@ async function retrieveStripeCheckoutSession(sessionId: string, account: StripeA
   return payload;
 }
 
+
+async function createStripeRefund(paymentIntentId: string, account: StripeAccount, amount?: number) {
+  const stripeKey = stripeKeyFor(account);
+  if (!stripeKey) throw new Error(`${stripeAccountLabel(account)} Stripe refunds are not configured.`);
+  const params = new URLSearchParams({ payment_intent: paymentIntentId });
+  if (amount && amount > 0) params.set('amount', String(Math.round(amount * 100)));
+  const response = await fetch('https://api.stripe.com/v1/refunds', {
+    method: 'POST',
+    headers: { Authorization: `Basic ${btoa(`${stripeKey}:`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || 'Unable to issue the Stripe refund.');
+  return payload;
+}
+
 async function deliverGiftCardEmail(card: any, recipientEmail: string) {
   const resendKey = Deno.env.get('RESEND_API_KEY') || '';
   const from = Deno.env.get('GIFT_CARD_FROM_EMAIL') || Deno.env.get('RESEND_FROM_EMAIL') || '';
@@ -4227,6 +4446,8 @@ app.get('/make-server-57095a78/gift-cards/owner/:email', async (c) => {
   }
 });
 
+app.get('/make-server-57095a78/gift-cards', async (c) => { try { const user = await rewardsActor(c); if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, cards: (await kv.getByPrefix(GIFT_CARD_PREFIX)) || [] }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
 app.get('/make-server-57095a78/gift-cards/:code', async (c) => {
   try {
     const card = await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(c.req.param('code'))}`) as any;
@@ -4363,6 +4584,28 @@ app.post('/make-server-57095a78/referrals', async (c) => {
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || 'Unable to save referrals.' }, 500);
   }
+});
+
+// Owner-controlled individual referral mutations prevent browser-local referral records.
+app.post('/make-server-57095a78/referrals/records', async (c) => {
+  try {
+    const user = await rewardsActor(c); if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json(); const now = new Date().toISOString(); const referrerName = String(body.referrerName || '').trim(); const referredName = String(body.referredName || '').trim();
+    if (!referrerName || !referredName) return c.json({ success: false, error: 'Referrer and referred names are required.' }, 400);
+    const status = ['pending', 'converted', 'paid'].includes(String(body.status)) ? String(body.status) : 'pending';
+    const record = { id: `ref_${crypto.randomUUID()}`, referrerId: String(body.referrerId || ''), referrerEmail: String(body.referrerId || '').includes('@') ? String(body.referrerId).toLowerCase() : '', referrer: referrerName, referrerName, referredId: String(body.referredId || ''), referredEmail: String(body.referredId || '').includes('@') ? String(body.referredId).toLowerCase() : '', referred: referredName, referredName, source: String(body.referrerType || '').toLowerCase().includes('affiliate') ? 'affiliate' : 'loyalty', status, reward: Number(body.rewardAmount || 0), orderAmount: Number(body.conversionValue || 0), date: body.dateReferred || now, convertedAt: body.dateCompleted || null, paidAt: body.datePaid || null, createdAt: now, updatedAt: now, updatedBy: user.email };
+    const records = (await kv.get('referrals:all') as any[]) || []; records.unshift(record); await kv.set('referrals:all', records.slice(0, 5000)); return c.json({ success: true, referral: record }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create referral.' }, 500); }
+});
+app.patch('/make-server-57095a78/referrals/records/:id', async (c) => {
+  try {
+    const user = await rewardsActor(c); if (!await rewardsAdmin(user)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const patch = await c.req.json(); const records = (await kv.get('referrals:all') as any[]) || []; const index = records.findIndex((item: any) => item.id === c.req.param('id'));
+    if (index < 0) return c.json({ success: false, error: 'Referral not found.' }, 404);
+    const current = records[index]; const requestedStatus = String(patch.status || current.status); const status = requestedStatus === 'completed' ? 'converted' : ['pending', 'converted', 'paid'].includes(requestedStatus) ? requestedStatus : current.status;
+    records[index] = { ...current, ...patch, id: current.id, status, referrer: patch.referrerName ?? current.referrer, referred: patch.referredName ?? current.referred, reward: patch.rewardAmount ?? current.reward, orderAmount: patch.conversionValue ?? current.orderAmount, date: patch.dateReferred ?? current.date, convertedAt: patch.dateCompleted ?? current.convertedAt, paidAt: patch.datePaid ?? current.paidAt, updatedAt: new Date().toISOString(), updatedBy: user.email };
+    await kv.set('referrals:all', records); return c.json({ success: true, referral: records[index] });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update referral.' }, 500); }
 });
 
 app.get('/make-server-57095a78/loyalty/:email', async (c) => {
@@ -4819,7 +5062,11 @@ app.patch('/make-server-57095a78/intake/onboarding/:id/documents/:documentId', a
 });
 
 async function financialActor(c: any) { const user = await intakeActor(c); return { user, admin: await intakeIsAdmin(user) }; }
-function ownsFinancialRecord(record: any, email: string) { const target = String(email || '').toLowerCase(); return [record.customerEmail, record.clientEmail, record.email, record.ownerEmail].some((value: any) => String(value || '').toLowerCase() === target); }
+function ownsFinancialRecord(record: any, email: string) { const target = String(email || '').trim().toLowerCase(); return [record.customerEmail, record.customer_email, record.clientEmail, record.client_email, record.email, record.ownerEmail].some((value: any) => String(value || '').trim().toLowerCase() === target); }
+
+const invoicePortalRoutes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', advertiser: 'advertiser-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal' };
+function invoicePortal(value: any) { return Object.prototype.hasOwnProperty.call(invoicePortalRoutes, String(value || '')) ? String(value) : 'customer'; }
+function invoiceRecipient(body: any) { const customerEmail = String(body.customerEmail || body.customer_email || body.clientEmail || body.client_email || '').trim().toLowerCase(); const customerName = String(body.customerName || body.customer_name || body.clientName || body.client_name || '').trim(); return { customerEmail, customerName, recipientPortal: invoicePortal(body.recipientPortal || body.recipient_portal), paymentRail: String(body.paymentRail || body.payment_rail) === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services' as StripeAccount }; }
 
 app.get('/make-server-57095a78/contracts', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('contract:')) || []; return c.json({ success: true, contracts: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
@@ -4848,13 +5095,129 @@ app.post('/make-server-57095a78/contracts/:id/sign', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
+function customerFromContact(contact: any) { const name = String(contact.name || contact.contact_name || '').trim(); const [firstName = '', ...last] = name.split(/\s+/); const statusValue = String(contact.status || 'lead').toLowerCase(); const status = ['lead', 'active', 'inactive', 'vip'].includes(statusValue) ? statusValue : 'lead'; return { id: String(contact.id || crypto.randomUUID()), customer_number: String(contact.customer_number || `CUST-${String(contact.id || '').slice(-6).toUpperCase() || Date.now()}`), first_name: contact.first_name || firstName, last_name: contact.last_name || last.join(' '), email: String(contact.email || '').toLowerCase(), phone: contact.phone || '', company: contact.company || '', status, total_spent: Number(contact.total_spent || 0), project_count: Number(contact.project_count || 0), rating: contact.rating || 0, tags: Array.isArray(contact.tags) ? contact.tags : [], address_line1: contact.address_line1 || '', address_line2: contact.address_line2 || '', city: contact.city || '', state: contact.state || '', zip_code: contact.zip_code || '', country: contact.country || 'US', notes: contact.notes || '', source: contact.source || 'crm', assigned_to: contact.assigned_to || '', created_at: contact.createdAt || contact.created_at || new Date().toISOString(), updated_at: contact.updatedAt || contact.updated_at || new Date().toISOString(), created_by: contact.createdBy || contact.created_by || '' }; }
+async function customerAdmin(c: any) { const actor = await financialActor(c); return actor.admin ? actor.user : null; }
+app.get('/make-server-57095a78/customers', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; return c.json({ success: true, customers: contacts.filter((contact: any) => contact.email).map(customerFromContact) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/customers/stats', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = ((await kv.get(CRM_CONTACTS_KEY) as any[]) || []).filter((item: any) => item.email).map(customerFromContact); const stats = { total: contacts.length, active: contacts.filter((item: any) => item.status === 'active').length, leads: contacts.filter((item: any) => item.status === 'lead').length, vip: contacts.filter((item: any) => item.status === 'vip').length, inactive: contacts.filter((item: any) => item.status === 'inactive').length, totalRevenue: contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0), avgDeal: contacts.length ? contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0) / contacts.length : 0 }; return c.json({ success: true, stats }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-57095a78/customers', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const email = String(body.email || '').trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'A valid customer email is required.' }, 400); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.email || '').toLowerCase() === email); const now = new Date().toISOString(); const record = { ...(index >= 0 ? contacts[index] : {}), ...stripBase64(body), id: index >= 0 ? contacts[index].id : crypto.randomUUID(), name: `${String(body.first_name || '').trim()} ${String(body.last_name || '').trim()}`.trim() || String(body.name || '').trim(), email, type: 'customer', updatedAt: now, updatedBy: user.email, createdAt: index >= 0 ? contacts[index].createdAt : now, createdBy: index >= 0 ? contacts[index].createdBy : user.email }; if (index >= 0) contacts[index] = record; else contacts.unshift(record); await kv.set(CRM_CONTACTS_KEY, contacts); return c.json({ success: true, customer: customerFromContact(record) }, index >= 0 ? 200 : 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.put('/make-server-57095a78/customers/:id', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.id) === String(c.req.param('id'))); if (index < 0) return c.json({ success: false, error: 'Customer not found.' }, 404); const body = await c.req.json(); const email = body.email ? String(body.email).trim().toLowerCase() : contacts[index].email; const record = { ...contacts[index], ...stripBase64(body), email, name: body.first_name || body.last_name ? `${String(body.first_name ?? customerFromContact(contacts[index]).first_name).trim()} ${String(body.last_name ?? customerFromContact(contacts[index]).last_name).trim()}`.trim() : contacts[index].name, updatedAt: new Date().toISOString(), updatedBy: user.email }; contacts[index] = record; await kv.set(CRM_CONTACTS_KEY, contacts); return c.json({ success: true, customer: customerFromContact(record) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.delete('/make-server-57095a78/customers/:id', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const filtered = contacts.filter((item: any) => String(item.id) !== String(c.req.param('id'))); if (filtered.length === contacts.length) return c.json({ success: false, error: 'Customer not found.' }, 404); await kv.set(CRM_CONTACTS_KEY, filtered); return c.json({ success: true }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-57095a78/reporting/referral-sources', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [referrals, applications] = await Promise.all([kv.get('referrals:all'), kv.get(APPLICATIONS_KEY)]); const now = Date.now(); const sourceMeta: Record<string, { category: string; color: string }> = { affiliate: { category: 'affiliate', color: '#a855f7' }, loyalty: { category: 'referral', color: '#ea4335' }, direct: { category: 'direct', color: '#34A853' }, social: { category: 'social', color: '#FBBC05' } }; const grouped = new Map<string, any>(); for (const referral of (referrals as any[]) || []) { const source = String(referral.source || 'loyalty'); const row = grouped.get(source) || { source_name: source === 'loyalty' ? 'Member Referral' : source === 'affiliate' ? 'Affiliate Referral' : source, category: sourceMeta[source]?.category || 'other', color: sourceMeta[source]?.color || '#6b7280', total_signups: 0, signups_last_30_days: 0, signups_last_7_days: 0, total_value: 0, avg_value_per_signup: 0, first_signup: '', last_signup: '', user_roles: [] as string[] }; const date = new Date(referral.date || referral.createdAt || 0).getTime(); row.total_signups += 1; if (date >= now - 30 * 86400000) row.signups_last_30_days += 1; if (date >= now - 7 * 86400000) row.signups_last_7_days += 1; row.total_value += money(referral.orderAmount || 0); const day = new Date(date || now).toISOString().slice(0, 10); row.first_signup = !row.first_signup || day < row.first_signup ? day : row.first_signup; row.last_signup = !row.last_signup || day > row.last_signup ? day : row.last_signup; grouped.set(source, row); } const sourceData = Array.from(grouped.values()).map((row: any) => ({ ...row, avg_value_per_signup: row.total_signups ? money(row.total_value / row.total_signups) : 0 })); const appRows = applications as any[] || []; const completed = appRows.filter((item: any) => ['approved','active','rejected'].includes(String(item.status || '').toLowerCase())).length; const funnel = { started_count: appRows.length, completed_count: completed, skipped_count: 0, abandoned_count: Math.max(0, appRows.length - completed), completion_rate: appRows.length ? Number((completed / appRows.length * 100).toFixed(1)) : 0, avg_completion_time_minutes: 0 }; return c.json({ success: true, sources: sourceData, funnel }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
+// ── FINANCIAL RECONCILIATION ────────────────────────────────────────────────
+// Bank-imported entries and verified platform payments are kept separately but
+// returned together so the owner has a real reconciliation ledger on every device.
+const reconciliationTxnPrefix = 'reconciliation_txn:';
+const reconciliationPeriodPrefix = 'reconciliation_period:';
+const reconciliationMatchPrefix = 'reconciliation_match:';
+const reconciliationDiscrepancyPrefix = 'reconciliation_discrepancy:';
+function reconciliationStats(transactions: any[], matches: any[], discrepancies: any[]) {
+  const reconciledRows = transactions.filter((item) => item.isReconciled); const reconciledCount = reconciledRows.length; const totalTransactions = transactions.length;
+  const signed = (item: any) => ['withdrawal', 'fee'].includes(String(item.type)) ? -Number(item.amount || 0) : Number(item.amount || 0);
+  const totalAmount = transactions.reduce((sum, item) => sum + signed(item), 0); const reconciledAmount = reconciledRows.reduce((sum, item) => sum + signed(item), 0);
+  const totalDiscrepancyAmount = discrepancies.reduce((sum, item) => sum + Math.abs(Number(item.amount || 0)), 0);
+  return { totalTransactions, reconciledCount, unreconciledCount: totalTransactions - reconciledCount, totalAmount, reconciledAmount, unreconciledAmount: totalAmount - reconciledAmount, reconciliationRate: totalTransactions ? Number((reconciledCount / totalTransactions * 100).toFixed(1)) : 0, matchCount: matches.length, openDiscrepancies: discrepancies.filter((item) => !['resolved', 'accepted'].includes(item.status)).length, totalDiscrepancyAmount };
+}
+app.get('/make-server-57095a78/financial-reconciliation', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin || !user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const companyId = String(c.req.query('companyId') || 'default').slice(0, 120);
+    const [manualTransactions, payments, invoices, matchesAll, periodsAll, discrepanciesAll] = await Promise.all([kv.getByPrefix(reconciliationTxnPrefix), kv.getByPrefix('payment:'), kv.getByPrefix('invoice:'), kv.getByPrefix(reconciliationMatchPrefix), kv.getByPrefix(reconciliationPeriodPrefix), kv.getByPrefix(reconciliationDiscrepancyPrefix)]);
+    const paymentTransactions = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())).map((payment: any) => ({ id: `payment_${payment.id}`, companyId, date: payment.paidAt || payment.updatedAt || payment.createdAt || new Date().toISOString(), description: `Verified ${payment.paymentMethod || payment.rail || 'platform'} payment`, amount: Number(payment.amount || 0), type: 'deposit', reference: String(payment.invoiceId || payment.invoice_id || payment.id), category: 'verified_payment', isReconciled: true, reconciledDate: payment.paidAt || payment.updatedAt, reconciledBy: 'payment_confirmation', matchedInvoiceId: payment.invoiceId || payment.invoice_id || null, matchedPaymentId: payment.id, bankAccount: payment.paymentRail || payment.rail || 'platform', importedDate: payment.createdAt || new Date().toISOString(), notes: 'Verified platform payment' }));
+    const manual = (manualTransactions as any[] || []).filter((item: any) => item.companyId === companyId); const transactions = [...paymentTransactions, ...manual].sort((a: any, b: any) => Date.parse(b.date) - Date.parse(a.date));
+    const matches = (matchesAll as any[] || []).filter((item: any) => item.companyId === companyId); const periods = (periodsAll as any[] || []).filter((item: any) => item.companyId === companyId); const discrepancies = (discrepanciesAll as any[] || []).filter((item: any) => item.companyId === companyId);
+    return c.json({ success: true, transactions, matches, periods, discrepancies, stats: reconciliationStats(transactions, matches, discrepancies), invoices: (invoices as any[] || []).map((invoice: any) => ({ id: invoice.id, balance_due: invoice.balance_due, total_amount: invoice.total_amount, status: invoice.status })) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load reconciliation ledger.' }, 500); }
+});
+app.post('/make-server-57095a78/financial-reconciliation/transactions', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin || !user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json(); const amount = Number(body.amount); const date = String(body.date || ''); const type = String(body.type || 'deposit');
+    if (!Number.isFinite(amount) || amount <= 0 || Number.isNaN(Date.parse(date)) || !['deposit', 'withdrawal', 'transfer', 'fee'].includes(type)) return c.json({ success: false, error: 'A positive amount, valid date, and transaction type are required.' }, 400);
+    const transaction = { id: `txn_${crypto.randomUUID()}`, companyId: String(body.companyId || 'default').slice(0, 120), date, description: String(body.description || '').trim().slice(0, 500), amount, type, reference: String(body.reference || '').trim().slice(0, 200), category: String(body.category || '').trim().slice(0, 100), isReconciled: false, bankAccount: String(body.bankAccount || 'main').trim().slice(0, 120), bankName: String(body.bankName || '').trim().slice(0, 120), importedDate: new Date().toISOString(), notes: String(body.notes || '').trim().slice(0, 2000), createdBy: user.email };
+    if (!transaction.description) return c.json({ success: false, error: 'A transaction description is required.' }, 400); await kv.set(`${reconciliationTxnPrefix}${transaction.id}`, transaction); return c.json({ success: true, transaction }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save bank transaction.' }, 500); }
+});
+app.post('/make-server-57095a78/financial-reconciliation/transactions/:id/reconcile', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin || !user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const transaction = await kv.get(`${reconciliationTxnPrefix}${c.req.param('id')}`) as any; if (!transaction) return c.json({ success: false, error: 'Only manually imported bank transactions can be reconciled here.' }, 404);
+    const body = await c.req.json().catch(() => ({})); const invoices = (await kv.getByPrefix('invoice:') as any[]) || []; const amount = Number(transaction.amount || 0); const invoice = body.invoiceId ? invoices.find((item: any) => item.id === body.invoiceId) : invoices.find((item: any) => !['paid','completed','void','cancelled'].includes(String(item.status || '').toLowerCase()) && Math.abs(Number(item.balance_due ?? item.total_amount ?? 0) - amount) < 0.01);
+    if (!invoice) return c.json({ success: false, error: 'No open invoice with the same balance was found. Choose the correct invoice before reconciling.' }, 409);
+    const now = new Date().toISOString(); const match = { id: `match_${crypto.randomUUID()}`, companyId: transaction.companyId, transactionId: transaction.id, invoiceId: invoice.id, matchType: body.invoiceId ? 'manual' : 'exact', matchConfidence: body.invoiceId ? 100 : 100, matchedAmount: amount, differenceAmount: Number((amount - Number(invoice.balance_due ?? invoice.total_amount ?? 0)).toFixed(2)), status: 'matched', matchedDate: now, matchedBy: user.email, notes: String(body.notes || '').slice(0, 2000) };
+    await kv.set(`${reconciliationMatchPrefix}${match.id}`, match); await kv.set(`${reconciliationTxnPrefix}${transaction.id}`, { ...transaction, isReconciled: true, reconciledDate: now, reconciledBy: user.email, matchedInvoiceId: invoice.id }); return c.json({ success: true, match });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to reconcile transaction.' }, 500); }
+});
+
+// Completed work orders are derived from canonical paid invoices and their linked work requests.
+// Costs remain zero until receipts/labor are recorded through their respective workflows; we never invent financial data.
+app.get('/make-server-57095a78/work-orders/completion-reports', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required to view completion reports.' }, 403);
+    const [requests, invoices, payments] = await Promise.all([readWorkRequests(), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:')]);
+    const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase()));
+    const reports = (requests as any[]).flatMap((request: any) => {
+      const linkedInvoices = (invoices as any[] || []).filter((invoice: any) => {
+        const links = [invoice.workRequestId, invoice.work_request_id, invoice.projectId, invoice.project_id, invoice.sourceWorkRequestId];
+        const invoicePaid = ['paid', 'completed'].includes(String(invoice.status || '').toLowerCase()) || paidPayments.some((payment: any) => String(payment.invoiceId || payment.invoice_id || '') === String(invoice.id));
+        return invoicePaid && links.some((value: any) => String(value || '') === String(request.id));
+      });
+      return linkedInvoices.map((invoice: any) => {
+        const payment = paidPayments.find((entry: any) => String(entry.invoiceId || entry.invoice_id || '') === String(invoice.id));
+        const amount = Number(invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0) || 0;
+        const completedAt = invoice.paidAt || invoice.paid_at || payment?.paidAt || payment?.updatedAt || invoice.updatedAt || invoice.updated_at || new Date().toISOString();
+        return { id: request.id, invoiceId: invoice.id, itemNumber: String(request.itemNumber || request.workOrderNumber || request.id).slice(0, 50), customerName: request.client_name || request.clientName || request.customerName || invoice.customer_name || invoice.customerName || '', customerEmail: request.client_email || request.clientEmail || request.customerEmail || invoice.customerEmail || '', customerPhone: request.client_phone || request.clientPhone || request.customerPhone || '', title: request.title || request.project_name || request.projectTitle || invoice.description || 'Completed project', description: request.description || request.project_details?.description || '', location: request.location || request.address || request.client_info?.address || 'Not specified', requestDate: request.created_at || request.createdAt || completedAt, startDate: request.projectSchedule?.tasks?.[0]?.startDate || request.schedule?.startAt || request.created_at || completedAt, completionDate: completedAt, invoicePaidDate: completedAt, estimatedValue: Number(request.estimatedValue || request.quote?.totalCost || amount) || amount, finalInvoiceAmount: amount, totalMaterialCosts: 0, totalLaborCosts: 0, totalSubcontractorCosts: 0, totalServiceProviderCosts: 0, otherExpenses: 0, totalCosts: 0, profitAmount: amount, profitMargin: amount > 0 ? 100 : 0, receipts: [], laborEntries: [], changeOrders: [], notes: request.notes || '', internalNotes: request.internalNotes || '' };
+      });
+    }).sort((a: any, b: any) => Date.parse(b.invoicePaidDate) - Date.parse(a.invoicePaidDate));
+    return c.json({ success: true, reports });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load completion reports.' }, 500); }
+});
+
+app.get('/make-server-57095a78/command-center/summary', async (c) => { c.header('Cache-Control', 'no-store, no-cache, must-revalidate'); try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [invoices, payments, contacts, applications, requests] = await Promise.all([kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'), kv.get(CRM_CONTACTS_KEY), kv.get(APPLICATIONS_KEY), kv.get('work_requests')]); const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())); const totalRevenue = paidPayments.reduce((sum: number, payment: any) => sum + money(payment.amount), 0); const openInvoiceTotal = (invoices as any[] || []).filter((invoice: any) => !['paid','completed','cancelled','void'].includes(String(invoice.status || '').toLowerCase())).reduce((sum: number, invoice: any) => sum + money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total), 0); const months: Record<string, number> = {}; for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; } for (const payment of paidPayments) { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += money(payment.amount); } const chartData = Object.entries(months).map(([month, revenue]) => ({ month, revenue })); const appRows = applications as any[] || []; const workRows = requests as any[] || []; const employeeCount = appRows.filter((application: any) => ['employee','field_technician','technician','maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved','active'].includes(String(application.status || '').toLowerCase())).length; return c.json({ success: true, summary: { totalRevenue, openInvoiceTotal, customersCount: ((contacts as any[]) || []).filter((item: any) => item.email).length, activeJobsCount: workRows.filter((item: any) => ['assigned','in-progress','approved'].includes(String(item.status || '').toLowerCase())).length, teamCount: employeeCount, pendingApplications: appRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending').length, pendingWorkRequests: workRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending_approval').length, chartData } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
 app.get('/make-server-57095a78/invoices', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('invoice:')) || []; return c.json({ success: true, invoices: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
   catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
+// Stellar receive-only configuration. This deliberately stores a public address only—never a secret signing key.
+const stellarWalletKey = 'payment_wallet:stellar';
+function publicStellarWallet(record: any) { return { enabled: Boolean(record?.enabled), network: record?.network === 'testnet' ? 'testnet' : 'public', publicKey: record?.publicKey || '', assetCode: record?.assetCode || 'XLM', assetIssuer: record?.assetIssuer || '', memoInstructions: record?.memoInstructions || '' }; }
+app.get('/make-server-57095a78/payment-wallets/stellar', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const wallet = await kv.get(stellarWalletKey) as any; return c.json({ success: true, wallet: publicStellarWallet(wallet), canManage: admin }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load Stellar wallet.' }, 500); }
+});
+app.put('/make-server-57095a78/payment-wallets/stellar', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json(); const publicKey = String(body.publicKey || '').trim(); const enabled = Boolean(body.enabled);
+    if (enabled && !/^G[A-Z2-7]{55}$/.test(publicKey)) return c.json({ success: false, error: 'Enter a valid Stellar public wallet address starting with G. Never enter a secret key here.' }, 400);
+    const assetCode = String(body.assetCode || 'XLM').trim().toUpperCase(); const assetIssuer = String(body.assetIssuer || '').trim();
+    if (assetCode !== 'XLM' && !/^G[A-Z2-7]{55}$/.test(assetIssuer)) return c.json({ success: false, error: 'A valid Stellar asset issuer address is required for non-XLM assets.' }, 400);
+    const wallet = { enabled, network: body.network === 'testnet' ? 'testnet' : 'public', publicKey, assetCode, assetIssuer: assetCode === 'XLM' ? '' : assetIssuer, memoInstructions: String(body.memoInstructions || '').trim().slice(0, 250), updatedAt: new Date().toISOString(), updatedBy: user.email };
+    await kv.set(stellarWalletKey, wallet); return c.json({ success: true, wallet: publicStellarWallet(wallet) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save Stellar wallet.' }, 500); }
+});
+app.get('/make-server-57095a78/invoices/:id/stellar-instructions', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const invoice = await kv.get(`invoice:${c.req.param('id')}`) as any; if (!invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404); if (!admin && !ownsFinancialRecord(invoice, user.email)) return c.json({ success: false, error: 'You may only view your own invoice.' }, 403); const wallet = publicStellarWallet(await kv.get(stellarWalletKey)); if (!wallet.enabled || !wallet.publicKey) return c.json({ success: false, error: 'Stellar payments are not enabled.' }, 409); return c.json({ success: true, wallet, invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number || invoice.number || invoice.id, balanceDue: money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total) }, notice: 'Send the exact asset only. A Stellar transfer is recorded for review and does not automatically settle a USD invoice until the payment is reconciled.' }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load Stellar instructions.' }, 500); }
+});
+app.post('/make-server-57095a78/invoices/:id/stellar-payment-submissions', async (c) => {
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const invoice = await kv.get(`invoice:${c.req.param('id')}`) as any; if (!invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404); if (!admin && !ownsFinancialRecord(invoice, user.email)) return c.json({ success: false, error: 'You may only submit payment proof for your own invoice.' }, 403); const body = await c.req.json(); const transactionHash = String(body.transactionHash || '').trim(); if (!/^[a-fA-F0-9]{64}$/.test(transactionHash)) return c.json({ success: false, error: 'Enter the 64-character Stellar transaction hash.' }, 400); const id = crypto.randomUUID(); const submission = { id, invoiceId: invoice.id, transactionHash: transactionHash.toLowerCase(), assetCode: String(body.assetCode || '').trim().toUpperCase(), amount: String(body.amount || '').trim(), status: 'submitted_for_reconciliation', customerEmail: user.email, createdAt: new Date().toISOString() }; await kv.set(`stellar_payment_submission:${id}`, submission); return c.json({ success: true, submission, message: 'Stellar transaction submitted for reconciliation. Your invoice will remain open until the received asset and USD value are verified.' }, 201); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit Stellar payment.' }, 500); }
+});
+
 app.post('/make-server-57095a78/invoices', async (c) => {
-  try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const id = String(body.id || crypto.randomUUID()); const lineItems = Array.isArray(body.line_items) ? body.line_items.map((item: any, index: number) => ({ ...item, line_number: item.line_number || index + 1, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), amount: Number(item.amount ?? Number(item.quantity || 0) * Number(item.unit_price || 0)) })) : []; const subtotal = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0); const taxRate = Number(body.tax_rate || 0); const taxAmount = Number(body.tax_amount ?? subtotal * (taxRate / 100)); const discount = Number(body.discount_amount || 0); const total = Number(body.total_amount ?? subtotal + taxAmount - discount); const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`; const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: Number(body.paid_amount || 0), balance_due: Number(body.balance_due ?? total), status: body.status || 'draft', is_draft: body.is_draft ?? body.status === 'draft', createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email }; await kv.set(`invoice:${id}`, record); return c.json({ success: true, invoice: record }, 201); }
-  catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+  try {
+    const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json(); const recipient = invoiceRecipient(body); const requestedDraft = body.is_draft ?? body.status === 'draft';
+    if (!requestedDraft && !recipient.customerEmail) return c.json({ success: false, error: 'A recipient email is required before an invoice can be issued.' }, 400);
+    const id = String(body.id || crypto.randomUUID()); const lineItems = Array.isArray(body.line_items) ? body.line_items.map((item: any, index: number) => ({ ...item, line_number: item.line_number || index + 1, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), amount: Number(item.amount ?? Number(item.quantity || 0) * Number(item.unit_price || 0)) })) : [];
+    const subtotal = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0); const taxRate = Number(body.tax_rate || 0); const taxAmount = Number(body.tax_amount ?? subtotal * (taxRate / 100)); const discount = Number(body.discount_amount || 0); const total = Number(body.total_amount ?? subtotal + taxAmount - discount); const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
+    const isDraft = Boolean(requestedDraft) || !recipient.customerEmail; const status = isDraft ? 'draft' : (body.status && body.status !== 'draft' ? body.status : 'pending');
+    const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: Number(body.paid_amount || 0), balance_due: Number(body.balance_due ?? total), status, is_draft: isDraft, issuedAt: isDraft ? null : now, createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email };
+    await kv.set(`invoice:${id}`, record); return c.json({ success: true, invoice: record }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
 
@@ -4881,7 +5244,8 @@ app.put('/make-server-57095a78/invoices/:id', async (c) => {
     if (!existing) return c.json({ success: false, error: 'Invoice not found.' }, 404);
     const patch = await c.req.json();
     if (['paid', 'completed'].includes(String(patch.status || '').toLowerCase())) return c.json({ success: false, error: 'Use verified payment confirmation to mark an invoice paid.' }, 400);
-    const invoice = { ...existing, ...patch, id: existing.id, updatedAt: new Date().toISOString(), updatedBy: user.email };
+    const recipient = invoiceRecipient({ ...existing, ...patch });
+    const invoice = { ...existing, ...patch, id: existing.id, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, updatedAt: new Date().toISOString(), updatedBy: user.email };
     await kv.set(`invoice:${invoice.id}`, invoice);
     return c.json({ success: true, invoice });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update invoice.' }, 500); }
@@ -4973,17 +5337,20 @@ app.post('/make-server-57095a78/payments/create-checkout', async (c) => {
     if (amount <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
     const paymentId = crypto.randomUUID();
     const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const portal = invoicePortal(invoice?.recipientPortal || invoice?.recipient_portal || body.recipientPortal);
+    const returnTo = invoicePortalRoutes[portal]; const rail: StripeAccount = invoice?.paymentRail === 'tbpco_ecommerce' || invoice?.payment_rail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+    const paymentMethod = body.paymentMethod === 'us_bank_account' ? 'us_bank_account' : 'card';
     const session = await stripeCheckoutSession(new URLSearchParams({
-      'payment_method_types[]': 'card', mode: 'payment',
-      success_url: `${appUrl}/customer-portal-app?payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/customer-portal-app?tab=payments`,
+      'payment_method_types[]': paymentMethod, mode: 'payment',
+      success_url: `${appUrl}/payment-complete?payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}&return_to=${encodeURIComponent(returnTo)}`,
+      cancel_url: `${appUrl}/${returnTo}?tab=payments`,
       'line_items[0][price_data][currency]': 'usd',
       'line_items[0][price_data][product_data][name]': String(body.description || invoice?.number || 'Black Phoenix payment'),
       'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
       'line_items[0][quantity]': '1', customer_email: user.email,
       'metadata[payment_id]': paymentId, 'metadata[invoice_id]': String(invoice?.id || ''),
-    }));
-    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    }), rail);
+    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, status: 'pending_confirmation', paymentMethod, customerEmail: user.email, recipientPortal: portal, paymentRail: rail, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     await kv.set(`payment:${paymentId}`, payment);
     if (invoice) await kv.set(`invoice:${invoice.id}`, { ...invoice, paymentId, checkoutSessionId: session.id, status: invoice.status === 'draft' ? 'sent' : invoice.status, updatedAt: new Date().toISOString() });
     return c.json({ success: true, paymentId, checkoutUrl: session.url });
@@ -4998,7 +5365,7 @@ app.post('/make-server-57095a78/payments/confirm', async (c) => {
     const payment = await kv.get(`payment:${String(body.paymentId || '')}`) as any;
     if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
     if (payment.status === 'paid') return c.json({ success: true, duplicate: true, payment });
-    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''));
+    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''), payment.paymentRail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services');
     if (verified.id !== payment.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment.' }, 409);
     payment.status = 'paid'; payment.paidAt = new Date().toISOString(); payment.stripePaymentIntentId = verified.payment_intent || null; payment.updatedAt = payment.paidAt;
     await kv.set(`payment:${payment.id}`, payment);
@@ -5028,8 +5395,12 @@ app.post('/make-server-57095a78/payments/complete', async (c) => {
     if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
     if (String(payment.customerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'You may only complete your own payment.' }, 403);
     if (payment.status === 'paid') return c.json({ success: true, duplicate: true, payment, subscription: payment.subscriptionId ? await kv.get(subscriptionKey(payment.subscriptionId)) : null });
-    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''));
-    if (verified.id !== payment.stripeCheckoutSessionId || verified.payment_status !== 'paid') return c.json({ success: false, error: 'Stripe has not confirmed this payment yet.' }, 409);
+    const verified = await retrieveStripeCheckoutSession(String(body.sessionId || payment.stripeCheckoutSessionId || ''), payment.paymentRail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services');
+    if (verified.id !== payment.stripeCheckoutSessionId) return c.json({ success: false, error: 'Payment session does not match this checkout.' }, 400);
+    if (verified.payment_status !== 'paid') {
+      const now = new Date().toISOString(); payment.status = 'processing'; payment.updatedAt = now; payment.stripePaymentStatus = verified.payment_status || 'processing'; await kv.set(`payment:${payment.id}`, payment);
+      return c.json({ success: true, processing: true, payment, message: 'Your bank payment is processing. The invoice will update automatically after Stripe confirms settlement.' });
+    }
     const now = new Date().toISOString(); payment.status = 'paid'; payment.paidAt = now; payment.stripePaymentIntentId = verified.payment_intent || null; payment.updatedAt = now; await kv.set(`payment:${payment.id}`, payment);
     let subscription = null;
     if (payment.subscriptionId) { const current = await kv.get(subscriptionKey(payment.subscriptionId)) as any; if (current) { subscription = { ...current, status: 'active', activatedAt: now, paymentId: payment.id, updatedAt: now }; await kv.set(subscriptionKey(subscription.id), subscription); } }
@@ -5062,6 +5433,7 @@ app.post('/make-server-57095a78/payments/complete', async (c) => {
 // A Stripe session creates only a pending checkout. An order is created only
 // after this protected confirmation route verifies Stripe's paid status.
 function storeOrderKey(id: string) { return `store:order:${id}`; }
+function storeReturnKey(id: string) { return `store:return:${id}`; }
 function storeCheckoutKey(id: string) { return `store:checkout:${id}`; }
 function giftReservationKey(code: string, checkoutId: string) { return `giftcard_reservation:${normalizeGiftCardCode(code)}:${checkoutId}`; }
 function validStoreItems(items: any) { return Array.isArray(items) && items.length > 0 && items.every((item: any) => String(item?.id || '').trim() && String(item?.name || '').trim() && Number(item?.price) >= 0 && Number(item?.qty || item?.quantity) > 0); }
@@ -5109,6 +5481,23 @@ async function captureStoreGiftCardReservation(checkout: any, orderId: string) {
   await kv.set(key, captured);
   await kv.set(`${GIFT_REDEMPTION_PREFIX}${normalizeGiftCardCode(reservation.code)}:${stored.id}`, redemption);
   return captured;
+}
+
+
+async function restoreStoreGiftCardCredit(orderId: string, amount: number, returnRequestId: string) {
+  if (amount <= 0) return null;
+  const cards = (await kv.getByPrefix(GIFT_CARD_PREFIX) || []) as any[];
+  const card = cards.find((item: any) => (item?.redemptionHistory || []).some((redemption: any) => redemption?.orderReference === orderId));
+  if (!card) throw new Error('The gift card used for this order could not be found for credit restoration.');
+  const code = normalizeGiftCardCode(card.code || card.id || '');
+  if (!code) throw new Error('The original gift card record is missing its code.');
+  const restored = money(amount);
+  const credit = { id: `GCR-${crypto.randomUUID()}`, amount: restored, orderReference: orderId, returnRequestId, restoredAt: new Date().toISOString(), source: 'store_return_refund' };
+  card.balance = money(money(card.balance) + restored);
+  card.refundedAmount = money(money(card.refundedAmount) + restored);
+  card.redemptionHistory = [...(Array.isArray(card.redemptionHistory) ? card.redemptionHistory : []), credit];
+  await kv.set(`${GIFT_CARD_PREFIX}${code}`, card);
+  return { code: formatGiftCardCode(code), amount: restored };
 }
 
 function createStoreOrder(checkout: any, verified: any, now: string) {
@@ -5204,6 +5593,87 @@ app.get('/make-server-57095a78/store/orders', async (c) => {
 app.patch('/make-server-57095a78/store/orders/:id', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403); const existing = await kv.get(storeOrderKey(c.req.param('id'))) as any; if (!existing) return c.json({ error: 'Order not found.' }, 404); const body = await c.req.json(); const allowed = new Set(['pending', 'forwarded_to_doba', 'shipped', 'delivered']); if (!allowed.has(String(body.fulfillment_status || ''))) return c.json({ error: 'A valid fulfillment status is required.' }, 400); const order = { ...existing, fulfillment_status: body.fulfillment_status, tracking_number: body.tracking_number ? String(body.tracking_number) : existing.tracking_number, updated_at: new Date().toISOString(), fulfillment_updated_by: user.email }; await kv.set(storeOrderKey(order.id), order); return c.json(order); }
   catch (error: any) { return c.json({ error: error.message || 'Unable to update order.' }, 500); }
+});
+
+
+// Store returns use the same canonical order records as checkout, fulfillment,
+// rewards, and refunds. Customers may submit a request without an account by
+// matching the order number and purchase email; only owners/admins can decide
+// eligibility or move funds.
+app.post('/make-server-57095a78/store/returns', async (c) => {
+  try {
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const reason = String(body.reason || '').trim();
+    if (!orderId || !email || !reason) return c.json({ error: 'Order number, purchase email, and a return reason are required.' }, 400);
+    const order = await kv.get(storeOrderKey(orderId)) as any;
+    if (!order || String(order.customer_email || '').toLowerCase() !== email) return c.json({ error: 'We could not match that order number and email address.' }, 404);
+    if (!['paid', 'gift_card_paid'].includes(String(order.payment_status || order.status || '').toLowerCase())) return c.json({ error: 'Only paid orders can be submitted for return review.' }, 400);
+    const age = Date.now() - Date.parse(order.delivered_at || order.created_at || new Date().toISOString());
+    if (Number.isFinite(age) && age > 30 * 24 * 60 * 60 * 1000) return c.json({ error: 'This order is outside the 30-day return-request window.' }, 400);
+    const existing = (await kv.getByPrefix('store:return:') || []).find((item: any) => item?.orderId === orderId && ['requested', 'approved', 'received'].includes(String(item.status)));
+    if (existing) return c.json({ success: true, duplicate: true, returnRequest: existing });
+    const validItems = Array.isArray(body.itemIds) && body.itemIds.length ? order.items.filter((item: any) => body.itemIds.map(String).includes(String(item.id))) : order.items;
+    if (!validItems.length) return c.json({ error: 'Select at least one item from the order.' }, 400);
+    const now = new Date().toISOString();
+    const request = { id: `RET-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`, orderId, customerEmail: email, customerName: order.customer_name || '', items: validItems, reason, details: String(body.details || '').slice(0, 2000), status: 'requested', requestedAt: now, updatedAt: now, orderTotal: money(order.amount_total), refundAmount: money(validItems.reduce((sum: number, item: any) => sum + money(item.price) * Number(item.qty || 1), 0)), policyVersion: 'store-returns-30-day-v1' };
+    await kv.set(storeReturnKey(request.id), request);
+    await kv.set(storeOrderKey(order.id), { ...order, return_status: 'requested', return_request_ids: [...new Set([...(order.return_request_ids || []), request.id])], updated_at: now });
+    return c.json({ success: true, returnRequest: request }, 201);
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to submit your return request.' }, 500); }
+});
+
+app.get('/make-server-57095a78/store/returns', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const records = (await kv.getByPrefix('store:return:') || []) as any[];
+    const visible = admin ? records : records.filter((item: any) => String(item.customerEmail || '').toLowerCase() === String(user.email).toLowerCase());
+    return c.json({ success: true, returns: visible.sort((a: any, b: any) => Date.parse(b.requestedAt || '') - Date.parse(a.requestedAt || '')) });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load return requests.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/store/returns/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const request = await kv.get(storeReturnKey(c.req.param('id'))) as any;
+    if (!request) return c.json({ error: 'Return request not found.' }, 404);
+    const order = await kv.get(storeOrderKey(request.orderId)) as any;
+    if (!order) return c.json({ error: 'Related order not found.' }, 404);
+    const body = await c.req.json(); const action = String(body.action || '').toLowerCase(); const now = new Date().toISOString();
+    if (!['approve', 'reject', 'receive', 'refund', 'close'].includes(action)) return c.json({ error: 'A valid return action is required.' }, 400);
+    if (action === 'approve' && request.status !== 'requested') return c.json({ error: 'Only requested returns can be approved.' }, 409);
+    if (action === 'reject' && request.status !== 'requested') return c.json({ error: 'Only requested returns can be rejected.' }, 409);
+    if (action === 'receive' && request.status !== 'approved') return c.json({ error: 'Only approved returns can be marked received.' }, 409);
+    if (action === 'refund' && !['approved', 'received'].includes(String(request.status))) return c.json({ error: 'Approve or receive this return before issuing a refund.' }, 409);
+    let next: any = { ...request, updatedAt: now, updatedBy: user.email, adminNote: String(body.adminNote || request.adminNote || '').slice(0, 2000) };
+    if (action === 'approve') next = { ...next, status: 'approved', approvedAt: now, approvedBy: user.email };
+    if (action === 'reject') next = { ...next, status: 'rejected', rejectedAt: now, rejectedBy: user.email };
+    if (action === 'receive') next = { ...next, status: 'received', receivedAt: now, receivedBy: user.email };
+    if (action === 'close') next = { ...next, status: 'closed', closedAt: now, closedBy: user.email };
+    if (action === 'refund') {
+      if (request.status === 'refunded') return c.json({ success: true, duplicate: true, returnRequest: request });
+      const requestedAmount = body.refundAmount == null ? money(request.refundAmount) : money(body.refundAmount);
+      if (requestedAmount <= 0 || requestedAmount > money(order.amount_total)) return c.json({ error: 'Refund amount must be within the order total.' }, 400);
+      const stripePaidAmount = money(order.amount_due || Math.max(0, money(order.amount_total) - money(order.gift_card_amount)));
+      const stripeRefundAmount = Math.min(requestedAmount, stripePaidAmount);
+      const giftCardCreditAmount = money(Math.max(0, requestedAmount - stripeRefundAmount));
+      let stripeRefund: any = null;
+      if (stripeRefundAmount > 0) {
+        if (!order.stripe_payment_intent) return c.json({ error: 'This order has no Stripe payment intent to refund.' }, 409);
+        stripeRefund = await createStripeRefund(String(order.stripe_payment_intent), order.stripe_account === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services', stripeRefundAmount);
+      }
+      const giftCardCredit = giftCardCreditAmount > 0 ? await restoreStoreGiftCardCredit(order.id, giftCardCreditAmount, request.id) : null;
+      next = { ...next, status: 'refunded', refundedAt: now, refundedBy: user.email, refundAmount: requestedAmount, stripeRefundId: stripeRefund?.id || null, stripeRefundAmount, giftCardCredit };
+      await kv.set(storeOrderKey(order.id), { ...order, status: requestedAmount >= money(order.amount_total) ? 'refunded' : order.status, payment_status: requestedAmount >= money(order.amount_total) ? 'refunded' : order.payment_status, return_status: 'refunded', updated_at: now });
+    } else {
+      await kv.set(storeOrderKey(order.id), { ...order, return_status: next.status, updated_at: now });
+    }
+    await kv.set(storeReturnKey(next.id), next);
+    return c.json({ success: true, returnRequest: next });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to process the return request.' }, 500); }
 });
 
 
@@ -5332,8 +5802,9 @@ function publicReview(review: any) { const { customerEmail, moderationNote, ...s
 app.get('/make-server-57095a78/reviews', async (c) => {
   try {
     const actor = await financialActor(c); const requested = String(c.req.query('status') || 'approved');
-    const all = (await kv.getByPrefix(REVIEW_PREFIX)) || [];
-    const reviews = actor.admin && requested === 'all' ? all : all.filter((review: any) => review.status === 'approved');
+    const all = (await kv.getByPrefix(REVIEW_PREFIX)) || []; const serviceType = String(c.req.query('serviceType') || '').trim();
+    const statusVisible = actor.admin && requested === 'all' ? all : all.filter((review: any) => review.status === 'approved');
+    const reviews = serviceType ? statusVisible.filter((review: any) => String(review.serviceType || '') === serviceType) : statusVisible;
     return c.json({ success: true, reviews: reviews.map(publicReview).sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))) });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load reviews.' }, 500); }
 });
@@ -5341,7 +5812,7 @@ app.post('/make-server-57095a78/reviews', async (c) => {
   try {
     const body = stripBase64(await c.req.json()); const name = String(body.customerName || '').trim(); const text = String(body.reviewText || '').trim(); const rating = Number(body.rating);
     if (!name || text.length < 10 || !Number.isFinite(rating) || rating < 1 || rating > 5) return c.json({ success: false, error: 'Name, a 10-character review, and a rating from 1 to 5 are required.' }, 400);
-    const review = { id: `review_${crypto.randomUUID()}`, customerName: name.slice(0, 120), customerEmail: String(body.customerEmail || '').trim().toLowerCase(), reviewText: text.slice(0, 4000), rating: Math.round(rating), serviceType: String(body.serviceType || '').slice(0, 120), status: 'pending', response: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const review = { id: `review_${crypto.randomUUID()}`, customerName: name.slice(0, 120), customerEmail: String(body.customerEmail || '').trim().toLowerCase(), reviewText: text.slice(0, 4000), reviewTitle: String(body.reviewTitle || '').trim().slice(0, 160), rating: Math.round(rating), serviceType: String(body.serviceType || '').slice(0, 120), status: 'pending', response: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     await kv.set(`${REVIEW_PREFIX}${review.id}`, review); return c.json({ success: true, review: publicReview(review) }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit review.' }, 500); }
 });
@@ -5626,6 +6097,207 @@ app.post('/make-server-57095a78/giveaways/entries', async (c) => {
     const alerts = (await kv.get('admin_alerts') as any[]) || []; alerts.unshift({ id: `giveaway_alert_${crypto.randomUUID()}`, type: 'info', category: 'Giveaways', title: `Giveaway entry: ${giveawayTitle}`, description: `${entry.customerName} entered the giveaway.`, status: 'unread', source: 'customer-portal', data: { entryId: entry.id, giveawayId }, timestamp: now }); await kv.set('admin_alerts', alerts.slice(0, 200));
     return c.json({ success: true, entry }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to enter giveaway.' }, 500); }
+});
+
+// ── TERRITORY ROSTERS ────────────────────────────────────────────────────────
+// Customer and subcontractor networks belong to the signed-in territory owner.
+// They stay isolated by account and the customer intake is mirrored into the
+// territory CRM so it is immediately searchable from that portal.
+function territoryWorkspaceKey(userId: string) { return `territory_workspace:${userId}`; }
+async function territoryActor(c: any) {
+  const actor = await financialActor(c);
+  return actor.user?.id ? actor : null;
+}
+function territorySettingsRecord(workspace: any, user: any) {
+  const existing = workspace?.settings || {};
+  const fallbackName = String(user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Territory Owner').slice(0, 180);
+  return {
+    territoryId: String(existing.territoryId || workspace?.territoryId || `TERR-${String(user?.id || '').replaceAll('-', '').slice(0, 8).toUpperCase() || 'NEW'}`),
+    territoryName: String(existing.territoryName || workspace?.territoryName || 'My Territory').slice(0, 180),
+    serviceState: String(existing.serviceState || workspace?.serviceState || '').slice(0, 64),
+    ownerName: String(existing.ownerName || fallbackName).slice(0, 180),
+    ownerEmail: String(existing.ownerEmail || user?.email || '').toLowerCase().slice(0, 254),
+    updatedAt: existing.updatedAt || null,
+  };
+}
+app.get('/make-server-57095a78/territory/settings', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in to view territory settings.' }, 401);
+    const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [], subcontractors: [] };
+    return c.json({ success: true, settings: territorySettingsRecord(workspace, actor.user) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load territory settings.' }, 500); }
+});
+app.patch('/make-server-57095a78/territory/settings', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in before saving territory settings.' }, 401);
+    const body = stripBase64(await c.req.json()); const territoryName = String(body.territoryName || '').trim().slice(0, 180); const serviceState = String(body.serviceState || '').trim().slice(0, 64); const ownerName = String(body.ownerName || '').trim().slice(0, 180); const ownerEmail = String(body.ownerEmail || '').trim().toLowerCase().slice(0, 254);
+    if (!territoryName || !serviceState || !ownerName || !ownerEmail) return c.json({ success: false, error: 'Territory name, service state, owner name, and owner contact email are required.' }, 400);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) return c.json({ success: false, error: 'Enter a valid owner contact email.' }, 400);
+    const key = territoryWorkspaceKey(actor.user.id); const workspace = (await kv.get(key) as any) || { customers: [], subcontractors: [] }; const now = new Date().toISOString();
+    const settings = { ...territorySettingsRecord(workspace, actor.user), territoryName, serviceState, ownerName, ownerEmail, updatedAt: now, updatedBy: actor.user.email || actor.user.id };
+    workspace.settings = settings; workspace.territoryId = settings.territoryId; workspace.territoryName = territoryName; workspace.serviceState = serviceState; workspace.updatedAt = now; await kv.set(key, workspace);
+    await territoryAdminAlert(`Territory settings updated: ${territoryName}`, `${actor.user.email || 'A territory owner'} updated territory business settings.`, { territoryOwnerId: actor.user.id, territoryId: settings.territoryId });
+    return c.json({ success: true, settings: stripBase64(settings) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save territory settings.' }, 500); }
+});
+
+function territoryCustomerRecord(input: any, actor: any) {
+  const now = new Date().toISOString();
+  return {
+    id: `territory_customer_${crypto.randomUUID()}`,
+    name: String(input?.name || '').trim().slice(0, 180),
+    email: String(input?.email || '').trim().toLowerCase().slice(0, 254),
+    phone: String(input?.phone || '').trim().slice(0, 64),
+    serviceType: String(input?.serviceType || '').trim().slice(0, 180),
+    status: 'active', totalSpent: 0,
+    territoryOwnerId: actor.user.id, territoryOwnerEmail: String(actor.user.email || '').toLowerCase(),
+    createdAt: now, updatedAt: now,
+  };
+}
+function territorySubcontractorRecord(input: any, actor: any) {
+  const now = new Date().toISOString();
+  return {
+    id: `territory_subcontractor_${crypto.randomUUID()}`,
+    name: String(input?.name || '').trim().slice(0, 180),
+    trade: String(input?.trade || '').trim().slice(0, 180),
+    email: String(input?.email || '').trim().toLowerCase().slice(0, 254),
+    phone: String(input?.phone || '').trim().slice(0, 64),
+    status: 'pending', rating: 0, jobs: 0,
+    territoryOwnerId: actor.user.id, territoryOwnerEmail: String(actor.user.email || '').toLowerCase(),
+    createdAt: now, updatedAt: now,
+  };
+}
+async function territoryAdminAlert(title: string, description: string, data: any) {
+  const alerts = (await kv.get('admin_alerts') as any[]) || [];
+  alerts.unshift({ id: `territory_alert_${crypto.randomUUID()}`, type: 'info', category: 'Territory Network', title, description, status: 'unread', source: 'territory-portal', data, timestamp: new Date().toISOString() });
+  await kv.set('admin_alerts', alerts.slice(0, 200));
+}
+app.get('/make-server-57095a78/territory/customers', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in to view your customer roster.' }, 401);
+    const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [], subcontractors: [] };
+    return c.json({ success: true, customers: (workspace.customers || []).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load customers.' }, 500); }
+});
+app.post('/make-server-57095a78/territory/customers', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in before adding a customer.' }, 401);
+    const customer = territoryCustomerRecord(stripBase64(await c.req.json()), actor);
+    if (!customer.name || !customer.email) return c.json({ success: false, error: 'Customer name and email are required.' }, 400);
+    const key = territoryWorkspaceKey(actor.user.id); const workspace = (await kv.get(key) as any) || { customers: [], subcontractors: [] };
+    if ((workspace.customers || []).some((item: any) => String(item.email).toLowerCase() === customer.email)) return c.json({ success: false, error: 'This customer is already in your territory roster.' }, 409);
+    workspace.customers = [customer, ...(workspace.customers || [])]; workspace.updatedAt = new Date().toISOString(); await kv.set(key, workspace);
+    const crmKey = `portal_crm:territory:${actor.user.id}`; const crm = (await kv.get(crmKey) as any) || { contacts: [], interactions: [] };
+    const matchingContact = (crm.contacts || []).some((contact: any) => String(contact.email || '').toLowerCase() === customer.email);
+    if (!matchingContact) {
+      crm.contacts = [{ id: `crm_${crypto.randomUUID()}`, name: customer.name, type: 'prospect', email: customer.email, phone: customer.phone, unit: '', property: customer.serviceType, status: 'active', notes: 'Created from Territory Owner customer roster.', tags: ['territory-customer'], lastContact: null, createdAt: customer.createdAt, updatedAt: customer.updatedAt }, ...(crm.contacts || [])];
+      crm.updatedAt = customer.updatedAt; await kv.set(crmKey, crm);
+    }
+    await territoryAdminAlert(`Territory customer added: ${customer.name}`, `${actor.user.email || 'A territory owner'} added ${customer.email} to their customer roster.`, { customerId: customer.id, territoryOwnerId: actor.user.id });
+    return c.json({ success: true, customer: stripBase64(customer) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add customer.' }, 500); }
+});
+app.get('/make-server-57095a78/territory/subcontractors', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in to view your subcontractor roster.' }, 401);
+    const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [], subcontractors: [] };
+    return c.json({ success: true, subcontractors: (workspace.subcontractors || []).map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load subcontractors.' }, 500); }
+});
+app.post('/make-server-57095a78/territory/subcontractors', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in before adding a subcontractor.' }, 401);
+    const subcontractor = territorySubcontractorRecord(stripBase64(await c.req.json()), actor);
+    if (!subcontractor.name || !subcontractor.trade) return c.json({ success: false, error: 'Subcontractor name and trade are required.' }, 400);
+    const key = territoryWorkspaceKey(actor.user.id); const workspace = (await kv.get(key) as any) || { customers: [], subcontractors: [] };
+    const duplicate = (workspace.subcontractors || []).some((item: any) => String(item.name).toLowerCase() === subcontractor.name.toLowerCase() && String(item.trade).toLowerCase() === subcontractor.trade.toLowerCase());
+    if (duplicate) return c.json({ success: false, error: 'This subcontractor is already in your roster for that trade.' }, 409);
+    workspace.subcontractors = [subcontractor, ...(workspace.subcontractors || [])]; workspace.updatedAt = new Date().toISOString(); await kv.set(key, workspace);
+    await territoryAdminAlert(`Territory subcontractor pending: ${subcontractor.name}`, `${actor.user.email || 'A territory owner'} added ${subcontractor.name} (${subcontractor.trade}) for review.`, { subcontractorId: subcontractor.id, territoryOwnerId: actor.user.id });
+    return c.json({ success: true, subcontractor: stripBase64(subcontractor) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add subcontractor.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/territory/customers/:id', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in before removing a customer.' }, 401);
+    const key = territoryWorkspaceKey(actor.user.id); const workspace = (await kv.get(key) as any) || { customers: [], subcontractors: [] };
+    const customer = (workspace.customers || []).find((item: any) => String(item.id) === String(c.req.param('id')));
+    if (!customer) return c.json({ success: false, error: 'Customer not found in your territory roster.' }, 404);
+    workspace.customers = (workspace.customers || []).filter((item: any) => String(item.id) !== String(customer.id)); workspace.updatedAt = new Date().toISOString(); await kv.set(key, workspace);
+    if (customer.email) {
+      const crmKey = `portal_crm:territory:${actor.user.id}`; const crm = (await kv.get(crmKey) as any) || { contacts: [], interactions: [] };
+      const removedIds = new Set((crm.contacts || []).filter((contact: any) => String(contact.email || '').toLowerCase() === String(customer.email).toLowerCase()).map((contact: any) => contact.id));
+      crm.contacts = (crm.contacts || []).filter((contact: any) => !removedIds.has(contact.id)); crm.interactions = (crm.interactions || []).filter((interaction: any) => !removedIds.has(interaction.contactId)); crm.updatedAt = new Date().toISOString(); await kv.set(crmKey, crm);
+    }
+    await territoryAdminAlert(`Territory customer removed: ${customer.name}`, `${actor.user.email || 'A territory owner'} removed ${customer.name} from their roster.`, { customerId: customer.id, territoryOwnerId: actor.user.id });
+    return c.json({ success: true, customerId: customer.id });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to remove customer.' }, 500); }
+});
+
+async function updateTerritoryRosterStatus(c: any, kind: 'customers' | 'subcontractors') {
+  const actor = await territoryActor(c);
+  if (!actor) return c.json({ success: false, error: 'Sign in before updating this roster record.' }, 401);
+  const body = stripBase64(await c.req.json()); const status = String(body.status || '').toLowerCase();
+  if (!['active', 'rejected'].includes(status)) return c.json({ success: false, error: 'Choose active or rejected.' }, 400);
+  const key = territoryWorkspaceKey(actor.user.id); const workspace = (await kv.get(key) as any) || { customers: [], subcontractors: [] };
+  const field = kind === 'customers' ? 'customers' : 'subcontractors'; const rows = Array.isArray(workspace[field]) ? workspace[field] : [];
+  const index = rows.findIndex((item: any) => String(item.id) === String(c.req.param('id')));
+  if (index < 0) return c.json({ success: false, error: 'Roster record not found.' }, 404);
+  const current = rows[index];
+  if (current.status !== 'pending') return c.json({ success: false, error: 'Only pending roster records can be approved or rejected.' }, 409);
+  const now = new Date().toISOString(); const record = { ...current, status, reviewedAt: now, reviewedBy: actor.user.email || actor.user.id, updatedAt: now };
+  workspace[field] = rows.map((item: any, rowIndex: number) => rowIndex === index ? record : item); workspace.updatedAt = now; await kv.set(key, workspace);
+  if (kind === 'customers' && record.email) {
+    const crmKey = `portal_crm:territory:${actor.user.id}`; const crm = (await kv.get(crmKey) as any) || { contacts: [], interactions: [] };
+    crm.contacts = (crm.contacts || []).map((contact: any) => String(contact.email || '').toLowerCase() === String(record.email).toLowerCase() ? { ...contact, status: status === 'active' ? 'active' : 'inactive', updatedAt: now, notes: `${contact.notes || ''}${contact.notes ? '\n' : ''}Territory roster ${status} on ${now}.` } : contact);
+    crm.updatedAt = now; await kv.set(crmKey, crm);
+  }
+  await territoryAdminAlert(`Territory ${kind === 'customers' ? 'customer' : 'subcontractor'} ${status}: ${record.name}`, `${actor.user.email || 'A territory owner'} ${status === 'active' ? 'approved' : 'rejected'} ${record.name}.`, { rosterType: kind, rosterRecordId: record.id, territoryOwnerId: actor.user.id, status });
+  return c.json({ success: true, record: stripBase64(record) });
+}
+app.patch('/make-server-57095a78/territory/customers/:id/status', async (c) => {
+  try { return await updateTerritoryRosterStatus(c, 'customers'); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update customer status.' }, 500); }
+});
+app.patch('/make-server-57095a78/territory/subcontractors/:id/status', async (c) => {
+  try { return await updateTerritoryRosterStatus(c, 'subcontractors'); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update subcontractor status.' }, 500); }
+});
+
+// Territory owners may view financial records only for customers in their own
+// roster. This reuses the canonical subscription, invoice, payment, and hour
+// records instead of copying financial state into the territory workspace.
+app.get('/make-server-57095a78/territory/subscriptions', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in to view territory subscriptions.' }, 401);
+    const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [] };
+    const customerEmails = new Set((workspace.customers || []).map((customer: any) => String(customer.email || '').toLowerCase()).filter(Boolean));
+    if (!customerEmails.size) return c.json({ success: true, subscriptions: [], summary: { active: 0, paused: 0, mrr: 0, hoursRemaining: 0, invoicesDue: 0, paymentsReceived: 0 } });
+    const [allSubscriptions, allInvoices, allPayments] = await Promise.all([
+      kv.getByPrefix('subscription:'), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'),
+    ]);
+    const subscriptions = ((allSubscriptions || []) as any[]).filter((subscription: any) => customerEmails.has(String(subscription.stakeholderEmail || subscription.customerEmail || '').toLowerCase()));
+    const subscriptionIds = new Set(subscriptions.map((subscription: any) => String(subscription.id)));
+    const invoices = ((allInvoices || []) as any[]).filter((invoice: any) => subscriptionIds.has(String(invoice.subscriptionId || '')) || customerEmails.has(String(invoice.customerEmail || invoice.clientEmail || invoice.email || '').toLowerCase()));
+    const payments = ((allPayments || []) as any[]).filter((payment: any) => subscriptionIds.has(String(payment.subscriptionId || '')) || customerEmails.has(String(payment.customerEmail || payment.clientEmail || payment.email || '').toLowerCase()));
+    const invoiceBySubscription = new Map<string, any>(); for (const invoice of invoices) if (invoice.subscriptionId && !invoiceBySubscription.has(String(invoice.subscriptionId))) invoiceBySubscription.set(String(invoice.subscriptionId), invoice);
+    const paymentBySubscription = new Map<string, any>(); for (const payment of payments) if (payment.subscriptionId && !paymentBySubscription.has(String(payment.subscriptionId))) paymentBySubscription.set(String(payment.subscriptionId), payment);
+    const records = subscriptions.map((subscription: any) => ({ ...subscription, balance: subscriptionHourBalance(subscription), invoice: invoiceBySubscription.get(String(subscription.id)) || invoices.find((invoice: any) => String(invoice.id) === String(subscription.invoiceId || '')) || null, payment: paymentBySubscription.get(String(subscription.id)) || payments.find((payment: any) => String(payment.id) === String(subscription.paymentId || '')) || null }));
+    const active = records.filter((record: any) => String(record.status).toLowerCase() === 'active');
+    const paused = records.filter((record: any) => !['active', 'past_due'].includes(String(record.status).toLowerCase()));
+    const paymentsReceived = payments.filter((payment: any) => ['paid', 'succeeded', 'complete', 'completed'].includes(String(payment.status || '').toLowerCase())).reduce((total: number, payment: any) => total + Number(payment.amount || payment.amountPaid || 0), 0);
+    const invoicesDue = invoices.filter((invoice: any) => !['paid', 'void', 'cancelled'].includes(String(invoice.status || '').toLowerCase())).reduce((total: number, invoice: any) => total + Number(invoice.balance_due ?? invoice.total_amount ?? invoice.total ?? 0), 0);
+    return c.json({ success: true, subscriptions: records.map(stripBase64), summary: { active: active.length, paused: paused.length, mrr: active.reduce((total: number, record: any) => total + Number(record.amount || 0), 0), hoursRemaining: active.reduce((total: number, record: any) => total + Number(record.balance?.remaining || 0), 0), invoicesDue, paymentsReceived } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load territory subscriptions.' }, 500); }
 });
 
 // ── PORTAL CRM: CONTACTS & INTERACTIONS ───────────────────────────────────────

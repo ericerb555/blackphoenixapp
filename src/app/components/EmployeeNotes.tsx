@@ -1,230 +1,86 @@
-/**
- * Employee Notes - Internal notes for project tracking
- */
-
+/** Internal notes attached to a canonical project/work-request record. */
 import { useState, useEffect } from 'react';
-import { X, MessageSquare, Plus, Clock, User, Edit2, Trash2, Save } from 'lucide-react';
+import { X, MessageSquare, Plus, Clock, User, Edit2, Trash2, Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
-interface Note {
-  id: string;
-  content: string;
-  author: string;
-  createdAt: string;
-  updatedAt?: string;
-}
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
-interface EmployeeNotesProps {
-  project: any;
-  onClose: () => void;
-  onSave?: (notes: Note[]) => void;
-}
+interface Note { id: string; content: string; author: string; authorId?: string; createdAt: string; updatedAt?: string; }
+interface EmployeeNotesProps { project: any; onClose: () => void; onSave?: (notes: Note[]) => void; }
 
 export function EmployeeNotes({ project, onClose, onSave }: EmployeeNotesProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  // Load notes from localStorage on mount
+  const headers = async (json = false) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(json ? { 'Content-Type': 'application/json' } : {}) };
+  };
+  const commit = (next: Note[]) => { setNotes(next); onSave?.(next); };
+
   useEffect(() => {
-    const storedNotes = localStorage.getItem(`project-notes-${project.id}`);
-    if (storedNotes) {
+    let active = true;
+    const load = async () => {
+      setLoading(true);
       try {
-        setNotes(JSON.parse(storedNotes));
-      } catch (err) {
-        console.error('Failed to parse notes:', err);
-      }
-    }
+        const response = await fetch(`${SERVER}/work-requests/${encodeURIComponent(project.id)}/notes`, { headers: await headers() });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load project notes.');
+        if (active) commit(Array.isArray(data.notes) ? data.notes : []);
+      } catch (error: any) {
+        if (active) toast.error(error.message || 'Unable to load project notes.');
+      } finally { if (active) setLoading(false); }
+    };
+    load(); return () => { active = false; };
   }, [project.id]);
 
-  // Save notes to localStorage
-  const saveNotes = (updatedNotes: Note[]) => {
-    localStorage.setItem(`project-notes-${project.id}`, JSON.stringify(updatedNotes));
-    setNotes(updatedNotes);
-    if (onSave) {
-      onSave(updatedNotes);
-    }
+  const handleAddNote = async () => {
+    const content = newNoteContent.trim();
+    if (!content) return toast.error('Note content cannot be empty');
+    setSaving(true);
+    try {
+      const response = await fetch(`${SERVER}/work-requests/${encodeURIComponent(project.id)}/notes`, { method: 'POST', headers: await headers(true), body: JSON.stringify({ content }) });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to add note.');
+      commit([data.note, ...notes]); setNewNoteContent(''); toast.success('Project note saved');
+    } catch (error: any) { toast.error(error.message || 'Unable to add note.'); } finally { setSaving(false); }
+  };
+  const handleEditNote = (note: Note) => { setEditingId(note.id); setEditContent(note.content); };
+  const handleSaveEdit = async (noteId: string) => {
+    const content = editContent.trim(); if (!content) return toast.error('Note content cannot be empty'); setSaving(true);
+    try {
+      const response = await fetch(`${SERVER}/work-requests/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(noteId)}`, { method: 'PUT', headers: await headers(true), body: JSON.stringify({ content }) });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to update note.');
+      commit(notes.map(note => note.id === noteId ? data.note : note)); setEditingId(null); setEditContent(''); toast.success('Project note updated');
+    } catch (error: any) { toast.error(error.message || 'Unable to update note.'); } finally { setSaving(false); }
+  };
+  const handleDeleteNote = async (noteId: string) => {
+    if (!confirm('Delete this project note?')) return; setSaving(true);
+    try {
+      const response = await fetch(`${SERVER}/work-requests/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE', headers: await headers() });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to delete note.');
+      commit(notes.filter(note => note.id !== noteId)); toast.success('Project note deleted');
+    } catch (error: any) { toast.error(error.message || 'Unable to delete note.'); } finally { setSaving(false); }
   };
 
-  const handleAddNote = () => {
-    if (!newNoteContent.trim()) {
-      toast.error('Note content cannot be empty');
-      return;
-    }
-
-    const newNote: Note = {
-      id: `note-${Date.now()}`,
-      content: newNoteContent.trim(),
-      author: 'Current User', // TODO: Get from auth context
-      createdAt: new Date().toISOString(),
-    };
-
-    const updatedNotes = [newNote, ...notes];
-    saveNotes(updatedNotes);
-    setNewNoteContent('');
-    toast.success('Note added successfully');
-  };
-
-  const handleEditNote = (note: Note) => {
-    setEditingId(note.id);
-    setEditContent(note.content);
-  };
-
-  const handleSaveEdit = (noteId: string) => {
-    if (!editContent.trim()) {
-      toast.error('Note content cannot be empty');
-      return;
-    }
-
-    const updatedNotes = notes.map(note =>
-      note.id === noteId
-        ? { ...note, content: editContent.trim(), updatedAt: new Date().toISOString() }
-        : note
-    );
-
-    saveNotes(updatedNotes);
-    setEditingId(null);
-    setEditContent('');
-    toast.success('Note updated successfully');
-  };
-
-  const handleDeleteNote = (noteId: string) => {
-    if (confirm('Are you sure you want to delete this note?')) {
-      const updatedNotes = notes.filter(note => note.id !== noteId);
-      saveNotes(updatedNotes);
-      toast.success('Note deleted successfully');
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setEditContent('');
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <MessageSquare className="w-6 h-6 text-white" />
-            <div>
-              <h2 className="text-xl font-bold text-white">Employee Notes</h2>
-              <p className="text-sm text-white/80">{project.itemNumber} - {project.title}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-white" />
-          </button>
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+    <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl border border-gray-700 bg-gradient-to-br from-gray-900 to-black shadow-2xl">
+      <div className="flex items-center justify-between bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4">
+        <div className="flex items-center gap-3"><MessageSquare className="h-6 w-6 text-white" /><div><h2 className="text-xl font-bold text-white">Employee Notes</h2><p className="text-sm text-white/80">{project.itemNumber} - {project.title}</p></div></div>
+        <button onClick={onClose} className="rounded-lg p-2 transition-colors hover:bg-white/20" aria-label="Close notes"><X className="h-5 w-5 text-white" /></button>
+      </div>
+      <div className="max-h-[calc(90vh-80px)] overflow-y-auto p-6">
+        <div className="mb-6 rounded-lg border border-gray-700 bg-black/50 p-4"><h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-white"><Plus className="h-5 w-5 text-[#ea580c]" />Add New Note</h3>
+          <textarea value={newNoteContent} onChange={(e) => setNewNoteContent(e.target.value)} placeholder="Enter an internal project note..." disabled={loading || saving} className="mb-3 min-h-[100px] w-full rounded-lg border border-gray-600 bg-black/50 px-4 py-3 text-white placeholder-gray-500 focus:border-[#ea580c] focus:outline-none disabled:opacity-50" />
+          <button onClick={handleAddNote} disabled={loading || saving} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#ea580c] to-[#fb923c] px-4 py-2 font-bold text-white transition-all hover:from-[#fb923c] hover:to-[#ea580c] disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{saving ? 'Saving…' : 'Add Note'}</button>
         </div>
-
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-          {/* Add New Note */}
-          <div className="bg-black/50 border border-gray-700 rounded-lg p-4 mb-6">
-            <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-[#ea580c]" />
-              Add New Note
-            </h3>
-            <textarea
-              value={newNoteContent}
-              onChange={(e) => setNewNoteContent(e.target.value)}
-              placeholder="Enter your note here..."
-              className="w-full bg-black/50 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] min-h-[100px] mb-3"
-            />
-            <button
-              onClick={handleAddNote}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#fb923c] hover:from-[#fb923c] hover:to-[#ea580c] text-white rounded-lg font-bold transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              Add Note
-            </button>
-          </div>
-
-          {/* Notes List */}
-          <div className="space-y-4">
-            {notes.length === 0 ? (
-              <div className="bg-black/30 border border-gray-700 rounded-lg p-8 text-center">
-                <MessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-400">No notes yet. Add your first note above.</p>
-              </div>
-            ) : (
-              notes.map((note) => (
-                <div
-                  key={note.id}
-                  className="bg-black/50 border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition-colors"
-                >
-                  {editingId === note.id ? (
-                    // Edit Mode
-                    <div>
-                      <textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        className="w-full bg-black/50 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] min-h-[100px] mb-3"
-                      />
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleSaveEdit(note.id)}
-                          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-all"
-                        >
-                          <Save className="w-4 h-4" />
-                          Save
-                        </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    // View Mode
-                    <>
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2 text-sm text-gray-400">
-                          <User className="w-4 h-4" />
-                          <span className="font-semibold">{note.author}</span>
-                          <span>•</span>
-                          <Clock className="w-3 h-3" />
-                          <span>{new Date(note.createdAt).toLocaleString()}</span>
-                          {note.updatedAt && (
-                            <>
-                              <span>•</span>
-                              <span className="text-yellow-400">(edited)</span>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleEditNote(note)}
-                            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-                            title="Edit note"
-                          >
-                            <Edit2 className="w-4 h-4 text-blue-400" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteNote(note.id)}
-                            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-                            title="Delete note"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-400" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="text-white whitespace-pre-wrap">{note.content}</div>
-                    </>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <div className="space-y-4">{loading ? <div className="flex justify-center p-8 text-gray-400"><Loader2 className="h-6 w-6 animate-spin" /></div> : notes.length === 0 ? <div className="rounded-lg border border-gray-700 bg-black/30 p-8 text-center"><MessageSquare className="mx-auto mb-3 h-12 w-12 text-gray-600" /><p className="text-gray-400">No notes yet. Add your first note above.</p></div> : notes.map((note) => <div key={note.id} className="rounded-lg border border-gray-700 bg-black/50 p-4 transition-colors hover:border-gray-600">{editingId === note.id ? <div><textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} disabled={saving} className="mb-3 min-h-[100px] w-full rounded-lg border border-gray-600 bg-black/50 px-4 py-3 text-white focus:border-[#ea580c] focus:outline-none" /><div className="flex gap-2"><button onClick={() => handleSaveEdit(note.id)} disabled={saving} className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-semibold text-white hover:bg-green-700 disabled:opacity-50"><Save className="h-4 w-4" />Save</button><button onClick={() => { setEditingId(null); setEditContent(''); }} disabled={saving} className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 font-semibold text-white hover:bg-gray-600">Cancel</button></div></div> : <><div className="mb-3 flex items-start justify-between"><div className="flex items-center gap-2 text-sm text-gray-400"><User className="h-4 w-4" /><span className="font-semibold">{note.author}</span><span>•</span><Clock className="h-3 w-3" /><span>{new Date(note.createdAt).toLocaleString()}</span>{note.updatedAt && <><span>•</span><span className="text-yellow-400">(edited)</span></>}</div><div className="flex gap-2"><button onClick={() => handleEditNote(note)} disabled={saving} className="rounded-lg p-2 hover:bg-gray-700" title="Edit note"><Edit2 className="h-4 w-4 text-blue-400" /></button><button onClick={() => handleDeleteNote(note.id)} disabled={saving} className="rounded-lg p-2 hover:bg-gray-700" title="Delete note"><Trash2 className="h-4 w-4 text-red-400" /></button></div></div><div className="whitespace-pre-wrap text-white">{note.content}</div></>}</div>)}</div>
       </div>
     </div>
-  );
+  </div>;
 }

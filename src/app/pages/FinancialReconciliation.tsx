@@ -28,7 +28,11 @@ import {
   Eye,
   BarChart3,
 } from 'lucide-react';
-import { reconciliationService, BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
+import { BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -67,27 +71,14 @@ export default function FinancialReconciliation({ onNavigate }: FinancialReconci
     loadData();
   }, [companyId]);
 
-  const loadData = () => {
-    console.log('📊 [Financial Reconciliation] Loading data for company:', companyId);
-    
-    const txns = reconciliationService.getTransactionsByCompany(companyId);
-    const mtchs = reconciliationService.getMatchesByCompany(companyId);
-    const prds = reconciliationService.getPeriodsByCompany(companyId);
-    const discs = reconciliationService.getDiscrepanciesByCompany(companyId);
-    const sts = reconciliationService.getReconciliationStats(companyId);
-
-    setTransactions(txns);
-    setMatches(mtchs);
-    setPeriods(prds);
-    setDiscrepancies(discs);
-    setStats(sts);
-
-    console.log('✅ [Financial Reconciliation] Data loaded:', {
-      transactions: txns.length,
-      matches: mtchs.length,
-      periods: prds.length,
-      discrepancies: discs.length,
-    });
+  const loadData = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in as the platform owner to view financial reconciliation.');
+      const response = await fetch(`${SERVER}/financial-reconciliation?companyId=${encodeURIComponent(companyId)}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load reconciliation data.');
+      setTransactions(data.transactions || []); setMatches(data.matches || []); setPeriods(data.periods || []); setDiscrepancies(data.discrepancies || []); setStats(data.stats || null);
+    } catch (error: any) { console.error('[Financial Reconciliation]', error); setTransactions([]); setMatches([]); setPeriods([]); setDiscrepancies([]); setStats(null); }
   };
 
   // Filter transactions
@@ -118,21 +109,17 @@ export default function FinancialReconciliation({ onNavigate }: FinancialReconci
     return matchesSearch && matchesStatus && matchesDate;
   });
 
-  const handleReconcileTransaction = (transactionId: string) => {
-    const transaction = transactions.find(t => t.id === transactionId);
-    if (!transaction) return;
-
-    // Try auto-match first
-    const autoMatch = reconciliationService.autoMatch(transaction);
-    
-    if (autoMatch) {
-      console.log('✅ Auto-matched transaction:', autoMatch);
-      loadData();
-    } else {
-      // Show manual match modal
-      setSelectedTransaction(transaction);
-      setShowTransactionModal(true);
-    }
+  const handleReconcileTransaction = async (transactionId: string) => {
+    const transaction = transactions.find(t => t.id === transactionId); if (!transaction) return;
+    // Verified platform payments are already reconciled; only bank-import entries need a match.
+    if (transaction.isReconciled) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${SERVER}/financial-reconciliation/transactions/${encodeURIComponent(transactionId)}/reconcile`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await response.json();
+      if (!response.ok || !data.success) { setSelectedTransaction(transaction); setShowTransactionModal(true); return; }
+      await loadData();
+    } catch { setSelectedTransaction(transaction); setShowTransactionModal(true); }
   };
 
   const handleCreatePeriod = () => {

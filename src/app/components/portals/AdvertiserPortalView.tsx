@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
 import { useState } from 'react';
@@ -33,7 +34,7 @@ export default function AdvertiserPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'messages' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -210,6 +211,7 @@ export default function AdvertiserPortalView() {
     { id: 'performance', label: 'Performance', icon: TrendingUp },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   return (
@@ -271,6 +273,8 @@ export default function AdvertiserPortalView() {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {activeTab === 'guide' && <PortalFeatureGuide portal="advertiser" />}
+
         {activeTab === 'dashboard' && (
           <>
             {/* Stats Grid */}

@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
@@ -58,7 +59,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals' | 'guide'>('dashboard');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -653,7 +654,8 @@ export default function CustomerPortalView() {
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'shopping', label: 'Shop', icon: ShoppingCart },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
-    { id: 'referrals', label: 'Referrals', icon: Star }
+    { id: 'referrals', label: 'Referrals', icon: Star },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   // Unread message count — fetched from server so it's real-time
@@ -818,6 +820,8 @@ export default function CustomerPortalView() {
             ))}
           </div>
         )}
+
+        {activeTab === 'guide' && <PortalFeatureGuide portal="customer" />}
 
         {activeTab === 'dashboard' && (
           <>
@@ -1481,7 +1485,7 @@ export default function CustomerPortalView() {
                               const tok = session?.access_token || publicAnonKey;
                               const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ amount: invoice.amount || invoice.total, description: `Invoice #${invoice.id}`, clientEmail: user?.email, clientName: user?.email?.split('@')[0], invoiceId: invoice.id, workRequestId: invoice.workRequestId }),
+                                body: JSON.stringify({ amount: invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount, description: `Invoice #${invoice.invoice_number || invoice.id}`, clientEmail: user?.email, clientName: user?.email?.split('@')[0], invoiceId: invoice.id, workRequestId: invoice.workRequestId }),
                               });
                               const data = await res.json();
                               if (data.checkoutUrl) window.location.assign(data.checkoutUrl);

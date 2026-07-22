@@ -31,12 +31,15 @@ export default function CreateInvoiceModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [showCustomerSearch, setShowCustomerSearch] = useState(!customerId);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [useManualRecipient, setUseManualRecipient] = useState(false);
   
   const [formData, setFormData] = useState({
     customer_id: customerId || '',
     project_id: projectId || '',
     customer_name: '',
     customer_email: '',
+    recipient_portal: 'customer' as NonNullable<InvoiceFormData['recipient_portal']>,
+    payment_rail: 'services' as NonNullable<InvoiceFormData['payment_rail']>,
     status: 'draft' as 'draft' | 'pending' | 'paid' | 'partial' | 'overdue' | 'cancelled',
     is_draft: true,
     tax_rate: 0,
@@ -63,6 +66,8 @@ export default function CreateInvoiceModal({
         project_id: invoice.project_id || '',
         customer_name: invoice.customer_name || '',
         customer_email: invoice.customer_email || '',
+        recipient_portal: invoice.recipient_portal || 'customer',
+        payment_rail: invoice.payment_rail || 'services',
         status: invoice.status || 'draft',
         is_draft: invoice.is_draft ?? false,
         tax_rate: invoice.tax_rate || 0,
@@ -77,6 +82,9 @@ export default function CreateInvoiceModal({
         setLineItems(invoice.line_items);
       }
       setShowCustomerSearch(false);
+      setUseManualRecipient(Boolean((invoice.customer_email || invoice.customerEmail) && !invoice.customer_id));
+    } else if (isOpen) {
+      setUseManualRecipient(false);
     }
   }, [isOpen]);
 
@@ -194,8 +202,9 @@ export default function CreateInvoiceModal({
     e.preventDefault();
 
     // Validation: Only require customer for non-draft invoices
-    if (!formData.customer_id && formData.status !== 'draft') {
-      toast.error('Please select a customer or save as draft');
+    const hasRecipient = Boolean(formData.customer_id || (formData.customer_name.trim() && formData.customer_email.trim()));
+    if (!hasRecipient && formData.status !== 'draft') {
+      toast.error('Choose a saved customer, enter a portal recipient, or save this invoice as a draft');
       return;
     }
 
@@ -205,8 +214,8 @@ export default function CreateInvoiceModal({
     }
 
     // Auto-set to draft if no customer selected
-    const isDraft = !formData.customer_id;
-    const finalStatus = isDraft ? 'draft' : formData.status;
+    const isDraft = !hasRecipient;
+    const finalStatus = isDraft ? 'draft' : (formData.status === 'draft' ? 'pending' : formData.status);
 
     setLoading(true);
     try {
@@ -249,6 +258,8 @@ export default function CreateInvoiceModal({
       project_id: '',
       customer_name: '',
       customer_email: '',
+      recipient_portal: 'customer',
+      payment_rail: 'services',
       status: 'draft',
       is_draft: true,
       tax_rate: 0,
@@ -263,6 +274,7 @@ export default function CreateInvoiceModal({
       { line_number: 1, description: '', quantity: 1, unit_price: 0, is_taxable: true },
     ]);
     setSelectedCustomer(null);
+    setUseManualRecipient(false);
     setShowCustomerSearch(false);
     onClose();
   };
@@ -310,7 +322,24 @@ export default function CreateInvoiceModal({
               Customer
             </h3>
 
-            {selectedCustomer ? (
+            {useManualRecipient ? (
+              <div className="space-y-4 rounded-xl border border-orange-500/30 bg-orange-500/5 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="font-semibold text-white">Portal recipient</p><p className="text-sm text-gray-400">The recipient will see this invoice and pay it from their signed-in portal.</p></div>
+                  <button type="button" onClick={() => { setUseManualRecipient(false); setShowCustomerSearch(true); setFormData({ ...formData, customer_id: '', customer_name: '', customer_email: '' }); }} className="text-sm font-semibold text-orange-400 hover:text-orange-300">Choose saved customer</button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="Recipient name" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  <input required type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="Portal sign-in email" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  <select value={formData.recipient_portal} onChange={(e) => setFormData({ ...formData, recipient_portal: e.target.value as NonNullable<InvoiceFormData['recipient_portal']> })} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50">
+                    <option value="customer">Customer portal</option><option value="vendor">Vendor portal</option><option value="advertiser">Advertiser portal</option><option value="subcontractor">Subcontractor portal</option><option value="employee">Employee / technician portal</option><option value="investor">Investor portal</option><option value="property_manager">Property manager portal</option><option value="condo_manager">Condo manager portal</option><option value="landlord">Landlord portal</option><option value="territory_owner">Territory owner portal</option>
+                  </select>
+                  <select value={formData.payment_rail} onChange={(e) => setFormData({ ...formData, payment_rail: e.target.value as NonNullable<InvoiceFormData['payment_rail']> })} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50">
+                    <option value="services">Black Phoenix Builds — services & projects</option><option value="tbpco_ecommerce">TBPCO E-commerce — merchandise</option>
+                  </select>
+                </div>
+              </div>
+            ) : selectedCustomer ? (
               <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-gradient-to-br from-orange-600 to-orange-700 rounded-xl flex items-center justify-center text-white font-semibold">
@@ -348,16 +377,8 @@ export default function CreateInvoiceModal({
                       className="w-full pl-11 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowCustomerSearch(false);
-                      setFormData({ ...formData, is_draft: true, status: 'draft' });
-                    }}
-                    className="ml-3 px-4 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-gray-300 rounded-xl text-sm font-semibold transition"
-                  >
-                    Skip (Save as Draft)
-                  </button>
+                  <button type="button" onClick={() => { setUseManualRecipient(true); setSelectedCustomer(null); setShowCustomerSearch(false); setFormData({ ...formData, customer_id: '', status: 'pending', is_draft: false }); }} className="ml-3 px-4 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-semibold transition">Invoice a Portal</button>
+                  <button type="button" onClick={() => { setShowCustomerSearch(false); setFormData({ ...formData, is_draft: true, status: 'draft' }); }} className="ml-3 px-4 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-gray-300 rounded-xl text-sm font-semibold transition">Draft</button>
                 </div>
 
                 <div className="max-h-60 overflow-y-auto space-y-2">

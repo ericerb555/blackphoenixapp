@@ -8,7 +8,8 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
 import SendOfferModal from '../components/SendOfferModal';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 interface WorkRequest {
   id: string;
@@ -60,12 +61,14 @@ export default function PropertyManagementHub() {
     loadData();
   }, [activeTab]);
 
+  const adminHeaders = async () => { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage property operations.'); return { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }; };
+
   const loadData = async () => {
     setLoading(true);
     try {
       // Load stats
       const statsRes = await fetch(`${baseUrl}/stats`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await adminHeaders()
       });
       const statsData = await statsRes.json();
       if (statsData.success) {
@@ -75,7 +78,7 @@ export default function PropertyManagementHub() {
       // Load work requests based on tab
       if (activeTab === 'pending') {
         const res = await fetch(`${baseUrl}/work-requests/pending`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await adminHeaders()
         });
         const data = await res.json();
         if (data.success) {
@@ -83,7 +86,7 @@ export default function PropertyManagementHub() {
         }
       } else if (activeTab === 'approved') {
         const res = await fetch(`${baseUrl}/work-requests/approved`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await adminHeaders()
         });
         const data = await res.json();
         if (data.success) {
@@ -98,14 +101,12 @@ export default function PropertyManagementHub() {
     }
   };
 
-  const sendOfferEmail = async (request: WorkRequest) => {
-    toast.success(`Offer email sent for ${request.title}`);
-    // TODO: Integrate with email service
-  };
+  const sendOfferEmail = async (request: WorkRequest) => { setSelectedRequest(request); };
 
   const assignToCrew = async (request: WorkRequest) => {
-    toast.success(`Work request assigned to crew`);
-    // TODO: Integrate with crew assignment
+    const crewName = window.prompt('Assign this request to which crew or technician?');
+    if (!crewName?.trim()) return;
+    try { const response = await fetch(`${baseUrl}/work-requests/${encodeURIComponent(request.id)}/assign`, { method: 'POST', headers: await adminHeaders(), body: JSON.stringify({ crewName: crewName.trim() }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not assign crew.'); toast.success(`${crewName.trim()} assigned to this work request.`); await loadData(); } catch (error: any) { toast.error(error?.message || 'Could not assign crew.'); }
   };
 
   const filteredRequests = workRequests.filter(request => {

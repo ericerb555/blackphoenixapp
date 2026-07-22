@@ -1,3 +1,4 @@
+import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner@2.0.3';
 import {
@@ -14,6 +15,7 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import ReferralRewards from '../ReferralRewards';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
+import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
@@ -23,22 +25,6 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   static getDerivedStateFromError() { return { err: true }; }
   render() { return this.state.err ? null : this.props.children; }
 }
-
-const DEMO_CUSTOMERS = [
-  { id: 'c1', name: 'Sarah Johnson', email: 'sarah@example.com', phone: '(214) 555-0101', serviceType: 'Handyman', status: 'active', totalSpent: 2400 },
-  { id: 'c2', name: 'Mike Thompson', email: 'mike@example.com', phone: '(214) 555-0202', serviceType: 'Construction', status: 'active', totalSpent: 8900 },
-  { id: 'c3', name: 'Lisa Chen', email: 'lisa@example.com', phone: '(972) 555-0303', serviceType: 'Trash Removal', status: 'pending', totalSpent: 0 },
-];
-const DEMO_SUBS = [
-  { id: 's1', name: 'ABC Plumbing', trade: 'Plumbing', status: 'active', rating: 4.8, jobs: 45 },
-  { id: 's2', name: 'Elite Electrical', trade: 'Electrical', status: 'active', rating: 4.9, jobs: 62 },
-  { id: 's3', name: 'Dallas HVAC', trade: 'HVAC', status: 'pending', rating: 0, jobs: 0 },
-];
-const DEMO_SUBS_WITH_PRICE = [
-  { id: 'sb1', customer: 'Sarah Johnson', plan: 'Basic Handyman', price: 149, status: 'active' },
-  { id: 'sb2', customer: 'Mike Thompson', plan: 'Pro Construction', price: 2199, status: 'active' },
-  { id: 'sb3', customer: 'James Wilson', plan: 'Basic Handyman', price: 149, status: 'paused' },
-];
 
 const DEMO_PIPELINE = [
   { id: 'wr1', customer: 'Sarah Johnson', service: 'Bathroom Remodel', status: 'new', priority: 'high', submitted: '2026-06-20', budget: '$4,000–$8,000', description: 'Full bathroom gut and remodel, new tile, vanity, fixtures.' },
@@ -51,14 +37,7 @@ const DEMO_REVENUE = [
   { month: 'Apr', revenue: 22100 }, { month: 'May', revenue: 28400 }, { month: 'Jun', revenue: 34800 },
 ];
 
-const DEMO_MESSAGES = [
-  { id: 'm1', from: 'Sarah Johnson', preview: 'Hi, when can you start on the bathroom?', time: '2h ago', unread: true, type: 'customer' },
-  { id: 'm2', from: 'ABC Plumbing', preview: 'I can take the Johnson job on Thursday.', time: '4h ago', unread: true, type: 'sub' },
-  { id: 'm3', from: 'Mike Thompson', preview: 'Thanks for the quote! Looks good.', time: '1d ago', unread: false, type: 'customer' },
-  { id: 'm4', from: 'Elite Electrical', preview: 'Available next week for any electrical work.', time: '2d ago', unread: false, type: 'sub' },
-];
-
-type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'referrals' | 'settings';
+type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'referrals' | 'settings' | 'guide';
 
 interface Props { onNavigate: (page: string) => void; }
 
@@ -73,25 +52,104 @@ function getDemoProfile() {
 
 export default function TerritoryPortalView({ onNavigate }: Props) {
   const demoProfile = getDemoProfile();
-  const territoryName = demoProfile?.territory || 'Dallas Metro';
-  const ownerName = demoProfile?.name || 'Marcus Johnson';
-  const ownerEmail = demoProfile?.email || 'marcus@dallasmhs.com';
+  const fallbackTerritoryName = demoProfile?.territory || 'My Territory';
+  const fallbackOwnerName = demoProfile?.name || 'Territory Owner';
+  const fallbackOwnerEmail = demoProfile?.email || '';
 
   const [tab, setTab] = useState<Tab>('dashboard');
-  const [customers, setCustomers] = useState(DEMO_CUSTOMERS);
-  const [subs, setSubs] = useState(DEMO_SUBS);
+  const [territorySettings, setTerritorySettings] = useState({ territoryId: 'TERR-NEW', territoryName: fallbackTerritoryName, serviceState: 'TX', ownerName: fallbackOwnerName, ownerEmail: fallbackOwnerEmail });
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [subs, setSubs] = useState<any[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [savingSub, setSavingSub] = useState(false);
+  const [updatingRosterId, setUpdatingRosterId] = useState<string | null>(null);
+  const [territorySubscriptions, setTerritorySubscriptions] = useState<any[]>([]);
+  const [subscriptionSummary, setSubscriptionSummary] = useState({ active: 0, paused: 0, mrr: 0, hoursRemaining: 0, invoicesDue: 0, paymentsReceived: 0 });
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(true);
   const [pipeline, setPipeline] = useState<any[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
-  const [messages, setMessages] = useState(DEMO_MESSAGES);
-  const [selectedMsg, setSelectedMsg] = useState<any>(null);
-  const [msgReply, setMsgReply] = useState('');
   const [search, setSearch] = useState('');
-  const unreadCount = messages.filter(m => m.unread).length;
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showAddSub, setShowAddSub] = useState(false);
   const [cForm, setCForm] = useState({ name: '', email: '', phone: '', serviceType: '' });
   const [sForm, setSForm] = useState({ name: '', trade: '', email: '', phone: '' });
   const { user } = useAuth();
+  const { unread: unreadCount } = usePortalMessages(user?.id || '', user?.email || '');
+  const territoryName = territorySettings.territoryName;
+  const ownerName = territorySettings.ownerName;
+  const ownerEmail = territorySettings.ownerEmail;
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSettings = async () => {
+      if (!user?.id) { if (mounted) setSettingsLoading(false); return; }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load territory settings.');
+        if (mounted && data.settings) setTerritorySettings(data.settings);
+      } catch (error: any) { if (mounted) toast.error(error.message || 'Could not load territory settings.'); }
+      finally { if (mounted) setSettingsLoading(false); }
+    };
+    void loadSettings();
+    return () => { mounted = false; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRoster = async () => {
+      if (!user?.id) {
+        if (mounted) { setCustomers([]); setSubs([]); setRosterLoading(false); }
+        return;
+      }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+        const headers = { Authorization: `Bearer ${session.access_token}` };
+        const [customerResponse, subResponse] = await Promise.all([
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers`, { headers }),
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subcontractors`, { headers }),
+        ]);
+        const [customerData, subData] = await Promise.all([customerResponse.json(), subResponse.json()]);
+        if (!customerResponse.ok || !customerData.success) throw new Error(customerData.error || 'Could not load customers.');
+        if (!subResponse.ok || !subData.success) throw new Error(subData.error || 'Could not load subcontractors.');
+        if (mounted) { setCustomers(Array.isArray(customerData.customers) ? customerData.customers : []); setSubs(Array.isArray(subData.subcontractors) ? subData.subcontractors : []); }
+      } catch (error: any) {
+        if (mounted) { setCustomers([]); setSubs([]); toast.error(error.message || 'Could not load your territory roster.'); }
+      } finally {
+        if (mounted) setRosterLoading(false);
+      }
+    };
+    void loadRoster();
+    return () => { mounted = false; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSubscriptions = async () => {
+      if (!user?.id) { if (mounted) { setTerritorySubscriptions([]); setSubscriptionsLoading(false); } return; }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load territory subscriptions.');
+        if (mounted) {
+          setTerritorySubscriptions(Array.isArray(data.subscriptions) ? data.subscriptions : []);
+          setSubscriptionSummary(data.summary || { active: 0, paused: 0, mrr: 0, hoursRemaining: 0, invoicesDue: 0, paymentsReceived: 0 });
+        }
+      } catch (error: any) {
+        if (mounted) { setTerritorySubscriptions([]); toast.error(error.message || 'Could not load territory subscriptions.'); }
+      } finally { if (mounted) setSubscriptionsLoading(false); }
+    };
+    void loadSubscriptions();
+    return () => { mounted = false; };
+  }, [user?.id]);
 
   useEffect(() => {
     const loadPipeline = async () => {
@@ -112,22 +170,88 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
   };
 
-  const mrr = DEMO_SUBS_WITH_PRICE.filter(s => s.status === 'active').reduce((a, s) => a + s.price, 0);
+  const mrr = Number(subscriptionSummary.mrr || 0);
+  const subscriptionCustomerName = (subscription: any) => subscription.stakeholderName || subscription.customerName || subscription.customerEmail || subscription.stakeholderEmail || 'Customer';
 
-  function addCustomer() {
-    if (!cForm.name || !cForm.email) { toast.error('Name and email required'); return; }
-    setCustomers(prev => [...prev, { id: `c${Date.now()}`, ...cForm, status: 'active', totalSpent: 0 }]);
-    toast.success('Customer added!');
-    setShowAddCustomer(false);
-    setCForm({ name: '', email: '', phone: '', serviceType: '' });
+  async function addCustomer() {
+    if (!cForm.name.trim() || !cForm.email.trim()) { toast.error('Name and email are required.'); return; }
+    setSavingCustomer(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in again before adding a customer.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers`, {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(cForm),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not add customer.');
+      setCustomers(prev => [data.customer, ...prev]);
+      toast.success('Customer added to your territory and CRM.');
+      setShowAddCustomer(false); setCForm({ name: '', email: '', phone: '', serviceType: '' });
+    } catch (error: any) { toast.error(error.message || 'Could not add customer.'); }
+    finally { setSavingCustomer(false); }
   }
 
-  function addSub() {
-    if (!sForm.name || !sForm.trade) { toast.error('Name and trade required'); return; }
-    setSubs(prev => [...prev, { id: `s${Date.now()}`, ...sForm, status: 'pending', rating: 0, jobs: 0 }]);
-    toast.success('Sub added — pending approval');
-    setShowAddSub(false);
-    setSForm({ name: '', trade: '', email: '', phone: '' });
+  async function addSub() {
+    if (!sForm.name.trim() || !sForm.trade.trim()) { toast.error('Company/name and trade are required.'); return; }
+    setSavingSub(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in again before adding a subcontractor.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subcontractors`, {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(sForm),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not add subcontractor.');
+      setSubs(prev => [data.subcontractor, ...prev]);
+      toast.success('Subcontractor added for approval.');
+      setShowAddSub(false); setSForm({ name: '', trade: '', email: '', phone: '' });
+    } catch (error: any) { toast.error(error.message || 'Could not add subcontractor.'); }
+    finally { setSavingSub(false); }
+  }
+
+  async function saveTerritorySettings() {
+    setSavingSettings(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in again before saving settings.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/settings`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(territorySettings) });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save territory settings.');
+      setTerritorySettings(data.settings); toast.success('Territory settings saved.');
+    } catch (error: any) { toast.error(error.message || 'Could not save territory settings.'); }
+    finally { setSavingSettings(false); }
+  }
+
+  async function removeCustomer(record: any) {
+    if (!window.confirm(`Remove ${record.name} from this territory roster? This also removes the matching Territory CRM contact.`)) return;
+    setUpdatingRosterId(record.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in again before removing a customer.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers/${encodeURIComponent(record.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not remove customer.');
+      setCustomers(rows => rows.filter(item => item.id !== record.id));
+      toast.success(`${record.name} removed from this territory roster.`);
+    } catch (error: any) { toast.error(error.message || 'Could not remove customer.'); }
+    finally { setUpdatingRosterId(null); }
+  }
+
+  async function updateRosterStatus(kind: 'customers' | 'subcontractors', record: any, status: 'active' | 'rejected') {
+    setUpdatingRosterId(record.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in again before reviewing this record.');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/${kind}/${encodeURIComponent(record.id)}/status`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not update roster status.');
+      if (kind === 'customers') setCustomers(rows => rows.map(item => item.id === record.id ? data.record : item));
+      else setSubs(rows => rows.map(item => item.id === record.id ? data.record : item));
+      toast.success(`${record.name} ${status === 'active' ? 'approved' : 'rejected'}.`);
+    } catch (error: any) { toast.error(error.message || 'Could not update roster status.'); }
+    finally { setUpdatingRosterId(null); }
   }
 
   const statusBadge = (s: string) =>
@@ -148,6 +272,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     { id: 'deals', label: 'Deals & Reels', icon: Star },
     { id: 'referrals', label: 'Referrals', icon: Award },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
   return (
@@ -197,6 +322,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {/* DASHBOARD */}
+        {tab === 'guide' && <PortalFeatureGuide portal="territory" />}
+
         {tab === 'dashboard' && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -237,12 +364,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                         <p className="text-gray-500 text-xs">{item.serviceType || item.trade}</p>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => {
-                          setCustomers(prev => prev.map(c => c.id === item.id ? { ...c, status: 'active' } : c));
-                          setSubs(prev => prev.map(s => s.id === item.id ? { ...s, status: 'active' } : s));
-                          toast.success('Approved!');
-                        }} className="px-2.5 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded text-xs font-bold transition">Approve</button>
-                        <button onClick={() => toast.error('Rejected')} className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs font-bold transition">Reject</button>
+                        <button onClick={() => void updateRosterStatus(item.trade ? 'subcontractors' : 'customers', item, 'active')} disabled={updatingRosterId === item.id} className="px-2.5 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded text-xs font-bold transition disabled:opacity-50">Approve</button>
+                        <button onClick={() => void updateRosterStatus(item.trade ? 'subcontractors' : 'customers', item, 'rejected')} disabled={updatingRosterId === item.id} className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded text-xs font-bold transition disabled:opacity-50">Reject</button>
                       </div>
                     </div>
                   ))}
@@ -257,13 +380,13 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                 <button onClick={() => setTab('subscriptions')} className="text-cyan-400 text-sm flex items-center gap-1">View All <ChevronRight className="w-4 h-4" /></button>
               </div>
               <div className="space-y-2">
-                {DEMO_SUBS_WITH_PRICE.filter(s => s.status === 'active').map(s => (
+                {territorySubscriptions.filter(s => s.status === 'active').map(s => (
                   <div key={s.id} className="flex items-center justify-between bg-[#0A0A0A] rounded-lg p-3">
                     <div>
-                      <p className="text-white text-sm font-medium">{s.customer}</p>
+                      <p className="text-white text-sm font-medium">{subscriptionCustomerName(s)}</p>
                       <p className="text-gray-500 text-xs">{s.plan}</p>
                     </div>
-                    <span className="text-white font-bold text-sm">${s.price}/mo</span>
+                    <span className="text-white font-bold text-sm">${Number(s.amount || 0).toLocaleString()}/mo</span>
                   </div>
                 ))}
               </div>
@@ -429,69 +552,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
         {/* ── MESSAGES ── */}
         {tab === 'messages' && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold text-white">Messages</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Conversation list */}
-              <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-hidden">
-                <div className="p-3 border-b border-[#2A2A2A]">
-                  <p className="text-sm font-bold text-white">Conversations ({unreadCount} unread)</p>
-                </div>
-                <div className="divide-y divide-[#2A2A2A]">
-                  {messages.map(msg => (
-                    <button key={msg.id} onClick={() => { setSelectedMsg(msg); setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, unread: false } : m)); }}
-                      className={`w-full text-left p-3 hover:bg-[#111] transition ${selectedMsg?.id === msg.id ? 'bg-cyan-600/10 border-l-2 border-cyan-500' : ''}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm font-semibold text-white flex items-center gap-2">
-                          {msg.from}
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${msg.type === 'customer' ? 'bg-blue-500/20 text-blue-400' : 'bg-orange-500/20 text-orange-400'}`}>{msg.type}</span>
-                        </p>
-                        {msg.unread && <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />}
-                      </div>
-                      <p className="text-gray-500 text-xs truncate">{msg.preview}</p>
-                      <p className="text-gray-600 text-xs mt-0.5">{msg.time}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Message thread */}
-              <div className="lg:col-span-2 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl flex flex-col">
-                {selectedMsg ? (
-                  <>
-                    <div className="p-4 border-b border-[#2A2A2A]">
-                      <p className="font-bold text-white">{selectedMsg.from}</p>
-                      <p className="text-gray-500 text-xs capitalize">{selectedMsg.type}</p>
-                    </div>
-                    <div className="flex-1 p-4 space-y-3 min-h-48">
-                      <div className="flex justify-start">
-                        <div className="bg-[#2A2A2A] rounded-2xl rounded-tl-none px-4 py-2.5 max-w-xs">
-                          <p className="text-white text-sm">{selectedMsg.preview}</p>
-                          <p className="text-gray-600 text-xs mt-1">{selectedMsg.time}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 border-t border-[#2A2A2A] flex gap-2">
-                      <input value={msgReply} onChange={e => setMsgReply(e.target.value)}
-                        placeholder="Type a reply…"
-                        onKeyDown={e => { if (e.key === 'Enter' && msgReply.trim()) { toast.success('Message sent!'); setMsgReply(''); } }}
-                        className="flex-1 bg-[#0A0A0A] border border-[#2A2A2A] focus:border-cyan-500 rounded-lg px-3 py-2 text-white text-sm outline-none placeholder-gray-600" />
-                      <button onClick={() => { if (msgReply.trim()) { toast.success('Message sent!'); setMsgReply(''); } }}
-                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-bold transition flex items-center gap-1.5">
-                        <Send className="w-4 h-4" /> Send
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-center p-8">
-                    <div>
-                      <MessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                      <p className="text-gray-400 font-medium mb-1">Select a conversation</p>
-                      <p className="text-gray-600 text-sm">Click a message on the left to open it</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <div><h2 className="text-xl font-bold text-white">Messages</h2><p className="text-sm text-gray-500 mt-1">Live account conversations with your territory contacts and Black Phoenix.</p></div>
+            <MessagesTab userId={user?.id || ''} userEmail={user?.email || ''} userName={ownerName} senderRole="territory_owner" />
           </div>
         )}
 
@@ -525,12 +587,14 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                     <div className="flex items-center gap-3">
                       {c.totalSpent > 0 && <span className="text-green-400 text-sm font-bold">${c.totalSpent.toLocaleString()}</span>}
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(c.status)}`}>{c.status}</span>
-                      {c.status === 'pending' && (
-                        <button onClick={() => { setCustomers(prev => prev.map(x => x.id === c.id ? { ...x, status: 'active' } : x)); toast.success('Approved!'); }}
-                          className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded text-xs font-bold">Approve</button>
-                      )}
-                      <button onClick={() => { if(confirm('Remove?')) setCustomers(prev => prev.filter(x => x.id !== c.id)); }}
-                        className="p-1 hover:bg-red-500/20 text-gray-500 hover:text-red-400 rounded transition">
+                      {c.status === 'pending' && <>
+                        <button onClick={() => void updateRosterStatus('customers', c, 'active')} disabled={updatingRosterId === c.id}
+                          className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded text-xs font-bold disabled:opacity-50">Approve</button>
+                        <button onClick={() => void updateRosterStatus('customers', c, 'rejected')} disabled={updatingRosterId === c.id}
+                          className="px-2.5 py-1 bg-red-500/20 text-red-400 rounded text-xs font-bold disabled:opacity-50">Reject</button>
+                      </>}
+                      <button onClick={() => void removeCustomer(c)} disabled={updatingRosterId === c.id}
+                        className="p-1 hover:bg-red-500/20 text-gray-500 hover:text-red-400 rounded transition disabled:opacity-50">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -562,10 +626,12 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(s.status)}`}>{s.status}</span>
-                      {s.status === 'pending' && (
-                        <button onClick={() => { setSubs(prev => prev.map(x => x.id === s.id ? { ...x, status: 'active' } : x)); toast.success('Approved!'); }}
-                          className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded text-xs font-bold">Approve</button>
-                      )}
+                      {s.status === 'pending' && <>
+                        <button onClick={() => void updateRosterStatus('subcontractors', s, 'active')} disabled={updatingRosterId === s.id}
+                          className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded text-xs font-bold disabled:opacity-50">Approve</button>
+                        <button onClick={() => void updateRosterStatus('subcontractors', s, 'rejected')} disabled={updatingRosterId === s.id}
+                          className="px-2.5 py-1 bg-red-500/20 text-red-400 rounded text-xs font-bold disabled:opacity-50">Reject</button>
+                      </>}
                     </div>
                   </div>
                 </div>
@@ -578,38 +644,26 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
         {tab === 'subscriptions' && (
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Customer Subscriptions</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-              <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 text-center">
-                <p className="text-2xl font-black text-green-400">{DEMO_SUBS_WITH_PRICE.filter(s => s.status === 'active').length}</p>
-                <p className="text-gray-500 text-sm">Active</p>
-              </div>
-              <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 text-center">
-                <p className="text-2xl font-black text-cyan-400">${mrr.toLocaleString()}</p>
-                <p className="text-gray-500 text-sm">Monthly MRR</p>
-              </div>
-              <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 text-center">
-                <p className="text-2xl font-black text-yellow-400">{DEMO_SUBS_WITH_PRICE.filter(s => s.status !== 'active').length}</p>
-                <p className="text-gray-500 text-sm">Paused</p>
-              </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              {[
+                { label: 'Active', value: subscriptionSummary.active, color: 'text-green-400' },
+                { label: 'Monthly MRR', value: `$${mrr.toLocaleString()}`, color: 'text-cyan-400' },
+                { label: 'Hours Available', value: Number(subscriptionSummary.hoursRemaining || 0).toFixed(1), color: 'text-purple-400' },
+                { label: 'Invoices Due', value: `$${Number(subscriptionSummary.invoicesDue || 0).toLocaleString()}`, color: 'text-yellow-400' },
+              ].map(item => <div key={item.label} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 text-center"><p className={`text-2xl font-black ${item.color}`}>{item.value}</p><p className="text-gray-500 text-sm">{item.label}</p></div>)}
             </div>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {DEMO_SUBS_WITH_PRICE.map(s => (
-                <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div>
-                    <p className="font-semibold text-white">{s.customer}</p>
-                    <p className="text-gray-500 text-sm">{s.plan}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold">${s.price}/mo</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${s.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>{s.status}</span>
-                  </div>
-                </div>
-              ))}
+              {subscriptionsLoading && <div className="p-6 text-center text-sm text-gray-400">Loading live subscription records…</div>}
+              {!subscriptionsLoading && territorySubscriptions.length === 0 && <div className="p-8 text-center text-sm text-gray-400">No active plan records are linked to customers in this territory yet.</div>}
+              {territorySubscriptions.map(s => {
+                const balance = s.balance || {}; const invoiceStatus = s.invoice?.status || 'No invoice'; const paymentStatus = s.payment?.status || 'No payment';
+                return <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                  <div><p className="font-semibold text-white">{subscriptionCustomerName(s)}</p><p className="text-gray-500 text-sm">{s.plan || 'Service plan'} · {Number(balance.remaining || 0).toFixed(1)} of {Number(balance.available || 0).toFixed(1)} hours remaining</p></div>
+                  <div className="flex flex-wrap items-center justify-end gap-2 text-xs"><span className="font-bold text-white text-sm">${Number(s.amount || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded-full ${s.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>{s.status}</span><span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300">Invoice: {invoiceStatus}</span><span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300">Payment: {paymentStatus}</span></div>
+                </div>;
+              })}
             </div>
-            <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-start gap-3">
-              <Shield className="w-5 h-5 text-purple-400 flex-shrink-0" />
-              <p className="text-gray-400 text-sm">Subscription plan pricing is set by Black Phoenix HQ. You can view and manage your customers' subscription status here.</p>
-            </div>
+            <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-start gap-3"><Shield className="w-5 h-5 text-purple-400 flex-shrink-0" /><p className="text-gray-400 text-sm">These are live plan, hour-balance, invoice, and payment records for customers in your territory roster. Pricing and payment processing remain controlled by Black Phoenix HQ.</p></div>
           </div>
         )}
 
@@ -651,18 +705,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                 );
               })}
             </div>
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
-              <h3 className="font-bold text-white mb-4">Your Referral Link</h3>
-              <div className="flex items-center gap-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-4 py-3">
-                <p className="flex-1 text-gray-300 text-sm font-mono truncate">https://theblackphoenixcompany.com/?ref=TERR-001</p>
-                <button onClick={() => { navigator.clipboard.writeText('https://theblackphoenixcompany.com/?ref=TERR-001').catch(()=>{}); toast.success('Copied!'); }}
-                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-xs font-bold transition">
-                  Copy
-                </button>
-              </div>
-              <p className="text-gray-600 text-xs mt-2">Share this link — when someone signs up through it, you automatically get credit.</p>
-            </div>
-            <Safe><ReferralRewards userType="territory" /></Safe>
+            <Safe><ReferralRewards /></Safe>
           </div>
         )}
 
@@ -671,16 +714,17 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
           <div className="space-y-6">
             <h2 className="text-xl font-bold">Territory Settings</h2>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">
-              {[{ label: 'Territory Name', value: territoryName }, { label: 'State', value: 'TX' }, { label: 'Territory ID', value: 'TERR-001', disabled: true }, { label: 'Owner', value: ownerName }, { label: 'Email', value: ownerEmail }].map(f => (
+              {[{ label: 'Territory Name', key: 'territoryName', placeholder: 'Dallas Metro' }, { label: 'Service State', key: 'serviceState', placeholder: 'TX' }, { label: 'Territory ID', key: 'territoryId', disabled: true }, { label: 'Owner Contact Name', key: 'ownerName', placeholder: 'Owner name' }, { label: 'Owner Contact Email', key: 'ownerEmail', placeholder: 'owner@example.com', type: 'email' }].map(f => (
                 <div key={f.label}>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5">{f.label}</label>
-                  <input defaultValue={f.value} disabled={(f as any).disabled}
+                  <input value={(territorySettings as any)[f.key] || ''} placeholder={f.placeholder} type={(f as any).type || 'text'} disabled={(f as any).disabled || settingsLoading} onChange={event => setTerritorySettings(current => ({ ...current, [f.key]: event.target.value }))}
                     className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-cyan-500 rounded-lg px-4 py-2.5 text-white text-sm outline-none disabled:opacity-50" />
+                  {f.key === 'ownerEmail' && <p className="text-xs text-gray-600 mt-1">This is the territory business contact. It does not change the sign-in email.</p>}
                 </div>
               ))}
-              <button onClick={() => toast.success('Settings saved!')}
-                className="px-6 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-bold transition hover:opacity-90">
-                Save Changes
+              <button onClick={() => void saveTerritorySettings()} disabled={savingSettings || settingsLoading}
+                className="px-6 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg text-sm font-bold transition hover:opacity-90 disabled:opacity-50">
+                {savingSettings ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -701,7 +745,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
             ))}
             <div className="flex gap-3 pt-2">
               <button onClick={() => setShowAddCustomer(false)} className="flex-1 py-2.5 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-              <button onClick={addCustomer} className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-lg text-sm font-bold transition">Add Customer</button>
+              <button onClick={() => void addCustomer()} disabled={savingCustomer} className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-lg text-sm font-bold transition disabled:opacity-60">{savingCustomer ? 'Saving…' : 'Add Customer'}</button>
             </div>
           </div>
         </div>
@@ -721,7 +765,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
             ))}
             <div className="flex gap-3 pt-2">
               <button onClick={() => setShowAddSub(false)} className="flex-1 py-2.5 bg-[#2A2A2A] hover:bg-[#353535] rounded-lg text-sm font-semibold transition">Cancel</button>
-              <button onClick={addSub} className="flex-1 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 rounded-lg text-sm font-bold transition">Add Sub</button>
+              <button onClick={() => void addSub()} disabled={savingSub} className="flex-1 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 rounded-lg text-sm font-bold transition disabled:opacity-60">{savingSub ? 'Saving…' : 'Add Sub'}</button>
             </div>
           </div>
         </div>
