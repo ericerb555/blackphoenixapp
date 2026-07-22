@@ -1,10 +1,11 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
-import { useState, useEffect, Component, ReactNode } from 'react';
+import { useState, useEffect, useMemo, Component, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   Home, DollarSign, Users, Wrench, Settings, Bell,
   Building2, BarChart3, ChevronRight, ArrowUpRight, Tag, MessageSquare,
-  TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus, FileText,
+  TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus, FileText, CircleDollarSign, ShieldCheck, Gauge, CalendarClock,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -117,6 +118,35 @@ export default function LandlordPortalView() {
   const [tenantDraft, setTenantDraft] = useState({ name: '', unit: '', rent: '', status: 'current' });
   const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Landlord');
   const email = accountEmail || demoProfile?.email || '';
+
+  // This is intentionally calculated from the landlord's saved live records—no marketing-only metrics.
+  const portfolioPulse = useMemo(() => {
+    const totalUnits = properties.reduce((sum, property) => sum + Math.max(0, Number(property.units || 0)), 0);
+    const vacancies = properties.reduce((sum, property) => sum + Math.max(0, Number(property.vacancies || 0)), 0);
+    const occupiedUnits = Math.max(0, totalUnits - vacancies);
+    const occupancy = totalUnits ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+    const scheduledRent = tenants.reduce((sum, tenant) => sum + Math.max(0, Number(tenant.rent || 0)), 0);
+    const currentTenants = tenants.filter(tenant => String(tenant.status || '').toLowerCase() === 'current').length;
+    const collectionRate = tenants.length ? Math.round((currentTenants / tenants.length) * 100) : 0;
+    const averageRent = tenants.length ? Math.round(scheduledRent / tenants.length) : 0;
+    const urgentRequests = maintenance.filter(request => ['urgent', 'high'].includes(String(request.priority || '').toLowerCase()) && !['completed', 'rejected'].includes(String(request.status || '').toLowerCase())).length;
+    const openRequests = maintenance.filter(request => !['completed', 'rejected'].includes(String(request.status || '').toLowerCase())).length;
+    const vacancyExposure = totalUnits ? Math.round(scheduledRent * (vacancies / Math.max(occupiedUnits, 1))) : 0;
+
+    return {
+      totalUnits, vacancies, occupiedUnits, occupancy, scheduledRent, currentTenants,
+      collectionRate, averageRent, urgentRequests, openRequests, vacancyExposure,
+      occupancyData: [
+        { name: 'Occupied', value: occupiedUnits },
+        { name: 'Available', value: vacancies },
+      ],
+      healthData: [
+        { label: 'Occupancy', value: occupancy },
+        { label: 'Collections', value: collectionRate },
+        { label: 'Maintenance', value: openRequests ? Math.max(25, 100 - (urgentRequests * 20) - (openRequests * 6)) : 100 },
+      ],
+    };
+  }, [properties, tenants, maintenance]);
 
   const loadMaintenance = async () => {
     if (!session?.access_token) { setMaintenance([]); setMaintenanceLoading(false); return; }
@@ -318,6 +348,78 @@ export default function LandlordPortalView() {
                 </div>
               </div>
             </div>
+
+            <section className="overflow-hidden rounded-2xl border border-teal-500/20 bg-[#131817] shadow-[0_22px_70px_rgba(0,0,0,0.22)]">
+              <div className="border-b border-white/5 bg-[radial-gradient(ellipse_at_top_left,_rgba(20,184,166,0.15),_transparent_42%)] px-5 py-5 sm:px-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-teal-300">
+                      <span className="h-2 w-2 rounded-full bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.9)]" />
+                      Live portfolio pulse
+                    </div>
+                    <h2 className="text-xl font-bold text-white sm:text-2xl">Know what needs attention before it costs you.</h2>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">A live operating view built from your properties, tenant roster, and maintenance requests.</p>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-teal-400/15 bg-black/20 px-3 py-2 text-xs text-teal-100">
+                    <Gauge className="h-4 w-4 text-teal-400" />
+                    Updates as your records change
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-px bg-white/5 xl:grid-cols-[1.05fr_1.35fr_1fr]">
+                <div className="bg-[#111514] p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <div><p className="text-sm font-semibold text-white">Occupancy map</p><p className="mt-1 text-xs text-slate-500">Physical portfolio utilization</p></div>
+                    <button onClick={() => setTab('properties')} className="text-xs font-semibold text-teal-300 hover:text-teal-200">Manage properties</button>
+                  </div>
+                  {portfolioPulse.totalUnits > 0 ? (
+                    <div className="relative mt-4 h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={portfolioPulse.occupancyData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={77} startAngle={90} endAngle={-270} paddingAngle={4} stroke="none">
+                            <Cell fill="#2dd4bf" />
+                            <Cell fill="#273331" />
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><span className="text-3xl font-bold text-white">{portfolioPulse.occupancy}%</span><span className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">occupied</span></div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-5 text-center"><Building2 className="mb-3 h-6 w-6 text-teal-400" /><p className="text-sm font-semibold text-white">Start your portfolio map</p><p className="mt-1 text-xs leading-5 text-slate-500">Add a property and its unit count to activate occupancy analytics.</p></div>
+                  )}
+                  <div className="mt-2 grid grid-cols-2 gap-3 border-t border-white/5 pt-4"><div><p className="text-lg font-bold text-white">{portfolioPulse.occupiedUnits}</p><p className="text-xs text-slate-500">Occupied units</p></div><div><p className="text-lg font-bold text-white">{portfolioPulse.vacancies}</p><p className="text-xs text-slate-500">Available units</p></div></div>
+                </div>
+
+                <div className="bg-[#111514] p-5 sm:p-6">
+                  <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-white">Portfolio health</p><p className="mt-1 text-xs text-slate-500">The three signals that protect NOI</p></div><ShieldCheck className="h-5 w-5 text-teal-400" /></div>
+                  {portfolioPulse.totalUnits || tenants.length || maintenance.length ? (
+                    <div className="mt-5 h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={portfolioPulse.healthData} layout="vertical" margin={{ top: 2, right: 18, left: 6, bottom: 2 }}>
+                          <CartesianGrid horizontal={false} stroke="#25302e" strokeDasharray="3 3" />
+                          <XAxis type="number" domain={[0, 100]} hide />
+                          <YAxis type="category" dataKey="label" width={78} tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                          <Tooltip cursor={{ fill: 'rgba(45,212,191,0.05)' }} contentStyle={{ background: '#0b100f', border: '1px solid #2d4b45', borderRadius: 10, color: '#f8fafc' }} formatter={(value: number) => [`${value}%`, 'Health']} />
+                          <Bar dataKey="value" radius={[0, 6, 6, 0]} fill="#14b8a6" barSize={24} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : <div className="mt-5 flex h-56 items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10 px-6 text-center text-sm leading-6 text-slate-500">Your health score will light up when property, tenant, or maintenance data is added.</div>}
+                  <p className="mt-3 border-t border-white/5 pt-3 text-xs leading-5 text-slate-500">Maintenance health weighs open requests and urgent issues, so your next decision is visible at a glance.</p>
+                </div>
+
+                <div className="bg-[#111514] p-5 sm:p-6">
+                  <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10"><CircleDollarSign className="h-5 w-5 text-amber-300" /></div><div><p className="text-sm font-semibold text-white">Revenue guardrails</p><p className="text-xs text-slate-500">Actions that protect cash flow</p></div></div>
+                  <div className="mt-5 space-y-3">
+                    <button onClick={() => setTab('tenants')} className="group flex w-full items-center justify-between rounded-xl border border-white/5 bg-black/20 p-3 text-left transition hover:border-teal-400/30 hover:bg-teal-400/5"><span><span className="block text-lg font-bold text-white">{portfolioPulse.collectionRate}%</span><span className="block text-xs text-slate-500">Tenant accounts current</span></span><ChevronRight className="h-4 w-4 text-slate-600 transition group-hover:text-teal-300" /></button>
+                    <button onClick={() => setTab('maintenance')} className="group flex w-full items-center justify-between rounded-xl border border-white/5 bg-black/20 p-3 text-left transition hover:border-teal-400/30 hover:bg-teal-400/5"><span><span className="block text-lg font-bold text-white">{portfolioPulse.urgentRequests}</span><span className="block text-xs text-slate-500">Urgent maintenance items</span></span><ChevronRight className="h-4 w-4 text-slate-600 transition group-hover:text-teal-300" /></button>
+                    <button onClick={() => setTab('plan-builder')} className="group flex w-full items-center justify-between rounded-xl border border-white/5 bg-black/20 p-3 text-left transition hover:border-teal-400/30 hover:bg-teal-400/5"><span><span className="block text-lg font-bold text-white">{portfolioPulse.averageRent ? `$${portfolioPulse.averageRent.toLocaleString()}` : '—'}</span><span className="block text-xs text-slate-500">Average monthly rent</span></span><ChevronRight className="h-4 w-4 text-slate-600 transition group-hover:text-teal-300" /></button>
+                  </div>
+                  <div className="mt-4 flex items-start gap-2 rounded-lg bg-teal-500/8 p-3 text-xs leading-5 text-teal-100"><CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-teal-400" />Review the portfolio pulse before approving work or planning a unit turn.</div>
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
