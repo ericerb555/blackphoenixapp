@@ -3,6 +3,7 @@ import { Gift, Users, DollarSign, Plus, TrendingUp, Award, Search, Edit2, Share2
 import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
+import PersonalReferralRewards from '../components/ReferralRewards';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -26,6 +27,15 @@ interface Program {
 
 
 export default function ReferralRewards() {
+  const auth = useAuth();
+  const canManageReferrals = Boolean((auth as any)?.isAdmin || (auth as any)?.isOwner || (auth as any)?.isMasterAdmin);
+  if (!canManageReferrals) {
+    return <div className="min-h-screen bg-[#0d0d0d] px-4 py-6 text-white sm:px-6"><PersonalReferralRewards /></div>;
+  }
+  return <ReferralRewardsManagement />;
+}
+
+function ReferralRewardsManagement() {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [search, setSearch] = useState('');

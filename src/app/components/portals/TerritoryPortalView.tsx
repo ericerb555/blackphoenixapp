@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
+import LogoMarquee from '../LogoMarquee';
+import LayoutManager from '../layout-editor/LayoutManager';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
@@ -276,12 +278,13 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
   ];
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: '#0A0A0A', color: '#fff' }}>
-      <Safe><SponsoredMarquee /></Safe>
-      <Safe><AdvertisingMarquee placement="territory-portal" dismissible /></Safe>
+    <LayoutManager pageName="Territory Owner Portal" enableCustomization={true} showEditButton={true}>
+      <div className="w-full min-h-screen bg-[#0A0A0A] text-white">
+        <Safe><SponsoredMarquee /></Safe>
+        <Safe><AdvertisingMarquee placement="portal-header" dismissible /></Safe>
 
-      {/* Header */}
-      <div style={{ background: '#1A1A1A', borderBottom: '1px solid #2A2A2A', position: 'sticky', top: 64, zIndex: 30 }}>
+      {/* Shared vendor-style portal header */}
+      <div className="sticky top-16 z-30 border-b border-[#2A2A2A] bg-[#1A1A1A]/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -318,6 +321,9 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
           </div>
         </div>
       </div>
+
+      <LogoMarquee />
+      <Safe><AdvertisingMarquee placement="portal-header" dismissible /></Safe>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
@@ -770,6 +776,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </LayoutManager>
   );
 }

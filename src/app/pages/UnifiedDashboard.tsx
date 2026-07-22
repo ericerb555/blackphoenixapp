@@ -170,6 +170,33 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             catch { throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`); }
           } else throw new Error(`Command Center returned invalid JSON (HTTP ${response.status}).`);
         }
+        if (response.status === 404) {
+          // Older deployed functions may not yet have /command-center/summary.
+          // Build the same read model from established canonical endpoints so the
+          // owner is never left with a blinking/empty Command Center.
+          const readLegacy = async (path: string) => {
+            try {
+              const legacy = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78${path}`, { headers: { Authorization: `Bearer ${session.access_token}`, Accept: 'application/json' }, cache: 'no-store' });
+              if (!legacy.ok) return null;
+              const text = await legacy.text(); return JSON.parse(text);
+            } catch { return null; }
+          };
+          const [paymentsData, customersData, workData, applicationsData] = await Promise.all([
+            readLegacy('/payments'), readLegacy('/customers/stats'), readLegacy('/work-requests'), readLegacy('/applications'),
+          ]);
+          const payments = Array.isArray(paymentsData?.payments) ? paymentsData.payments : [];
+          const jobs = Array.isArray(workData) ? workData : (Array.isArray(workData?.workRequests) ? workData.workRequests : []);
+          const applications = Array.isArray(applicationsData?.applications) ? applicationsData.applications : [];
+          const paid = payments.filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase()));
+          const totalRevenue = paid.reduce((total: number, payment: any) => total + Number(payment.amount || 0), 0);
+          const months: Record<string, number> = {};
+          for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; }
+          paid.forEach((payment: any) => { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += Number(payment.amount || 0); });
+          const summary = { totalRevenue, customersCount: Number(customersData?.stats?.total || 0), activeJobsCount: jobs.filter((job: any) => ['assigned', 'in-progress', 'approved'].includes(String(job.status || '').toLowerCase())).length, teamCount: applications.filter((application: any) => ['employee', 'field_technician', 'technician', 'maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved', 'active'].includes(String(application.status || '').toLowerCase())).length, chartData: Object.entries(months).map(([month, revenue]) => ({ month, revenue })) };
+          setRevenueData(summary.chartData); setTotalRevenue(summary.totalRevenue); setActiveJobsCount(summary.activeJobsCount); setCustomersCount(summary.customersCount); setTeamCount(summary.teamCount); setRevenueTrend(0); setJobsTrend(0); setCustomersTrend(0);
+          console.warn('[Dashboard] Command Center summary route is unavailable; using canonical endpoint fallback until the Edge Function is deployed.');
+          return;
+        }
         if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center metrics.');
         const summary = result.summary;
         setRevenueData(summary.chartData || []); setTotalRevenue(Number(summary.totalRevenue || 0));

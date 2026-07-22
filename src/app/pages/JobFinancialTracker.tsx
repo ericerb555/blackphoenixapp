@@ -68,12 +68,7 @@ export default function JobFinancialTracker() {
   useEffect(() => {
     (async () => {
       await jobFinancialService.hydrateFromServer();
-      const hasTimeData = localStorage.getItem('time_entries_job_1');
-      if (!hasTimeData) {
-        console.log('📊 Populating starter financial data...');
-        jobFinancialService.populateDemoData('job_1');
-        toast.success('Starter financial data loaded! Check job JOB-2026-001');
-      }
+      // Do not manufacture financial records. Show the server-backed job list only.
       refreshJobs();
     })();
   }, []);

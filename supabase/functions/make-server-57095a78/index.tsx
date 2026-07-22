@@ -37,6 +37,7 @@ import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled,
 import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook } from "../server/dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "../server/dropshipper-catalog.tsx";
 import zendropRouter from "../server/zendrop.tsx";
+import jobFinancialsRouter from "../server/job-financials.tsx";
 
 const app = new Hono();
 
@@ -87,6 +88,13 @@ app.use('/make-server-57095a78/products/*', async (c, next) => {
   if (c.req.method === 'GET' || c.req.method === 'OPTIONS') return next();
   const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
   if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required to change products.' }, 403);
+  await next();
+});
+
+app.use('/make-server-57095a78/job-financials/*', async (c, next) => {
+  const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required for company financial records.' }, 403);
   await next();
 });
 
@@ -144,6 +152,7 @@ app.route("/make-server-57095a78", productsRouter);
 app.route("/make-server-57095a78", cartRouter);
 app.route("/make-server-57095a78", ordersRouter);
 app.route("/", zendropRouter);
+app.route("/", jobFinancialsRouter);
 app.route("/", crmContentRouter);
 app.route("/", growthMarketingRouter);
 app.route("/make-server-57095a78", marketingAssetsRouter);
@@ -2654,9 +2663,15 @@ async function propertyManagerActor(c: any) {
   const admin = await intakeIsAdmin(user);
   if (admin) return { user, admin: true, manager: true };
   const email = String(user.email).toLowerCase();
-  const access = await kv.get(`portal_access:${email}:property_manager`) as any;
+  // Property, condo, and landlord portals all use this scoped operations layer.
+  // Check each portal grant so a valid landlord is never rejected by a
+  // property-manager-only access lookup.
+  const portalTypes = ['property_manager', 'condo_manager', 'landlord'];
+  const accessRecords = await Promise.all(portalTypes.map(async (portalType) =>
+    await kv.get(`portal_access:${email}:${portalType}`) as any
+  ));
   const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  const manager = ['property_manager', 'condo_manager'].includes(metadataRole) || access?.status === 'active';
+  const manager = portalTypes.includes(metadataRole) || accessRecords.some((access) => access?.status === 'active');
   return { user, admin: false, manager };
 }
 
@@ -5172,6 +5187,39 @@ app.get('/make-server-57095a78/work-orders/completion-reports', async (c) => {
     }).sort((a: any, b: any) => Date.parse(b.invoicePaidDate) - Date.parse(a.invoicePaidDate));
     return c.json({ success: true, reports });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load completion reports.' }, 500); }
+});
+
+// ── CHANGE ORDERS ──────────────────────────────────────────────────────────
+const CHANGE_ORDER_PREFIX = 'change_order:';
+function changeOrderKey(id: string) { return `${CHANGE_ORDER_PREFIX}${id}`; }
+app.get('/make-server-57095a78/change-orders', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const all = (await kv.getByPrefix(CHANGE_ORDER_PREFIX)) || [];
+    const records = admin ? all : all.filter((record: any) => String(record.createdByEmail || '').toLowerCase() === String(user.email).toLowerCase());
+    return c.json({ success: true, changeOrders: records.sort((a: any, b: any) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load change orders.' }, 500); }
+});
+app.post('/make-server-57095a78/change-orders', async (c) => {
+  try {
+    const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const body = stripBase64(await c.req.json()); const description = String(body.description || body.title || '').trim(); const amount = Number(body.totalCost ?? body.amount ?? body.totalAmount ?? 0);
+    if (!description || !Number.isFinite(amount) || amount < 0) return c.json({ success: false, error: 'A description and valid amount are required.' }, 400);
+    const now = new Date().toISOString(); const id = String(body.id || `CO-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`);
+    const record = { ...body, id, coNumber: String(body.coNumber || id), description: description.slice(0, 4000), amount, totalAmount: amount, status: String(body.status || 'pending_admin'), createdAt: now, updatedAt: now, createdBy: user.user_metadata?.full_name || user.email, createdByEmail: user.email };
+    await kv.set(changeOrderKey(id), record); return c.json({ success: true, changeOrder: record }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create change order.' }, 500); }
+});
+app.patch('/make-server-57095a78/change-orders/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const existing = await kv.get(changeOrderKey(c.req.param('id'))) as any; if (!existing) return c.json({ success: false, error: 'Change order not found.' }, 404);
+    if (!admin && String(existing.createdByEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'Not permitted.' }, 403);
+    const body = await c.req.json(); const nextStatus = body.status === undefined ? existing.status : String(body.status);
+    if (!['draft', 'pending_admin', 'submitted', 'approved', 'rejected', 'completed'].includes(nextStatus)) return c.json({ success: false, error: 'Invalid change-order status.' }, 400);
+    const record = { ...existing, ...stripBase64(body), id: existing.id, createdByEmail: existing.createdByEmail, createdAt: existing.createdAt, status: nextStatus, updatedAt: new Date().toISOString(), updatedBy: user.email };
+    await kv.set(changeOrderKey(record.id), record); return c.json({ success: true, changeOrder: record });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update change order.' }, 500); }
 });
 
 app.get('/make-server-57095a78/command-center/summary', async (c) => { c.header('Cache-Control', 'no-store, no-cache, must-revalidate'); try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [invoices, payments, contacts, applications, requests] = await Promise.all([kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'), kv.get(CRM_CONTACTS_KEY), kv.get(APPLICATIONS_KEY), kv.get('work_requests')]); const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())); const totalRevenue = paidPayments.reduce((sum: number, payment: any) => sum + money(payment.amount), 0); const openInvoiceTotal = (invoices as any[] || []).filter((invoice: any) => !['paid','completed','cancelled','void'].includes(String(invoice.status || '').toLowerCase())).reduce((sum: number, invoice: any) => sum + money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total), 0); const months: Record<string, number> = {}; for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; } for (const payment of paidPayments) { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += money(payment.amount); } const chartData = Object.entries(months).map(([month, revenue]) => ({ month, revenue })); const appRows = applications as any[] || []; const workRows = requests as any[] || []; const employeeCount = appRows.filter((application: any) => ['employee','field_technician','technician','maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved','active'].includes(String(application.status || '').toLowerCase())).length; return c.json({ success: true, summary: { totalRevenue, openInvoiceTotal, customersCount: ((contacts as any[]) || []).filter((item: any) => item.email).length, activeJobsCount: workRows.filter((item: any) => ['assigned','in-progress','approved'].includes(String(item.status || '').toLowerCase())).length, teamCount: employeeCount, pendingApplications: appRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending').length, pendingWorkRequests: workRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending_approval').length, chartData } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });

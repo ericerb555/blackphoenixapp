@@ -9,12 +9,14 @@
  */
 
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
-const jobFinAuthHeaders = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${publicAnonKey}`,
-};
+async function jobFinAuthHeaders(): Promise<Record<string, string> | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+  return { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` };
+}
 
 export interface TimeEntry {
   id: string;
@@ -172,27 +174,27 @@ class JobFinancialService {
     } catch (err) {
       console.error(`[jobFinancialService] localStorage write failed for ${key}:`, err);
     }
-    // Fire-and-forget server persistence so the sync API is not blocked.
-    fetch(`${SERVER}/job-financials/kv`, {
-      method: 'POST',
-      headers: jobFinAuthHeaders,
-      body: JSON.stringify({ key, value }),
-    }).catch((err) =>
-      console.error(`[jobFinancialService] server sync failed for ${key}:`, err),
-    );
+    // Fire-and-forget server persistence so the synchronous API is not blocked.
+    // Do not call a protected endpoint before the auth session exists.
+    void (async () => {
+      const headers = await jobFinAuthHeaders();
+      if (!headers) return;
+      const response = await fetch(`${SERVER}/job-financials/kv`, { method: 'POST', headers, body: JSON.stringify({ key, value }) });
+      if (!response.ok && response.status >= 500) console.error(`[jobFinancialService] server sync failed for ${key}: HTTP ${response.status}`);
+    })().catch((err) => console.error(`[jobFinancialService] server sync failed for ${key}:`, err));
   }
 
   // Pull the full server snapshot into the localStorage cache. Call on app load
   // before reading so the sync getters return server-backed data.
-  async hydrateFromServer(): Promise<void> {
+  async hydrateFromServer(): Promise<boolean> {
     try {
-      const res = await fetch(`${SERVER}/job-financials/snapshot`, {
-        headers: jobFinAuthHeaders,
-      });
-      const json = await res.json();
-      if (!json.success || !Array.isArray(json.entries)) {
-        if (json.error) console.error('[jobFinancialService] hydrate failed:', json.error);
-        return;
+      const headers = await jobFinAuthHeaders();
+      if (!headers) return false;
+      const res = await fetch(`${SERVER}/job-financials/snapshot`, { headers });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success || !Array.isArray(json.entries)) {
+        if (res.status >= 500) console.error('[jobFinancialService] hydrate failed:', json.error || `HTTP ${res.status}`);
+        return false;
       }
       for (const entry of json.entries) {
         if (entry && typeof entry.key === 'string') {
@@ -203,8 +205,10 @@ class JobFinancialService {
           }
         }
       }
+      return true;
     } catch (err) {
       console.error('[jobFinancialService] Error hydrating from server:', err);
+      return false;
     }
   }
 

@@ -14,6 +14,7 @@ import {
 import { PageHeader } from '../components/PageHeader';
 import { jobFinancialService, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
 
 type TabType = 'active-jobs' | 'projects' | 'job-financial' | 'master-schedule' | 'service-schedule' | 'change-orders' | 'weather';
@@ -31,14 +32,9 @@ export default function JobTrackingHub() {
   useEffect(() => {
     (async () => {
       await jobFinancialService.hydrateFromServer();
-      const hasTimeData = localStorage.getItem('time_entries_job_1');
-      if (!hasTimeData) {
-        console.log('📊 Populating starter financial data...');
-        jobFinancialService.populateDemoData('job_1');
-        toast.success('Starter financial data loaded!');
-      }
-      // Load the data
-      loadFinancialData('job_1');
+      // Do not manufacture financial records. The hub remains empty until real
+      // jobs, time, purchases, or budgets are recorded by an authorized user.
+      loadFinancialData(selectedJobId);
       // Populate the Active Jobs list from the server-synced financial service.
       setJobs(jobFinancialService.getAllJobs().map((s) => ({
         id: s.jobId,
@@ -55,9 +51,11 @@ export default function JobTrackingHub() {
   // Load change orders from the server.
   const loadChangeOrders = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/change-orders`,
-        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+        { headers: { apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' }
       );
       if (!res.ok) throw new Error(`change-orders ${res.status}`);
       const data = await res.json();

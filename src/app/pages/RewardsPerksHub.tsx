@@ -47,7 +47,7 @@ export default function RewardsPerksHub() {
   })();
 
   const canManageReferrals = Boolean((auth as any)?.isAdmin || (auth as any)?.isOwner || (auth as any)?.isMasterAdmin);
-  const visibleTabs = TABS.filter((tab) => tab.id !== 'referrals' || canManageReferrals);
+  const visibleTabs = TABS;
   const [activeTab, setActiveTab] = useState<TabId>(() => visibleTabs.some((tab) => tab.id === initialTab) ? initialTab : 'loyalty');
   const [showGiftHours, setShowGiftHours] = useState(false);
   const [giftHoursRefresh, setGiftHoursRefresh] = useState(0);
@@ -59,7 +59,7 @@ export default function RewardsPerksHub() {
       try {
         const t = new URLSearchParams(window.location.search).get('tab') as TabId | null;
         if (t && visibleTabs.some((x) => x.id === t)) setActiveTab(t);
-        else if (t === 'referrals' && !canManageReferrals) setActiveTab('loyalty');
+        else if (t === 'referrals' && !canManageReferrals) setActiveTab('referrals');
       } catch { /* ignore */ }
     };
     window.addEventListener('popstate', syncFromUrl);
