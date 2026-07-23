@@ -1,4 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
+import TenantPortalManager from './TenantPortalManager';
 import { useState, useEffect, useMemo, Component, ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
@@ -303,6 +304,8 @@ export default function LandlordPortalView() {
                 );
               })}
             </div>
+
+            <TenantPortalManager parentPortalType="landlord" />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">

@@ -4,7 +4,7 @@
  */
 
 import { useState, useContext, useEffect } from 'react';
-import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound } from 'lucide-react';
+import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, DoorOpen } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { useAuth } from '../contexts/AuthContext';
@@ -47,6 +47,7 @@ export function RoleSwitcher() {
     [UserRole.PROPERTY_MANAGER]: 'property-manager-portal',
     [UserRole.CONDO_MANAGER]: 'condo-manager-portal',
     [UserRole.LANDLORD]: 'landlord-portal',
+    [UserRole.TENANT]: 'tenant-portal',
   };
 
   // Mock company profiles per role — lets you test each portal as a different business
@@ -117,6 +118,12 @@ export function RoleSwitcher() {
       company: 'Nguyen Rental Properties',
       email: 'patricia@nguyenrentals.com',
       phone: '(214) 555-0712',
+    },
+    [UserRole.TENANT]: {
+      name: 'Maya Rodriguez',
+      company: 'Cedar Court Residences · Unit 204',
+      email: 'maya@cedarcourtdemo.com',
+      phone: '(214) 555-0842',
     },
   };
 
@@ -227,6 +234,13 @@ export function RoleSwitcher() {
       label: 'Landlord',
       description: 'Rental portfolio — tenants, leases & maintenance',
       color: 'teal'
+    },
+    {
+      role: UserRole.TENANT,
+      icon: DoorOpen,
+      label: 'Tenant Sub-Portal',
+      description: 'Maya Rodriguez — unit requests, rewards & resident services',
+      color: 'orange'
     },
   ];
 

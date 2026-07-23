@@ -2867,6 +2867,166 @@ app.post('/make-server-57095a78/landlord/tenants', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add tenant.' }, 500); }
 });
 
+// ── TENANT SUB-PORTALS ───────────────────────────────────────────────────────
+// Tenant records are deliberately stored one-per-record and indexed by both the
+// authenticated tenant email and the inviting portal email. This keeps a tenant
+// in the exact parent portal that invited them—never in a shared resident pool.
+const TENANT_PARENT_TYPES = ['landlord', 'property_manager', 'condo_manager'];
+const TENANT_DEFAULT_EXPERIENCE = {
+  marqueeItems: [
+    'Submit a maintenance request anytime. Your property team reviews every request.',
+    'Keep your unit details current so your service team can arrive prepared.',
+    'Explore resident rewards, gift cards, and services from Black Phoenix.',
+  ],
+  ads: [
+    { id: 'gift-cards', title: 'Give a little help', body: 'Send a Black Phoenix gift card for a project, repair, or seasonal refresh.', ctaLabel: 'View gift cards', ctaRoute: 'gift-cards', active: true },
+    { id: 'shop', title: 'Resident essentials', body: 'Shop curated home and maintenance products from the Black Phoenix store.', ctaLabel: 'Open shop', ctaRoute: 'public-store', active: true },
+  ],
+};
+function tenantPortalKey(id: string) { return `tenant_portal:${id}`; }
+function tenantPortalEmailKey(email: string) { return `tenant_portal_email:${String(email).trim().toLowerCase()}`; }
+function tenantPortalParentKey(email: string) { return `tenant_portal_parent:${String(email).trim().toLowerCase()}`; }
+function tenantExperienceKey(email: string) { return `tenant_portal_experience:${String(email).trim().toLowerCase()}`; }
+
+async function tenantParentActor(c: any, requestedType?: string) {
+  const actor = await propertyManagerActor(c);
+  if (!actor.user?.email || !actor.manager) return { ...actor, allowed: false, portalType: '' };
+  const portalType = String(requestedType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (!TENANT_PARENT_TYPES.includes(portalType)) return { ...actor, allowed: false, portalType };
+  if (actor.admin) return { ...actor, allowed: true, portalType };
+  const email = String(actor.user.email).toLowerCase();
+  const access = await kv.get(`portal_access:${email}:${portalType}`) as any;
+  const metadataRole = String(actor.user.user_metadata?.role || actor.user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  // Preserve only the documented legacy path: former landlord accounts may have
+  // property_manager access. Other portal types must have their own grant.
+  const landlordLegacy = portalType === 'landlord' && (metadataRole === 'landlord' || (await kv.get(`portal_access:${email}:property_manager`) as any)?.status === 'active');
+  return { ...actor, allowed: access?.status === 'active' || metadataRole === portalType || landlordLegacy, portalType };
+}
+
+async function tenantActor(c: any) {
+  const user = await intakeActor(c);
+  if (!user?.email) return { user: null, tenant: null };
+  const tenantId = await kv.get(tenantPortalEmailKey(user.email)) as string | null;
+  const tenant = tenantId ? await kv.get(tenantPortalKey(tenantId)) as any : null;
+  return { user, tenant };
+}
+
+app.get('/make-server-57095a78/tenant-portals', async (c) => {
+  try {
+    const type = c.req.query('portalType');
+    const actor = await tenantParentActor(c, type);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to manage tenant access.' }, 401);
+    if (!actor.allowed) return c.json({ success: false, error: 'An active matching portal is required.' }, 403);
+    const ids = (await kv.get(tenantPortalParentKey(actor.user.email)) as string[]) || [];
+    const tenants = (await Promise.all(ids.map(id => kv.get(tenantPortalKey(id)))).then(rows => rows.filter(Boolean) as any[])).map(stripBase64);
+    return c.json({ success: true, tenants });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load tenant portals.' }, 500); }
+});
+
+app.post('/make-server-57095a78/tenant-portals/invite', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json());
+    const actor = await tenantParentActor(c, body.parentPortalType);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before inviting a tenant.' }, 401);
+    if (!actor.allowed) return c.json({ success: false, error: 'Your active portal does not match this invitation.' }, 403);
+    const name = String(body.name || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    const phone = String(body.phone || '').trim();
+    const propertyName = String(body.propertyName || '').trim();
+    const propertyId = String(body.propertyId || '').trim();
+    const unitNumber = String(body.unitNumber || '').trim();
+    if (!name || !email || !propertyName || !unitNumber) return c.json({ success: false, error: 'Name, email, property, and unit are required.' }, 400);
+    if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'Enter a valid tenant email.' }, 400);
+    const existingId = await kv.get(tenantPortalEmailKey(email)) as string | null;
+    if (existingId) {
+      const existing = await kv.get(tenantPortalKey(existingId)) as any;
+      if (existing && String(existing.parentEmail).toLowerCase() !== String(actor.user.email).toLowerCase()) return c.json({ success: false, error: 'This email is already connected to another property portal.' }, 409);
+      if (existing) return c.json({ success: true, tenant: stripBase64(existing), invitationSent: false, message: 'This tenant is already connected to your portal.' });
+    }
+    const now = new Date().toISOString();
+    const id = `tenant_${crypto.randomUUID()}`;
+    const tenant = { id, tenantName: name, tenantEmail: email, phone, propertyName, propertyId, unitNumber, parentEmail: String(actor.user.email).toLowerCase(), parentUserId: actor.user.id, parentPortalType: actor.portalType, status: 'invited', createdAt: now, updatedAt: now, invitedBy: actor.user.email };
+    await kv.set(tenantPortalKey(id), tenant);
+    await kv.set(tenantPortalEmailKey(email), id);
+    const parentKey = tenantPortalParentKey(actor.user.email); const ids = (await kv.get(parentKey) as string[]) || []; await kv.set(parentKey, [id, ...ids.filter(item => item !== id)]);
+    let invitationSent = false;
+    let inviteNote = '';
+    try {
+      const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name, phone, role: 'tenant', accountType: 'tenant', tenant_portal_id: id } });
+      if (error) inviteNote = error.message || 'The portal was created, but the email invite could not be sent.';
+      else invitationSent = true;
+    } catch (error: any) { inviteNote = error?.message || 'The portal was created, but the email invite could not be sent.'; }
+    return c.json({ success: true, tenant: stripBase64(tenant), invitationSent, message: invitationSent ? 'Tenant invitation sent.' : inviteNote || 'Tenant portal created. They may sign in with this email.' }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create tenant invitation.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/tenant-portals/:id', async (c) => {
+  try {
+    const record = await kv.get(tenantPortalKey(c.req.param('id'))) as any;
+    if (!record) return c.json({ success: false, error: 'Tenant portal not found.' }, 404);
+    const actor = await tenantParentActor(c, record.parentPortalType);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before updating tenant access.' }, 401);
+    if (!actor.admin && (!actor.allowed || String(record.parentEmail).toLowerCase() !== String(actor.user.email).toLowerCase())) return c.json({ success: false, error: 'This tenant portal belongs to another account.' }, 403);
+    const body = stripBase64(await c.req.json()); const status = String(body.status || '').toLowerCase();
+    if (!['active', 'invited', 'deactivated'].includes(status)) return c.json({ success: false, error: 'Use active, invited, or deactivated status.' }, 400);
+    const updated = { ...record, status, updatedAt: new Date().toISOString() }; await kv.set(tenantPortalKey(record.id), updated);
+    return c.json({ success: true, tenant: stripBase64(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update tenant access.' }, 500); }
+});
+
+app.get('/make-server-57095a78/tenant-portals/experience', async (c) => {
+  try {
+    const requestedType = c.req.query('portalType');
+    const parent = await tenantParentActor(c, requestedType);
+    if (parent.user?.email && parent.allowed) {
+      const experience = (await kv.get(tenantExperienceKey(parent.user.email)) as any) || TENANT_DEFAULT_EXPERIENCE;
+      return c.json({ success: true, experience: stripBase64(experience) });
+    }
+    const actor = await tenantActor(c);
+    if (!actor.user?.email || !actor.tenant || actor.tenant.status === 'deactivated') return c.json({ success: false, error: 'An active tenant portal is required.' }, 403);
+    const experience = (await kv.get(tenantExperienceKey(actor.tenant.parentEmail)) as any) || TENANT_DEFAULT_EXPERIENCE;
+    return c.json({ success: true, experience: stripBase64(experience) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load resident experience.' }, 500); }
+});
+
+app.put('/make-server-57095a78/tenant-portals/experience', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json()); const actor = await tenantParentActor(c, body.parentPortalType);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before changing resident content.' }, 401);
+    if (!actor.allowed) return c.json({ success: false, error: 'An active matching portal is required.' }, 403);
+    const marqueeItems = Array.isArray(body.marqueeItems) ? body.marqueeItems.map((item: any) => String(item).trim()).filter(Boolean).slice(0, 8) : TENANT_DEFAULT_EXPERIENCE.marqueeItems;
+    const ads = Array.isArray(body.ads) ? body.ads.map((ad: any, index: number) => ({ id: String(ad.id || `ad_${index}`), title: String(ad.title || '').slice(0, 80), body: String(ad.body || '').slice(0, 220), ctaLabel: String(ad.ctaLabel || 'Learn more').slice(0, 40), ctaRoute: String(ad.ctaRoute || 'landing').replace(/^\//, ''), active: ad.active !== false })).filter((ad: any) => ad.title).slice(0, 6) : TENANT_DEFAULT_EXPERIENCE.ads;
+    const experience = { marqueeItems: marqueeItems.length ? marqueeItems : TENANT_DEFAULT_EXPERIENCE.marqueeItems, ads: ads.length ? ads : TENANT_DEFAULT_EXPERIENCE.ads, updatedAt: new Date().toISOString(), updatedBy: actor.user.email };
+    await kv.set(tenantExperienceKey(actor.user.email), experience); return c.json({ success: true, experience });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save resident content.' }, 500); }
+});
+
+app.get('/make-server-57095a78/tenant-portal/me', async (c) => {
+  try {
+    const actor = await tenantActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to open your resident portal.' }, 401);
+    if (!actor.tenant || actor.tenant.status === 'deactivated') return c.json({ success: false, error: 'Your resident portal invitation is not active.' }, 403);
+    const tenant = actor.tenant.status === 'invited' ? { ...actor.tenant, status: 'active', activatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : actor.tenant;
+    if (tenant !== actor.tenant) await kv.set(tenantPortalKey(tenant.id), tenant);
+    const workRequests = (await readWorkRequests()).filter((record: any) => String(record.tenantPortalId || '') === String(tenant.id)).map(stripBase64);
+    return c.json({ success: true, tenant: stripBase64(tenant), workRequests });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the resident portal.' }, 500); }
+});
+
+app.post('/make-server-57095a78/tenant-portal/work-requests', async (c) => {
+  try {
+    const actor = await tenantActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before submitting a maintenance request.' }, 401);
+    if (!actor.tenant || actor.tenant.status === 'deactivated') return c.json({ success: false, error: 'Your resident portal invitation is not active.' }, 403);
+    const body = stripBase64(await c.req.json()); const title = String(body.title || body.project_name || '').trim(); const description = String(body.description || '').trim(); const priority = ['low', 'normal', 'high', 'urgent'].includes(String(body.priority || '').toLowerCase()) ? String(body.priority).toLowerCase() : 'normal';
+    if (!title || !description) return c.json({ success: false, error: 'Tell your property team what is needed and include a description.' }, 400);
+    const now = new Date().toISOString();
+    const record = { id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`, project_name: title, title, description, project_type: String(body.category || 'maintenance'), serviceType: String(body.category || 'maintenance'), priority, status: 'pending_approval', source: 'tenant-portal', tenantPortalId: actor.tenant.id, tenantName: actor.tenant.tenantName, tenantEmail: actor.tenant.tenantEmail, propertyName: actor.tenant.propertyName, propertyId: actor.tenant.propertyId, unitNumber: actor.tenant.unitNumber, parentEmail: actor.tenant.parentEmail, parentPortalType: actor.tenant.parentPortalType, landlordEmail: actor.tenant.parentPortalType === 'landlord' ? actor.tenant.parentEmail : '', propertyManagerEmail: actor.tenant.parentPortalType === 'property_manager' ? actor.tenant.parentEmail : '', condoManagerEmail: actor.tenant.parentPortalType === 'condo_manager' ? actor.tenant.parentEmail : '', client_name: actor.tenant.tenantName, client_email: actor.tenant.tenantEmail, client_phone: actor.tenant.phone || '', user_id: actor.user.id, created_at: now, updated_at: now, requestedBy: 'tenant' };
+    await persistWorkRequest(record);
+    return c.json({ success: true, workRequest: stripBase64(record) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit maintenance request.' }, 500); }
+});
+
 function landlordPortfolioKey(email: string) { return `landlord_portfolio:${String(email).toLowerCase()}`; }
 
 app.get('/make-server-57095a78/landlord/properties', async (c) => {
@@ -3102,6 +3262,75 @@ async function getSocialTokens(userId: string): Promise<Record<string, any>> {
 async function setSocialTokens(userId: string, tokens: Record<string, any>): Promise<void> {
   await kv.set(`social_tokens_${userId}`, tokens);
 }
+
+// Scheduled posts are kept per authenticated account. The browser never treats
+// localStorage as the source of truth, so a campaign remains available across
+// devices and its final publishing result is auditable.
+const socialScheduleKey = (userId: string) => `social_scheduled_posts:${userId}`;
+async function socialScheduleActor(c: any) {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
+  const { data: { user } } = await supabase.auth.getUser(token);
+  return user || null;
+}
+
+app.get('/make-server-57095a78/social/scheduled-posts', async (c) => {
+  try {
+    const user = await socialScheduleActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const posts = (await kv.get(socialScheduleKey(user.id)) as any[]) || [];
+    return c.json({ success: true, posts: posts.sort((a: any, b: any) => Date.parse(b.scheduled_date || b.created_at || 0) - Date.parse(a.scheduled_date || a.created_at || 0)) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load scheduled posts.' }, 500); }
+});
+
+app.post('/make-server-57095a78/social/scheduled-posts', async (c) => {
+  try {
+    const user = await socialScheduleActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const body = await c.req.json();
+    const content = String(body.content || '').trim();
+    const platforms = Array.isArray(body.platforms) ? body.platforms.map((value: unknown) => String(value).toLowerCase()).filter(Boolean) : [];
+    const scheduledDate = String(body.scheduled_date || '').trim();
+    if (!content || !scheduledDate || !platforms.length) return c.json({ success: false, error: 'Content, at least one platform, and a scheduled date are required.' }, 400);
+    if (Number.isNaN(Date.parse(scheduledDate))) return c.json({ success: false, error: 'The scheduled date is invalid.' }, 400);
+    const now = new Date().toISOString();
+    const post = { id: `social-${crypto.randomUUID()}`, content, media_urls: Array.isArray(body.media_urls) ? body.media_urls.filter((url: unknown) => typeof url === 'string') : [], media_type: ['image', 'video', 'carousel', 'text'].includes(String(body.media_type)) ? body.media_type : 'text', platforms, scheduled_date: scheduledDate, status: 'scheduled', created_at: now, updated_at: now, created_by: user.id };
+    const posts = (await kv.get(socialScheduleKey(user.id)) as any[]) || [];
+    posts.unshift(post);
+    await kv.set(socialScheduleKey(user.id), posts.slice(0, 500));
+    return c.json({ success: true, post }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to schedule post.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/social/scheduled-posts/:id', async (c) => {
+  try {
+    const user = await socialScheduleActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const posts = (await kv.get(socialScheduleKey(user.id)) as any[]) || [];
+    const index = posts.findIndex((post: any) => String(post.id) === c.req.param('id'));
+    if (index < 0) return c.json({ success: false, error: 'Scheduled post not found.' }, 404);
+    const body = await c.req.json();
+    const allowed: Record<string, unknown> = {};
+    if (['draft', 'scheduled', 'published', 'failed'].includes(String(body.status))) allowed.status = body.status;
+    if (body.publishResults && typeof body.publishResults === 'object') allowed.publishResults = body.publishResults;
+    if (body.published_at) allowed.published_at = String(body.published_at);
+    const post = { ...posts[index], ...allowed, updated_at: new Date().toISOString() };
+    posts[index] = post;
+    await kv.set(socialScheduleKey(user.id), posts);
+    return c.json({ success: true, post });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update scheduled post.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/social/scheduled-posts/:id', async (c) => {
+  try {
+    const user = await socialScheduleActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const posts = (await kv.get(socialScheduleKey(user.id)) as any[]) || [];
+    const filtered = posts.filter((post: any) => String(post.id) !== c.req.param('id'));
+    if (filtered.length === posts.length) return c.json({ success: false, error: 'Scheduled post not found.' }, 404);
+    await kv.set(socialScheduleKey(user.id), filtered);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete scheduled post.' }, 500); }
+});
 
 // GET connected accounts (returns safe public info only — no tokens)
 app.get('/make-server-57095a78/social/accounts', async (c) => {
@@ -5161,6 +5390,28 @@ app.post('/make-server-57095a78/contracts/:id/sign', async (c) => {
 
 function customerFromContact(contact: any) { const name = String(contact.name || contact.contact_name || '').trim(); const [firstName = '', ...last] = name.split(/\s+/); const statusValue = String(contact.status || 'lead').toLowerCase(); const status = ['lead', 'active', 'inactive', 'vip'].includes(statusValue) ? statusValue : 'lead'; return { id: String(contact.id || crypto.randomUUID()), customer_number: String(contact.customer_number || `CUST-${String(contact.id || '').slice(-6).toUpperCase() || Date.now()}`), first_name: contact.first_name || firstName, last_name: contact.last_name || last.join(' '), email: String(contact.email || '').toLowerCase(), phone: contact.phone || '', company: contact.company || '', status, total_spent: Number(contact.total_spent || 0), project_count: Number(contact.project_count || 0), rating: contact.rating || 0, tags: Array.isArray(contact.tags) ? contact.tags : [], address_line1: contact.address_line1 || '', address_line2: contact.address_line2 || '', city: contact.city || '', state: contact.state || '', zip_code: contact.zip_code || '', country: contact.country || 'US', notes: contact.notes || '', source: contact.source || 'crm', assigned_to: contact.assigned_to || '', created_at: contact.createdAt || contact.created_at || new Date().toISOString(), updated_at: contact.updatedAt || contact.updated_at || new Date().toISOString(), created_by: contact.createdBy || contact.created_by || '' }; }
 async function customerAdmin(c: any) { const actor = await financialActor(c); return actor.admin ? actor.user : null; }
+
+// Platform subscription controls are shared operational settings. They are
+// stored once server-side and restricted to the authenticated owner/admin.
+const SUBSCRIPTION_HUB_SETTINGS_KEY = 'subscription_hub_settings:platform';
+app.get('/make-server-57095a78/subscription-hub/settings', async (c) => {
+  try {
+    if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    return c.json({ success: true, settings: (await kv.get(SUBSCRIPTION_HUB_SETTINGS_KEY)) || null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load subscription settings.' }, 500); }
+});
+app.put('/make-server-57095a78/subscription-hub/settings', async (c) => {
+  try {
+    const user = await customerAdmin(c);
+    if (!user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const settings = await c.req.json();
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return c.json({ success: false, error: 'A settings object is required.' }, 400);
+    const record = { ...settings, updatedAt: new Date().toISOString(), updatedBy: user.email };
+    await kv.set(SUBSCRIPTION_HUB_SETTINGS_KEY, record);
+    return c.json({ success: true, settings: record });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save subscription settings.' }, 500); }
+});
+
 app.get('/make-server-57095a78/customers', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; return c.json({ success: true, customers: contacts.filter((contact: any) => contact.email).map(customerFromContact) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-57095a78/customers/stats', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = ((await kv.get(CRM_CONTACTS_KEY) as any[]) || []).filter((item: any) => item.email).map(customerFromContact); const stats = { total: contacts.length, active: contacts.filter((item: any) => item.status === 'active').length, leads: contacts.filter((item: any) => item.status === 'lead').length, vip: contacts.filter((item: any) => item.status === 'vip').length, inactive: contacts.filter((item: any) => item.status === 'inactive').length, totalRevenue: contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0), avgDeal: contacts.length ? contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0) / contacts.length : 0 }; return c.json({ success: true, stats }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.post('/make-server-57095a78/customers', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const email = String(body.email || '').trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'A valid customer email is required.' }, 400); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.email || '').toLowerCase() === email); const now = new Date().toISOString(); const record = { ...(index >= 0 ? contacts[index] : {}), ...stripBase64(body), id: index >= 0 ? contacts[index].id : crypto.randomUUID(), name: `${String(body.first_name || '').trim()} ${String(body.last_name || '').trim()}`.trim() || String(body.name || '').trim(), email, type: 'customer', updatedAt: now, updatedBy: user.email, createdAt: index >= 0 ? contacts[index].createdAt : now, createdBy: index >= 0 ? contacts[index].createdBy : user.email }; if (index >= 0) contacts[index] = record; else contacts.unshift(record); await kv.set(CRM_CONTACTS_KEY, contacts); return c.json({ success: true, customer: customerFromContact(record) }, index >= 0 ? 200 : 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });

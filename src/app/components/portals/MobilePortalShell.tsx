@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Bell, CalendarDays, ChevronRight, ClipboardList, CreditCard, Crown, FileText,
   Home, LayoutDashboard, MessageCircle, MoreHorizontal, ShieldCheck, Sparkles,
-  Users, WalletCards, Wrench, X, type LucideIcon,
+  Users, WalletCards, Wrench, X, ShoppingBag, type LucideIcon,
 } from "lucide-react";
 
 type MobilePortalShellProps = {
@@ -116,6 +116,16 @@ const PORTALS: Record<string, PortalDefinition> = {
       { label: "Properties", route: "property-management-hub", icon: ClipboardList },
       { label: "Plans & turns", route: "maintenance-plans", icon: ShieldCheck },
       { label: "Financials", route: "payment-center", icon: CreditCard },
+      { label: "Messages", route: "messages", icon: MessageCircle },
+    ],
+  },
+  "tenant-portal": {
+    label: "Resident Portal", eyebrow: "Your unit", home: "tenant-portal",
+    primary: { label: "Request maintenance", route: "tenant-portal", icon: Wrench },
+    items: [
+      { label: "Rewards & referrals", route: "loyalty", icon: Sparkles },
+      { label: "Gift cards", route: "gift-cards", icon: CreditCard },
+      { label: "Online shop", route: "public-store", icon: ShoppingBag },
       { label: "Messages", route: "messages", icon: MessageCircle },
     ],
   },

@@ -111,6 +111,44 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
   };
   const steps = isEmployeeOrTechnician && !hasTaxClassification ? [...baseSteps, taxClassificationStep] : baseSteps;
   const endpoint = config.endpoint || config.apiEndpoint || '/applications';
+  const offlineQueueKey = `generic_app_pending_${endpoint.replace(/\//g, '_')}`;
+
+  // A public applicant should not need an administrator to recover a temporary
+  // network failure. Retry this form's durable device queue on mount and whenever
+  // the connection returns; remove an item only after the server confirms intake.
+  useEffect(() => {
+    let syncing = false;
+    const syncPending = async () => {
+      if (syncing || !navigator.onLine) return;
+      let queued: any[] = [];
+      try { queued = JSON.parse(localStorage.getItem(offlineQueueKey) || '[]'); } catch { return; }
+      if (!queued.length) return;
+      syncing = true;
+      const remaining: any[] = [];
+      let synced = 0;
+      for (const queuedApplication of queued) {
+        try {
+          const { _offline, id, submitted_at, ...queuedPayload } = queuedApplication || {};
+          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+            body: JSON.stringify(queuedPayload),
+            signal: AbortSignal.timeout(15000),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result.success === false) throw new Error(result.error || 'Submission was not accepted.');
+          synced += 1;
+        } catch { remaining.push(queuedApplication); }
+      }
+      if (remaining.length) localStorage.setItem(offlineQueueKey, JSON.stringify(remaining));
+      else localStorage.removeItem(offlineQueueKey);
+      if (synced) toast.success(`${synced} saved application${synced === 1 ? '' : 's'} submitted successfully.`);
+      syncing = false;
+    };
+    syncPending();
+    window.addEventListener('online', syncPending);
+    return () => window.removeEventListener('online', syncPending);
+  }, [endpoint, offlineQueueKey]);
 
   if (!steps || steps.length === 0) {
     return (

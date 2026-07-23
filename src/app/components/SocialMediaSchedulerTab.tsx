@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import {
   Plus, Clock, Edit, Trash2, CheckCircle2, Calendar, Send, X,
-  Facebook, Instagram, Linkedin, Twitter, FileText, Layers,
+  Facebook, Instagram, FileText, Layers,
   Image as ImageIcon, Video, Library, Zap, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
@@ -11,10 +13,12 @@ interface SocialPost {
   content: string;
   media_urls: string[];
   media_type: 'image' | 'video' | 'carousel' | 'text';
-  platforms: ('facebook' | 'instagram' | 'linkedin' | 'twitter')[];
+  platforms: ('facebook' | 'instagram' | 'tiktok')[];
   scheduled_date: string;
   status: 'draft' | 'scheduled' | 'published' | 'failed';
   created_at: string;
+  updated_at?: string;
+  publishResults?: Record<string, { success?: boolean; error?: string; postId?: string }>;
 }
 
 interface LibraryItem {
@@ -27,16 +31,18 @@ interface LibraryItem {
   tags?: string[];
 }
 
-// Load scheduled posts from localStorage
-function loadScheduledPosts(): SocialPost[] {
-  try {
-    const saved = localStorage.getItem('social_scheduled_posts');
-    return saved ? JSON.parse(saved) : [];
-  } catch { return []; }
-}
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
-function saveScheduledPosts(posts: SocialPost[]) {
-  localStorage.setItem('social_scheduled_posts', JSON.stringify(posts));
+async function socialRequest(path: string, init: RequestInit = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Sign in to manage the social publishing calendar.');
+  const response = await fetch(`${SERVER}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${session.access_token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.success === false) throw new Error(result.error || 'Social calendar request failed.');
+  return result;
 }
 
 // Load content library items
@@ -62,13 +68,15 @@ function loadLibraryItems(): LibraryItem[] {
 }
 
 export default function SocialMediaSchedulerTab() {
-  const [socialPosts, setSocialPosts] = useState<SocialPost[]>(loadScheduledPosts);
+  const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
+  const [accounts, setAccounts] = useState<Record<string, any>>({});
+  const [loadingPosts, setLoadingPosts] = useState(true);
   const [showCreateSocialPost, setShowCreateSocialPost] = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [newSocialPost, setNewSocialPost] = useState({
     content: '',
-    platforms: [] as ('facebook' | 'instagram' | 'linkedin' | 'twitter')[],
+    platforms: [] as ('facebook' | 'instagram' | 'tiktok')[],
     scheduled_date: '',
     media_type: 'text' as 'image' | 'video' | 'carousel' | 'text',
   });
@@ -77,9 +85,27 @@ export default function SocialMediaSchedulerTab() {
     setLibraryItems(loadLibraryItems());
   }, [showLibraryPicker]);
 
-  function updatePosts(posts: SocialPost[]) {
-    setSocialPosts(posts);
-    saveScheduledPosts(posts);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setLoadingPosts(true);
+      try {
+        const [schedule, accountResult] = await Promise.all([socialRequest('/social/scheduled-posts'), socialRequest('/social/accounts')]);
+        if (!active) return;
+        setSocialPosts(schedule.posts || []);
+        setAccounts(accountResult.accounts || {});
+      } catch (error: any) {
+        if (active) toast.error(error.message || 'Unable to load the social publishing calendar.');
+      } finally { if (active) setLoadingPosts(false); }
+    };
+    load();
+    return () => { active = false; };
+  }, []);
+
+  async function updatePost(post: SocialPost, patch: Record<string, any>) {
+    const result = await socialRequest(`/social/scheduled-posts/${encodeURIComponent(post.id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    setSocialPosts(posts => posts.map(item => item.id === post.id ? result.post : item));
+    return result.post as SocialPost;
   }
 
   function pickFromLibrary(item: LibraryItem) {
@@ -89,19 +115,33 @@ export default function SocialMediaSchedulerTab() {
     toast.success(`"${item.title}" loaded into post editor`);
   }
 
-  function publishNow(post: SocialPost) {
-    // Mark as published — real posting requires OAuth tokens from connected accounts
-    const updated = socialPosts.map(p =>
-      p.id === post.id ? { ...p, status: 'published' as const } : p
-    );
-    updatePosts(updated);
-    toast.success(`✅ "${post.content.slice(0, 40)}…" marked as published on ${post.platforms.join(', ')}!`);
+  async function publishNow(post: SocialPost) {
+    try {
+      const response = await socialRequest('/social/publish', { method: 'POST', body: JSON.stringify({ content: post.content, imageUrl: post.media_urls?.[0] || undefined, videoUrl: post.media_type === 'video' ? post.media_urls?.[0] : undefined, platforms: post.platforms }) });
+      const status = response.success ? 'published' : 'failed';
+      await updatePost(post, { status, publishResults: response.results || {}, published_at: response.success ? new Date().toISOString() : undefined });
+      if (response.success) toast.success(`Published to ${post.platforms.join(', ')}.`);
+      else toast.error('No selected social platform accepted this post. Check connected accounts and media requirements.');
+    } catch (error: any) { toast.error(error.message || 'Unable to publish this post.'); }
   }
 
-  function deletePost(id: string) {
-    const updated = socialPosts.filter(p => p.id !== id);
-    updatePosts(updated);
-    toast.success('Post deleted');
+  async function deletePost(id: string) {
+    try {
+      await socialRequest(`/social/scheduled-posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setSocialPosts(posts => posts.filter(post => post.id !== id));
+      toast.success('Post deleted');
+    } catch (error: any) { toast.error(error.message || 'Unable to delete post.'); }
+  }
+
+  async function createScheduledPost() {
+    if (!newSocialPost.content || !newSocialPost.scheduled_date || newSocialPost.platforms.length === 0) { toast.error('Please fill in all required fields'); return; }
+    try {
+      const result = await socialRequest('/social/scheduled-posts', { method: 'POST', body: JSON.stringify(newSocialPost) });
+      setSocialPosts(posts => [result.post, ...posts]);
+      setShowCreateSocialPost(false);
+      setNewSocialPost({ content: '', platforms: [], scheduled_date: '', media_type: 'text' });
+      toast.success('Post scheduled and saved to the publishing calendar.');
+    } catch (error: any) { toast.error(error.message || 'Unable to schedule post.'); }
   }
 
   return (
@@ -125,38 +165,25 @@ export default function SocialMediaSchedulerTab() {
       </div>
 
       {/* Platform Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {[
-          { platform: 'facebook', label: 'Facebook', icon: Facebook, color: 'from-blue-500 to-blue-700', connected: true, posts: 12 },
-          { platform: 'instagram', label: 'Instagram', icon: Instagram, color: 'from-pink-500 to-purple-700', connected: true, posts: 24 },
-          { platform: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: 'from-blue-600 to-blue-800', connected: true, posts: 8 },
-          { platform: 'twitter', label: 'Twitter', icon: Twitter, color: 'from-blue-400 to-blue-600', connected: false, posts: 0 },
+          { platform: 'facebook', label: 'Facebook', icon: Facebook, color: 'from-blue-500 to-blue-700' },
+          { platform: 'instagram', label: 'Instagram', icon: Instagram, color: 'from-pink-500 to-purple-700' },
+          { platform: 'tiktok', label: 'TikTok', icon: Video, color: 'from-cyan-400 to-pink-600' },
         ].map((platform) => {
           const Icon = platform.icon;
+          const connected = Boolean(accounts[platform.platform]?.connected);
+          const posts = socialPosts.filter(post => post.platforms.includes(platform.platform as any) && post.status === 'scheduled').length;
           return (
-            <div
-              key={platform.platform}
-              className="bg-[#0f0f0f] rounded-xl border border-[#2a2a2a] p-4 relative overflow-hidden"
-            >
+            <div key={platform.platform} className="bg-[#0f0f0f] rounded-xl border border-[#2a2a2a] p-4 relative overflow-hidden">
               <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${platform.color} opacity-10 blur-2xl`} />
               <div className="relative">
                 <div className="flex items-start justify-between mb-3">
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${platform.color} flex items-center justify-center`}>
-                    <Icon className="w-5 h-5 text-white" />
-                  </div>
-                  {platform.connected ? (
-                    <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full font-semibold flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Connected
-                    </span>
-                  ) : (
-                    <button className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded-full font-semibold hover:bg-orange-500/30 transition-colors">
-                      Connect
-                    </button>
-                  )}
+                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${platform.color} flex items-center justify-center`}><Icon className="w-5 h-5 text-white" /></div>
+                  {connected ? <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full font-semibold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Connected</span> : <span className="px-2 py-1 bg-zinc-700/50 text-zinc-400 text-xs rounded-full font-semibold">Not connected</span>}
                 </div>
                 <h3 className="font-semibold text-white mb-1">{platform.label}</h3>
-                <p className="text-sm text-gray-400">{platform.posts} scheduled posts</p>
+                <p className="text-sm text-gray-400">{posts} scheduled posts</p>
               </div>
             </div>
           );
@@ -302,8 +329,7 @@ export default function SocialMediaSchedulerTab() {
                   {[
                     { id: 'facebook', label: 'Facebook', icon: Facebook, color: 'from-blue-500 to-blue-700' },
                     { id: 'instagram', label: 'Instagram', icon: Instagram, color: 'from-pink-500 to-purple-700' },
-                    { id: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: 'from-blue-600 to-blue-800' },
-                    { id: 'twitter', label: 'Twitter', icon: Twitter, color: 'from-blue-400 to-blue-600' },
+                    { id: 'tiktok', label: 'TikTok', icon: Video, color: 'from-cyan-400 to-pink-600' },
                   ].map((platform) => {
                     const Icon = platform.icon;
                     const isSelected = newSocialPost.platforms.includes(platform.id as any);
@@ -402,33 +428,7 @@ export default function SocialMediaSchedulerTab() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    if (!newSocialPost.content || !newSocialPost.scheduled_date || newSocialPost.platforms.length === 0) {
-                      toast.error('Please fill in all required fields');
-                      return;
-                    }
-                    
-                    const newPost: SocialPost = {
-                      id: `post-${Date.now()}`,
-                      content: newSocialPost.content,
-                      media_urls: [],
-                      media_type: newSocialPost.media_type,
-                      platforms: newSocialPost.platforms,
-                      scheduled_date: newSocialPost.scheduled_date,
-                      status: 'scheduled',
-                      created_at: new Date().toISOString(),
-                    };
-                    
-                    updatePosts([...socialPosts, newPost]);
-                    setShowCreateSocialPost(false);
-                    setNewSocialPost({
-                      content: '',
-                      platforms: [],
-                      scheduled_date: '',
-                      media_type: 'text',
-                    });
-                    toast.success('✅ Post scheduled! Click "Publish Now" when ready to send.');
-                  }}
+                  onClick={createScheduledPost}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#c2410c] rounded-lg font-semibold hover:shadow-lg hover:shadow-orange-500/50 transition-all text-white flex items-center justify-center gap-2"
                 >
                   <Send className="w-5 h-5" />

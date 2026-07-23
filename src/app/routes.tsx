@@ -100,6 +100,7 @@ const InvestorPortalView = lazy(() => import("./components/portals/InvestorPorta
 const PropertyManagerPortalView = lazy(() => import("./components/portals/PropertyManagerPortalView"));
 const CondoManagerPortalView = lazy(() => import("./components/portals/CondoManagerPortalView"));
 const LandlordPortalView = lazy(() => import("./components/portals/LandlordPortalView"));
+const TenantPortalView = lazy(() => import("./components/portals/TenantPortalView"));
 const PortalDemoSelector = lazy(() => import("./pages/PortalDemoSelector"));
 const TradesWorkerMarketing = lazy(() => import("./pages/marketing/TradesWorkerMarketing"));
 const VendorMarketing = lazy(() => import("./pages/marketing/VendorMarketing"));
@@ -525,6 +526,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "property-manager-portal":  PropertyManagerPortalView,
   "condo-manager-portal":     CondoManagerPortalView,
   "landlord-portal":          LandlordPortalView,
+  "tenant-portal":            TenantPortalView,
   "portal-demo-selector":     PortalDemoSelector,
   "marketing-trades-worker":  TradesWorkerMarketing,
   "marketing-vendor":         VendorMarketing,

@@ -23,6 +23,7 @@ export enum UserRole {
   PROPERTY_MANAGER = 'property_manager',
   CONDO_MANAGER = 'condo_manager',
   LANDLORD = 'landlord',
+  TENANT = 'tenant',
 }
 
 export interface User {
@@ -185,6 +186,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.LANDLORD]: [
     'customer.submit_requests',
     'customer.view_own_projects',
+  ],
+
+  [UserRole.TENANT]: [
+    'customer.submit_requests',
+    'customer.view_own_projects',
+    'customer.make_payments',
   ],
 };
 
