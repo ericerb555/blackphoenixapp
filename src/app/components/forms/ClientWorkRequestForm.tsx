@@ -84,6 +84,11 @@ interface FormData {
   state: string;
   zipCode: string;
   country: string;
+  // Secure field-access details. Only authorized dispatch/assigned field staff receive these.
+  unitNumber: string;
+  accessInstructions: string;
+  accessContact: string;
+  accessWindow: string;
   
   // Property Information
   propertyType: 'single_family' | 'condo' | 'apartment' | 'townhouse' | 'commercial';
@@ -335,6 +340,10 @@ const initialFormData: FormData = {
   state: 'CA',
   zipCode: '',
   country: 'USA',
+  unitNumber: '',
+  accessInstructions: '',
+  accessContact: '',
+  accessWindow: '',
   
   // Property Information
   propertyType: 'single_family',
@@ -1165,6 +1174,14 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         city: formData.city,
         state: formData.state,
         zip_code: formData.zipCode,
+        unit_access: {
+          unitNumber: formData.unitNumber.trim(),
+          entryInstructions: formData.accessInstructions.trim(),
+          accessContact: formData.accessContact.trim(),
+          accessWindow: formData.accessWindow.trim(),
+          providedBy: formData.clientName.trim(),
+          providedAt: new Date().toISOString(),
+        },
         lot_size_sqft: formData.lotWidth * formData.lotDepth,
         distance_from_business: distanceFromBusiness,
         style_preferences: {
@@ -2415,6 +2432,12 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+        <div className="mb-3 flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15"><Wrench className="h-4 w-4 text-amber-300" /></div><div><p className="text-sm font-semibold text-white">Unit & authorized entry details</p><p className="mt-1 text-xs leading-5 text-gray-400">Optional now—these details stay with the work order and are shown only to dispatch and the technician assigned after your quote is approved. Do not include alarm passwords or banking information.</p></div></div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><TextInput label="Unit / suite / building" value={formData.unitNumber} onChange={(value) => updateFormData('unitNumber', value)} placeholder="e.g., Building B · Unit 305" /><TextInput label="Access contact" value={formData.accessContact} onChange={(value) => updateFormData('accessContact', value)} placeholder="Name and callback number" /><TextInput label="Authorized entry window" value={formData.accessWindow} onChange={(value) => updateFormData('accessWindow', value)} placeholder="e.g., weekdays 9 AM–4 PM" /></div>
+        <div className="mt-3"><label className="mb-2 block text-sm font-medium text-gray-400">Entry instructions</label><textarea value={formData.accessInstructions} onChange={(e) => updateFormData('accessInstructions', e.target.value)} className="w-full rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] px-4 py-3 text-white focus:border-amber-500 focus:outline-none" rows={3} placeholder="Gate/desk procedure, lockbox location, parking instructions, pets, or an arrival check-in requirement." /></div>
       </div>
 
       <div>

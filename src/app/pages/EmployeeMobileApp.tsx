@@ -4,7 +4,7 @@ import {
   Clock, PlayCircle, StopCircle, Camera, Upload, Video,
   MessageSquare, FileText, Image, Paperclip, CheckCircle,
   AlertCircle, MapPin, Calendar, User, Menu, Bell,
-  Home, ClipboardList, Send, X, ChevronRight, Zap,
+  Home, ClipboardList, Send, X, ChevronRight, Zap, KeyRound,
   BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft, Loader2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
@@ -19,10 +19,12 @@ const EMPLOYEE_ROLE = 'Field Technician';
 
 interface FieldTask {
   id: string;
+  workRequestId?: string;
   title: string;
   location: string;
   scheduledAt: string;
   status: string;
+  access?: { unitNumber?: string; entryInstructions?: string; accessContact?: string; accessWindow?: string };
 }
 interface UploadItem {
   id: string;
@@ -169,13 +171,19 @@ export default function EmployeeMobileApp() {
 
   const loadTasks = useCallback(async () => {
     if (!employeeId) return;
-    try { const authHeaders = await getAuthHeaders();
-      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}`, { headers: authHeaders });
-      const data = await res.json();
-      if (data?.success) setTasks(data.tasks || []);
-    } catch (err) {
-      console.error('EmployeeMobileApp: failed to load tasks:', err);
-    }
+    try {
+      const authHeaders = await getAuthHeaders();
+      const [scheduledResponse, assignedWorkResponse] = await Promise.all([
+        fetch(`${SERVER}/time-tracking/tasks/${employeeId}`, { headers: authHeaders }),
+        fetch(`${SERVER}/field/work-orders`, { headers: authHeaders }),
+      ]);
+      const [scheduledData, assignedWorkData] = await Promise.all([scheduledResponse.json().catch(() => ({})), assignedWorkResponse.json().catch(() => ({}))]);
+      const scheduled = Array.isArray(scheduledData?.tasks) ? scheduledData.tasks : [];
+      const assigned = Array.isArray(assignedWorkData?.workOrders) ? assignedWorkData.workOrders : [];
+      const byId = new Map<string, FieldTask>();
+      [...scheduled, ...assigned].forEach((task: FieldTask) => byId.set(String(task.workRequestId || task.id), task));
+      setTasks([...byId.values()].sort((a, b) => new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime()));
+    } catch (err) { console.error('EmployeeMobileApp: failed to load tasks:', err); }
   }, [employeeId, getAuthHeaders]);
 
   const loadUploads = useCallback(async () => {
@@ -313,19 +321,16 @@ export default function EmployeeMobileApp() {
     }
   };
 
-  const startTask = async (taskId: string) => {
+  const startTask = async (task: FieldTask) => {
     if (!employeeId) return;
-    try { const authHeaders = await getAuthHeaders();
-      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}/${taskId}/status`, {
-        method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'in-progress' }),
-      });
-      const data = await res.json();
-      if (data?.success) loadTasks();
-    } catch (err) {
-      console.error('Failed to start task:', err);
-    }
+    try {
+      const authHeaders = await getAuthHeaders();
+      const isWorkOrder = Boolean(task.workRequestId);
+      const url = isWorkOrder ? `${SERVER}/field/work-orders/${task.workRequestId}/status` : `${SERVER}/time-tracking/tasks/${employeeId}/${task.id}/status`;
+      const res = await fetch(url, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in-progress' }) });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) loadTasks(); else console.error('Failed to start task:', data?.error || res.status);
+    } catch (err) { console.error('Failed to start task:', err); }
   };
 
   const portalPromos = [
@@ -580,8 +585,9 @@ export default function EmployeeMobileApp() {
                           {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
                         </Badge>
                       </div>
+                      {(task.access?.unitNumber || task.access?.entryInstructions || task.access?.accessContact || task.access?.accessWindow) && <div className="mt-3 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />Authorized unit access</div>{task.access?.unitNumber && <p className="mt-1">{task.access.unitNumber}</p>}{task.access?.entryInstructions && <p className="mt-1 leading-5">{task.access.entryInstructions}</p>}{task.access?.accessWindow && <p className="mt-1 text-xs">Entry window: {task.access.accessWindow}</p>}{task.access?.accessContact && <p className="mt-1 text-xs">Access contact: {task.access.accessContact}</p>}</div>}
                       {task.status === 'pending' && (
-                        <Button variant="ghost" size="sm" fullWidth className="mt-2" onClick={() => startTask(task.id)}>
+                        <Button variant="ghost" size="sm" fullWidth className="mt-2" onClick={() => startTask(task)}>
                           Start Task
                           <ChevronRight className="w-4 h-4 ml-auto" />
                         </Button>
@@ -824,8 +830,9 @@ export default function EmployeeMobileApp() {
                             {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
                           </Badge>
                         </div>
+                        {(task.access?.unitNumber || task.access?.entryInstructions || task.access?.accessContact || task.access?.accessWindow) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />Authorized unit access</div>{task.access?.unitNumber && <p className="mt-1">{task.access.unitNumber}</p>}{task.access?.entryInstructions && <p className="mt-1 leading-5">{task.access.entryInstructions}</p>}{task.access?.accessWindow && <p className="mt-1 text-xs">Entry window: {task.access.accessWindow}</p>}{task.access?.accessContact && <p className="mt-1 text-xs">Access contact: {task.access.accessContact}</p>}</div>}
                         {task.status === 'pending' && (
-                          <Button variant="primary" size="sm" fullWidth onClick={() => startTask(task.id)}>
+                          <Button variant="primary" size="sm" fullWidth onClick={() => startTask(task)}>
                             Start Task
                           </Button>
                         )}

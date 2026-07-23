@@ -40,6 +40,7 @@ import StoreAccessButton from "./components/StoreAccessButton";
 import { ThemeManager, ThemeProvider } from "./components/ThemeManager";
 import { RoleSwitcher } from "./components/RoleSwitcher";
 import DataInitializer from "./components/DataInitializer";
+import MobilePortalShell from "./components/portals/MobilePortalShell";
 
 // Simple loading component
 const LoadingFallback = () => (
@@ -1030,6 +1031,9 @@ export default function App() {
 // Navigation Header Component - Must be inside UserProvider
 function NavigationHeader({ currentPage, navigate }: { currentPage: string; navigate: (page: string) => void }) {
   const { user } = useUser();
+  const { user: authUser, isOwner, isAdmin } = useAuth();
+  const ownerClaim = String(authUser?.app_metadata?.role || authUser?.user_metadata?.role || authUser?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const hasCommandCenterAccess = Boolean(isOwner || isAdmin || ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(ownerClaim) || String(authUser?.email || '').trim().toLowerCase() === 'ericerb555@proton.me');
   const [logo, setLogo] = useState<string>(phoenixLogo);
 
   // Load company logo
@@ -1055,21 +1059,28 @@ function NavigationHeader({ currentPage, navigate }: { currentPage: string; navi
           {/* Company Logo/Name */}
           <CompanySelector />
 
-          {/* Platform Owner Command Center */}
-          {user?.role === UserRole.PLATFORM_OWNER && (
-            <button
-              onClick={() => navigate("unified-dashboard")}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {logo ? (
-                <img src={logo} alt="Logo" className="w-5 h-5 object-contain" />
-              ) : (
-                <Crown className="w-5 h-5 text-[#ea580c]" />
+          {/* Authenticated identity, never RoleSwitcher preview state, controls elevated navigation. */}
+          {hasCommandCenterAccess && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate("unified-dashboard")}
+                aria-label="Open Command Center"
+                className="flex items-center gap-2 rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-1.5 text-orange-100 transition hover:border-orange-400/50 hover:bg-orange-500/20"
+              >
+                {logo ? <img src={logo} alt="Black Phoenix" className="h-5 w-5 object-contain" /> : <Crown className="h-5 w-5 text-orange-400" />}
+                <span className="hidden text-sm font-semibold lg:inline">Command Center</span>
+              </button>
+              {isOwner && (
+                <button
+                  onClick={() => navigate("owners-dashboard")}
+                  aria-label="Open Owner Dashboard"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-zinc-100 transition hover:border-orange-500/45 hover:bg-zinc-800 sm:text-sm"
+                >
+                  <span className="hidden sm:inline">Owner Dashboard</span>
+                  <Crown className="h-4 w-4 sm:hidden" />
+                </button>
               )}
-              <span className="text-white font-semibold hidden lg:inline">
-                Command Center
-              </span>
-            </button>
+            </div>
           )}
         </div>
 
@@ -1481,6 +1492,9 @@ function AppContent() {
                           </div>
                         )}
                       </Suspense>
+
+                      {/* Mobile-only portal controls. Desktop portal layouts are deliberately unchanged. */}
+                      <MobilePortalShell page={deferredPage} navigate={navigate} />
 
                       {/* Return to Landing Page Footer */}
                       {currentPage !== "landing" &&

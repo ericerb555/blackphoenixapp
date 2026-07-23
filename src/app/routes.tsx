@@ -210,10 +210,12 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Dashboards
   "dashboard":                  UnifiedDashboard,
   "unified-dashboard":          UnifiedDashboard,
+  "command-center":             UnifiedDashboard,
   "master-admin-dashboard":     MasterAdminDashboard,
   "admin-dashboard":            OwnersDashboard,
   "admin-advanced-dashboard":   OwnersDashboard,
   "owners-dashboard":           OwnersDashboard,
+  "owner-dashboard":            OwnersDashboard,
   "company-data-restoration":   CompanyDataRestoration,
   "company-recovery":           CompanyRecovery,
   "company-setup":              CompanySetup,

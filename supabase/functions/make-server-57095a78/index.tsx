@@ -36,7 +36,7 @@ import { companyConfigRouter } from "../server/company-config.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "../server/dropshipper-config.tsx";
 import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook } from "../server/dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "../server/dropshipper-catalog.tsx";
-import zendropRouter from "../server/zendrop.tsx";
+import zendropRouter, { forwardZendropOrder } from "../server/zendrop.tsx";
 import jobFinancialsRouter from "../server/job-financials.tsx";
 
 const app = new Hono();
@@ -2581,6 +2581,55 @@ function internalWorkAccess(record: any, user: any, admin: boolean) {
   return Boolean(email && [record.assignedToEmail, record.assigned_to_email, record.assignedTechnicianEmail, record.assigned_technician_email, record.employeeEmail, record.employee_email]
     .some((value: any) => String(value || '').toLowerCase() === email));
 }
+
+// Unit-entry details are confidential operational data. A field employee can only
+// receive them for an explicitly assigned work order—not for every company job.
+function assignedFieldWorkAccess(record: any, user: any, admin: boolean) {
+  if (admin) return true;
+  const role = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (!['employee', 'technician', 'field_technician', 'maintenance_tech', 'subcontractor', 'service_provider'].includes(role)) return false;
+  const email = String(user?.email || '').trim().toLowerCase();
+  const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || '').trim().toLowerCase();
+  const ids = [record.assignedEmployeeId, record.assigned_employee_id, record.employeeId, record.employee_id].map((value: any) => String(value || ''));
+  const emails = [record.assignedToEmail, record.assigned_to_email, record.assignedTechnicianEmail, record.assigned_technician_email, record.employeeEmail, record.employee_email].map((value: any) => String(value || '').trim().toLowerCase());
+  const names = [record.assignedTo, record.assigned_to, record.assignedTechnician, record.assigned_technician].map((value: any) => String(value || '').trim().toLowerCase());
+  return ids.includes(String(user?.id || '')) || (!!email && (emails.includes(email) || names.includes(email))) || (!!name && names.includes(name));
+}
+
+function fieldWorkOrderPayload(record: any) {
+  const access = record.unit_access || record.unitAccess || {};
+  return {
+    id: record.id, workRequestId: record.id, title: record.title || record.project_name || record.serviceType || record.project_type || 'Work order',
+    location: [record.site_address || record.address || record.location || '', access.unitNumber || record.unit || record.unitNumber || ''].filter(Boolean).join(' · '),
+    scheduledAt: record.scheduledAt || record.scheduled_at || record.requestedDate || record.created_at || new Date().toISOString(), status: record.status || 'assigned',
+    access: { unitNumber: String(access.unitNumber || record.unit || record.unitNumber || ''), entryInstructions: String(access.entryInstructions || access.instructions || ''), accessContact: String(access.accessContact || ''), accessWindow: String(access.accessWindow || '') },
+  };
+}
+
+app.get('/make-server-57095a78/field/work-orders', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const records = await readWorkRequests();
+    const workOrders = records.filter((record: any) => assignedFieldWorkAccess(record, user, admin) && !['cancelled', 'rejected'].includes(String(record.status || '').toLowerCase())).map(fieldWorkOrderPayload);
+    return c.json({ success: true, workOrders });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load assigned work orders.' }, 500); }
+});
+
+app.post('/make-server-57095a78/field/work-orders/:id/status', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const record = await kv.get(`wr:${c.req.param('id')}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work order not found.' }, 404);
+    if (!assignedFieldWorkAccess(record, user, admin)) return c.json({ success: false, error: 'This work order is not assigned to your account.' }, 403);
+    const body = await c.req.json(); const status = String(body.status || '').toLowerCase();
+    if (!['in-progress', 'completed', 'on-hold'].includes(status)) return c.json({ success: false, error: 'Unsupported field status.' }, 400);
+    const now = new Date().toISOString(); const updated = { ...record, status, fieldStatusUpdatedAt: now, fieldStatusUpdatedBy: user.email, updated_at: now };
+    await persistWorkRequest(updated);
+    return c.json({ success: true, workOrder: fieldWorkOrderPayload(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update work order.' }, 500); }
+});
 
 app.put('/make-server-57095a78/work-requests/:id/project-schedule', async (c) => {
   try {
@@ -5484,7 +5533,53 @@ function storeOrderKey(id: string) { return `store:order:${id}`; }
 function storeReturnKey(id: string) { return `store:return:${id}`; }
 function storeCheckoutKey(id: string) { return `store:checkout:${id}`; }
 function giftReservationKey(code: string, checkoutId: string) { return `giftcard_reservation:${normalizeGiftCardCode(code)}:${checkoutId}`; }
-function validStoreItems(items: any) { return Array.isArray(items) && items.length > 0 && items.every((item: any) => String(item?.id || '').trim() && String(item?.name || '').trim() && Number(item?.price) >= 0 && Number(item?.qty || item?.quantity) > 0); }
+function validStoreItems(items: any) { return Array.isArray(items) && items.length > 0 && items.every((item: any) => String(item?.id || '').trim() && Number(item?.qty || item?.quantity) > 0); }
+
+// Never accept a storefront price, title, or fulfillment source from the browser.
+// The cart only identifies a catalog item and requested quantity; this resolves the
+// current server-side product record used for both Stripe and supplier fulfillment.
+async function resolveStoreCheckoutItems(rawItems: any[]) {
+  const resolved: any[] = [];
+  for (const raw of rawItems) {
+    const id = String(raw?.id || '').trim();
+    const qty = Math.max(1, Math.min(100, Math.floor(Number(raw?.qty || raw?.quantity || 1))));
+    const product = (await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`)) as any;
+    if (!product || product.isActive === false) throw new Error(`This item is no longer available: ${id}.`);
+    const inventory = Number(product.inventoryQuantity ?? product.stock ?? -1);
+    if ((product.trackInventory !== false) && Number.isFinite(inventory) && inventory >= 0 && qty > inventory) {
+      throw new Error(`${product.name || 'This item'} has only ${inventory} available.`);
+    }
+    const price = money(product.price);
+    if (price < 0) throw new Error(`This item has an invalid catalog price: ${product.name || id}.`);
+    const images = Array.isArray(product.images) ? product.images : [];
+    resolved.push({
+      id: String(product.id || id),
+      name: String(product.name || 'Store item'),
+      price,
+      qty,
+      image: isUrl(product.primaryImage) ? product.primaryImage : (isUrl(images[0]) ? images[0] : ''),
+      sku: String(product.sku || product.id || id),
+      providerId: String(product.providerId || product.source || product?._dropshipper?.providerId || '').toLowerCase(),
+      providerProductId: String(product.providerProductId || product?._dropshipper?.providerProductId || product.id || id),
+      trackInventory: product.trackInventory !== false,
+    });
+  }
+  return resolved;
+}
+
+async function recordPaidStoreInventory(order: any) {
+  await Promise.all((order.items || []).map(async (item: any) => {
+    const key = `product_${String(item.id)}`;
+    const product = (await kv.get(key) || await kv.get(`live_product_${String(item.id)}`)) as any;
+    if (!product) return;
+    const qty = Math.max(1, Number(item.qty || 1));
+    const update: any = { ...product, orderCount: Math.max(0, Number(product.orderCount || 0)) + qty, updatedAt: new Date().toISOString() };
+    if (product.trackInventory !== false && Number.isFinite(Number(product.inventoryQuantity))) {
+      update.inventoryQuantity = Math.max(0, Number(product.inventoryQuantity) - qty);
+    }
+    await kv.set(key, update);
+  }));
+}
 
 async function activeGiftCardReservations(code: string) {
   const now = Date.now();
@@ -5558,8 +5653,21 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   const now = new Date().toISOString();
   const order = createStoreOrder(checkout, verified, now);
   await captureStoreGiftCardReservation(checkout, order.id);
+  await recordPaidStoreInventory(order);
   const rewards = await settlePaidStoreRewards(order);
   Object.assign(order, { rewards });
+  await kv.set(storeOrderKey(order.id), order);
+
+  // Supplier submission happens only after Stripe has verified payment. A failed
+  // handoff never loses the paid order: it remains in a visible manual-review state.
+  const fulfillment = await forwardZendropOrder(order).catch((error: any) => ({
+    status: 'manual_review', reason: error?.message || 'Zendrop handoff failed unexpectedly.', attemptedAt: new Date().toISOString(),
+  }));
+  Object.assign(order, {
+    fulfillment_status: fulfillment.status === 'submitted' ? 'forwarded_to_zendrop' : (fulfillment.status === 'not_applicable' ? 'pending' : 'manual_review'),
+    supplier_fulfillment: fulfillment,
+    updated_at: new Date().toISOString(),
+  });
   await kv.set(storeOrderKey(order.id), order);
   await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId: order.id, paidAt: now, updatedAt: now, rewards });
   return order;
@@ -5571,7 +5679,7 @@ app.post('/make-server-57095a78/store/checkout', async (c) => {
     if (!validStoreItems(body.items)) return c.json({ error: 'Your cart must contain valid items.' }, 400);
     const customer = body.customer || {}; const email = String(customer.email || '').trim().toLowerCase();
     if (!email || !String(customer.name || '').trim() || !String(customer.address || '').trim()) return c.json({ error: 'Name, email, and shipping address are required.' }, 400);
-    const items = body.items.map((item: any) => ({ id: String(item.id), name: String(item.name), price: money(item.price), qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' }));
+    const items = await resolveStoreCheckoutItems(body.items);
     const subtotal = money(items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0));
     const shipping = Math.max(0, money(body.shipping));
     const tax = Math.max(0, money(body.tax));
@@ -5639,7 +5747,7 @@ app.get('/make-server-57095a78/store/orders', async (c) => {
 });
 
 app.patch('/make-server-57095a78/store/orders/:id', async (c) => {
-  try { const { user, admin } = await financialActor(c); if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403); const existing = await kv.get(storeOrderKey(c.req.param('id'))) as any; if (!existing) return c.json({ error: 'Order not found.' }, 404); const body = await c.req.json(); const allowed = new Set(['pending', 'forwarded_to_doba', 'shipped', 'delivered']); if (!allowed.has(String(body.fulfillment_status || ''))) return c.json({ error: 'A valid fulfillment status is required.' }, 400); const order = { ...existing, fulfillment_status: body.fulfillment_status, tracking_number: body.tracking_number ? String(body.tracking_number) : existing.tracking_number, updated_at: new Date().toISOString(), fulfillment_updated_by: user.email }; await kv.set(storeOrderKey(order.id), order); return c.json(order); }
+  try { const { user, admin } = await financialActor(c); if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403); const existing = await kv.get(storeOrderKey(c.req.param('id'))) as any; if (!existing) return c.json({ error: 'Order not found.' }, 404); const body = await c.req.json(); const allowed = new Set(['pending', 'manual_review', 'forwarded_to_zendrop', 'forwarded_to_doba', 'shipped', 'delivered']); if (!allowed.has(String(body.fulfillment_status || ''))) return c.json({ error: 'A valid fulfillment status is required.' }, 400); const order = { ...existing, fulfillment_status: body.fulfillment_status, tracking_number: body.tracking_number ? String(body.tracking_number) : existing.tracking_number, updated_at: new Date().toISOString(), fulfillment_updated_by: user.email }; await kv.set(storeOrderKey(order.id), order); return c.json(order); }
   catch (error: any) { return c.json({ error: error.message || 'Unable to update order.' }, 500); }
 });
 

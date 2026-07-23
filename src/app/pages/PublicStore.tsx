@@ -354,7 +354,8 @@ export default function PublicStore() {
 
   // Live catalog is authoritative. Dropship and Auto-Pilot records fill gaps; static items only render when no live catalog exists.
   const liveProducts = [...catalogProducts, ...dropshipProducts.filter(item => !catalogProducts.some(product => product.id === item.id || product.name === item.name)), ...autoImported.filter(item => !catalogProducts.some(product => product.id === item.id || product.name === item.name) && !dropshipProducts.some(product => product.id === item.id || product.name === item.name))];
-  const allProducts = liveProducts.length > 0 ? liveProducts : products;
+  // Only server-published catalog products are purchasable. Never fall back to demo inventory in the live store.
+  const allProducts = liveProducts;
 
   const filteredProducts = allProducts.filter(product => {
     const matchesCategory = selectedCategory === 'all' ||
