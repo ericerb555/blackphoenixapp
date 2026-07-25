@@ -9,19 +9,6 @@ import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
-interface ReturnRequest {
-  id: string;
-  orderId: string;
-  customerName: string;
-  customerEmail: string;
-  reason: string;
-  details?: string;
-  status: 'requested' | 'approved' | 'rejected' | 'received' | 'refunded' | 'closed';
-  requestedAt: string;
-  refundAmount: number;
-  items: { name: string; qty: number }[];
-}
-
 interface Order {
   id: string;
   stripe_session_id?: string;
@@ -78,8 +65,6 @@ export default function OrderManager() {
   const [copiedId, setCopied]       = useState<string | null>(null);
   const [updatingId, setUpdating]   = useState<string | null>(null);
   const [trackingInput, setTracking] = useState('');
-  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
-  const [returnActionId, setReturnActionId] = useState<string | null>(null);
 
   async function loadOrders() {
     try {
@@ -93,13 +78,10 @@ export default function OrderManager() {
       if (res.ok) {
         const data = await res.json();
         setOrders(Array.isArray(data.orders) ? data.orders : []);
-        const returnsResponse = await fetch(`${SERVER}/store/returns`, { headers: { apikey: publicAnonKey, Authorization: `Bearer ${token}` } });
-        const returnsData = await returnsResponse.json().catch(() => ({}));
-        setReturnRequests(returnsResponse.ok && Array.isArray(returnsData.returns) ? returnsData.returns : []);
         return;
       }
     } catch { /* Preserve a truthful empty state instead of showing fabricated orders. */ }
-    setOrders([]); setReturnRequests([]);
+    setOrders([]);
   }
 
   useEffect(() => { loadOrders().finally(() => setLoading(false)); }, []);
@@ -109,25 +91,6 @@ export default function OrderManager() {
     await loadOrders();
     setRefreshing(false);
     toast.success('Orders refreshed');
-  }
-
-  async function processReturn(request: ReturnRequest, action: 'approve' | 'reject' | 'receive' | 'refund') {
-    setReturnActionId(request.id);
-    try {
-      const { supabase } = await import('../lib/supabase');
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Sign in required');
-      const response = await fetch(`${SERVER}/store/returns/${request.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ action }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to update this return request.');
-      setReturnRequests(previous => previous.map(item => item.id === request.id ? data.returnRequest : item));
-      if (action === 'refund') await loadOrders();
-      toast.success(action === 'refund' ? 'Refund submitted to Stripe.' : `Return ${action}d.`);
-    } catch (error: any) { toast.error(error?.message || 'Unable to process return request.'); }
-    finally { setReturnActionId(null); }
   }
 
   async function updateFulfillment(orderId: string, fulfillment_status: string, tracking_number?: string) {
@@ -229,20 +192,6 @@ export default function OrderManager() {
             </div>
           </div>
         )}
-
-        {/* Return requests — canonical customer return intake, owner reviewed */}
-        <section className="rounded-2xl p-4 sm:p-5" style={{ background: '#111', border: '1px solid rgba(234,88,12,0.18)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-            <div><p className="text-sm font-black text-white">Returns &amp; refunds</p><p className="text-xs text-gray-500 mt-0.5">Customer requests from the public store. Approve, receive, then issue the Stripe refund.</p></div>
-            <span className="self-start sm:self-auto text-xs font-black px-3 py-1.5 rounded-full" style={{ color: '#fb923c', background: 'rgba(234,88,12,0.12)' }}>{returnRequests.filter(request => ['requested', 'approved', 'received'].includes(request.status)).length} open</span>
-          </div>
-          {returnRequests.length === 0 ? <p className="py-4 text-sm text-gray-500">No return requests yet.</p> : <div className="space-y-2">{returnRequests.map(request => (
-            <div key={request.id} className="rounded-xl p-3 sm:p-4" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-orange-300">{request.id}</span><span className="text-xs font-black capitalize text-white">{request.status}</span></div><p className="mt-1 text-sm font-bold text-white">{request.customerName || request.customerEmail} · {request.orderId}</p><p className="mt-1 text-xs text-gray-500">{request.reason} · ${Number(request.refundAmount || 0).toFixed(2)} · {request.items?.map(item => `${item.name} ×${item.qty}`).join(', ')}</p>{request.details && <p className="mt-2 text-xs text-gray-400">“{request.details}”</p>}</div>
-              <div className="flex flex-wrap gap-2">{request.status === 'requested' && <><button onClick={() => processReturn(request, 'approve')} disabled={returnActionId === request.id} className="px-3 py-2 rounded-lg text-xs font-black text-green-300 disabled:opacity-50" style={{ background: 'rgba(74,222,128,0.1)' }}>Approve</button><button onClick={() => processReturn(request, 'reject')} disabled={returnActionId === request.id} className="px-3 py-2 rounded-lg text-xs font-black text-red-300 disabled:opacity-50" style={{ background: 'rgba(248,113,113,0.1)' }}>Reject</button></>}{request.status === 'approved' && <button onClick={() => processReturn(request, 'receive')} disabled={returnActionId === request.id} className="px-3 py-2 rounded-lg text-xs font-black text-blue-300 disabled:opacity-50" style={{ background: 'rgba(96,165,250,0.1)' }}>Mark received</button>}{['approved', 'received'].includes(request.status) && <button onClick={() => processReturn(request, 'refund')} disabled={returnActionId === request.id} className="px-3 py-2 rounded-lg text-xs font-black text-orange-100 disabled:opacity-50" style={{ background: '#ea580c' }}>{returnActionId === request.id ? 'Processing…' : 'Refund in Stripe'}</button>}</div></div>
-            </div>
-          ))}</div>}
-        </section>
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3">

@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion } from 'motion/react';
 import {
   Clock, PlayCircle, StopCircle, Camera, Upload, Video,
   MessageSquare, FileText, Image, Paperclip, CheckCircle,
   AlertCircle, MapPin, Calendar, User, Menu, Bell,
-  Home, ClipboardList, Send, X, ChevronRight, Zap, KeyRound,
+  Home, ClipboardList, Send, X, ChevronRight, Zap,
   BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft, Loader2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
@@ -19,12 +18,10 @@ const EMPLOYEE_ROLE = 'Field Technician';
 
 interface FieldTask {
   id: string;
-  workRequestId?: string;
   title: string;
   location: string;
   scheduledAt: string;
   status: string;
-  access?: { unitNumber?: string; entryInstructions?: string; accessContact?: string; accessWindow?: string };
 }
 interface UploadItem {
   id: string;
@@ -171,19 +168,13 @@ export default function EmployeeMobileApp() {
 
   const loadTasks = useCallback(async () => {
     if (!employeeId) return;
-    try {
-      const authHeaders = await getAuthHeaders();
-      const [scheduledResponse, assignedWorkResponse] = await Promise.all([
-        fetch(`${SERVER}/time-tracking/tasks/${employeeId}`, { headers: authHeaders }),
-        fetch(`${SERVER}/field/work-orders`, { headers: authHeaders }),
-      ]);
-      const [scheduledData, assignedWorkData] = await Promise.all([scheduledResponse.json().catch(() => ({})), assignedWorkResponse.json().catch(() => ({}))]);
-      const scheduled = Array.isArray(scheduledData?.tasks) ? scheduledData.tasks : [];
-      const assigned = Array.isArray(assignedWorkData?.workOrders) ? assignedWorkData.workOrders : [];
-      const byId = new Map<string, FieldTask>();
-      [...scheduled, ...assigned].forEach((task: FieldTask) => byId.set(String(task.workRequestId || task.id), task));
-      setTasks([...byId.values()].sort((a, b) => new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime()));
-    } catch (err) { console.error('EmployeeMobileApp: failed to load tasks:', err); }
+    try { const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}`, { headers: authHeaders });
+      const data = await res.json();
+      if (data?.success) setTasks(data.tasks || []);
+    } catch (err) {
+      console.error('EmployeeMobileApp: failed to load tasks:', err);
+    }
   }, [employeeId, getAuthHeaders]);
 
   const loadUploads = useCallback(async () => {
@@ -321,24 +312,20 @@ export default function EmployeeMobileApp() {
     }
   };
 
-  const startTask = async (task: FieldTask) => {
+  const startTask = async (taskId: string) => {
     if (!employeeId) return;
-    try {
-      const authHeaders = await getAuthHeaders();
-      const isWorkOrder = Boolean(task.workRequestId);
-      const url = isWorkOrder ? `${SERVER}/field/work-orders/${task.workRequestId}/status` : `${SERVER}/time-tracking/tasks/${employeeId}/${task.id}/status`;
-      const res = await fetch(url, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in-progress' }) });
-      const data = await res.json().catch(() => ({}));
-      if (data?.success) loadTasks(); else console.error('Failed to start task:', data?.error || res.status);
-    } catch (err) { console.error('Failed to start task:', err); }
+    try { const authHeaders = await getAuthHeaders();
+      const res = await fetch(`${SERVER}/time-tracking/tasks/${employeeId}/${taskId}/status`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in-progress' }),
+      });
+      const data = await res.json();
+      if (data?.success) loadTasks();
+    } catch (err) {
+      console.error('Failed to start task:', err);
+    }
   };
-
-  const portalPromos = [
-    { id: 'offers', label: 'Field Team Offers', text: 'See current employee-only offers and perks', href: '/rewards-perks', tone: 'text-amber-800' },
-    { id: 'giveaway', label: 'Monthly Giveaway', text: 'View current giveaway rules and enter from Rewards & Perks', href: '/rewards-perks', tone: 'text-purple-800' },
-    { id: 'referrals', label: 'Referral Rewards', text: 'Share your referral link and track eligible rewards', href: '/rewards-perks?tab=referrals', tone: 'text-emerald-800' },
-    { id: 'messages', label: 'Team Messages', text: 'Open dispatch, manager, and team conversations', href: '/messages', tone: 'text-blue-800' },
-  ];
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -380,7 +367,7 @@ export default function EmployeeMobileApp() {
                 <User className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="font-bold text-lg">{employeeName}</h1>
+                <h1 className="font-bold text-lg">John Smith</h1>
                 <p className="text-sm text-blue-100">Field Technician</p>
               </div>
             </div>
@@ -396,18 +383,6 @@ export default function EmployeeMobileApp() {
             <span className="text-blue-100">{location}</span>
           </div>
         </div>
-      </div>
-
-      {/* Field team offers, giveaways, referral rewards, and messages */}
-      <div className="overflow-hidden border-b border-blue-100 bg-white" aria-label="Employee offers and announcements">
-        <motion.div className="flex w-max items-stretch" animate={{ x: ['0%', '-50%'] }} transition={{ duration: 28, repeat: Infinity, ease: 'linear' }}>
-          {[...portalPromos, ...portalPromos].map((promo, index) => (
-            <button key={`${promo.id}-${index}`} onClick={() => { window.location.href = promo.href; }} className="flex min-w-[285px] items-center gap-3 border-r border-slate-100 px-4 py-3 text-left hover:bg-slate-50">
-              <span className={`text-xs font-black uppercase tracking-wide ${promo.tone}`}>{promo.label}</span>
-              <span className="text-xs text-slate-500">{promo.text} →</span>
-            </button>
-          ))}
-        </motion.div>
       </div>
 
       {/* Main Content */}
@@ -501,44 +476,18 @@ export default function EmployeeMobileApp() {
                 </button>
 
                 <button
-                  onClick={() => window.location.href = '/change-order-camera'}
-                  className="flex flex-col items-center gap-3 p-6 bg-white rounded-2xl border-2 border-slate-200 hover:border-amber-300 hover:shadow-lg transition-all active:scale-95"
-                >
-                  <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center">
-                    <FileText className="w-7 h-7 text-amber-600" />
-                  </div>
-                  <div className="text-center">
-                    <p className="font-semibold text-slate-900 text-sm">Change Order</p>
-                    <p className="text-sm text-slate-500">Submit field scope</p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => window.location.href = '/portal-onboarding'}
-                  className="flex flex-col items-center gap-3 p-6 bg-white rounded-2xl border-2 border-slate-200 hover:border-indigo-300 hover:shadow-lg transition-all active:scale-95"
-                >
-                  <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center">
-                    <User className="w-7 h-7 text-indigo-600" />
-                  </div>
-                  <div className="text-center">
-                    <p className="font-semibold text-slate-900 text-sm">HR &amp; Tax</p>
-                    <p className="text-sm text-slate-500">Profile, W-9 / 1099</p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => window.location.href = '/messages'}
+                  onClick={() => window.location.href = '#messaging'}
                   className="flex flex-col items-center gap-3 p-6 bg-white rounded-2xl border-2 border-slate-200 hover:border-cyan-300 hover:shadow-lg transition-all active:scale-95"
                 >
                   <div className="w-14 h-14 bg-cyan-50 rounded-full flex items-center justify-center relative">
                     <MessageSquare className="w-7 h-7 text-cyan-600" />
-                    {tasks.filter(task => task.status === 'pending').length > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-sm rounded-full flex items-center justify-center">
-                      {tasks.filter(task => task.status === 'pending').length}
-                    </span>}
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-sm rounded-full flex items-center justify-center">
+                      3
+                    </span>
                   </div>
                   <div className="text-center">
                     <p className="font-semibold text-slate-900 text-sm">Messages</p>
-                    <p className="text-sm text-slate-500">Team messages</p>
+                    <p className="text-sm text-slate-500">3 unread</p>
                   </div>
                 </button>
               </div>
@@ -585,9 +534,8 @@ export default function EmployeeMobileApp() {
                           {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
                         </Badge>
                       </div>
-                      {(task.access?.unitNumber || task.access?.entryInstructions || task.access?.accessContact || task.access?.accessWindow) && <div className="mt-3 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />Authorized unit access</div>{task.access?.unitNumber && <p className="mt-1">{task.access.unitNumber}</p>}{task.access?.entryInstructions && <p className="mt-1 leading-5">{task.access.entryInstructions}</p>}{task.access?.accessWindow && <p className="mt-1 text-xs">Entry window: {task.access.accessWindow}</p>}{task.access?.accessContact && <p className="mt-1 text-xs">Access contact: {task.access.accessContact}</p>}</div>}
                       {task.status === 'pending' && (
-                        <Button variant="ghost" size="sm" fullWidth className="mt-2" onClick={() => startTask(task)}>
+                        <Button variant="ghost" size="sm" fullWidth className="mt-2" onClick={() => startTask(task.id)}>
                           Start Task
                           <ChevronRight className="w-4 h-4 ml-auto" />
                         </Button>
@@ -830,9 +778,8 @@ export default function EmployeeMobileApp() {
                             {task.status === 'in-progress' ? 'Active' : task.status === 'completed' ? 'Done' : 'Pending'}
                           </Badge>
                         </div>
-                        {(task.access?.unitNumber || task.access?.entryInstructions || task.access?.accessContact || task.access?.accessWindow) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><div className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />Authorized unit access</div>{task.access?.unitNumber && <p className="mt-1">{task.access.unitNumber}</p>}{task.access?.entryInstructions && <p className="mt-1 leading-5">{task.access.entryInstructions}</p>}{task.access?.accessWindow && <p className="mt-1 text-xs">Entry window: {task.access.accessWindow}</p>}{task.access?.accessContact && <p className="mt-1 text-xs">Access contact: {task.access.accessContact}</p>}</div>}
                         {task.status === 'pending' && (
-                          <Button variant="primary" size="sm" fullWidth onClick={() => startTask(task)}>
+                          <Button variant="primary" size="sm" fullWidth onClick={() => startTask(task.id)}>
                             Start Task
                           </Button>
                         )}
@@ -1041,9 +988,9 @@ export default function EmployeeMobileApp() {
           >
             <ClipboardList className="w-5 h-5" />
             <span className="text-sm font-semibold">Tasks</span>
-            {tasks.filter(task => task.status === 'pending').length > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-red-500 text-white text-sm rounded-full flex items-center justify-center">
-              {tasks.filter(task => task.status === 'pending').length}
-            </span>}
+            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-sm rounded-full flex items-center justify-center">
+              3
+            </span>
           </button>
         </div>
       </div>

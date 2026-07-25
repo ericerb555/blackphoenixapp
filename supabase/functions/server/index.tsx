@@ -23,6 +23,8 @@ import pipelineRouter from "./pipeline.tsx";
 import vendorPricingRouter from "./vendorPricing.tsx";
 import brandsRouter from "./brands.tsx";
 import { companyConfigRouter } from "./company-config.tsx";
+import authRouter from "./auth.tsx";
+import onboardingCrmRouter from "./onboarding-crm.tsx";
 
 const app = new Hono();
 
@@ -62,6 +64,11 @@ app.route("/", maintenanceConfigRouter);
 app.route("/make-server-57095a78", productsRouter);
 app.route("/make-server-57095a78", cartRouter);
 app.route("/", crmContentRouter);
+// Auth (signup/login/onboarding/admin users) and the onboarding→CRM router both
+// declare full function paths, so they mount at the root. These wire every
+// create-account flow into the CRM + onboarding intake.
+app.route("/", authRouter);
+app.route("/", onboardingCrmRouter);
 app.route("/", growthMarketingRouter);
 app.route("/make-server-57095a78", marketingAssetsRouter);
 app.route("/make-server-57095a78", territoryCohortRouter);

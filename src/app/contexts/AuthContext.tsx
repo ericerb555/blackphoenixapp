@@ -266,17 +266,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []); // Run once on mount
 
-  // Keep the platform owner recognized if the ownership lookup is delayed or
-  // temporarily unavailable. This uses authenticated Supabase identity only.
-  const normalizedClaimedRole = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  const ownerByClaim = ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(normalizedClaimedRole);
-  const ownerByCanonicalEmail = String(user?.email || '').trim().toLowerCase() === 'ericerb555@proton.me';
-  const hasOwnerAccess = isOwner || ownerByClaim || ownerByCanonicalEmail;
-  const isMasterAdmin = userRole?.role_name === 'master_admin' || hasOwnerAccess;
+  const isMasterAdmin = userRole?.role_name === 'master_admin' || isOwner;
   const isAdmin = userRole?.role_name === 'admin' || isMasterAdmin;
 
   const hasPermission = (permission: string): boolean => {
-    if (hasOwnerAccess) return true;
+    if (isOwner) return true;
     if (!userRole) return false;
     if (userRole.permissions?.all) return true;
     return userRole.permissions?.[permission] === true;
@@ -494,7 +488,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userRole,
       isMasterAdmin,
       isAdmin,
-      isOwner: hasOwnerAccess,
+      isOwner,
       needsOnboarding,
       hasPermission,
       signIn,

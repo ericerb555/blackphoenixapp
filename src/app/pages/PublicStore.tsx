@@ -36,7 +36,6 @@ interface Product {
   image: string;
   inStock: boolean;
   featured?: boolean;
-  orderCount?: number;
   badge?: string;
   colors?: string[];
   sizes?: string[];
@@ -68,7 +67,6 @@ export default function PublicStore() {
   const [leadName, setLeadName] = useState('');
   const [leadSubmitted, setLeadSubmitted] = useState(false);
   const [dropshipProducts, setDropshipProducts] = useState<Product[]>([]);
-  const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [showReviewRequest, setShowReviewRequest] = useState(false);
   const [reviewStep, setReviewStep] = useState<'rate' | 'thanks'>('rate');
@@ -80,10 +78,6 @@ export default function PublicStore() {
   const [checkoutError, setCheckoutError] = useState('');
   const [giftCardBalance, setGiftCardBalance] = useState<number | null>(null);
   const [checkingGiftCard, setCheckingGiftCard] = useState(false);
-  const [showReturnCenter, setShowReturnCenter] = useState(false);
-  const [returnForm, setReturnForm] = useState({ orderId: '', email: '', reason: 'Changed my mind', details: '' });
-  const [returnSubmitting, setReturnSubmitting] = useState(false);
-  const [returnResult, setReturnResult] = useState('');
 
   // Stripe only creates the order after the payment session is verified by the
   // server. This also makes a browser refresh/retry safe and idempotent.
@@ -118,27 +112,6 @@ export default function PublicStore() {
   const [chatInput, setChatInput] = useState('');
   const [chatTyping, setChatTyping] = useState(false);
   const [chatUnread, setChatUnread] = useState(1);
-
-  // Canonical store catalog. Top Sellers ranks these records by verified order count.
-  useEffect(() => {
-    let active = true;
-    const loadCatalog = async () => {
-      try {
-        const response = await fetch(`${SERVER}/products?isActive=true&limit=100`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
-        const data = await response.json();
-        if (!response.ok || !data.success || !Array.isArray(data.products)) return;
-        const records = data.products.map((product: any) => ({
-          id: product.id, name: product.name || 'Store item', description: product.description || '', price: Number(product.price || 0),
-          originalPrice: product.originalPrice ? Number(product.originalPrice) : undefined, category: product.category || 'General',
-          rating: Number(product.rating || 0), reviews: Number(product.reviews || 0), image: product.primaryImage || product.images?.[0] || '/placeholder-product.jpg',
-          inStock: product.isActive !== false && (!product.trackInventory || Number(product.inventoryQuantity || 0) > 0),
-          featured: Boolean(product.isFeatured), orderCount: Number(product.orderCount || 0), badge: product.badge || undefined,
-        }));
-        if (active) setCatalogProducts(records);
-      } catch { /* The static catalog remains available until a live catalog exists. */ }
-    };
-    void loadCatalog(); return () => { active = false; };
-  }, []);
 
   // Fetch live products from connected dropshippers
   useEffect(() => {
@@ -198,18 +171,31 @@ export default function PublicStore() {
       const capturedName = localStorage.getItem('bp_lead_name') || '';
       if (!capturedEmail) return;
       try {
-        // Persist the actual cart for the owner recovery queue. Email sends are
-        // intentionally owner-controlled rather than triggered anonymously.
-        const response = await fetch(`${SERVER}/abandoned-carts`, {
+        await fetch(`${SERVER}/leads/capture`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: capturedEmail, name: capturedName, source: 'PublicStore',
-            items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity })),
+            email: capturedEmail,
+            name: capturedName,
+            source: 'abandoned_cart',
+            page: window.location.pathname,
+            cartValue,
+            metadata: { cartItems, trigger: 'abandoned_cart' },
           }),
         });
-        if (response.ok) localStorage.setItem(recoveredKey, '1');
-      } catch { /* Retry next time the shopper resumes this cart. */ }
+        // Auto-send recovery email
+        await fetch(`${SERVER}/leads/send-email`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: capturedEmail,
+            name: capturedName || 'there',
+            emailType: 'cart_abandon',
+            metadata: { cartItems, cartValue: cartValue.toFixed(2) },
+          }),
+        });
+        localStorage.setItem(recoveredKey, '1');
+      } catch { /* silent */ }
     }, 10 * 60 * 1000); // 10 minutes
 
     return () => clearTimeout(timer);
@@ -352,10 +338,10 @@ export default function PublicStore() {
     } catch { return []; }
   })();
 
-  // Live catalog is authoritative. Dropship and Auto-Pilot records fill gaps; static items only render when no live catalog exists.
-  const liveProducts = [...catalogProducts, ...dropshipProducts.filter(item => !catalogProducts.some(product => product.id === item.id || product.name === item.name)), ...autoImported.filter(item => !catalogProducts.some(product => product.id === item.id || product.name === item.name) && !dropshipProducts.some(product => product.id === item.id || product.name === item.name))];
-  // Only server-published catalog products are purchasable. Never fall back to demo inventory in the live store.
-  const allProducts = liveProducts;
+  // Merge: live dropship products first, then auto-pilot, then hardcoded as fallback
+  const allProducts = dropshipProducts.length > 0
+    ? [...dropshipProducts, ...autoImported.filter(a => !dropshipProducts.find(d => d.name === a.name)), ...products.filter(p => !dropshipProducts.find(d => d.name === p.name))]
+    : [...autoImported, ...products.filter(p => !autoImported.find(a => a.name === p.name))];
 
   const filteredProducts = allProducts.filter(product => {
     const matchesCategory = selectedCategory === 'all' ||
@@ -562,7 +548,7 @@ export default function PublicStore() {
     if (shopView === 'hot') {
       base = [...allProducts].filter(p => p.badge || p.featured).sort((a, b) => b.rating - a.rating);
     } else if (shopView === 'top-sellers') {
-      base = [...allProducts].sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0) || b.reviews - a.reviews || b.rating - a.rating);
+      base = [...allProducts].sort((a, b) => b.reviews - a.reviews);
     } else if (shopView === 'sports') {
       base = allProducts.filter(p => ['sports', 'sports & outdoors', 'fitness'].includes((p.category || '').toLowerCase()));
     } else if (shopView === 'clothing') {
@@ -649,22 +635,6 @@ export default function PublicStore() {
       </div>
     );
   };
-
-  async function submitReturnRequest() {
-    if (!returnForm.orderId.trim() || !returnForm.email.trim() || !returnForm.reason.trim()) {
-      setReturnResult('Enter your order number, purchase email, and return reason.');
-      return;
-    }
-    setReturnSubmitting(true); setReturnResult('');
-    try {
-      const response = await fetch(`${SERVER}/store/returns`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, body: JSON.stringify(returnForm) });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'We could not submit the return request.');
-      setReturnResult(data.duplicate ? `Return request ${data.returnRequest?.id || ''} is already being reviewed.` : `Return request ${data.returnRequest?.id || ''} received. We will email the next step.`);
-      toast.success('Return request submitted.');
-    } catch (error: any) { setReturnResult(error?.message || 'We could not submit the return request.'); }
-    finally { setReturnSubmitting(false); }
-  }
 
   async function sendChatMessage() {
     const text = chatInput.trim();
@@ -756,9 +726,6 @@ export default function PublicStore() {
                   </a>
                 );
               })()}
-              <button onClick={() => { setReturnResult(''); setShowReturnCenter(true); }} className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                <Package className="w-3.5 h-3.5 text-orange-300" /> Returns
-              </button>
               {/* Wishlist */}
               <button className="relative p-2 rounded-xl hover:bg-white/5 transition">
                 <Heart className="w-5 h-5 text-gray-400" />
@@ -1149,12 +1116,7 @@ export default function PublicStore() {
                   ))}
                 </div>
               </div>
-              <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-x-5 gap-y-2 text-xs">
-                <button onClick={() => { setReturnResult(''); setShowReturnCenter(true); }} className="font-bold text-orange-300 hover:text-orange-200 underline underline-offset-4">Returns &amp; refunds</button>
-                <span className="text-gray-600">30-day return window after delivery</span>
-                <span className="text-gray-600">Start with your order number and purchase email</span>
-              </div>
-              <p className="text-center text-[10px] text-gray-800 mt-4">© 2026 {companyName}. All rights reserved.</p>
+              <p className="text-center text-[10px] text-gray-800 mt-6">© 2026 {companyName}. All rights reserved.</p>
             </div>
           </footer>
         </>
@@ -1695,33 +1657,6 @@ export default function PublicStore() {
 
       {/* ── SOCIAL PROOF WIDGET ──────────────────────────────────────────── */}
       <SocialProofWidget />
-
-      {/* ── RETURNS & REFUNDS CENTER ───────────────────────────────────────── */}
-      {showReturnCenter && (
-        <div className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-5" onClick={(event) => { if (event.target === event.currentTarget) setShowReturnCenter(false); }}>
-          <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl" style={{ background: '#101010', border: '1px solid rgba(234,88,12,0.32)', boxShadow: '0 28px 100px rgba(0,0,0,0.6)' }}>
-            <div className="flex items-start justify-between gap-4 p-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-              <div><p className="text-[10px] font-black tracking-[0.22em] uppercase text-orange-400">Black Phoenix Shop</p><h2 className="mt-1 text-2xl font-black text-white">Returns &amp; refunds</h2><p className="mt-1 text-sm text-gray-400">Start a request in under a minute. We will email you the next step after review.</p></div>
-              <button onClick={() => setShowReturnCenter(false)} className="rounded-xl p-2 text-gray-400 hover:text-white" style={{ background: 'rgba(255,255,255,0.06)' }} aria-label="Close returns center"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="grid gap-5 p-6 md:grid-cols-[0.9fr_1.1fr]">
-              <section className="rounded-2xl p-4" style={{ background: 'rgba(234,88,12,0.07)', border: '1px solid rgba(234,88,12,0.16)' }}>
-                <div className="flex items-center gap-2 text-orange-300"><Shield className="h-4 w-4" /><h3 className="text-sm font-black">30-day return policy</h3></div>
-                <ul className="mt-3 space-y-2 text-xs leading-relaxed text-gray-300"><li>• Submit your request within 30 days of delivery.</li><li>• Items should be unused, in their original condition, with included parts and packaging.</li><li>• Approved requests receive return instructions by email before shipment.</li><li>• Refunds are issued to the original payment method after approval and, when required, receipt of the return.</li></ul>
-                <p className="mt-4 text-[11px] leading-relaxed text-gray-500">Original shipping and non-returnable items may be excluded where disclosed at checkout. If an item arrived damaged or incorrect, select that reason so we can prioritize it.</p>
-              </section>
-              <section><h3 className="text-sm font-black text-white">Start a return</h3><div className="mt-3 space-y-3">
-                <input value={returnForm.orderId} onChange={(event) => setReturnForm(form => ({ ...form, orderId: event.target.value }))} placeholder="Order number (example: BP-XXXXXXXXXX)" className="w-full rounded-xl px-3 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.1)' }} />
-                <input type="email" value={returnForm.email} onChange={(event) => setReturnForm(form => ({ ...form, email: event.target.value }))} placeholder="Purchase email" className="w-full rounded-xl px-3 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.1)' }} />
-                <select value={returnForm.reason} onChange={(event) => setReturnForm(form => ({ ...form, reason: event.target.value }))} className="w-full rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-500" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.1)' }}><option>Changed my mind</option><option>Item arrived damaged</option><option>Incorrect item received</option><option>Item did not match description</option><option>Other</option></select>
-                <textarea value={returnForm.details} onChange={(event) => setReturnForm(form => ({ ...form, details: event.target.value }))} placeholder="Optional details that will help us review your request" rows={3} className="w-full resize-none rounded-xl px-3 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-orange-500" style={{ background: '#171717', border: '1px solid rgba(255,255,255,0.1)' }} />
-                {returnResult && <p className="rounded-xl px-3 py-2 text-xs text-orange-200" style={{ background: 'rgba(234,88,12,0.1)' }}>{returnResult}</p>}
-                <button onClick={submitReturnRequest} disabled={returnSubmitting} className="w-full rounded-xl py-3 text-sm font-black text-white disabled:opacity-50" style={{ background: '#ea580c' }}>{returnSubmitting ? 'Submitting…' : 'Submit return request'}</button>
-              </div></section>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── AI CHAT WIDGET ────────────────────────────────────────────────── */}
       <div className="fixed bottom-6 right-5 z-50 flex flex-col items-end gap-3">

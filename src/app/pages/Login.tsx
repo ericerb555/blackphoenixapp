@@ -194,14 +194,6 @@ export default function Login({ onNavigate }: LoginProps) {
         localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
         localStorage.setItem('currentUserProfile', JSON.stringify(profile));
       }
-      // Tenant invitations carry their role in Supabase metadata. Treat that claim as
-      // authoritative so a resident is never routed through applicant onboarding.
-      if (claimedRole === 'tenant') {
-        profile.accountType = 'tenant';
-        userProfiles[email.toLowerCase()] = profile;
-        localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-        localStorage.setItem('currentUserProfile', JSON.stringify(profile));
-      }
       let requiresOnboarding = false;
       if (session?.access_token) {
         const optionalJson = async (url: string) => {
@@ -216,25 +208,15 @@ export default function Login({ onNavigate }: LoginProps) {
           }
         };
         try {
-          const [identity, onboarding, tenantPortal] = await Promise.all([
+          const [identity, onboarding] = await Promise.all([
             optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/me`),
             optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`),
-            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant-portal/me`),
           ]);
           if (identity?.user?.role && !isOwnerEmail) {
             const verifiedRole = String(identity.user.role).toLowerCase();
             // Normalize every server-recognized platform owner role so the
             // post-login route cannot be overridden by a stale browser profile.
             profile.accountType = ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(verifiedRole) ? 'owner' : verifiedRole;
-            userProfiles[email.toLowerCase()] = profile;
-            localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
-            localStorage.setItem('currentUserProfile', JSON.stringify(profile));
-          }
-          // A tenant portal is resolved by its secure invitation record, not by
-          // applicant intake. This also supports an existing Black Phoenix user
-          // who was invited after their account was created.
-          if (tenantPortal?.success && !isOwnerEmail && !claimedOwner) {
-            profile.accountType = 'tenant';
             userProfiles[email.toLowerCase()] = profile;
             localStorage.setItem('userProfiles', JSON.stringify(userProfiles));
             localStorage.setItem('currentUserProfile', JSON.stringify(profile));
@@ -259,7 +241,7 @@ export default function Login({ onNavigate }: LoginProps) {
 
       // Owners do not go through applicant onboarding; they always land in the
       // Command Center where they can manage every portal and workflow.
-      if (requiresOnboarding && !isPlatformOwner && String(profile.accountType || '').toLowerCase() !== 'tenant') {
+      if (requiresOnboarding && !isPlatformOwner) {
         navigateOnce('portal-onboarding');
         setIsLoading(false);
         return;
@@ -281,9 +263,6 @@ export default function Login({ onNavigate }: LoginProps) {
           employee: 'employee-portal',
           service_provider: 'subcontractor-portal',
           property_manager: 'property-manager-portal',
-          condo_manager: 'condo-manager-portal',
-          landlord: 'landlord-portal',
-          tenant: 'tenant-portal',
           territory_owner: 'territory-portal',
           territory: 'territory-portal',
         };

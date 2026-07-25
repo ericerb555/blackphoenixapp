@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
 import {
   X,
   Settings,
@@ -129,48 +127,41 @@ export default function SubscriptionHubSettings({ onClose }: SubscriptionHubSett
   const [activeSection, setActiveSection] = useState<'general' | 'billing' | 'notifications' | 'tax' | 'advanced'>('general');
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
-  const requestSettings = async (path: string, init: RequestInit = {}) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Sign in as an owner or administrator to manage subscription settings.');
-    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78${path}`, {
-      ...init,
-      headers: { Authorization: `Bearer ${session.access_token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.success === false) throw new Error(result.error || 'Subscription settings request failed.');
-    return result;
-  };
-
-  const loadSettings = async () => {
-    setLoading(true);
+  const loadSettings = () => {
     try {
-      const result = await requestSettings('/subscription-hub/settings');
-      if (result.settings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...result.settings, general: { ...DEFAULT_SETTINGS.general, ...(result.settings.general || {}) }, billing: { ...DEFAULT_SETTINGS.billing, ...(result.settings.billing || {}) }, notifications: { ...DEFAULT_SETTINGS.notifications, ...(result.settings.notifications || {}) }, tax: { ...DEFAULT_SETTINGS.tax, ...(result.settings.tax || {}) }, advanced: { ...DEFAULT_SETTINGS.advanced, ...(result.settings.advanced || {}) } });
+      const stored = localStorage.getItem('subscription_hub_settings');
+      if (stored && stored !== 'undefined' && stored !== 'null') {
+        const parsed = JSON.parse(stored);
+        setSettings(parsed);
       }
-    } catch (error: any) {
-      console.error('Error loading subscription settings:', error);
-      alert(error.message || 'Unable to load subscription settings.');
-    } finally { setLoading(false); }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      // Clear corrupted data
+      localStorage.removeItem('subscription_hub_settings');
+      console.log('Cleared corrupted settings data');
+    }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     setSaving(true);
     try {
-      const result = await requestSettings('/subscription-hub/settings', { method: 'PUT', body: JSON.stringify(settings) });
-      if (result.settings) setSettings({ ...settings, ...result.settings });
+      localStorage.setItem('subscription_hub_settings', JSON.stringify(settings));
       setHasChanges(false);
-      alert('Subscription settings saved for every portal.');
-    } catch (error: any) {
+      setTimeout(() => {
+        setSaving(false);
+        // Show success message
+        alert('Settings saved successfully!');
+      }, 500);
+    } catch (error) {
       console.error('Error saving settings:', error);
-      alert(error.message || 'Unable to save subscription settings.');
-    } finally { setSaving(false); }
+      setSaving(false);
+      alert('Error saving settings');
+    }
   };
 
   const handleReset = () => {

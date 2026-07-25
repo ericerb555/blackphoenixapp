@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { Star, ThumbsUp, Check, X, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const STORAGE_KEY = 'bp_store_reviews';
 
 export interface StoreReview {
   id: string;
@@ -18,19 +17,33 @@ export interface StoreReview {
   date: string;
 }
 
-function mapReview(review: any, productId: string): StoreReview {
-  return {
-    id: String(review.id), productId, author: String(review.customerName || 'Customer'),
-    rating: Number(review.rating || 0), title: String(review.reviewTitle || 'Customer review'),
-    body: String(review.reviewText || ''), verified: Boolean(review.verifiedPurchase), helpful: Number(review.helpful || 0),
-    date: review.createdAt ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
-  };
+const SEED_REVIEWS: StoreReview[] = [
+  { id: 's1', productId: 'p1', author: 'Marcus T.', rating: 5, title: "Best headphones I've owned", body: 'Crystal clear sound and the noise cancellation is incredible. Battery lasts way longer than advertised. Fast shipping too!', verified: true, helpful: 34, date: 'Jul 2, 2026' },
+  { id: 's2', productId: 'p1', author: 'Riley H.', rating: 5, title: 'Great value', body: 'Paid way less than similar ones at the mall. Comfortable for 4+ hour sessions. My coworkers keep asking where I got them.', verified: true, helpful: 21, date: 'Jun 28, 2026' },
+  { id: 's3', productId: 'p1', author: 'Devon M.', rating: 4, title: 'Solid pick', body: 'Very happy with these. Minor gripe: the ear cushions could be a touch softer, but honestly minor.', verified: false, helpful: 8, date: 'Jun 15, 2026' },
+  { id: 's4', productId: 'p2', author: 'Sarah K.', rating: 5, title: 'My water bottle is life', body: 'Keeps my coffee hot until 2pm and my water ice cold all day. No leaks whatsoever. Absolutely love it.', verified: true, helpful: 47, date: 'Jul 5, 2026' },
+  { id: 's5', productId: 'p2', author: 'Jordan B.', rating: 5, title: 'Bought 3 for my family', body: 'Such good quality for the price. The lid screws on perfectly. All three still going strong after daily use.', verified: true, helpful: 29, date: 'Jun 30, 2026' },
+  { id: 's6', productId: 'p3', author: 'Priya S.', rating: 5, title: 'Transformed my living room', body: 'The colors are so vivid and the app is super easy. My kids love changing the scenes. Worth every penny.', verified: true, helpful: 18, date: 'Jul 1, 2026' },
+  { id: 's7', productId: 'p4', author: 'Chris L.', rating: 5, title: 'Handles everything I throw at it', body: "Been using this on a kitchen remodel and it hasn't let me down once. Battery life is excellent, drills through anything.", verified: true, helpful: 22, date: 'Jun 20, 2026' },
+  { id: 's8', productId: 'p5', author: 'Taylor N.', rating: 5, title: 'Best mat for my home practice', body: "Non-slip is real — I was sliding off my old mat constantly. This one grips even when I'm sweaty. Love the thickness too.", verified: true, helpful: 15, date: 'Jul 3, 2026' },
+  { id: 's9', productId: 'p6', author: 'Morgan F.', rating: 5, title: 'Changed how I cook', body: 'Use it every single day. Fries come out perfect, and cleanup is so easy. Already recommended to 3 friends who all bought one.', verified: true, helpful: 61, date: 'Jun 25, 2026' },
+  { id: 's10', productId: 'p7', author: 'Blake M.', rating: 4, title: 'Soft and true to size', body: 'Really comfortable hoodie, the material is thick but not heavy. Colors are exactly as shown. My go-to now.', verified: true, helpful: 12, date: 'Jul 6, 2026' },
+  { id: 's11', productId: 'p8', author: 'Jamie R.', rating: 5, title: '360 sound is real', body: 'Took it camping — the audio filled the whole site. Waterproof claim is legit too, had it out in the rain. Impressive battery.', verified: true, helpful: 33, date: 'Jun 22, 2026' },
+  { id: 's12', productId: 'p9', author: 'Avery J.', rating: 5, title: 'Tastes great, feel the difference', body: 'Been taking these every morning for 6 weeks. Noticeably fewer sick days. Great flavor, not chalky at all.', verified: true, helpful: 19, date: 'Jul 4, 2026' },
+  { id: 's13', productId: 'p10', author: 'Parker C.', rating: 5, title: 'Clicky and satisfying', body: 'Typing feels incredible. The RGB is bright without being distracting. Compact layout means more desk space. Huge upgrade.', verified: true, helpful: 25, date: 'Jun 18, 2026' },
+];
+
+export function getStoreReviews(productId: string): StoreReview[] {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  const user: StoreReview[] = stored ? JSON.parse(stored) : [];
+  return [...user.filter(r => r.productId === productId), ...SEED_REVIEWS.filter(r => r.productId === productId)];
 }
 
-// Legacy synchronous exports intentionally return no browser-only data. The
-// interactive component below fetches the canonical moderated review feed.
-export function getStoreReviews(_productId: string): StoreReview[] { return []; }
-export function getStoreRating(_productId: string): { avg: number; count: number } { return { avg: 0, count: 0 }; }
+export function getStoreRating(productId: string): { avg: number; count: number } {
+  const reviews = getStoreReviews(productId);
+  if (!reviews.length) return { avg: 0, count: 0 };
+  return { avg: Math.round(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length * 10) / 10, count: reviews.length };
+}
 
 function StarPicker({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const [hover, setHover] = useState(0);
@@ -56,17 +69,7 @@ export default function StoreReviews({ productId, compact = false }: Props) {
   const [form, setForm] = useState({ rating: 0, title: '', body: '', author: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await fetch(`${SERVER}/reviews?serviceType=${encodeURIComponent(`store:${productId}`)}`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
-        const data = await response.json().catch(() => ({}));
-        if (active && response.ok && data.success) setReviews((data.reviews || []).map((review: any) => mapReview(review, productId)));
-      } catch { if (active) setReviews([]); }
-    })();
-    return () => { active = false; };
-  }, [productId]);
+  useEffect(() => { setReviews(getStoreReviews(productId)); }, [productId]);
 
   const avg = reviews.length ? Math.round(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length * 10) / 10 : 0;
   const dist = [5,4,3,2,1].map(star => reviews.filter(r => r.rating === star).length);
@@ -76,17 +79,23 @@ export default function StoreReviews({ productId, compact = false }: Props) {
     if (!form.rating) { toast.error('Select a star rating'); return; }
     if (!form.body.trim()) { toast.error('Write a review first'); return; }
     setSubmitting(true);
-    try {
-      const response = await fetch(`${SERVER}/reviews`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ customerName: form.author.trim() || 'Anonymous', reviewTitle: form.title.trim() || 'Customer review', reviewText: form.body.trim(), rating: form.rating, serviceType: `store:${productId}` }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Unable to submit review.');
-      setForm({ rating: 0, title: '', body: '', author: '' }); setShowForm(false);
-      toast.success('Review submitted for approval. Thank you!');
-    } catch (error: any) { toast.error(error?.message || 'Unable to submit review.'); }
-    finally { setSubmitting(false); }
+    await new Promise(r => setTimeout(r, 600));
+    const rev: StoreReview = {
+      id: crypto.randomUUID(), productId,
+      author: form.author.trim() || 'Anonymous',
+      rating: form.rating,
+      title: form.title.trim() || ['Great product!','Highly recommend','Love it!','Worth every penny'][Math.floor(Math.random()*4)],
+      body: form.body.trim(), verified: false, helpful: 0,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    };
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const all: StoreReview[] = stored ? JSON.parse(stored) : [];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([rev, ...all]));
+    setReviews(getStoreReviews(productId));
+    setForm({ rating: 0, title: '', body: '', author: '' });
+    setShowForm(false);
+    setSubmitting(false);
+    toast.success('Review posted! Thank you 🙏');
   }
 
   function markHelpful(id: string) {

@@ -40,7 +40,6 @@ import StoreAccessButton from "./components/StoreAccessButton";
 import { ThemeManager, ThemeProvider } from "./components/ThemeManager";
 import { RoleSwitcher } from "./components/RoleSwitcher";
 import DataInitializer from "./components/DataInitializer";
-import MobilePortalShell from "./components/portals/MobilePortalShell";
 
 // Simple loading component
 const LoadingFallback = () => (
@@ -545,8 +544,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'customer-portal',
       'property-manager-portal',
       'condo-manager-portal',
-      'landlord-portal',
-      'tenant-portal'
+      'landlord-portal'
     ];
 
     // Check if user is authenticated
@@ -622,10 +620,9 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'vendor': 'vendor-portal',
       'subcontractor': 'subcontractor-portal',
       'employee': 'employee-portal',
-      'property_manager': 'property-manager-portal',
+      'property_manager': 'property-management-hub',
       'condo_manager': 'condo-manager-portal',
       'landlord': 'landlord-portal',
-      'tenant': 'tenant-portal',
     };
 
     // Admin/Owner routes that should be accessible to elevated users
@@ -693,7 +690,6 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
         'change-order-camera',
       ],
       'property_manager': [
-        'property-manager-portal',
         'property-management-hub',
         'crm',
         'service-scheduling',
@@ -718,13 +714,6 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
         'materials-center',
         'public-store',
         'order-tracking',
-      ],
-      'tenant': [
-        'tenant-portal',
-        'loyalty',
-        'gift-cards',
-        'public-store',
-        'payment-center',
       ],
     };
 
@@ -853,15 +842,9 @@ const APPROVED_PORTAL_ROUTES = new Set([
  * owner/admin access intact. The server is the source of truth; this is only
  * the user-facing gate before portal components load their data. */
 function PortalAccessGuard({ page, children }: { page: string; children: React.ReactNode }) {
-  const { session, isAdmin, isOwner, loading, user } = useAuth();
+  const { session, isAdmin, isOwner, loading } = useAuth();
   const [state, setState] = useState<"checking" | "allowed" | "blocked">("checking");
   const needsGate = APPROVED_PORTAL_ROUTES.has(page);
-  // Auth metadata can arrive a render later than the owner flag. Trust the
-  // owner/admin claims as well, so the owner is never trapped behind an
-  // applicant onboarding check while opening a portal or using RoleSwitcher.
-  const claimedRole = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  const hasOwnerClaim = ['owner', 'platform_owner', 'master_admin', 'business_owner', 'admin'].includes(claimedRole);
-  const hasElevatedPortalAccess = Boolean(isAdmin || isOwner || hasOwnerClaim);
   // RoleSwitcher is restricted to the platform owner. Its preview flag lives
   // only in this browser tab and bypasses *only* this visual onboarding gate;
   // it never provisions an account or changes Supabase authentication.
@@ -869,7 +852,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
 
   useEffect(() => {
     let active = true;
-    if (!needsGate || hasElevatedPortalAccess || isOwnerRolePreview) { setState("allowed"); return; }
+    if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setState("allowed"); return; }
     if (!session?.access_token) { setState("blocked"); return; }
     setState("checking");
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, {
@@ -878,9 +861,9 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
       .then(({ data }) => { if (active) setState(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
       .catch(() => { if (active) setState("blocked"); });
     return () => { active = false; };
-  }, [needsGate, session?.access_token, hasElevatedPortalAccess, isOwnerRolePreview, page]);
+  }, [needsGate, session?.access_token, isAdmin, isOwner, isOwnerRolePreview, page]);
 
-  if (!needsGate || hasElevatedPortalAccess || isOwnerRolePreview) return <>{children}</>;
+  if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) return <>{children}</>;
   if (loading || state === "checking") return <div className="min-h-[60vh] grid place-items-center text-gray-300">Checking portal access…</div>;
   if (state === "blocked") return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-2xl">
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">Portal access pending</p>
@@ -1031,7 +1014,6 @@ export default function App() {
   // root and blanks the page (white screen) instead of showing an error.
   return (
     <ErrorBoundary>
-      {/* MARKER-MAKE-KIT-INVOKED */}
       <AppContent />
     </ErrorBoundary>
   );
@@ -1040,9 +1022,6 @@ export default function App() {
 // Navigation Header Component - Must be inside UserProvider
 function NavigationHeader({ currentPage, navigate }: { currentPage: string; navigate: (page: string) => void }) {
   const { user } = useUser();
-  const { user: authUser, isOwner, isAdmin } = useAuth();
-  const ownerClaim = String(authUser?.app_metadata?.role || authUser?.user_metadata?.role || authUser?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  const hasCommandCenterAccess = Boolean(isOwner || isAdmin || ['owner', 'master_admin', 'platform_owner', 'business_owner'].includes(ownerClaim) || String(authUser?.email || '').trim().toLowerCase() === 'ericerb555@proton.me');
   const [logo, setLogo] = useState<string>(phoenixLogo);
 
   // Load company logo
@@ -1068,28 +1047,21 @@ function NavigationHeader({ currentPage, navigate }: { currentPage: string; navi
           {/* Company Logo/Name */}
           <CompanySelector />
 
-          {/* Authenticated identity, never RoleSwitcher preview state, controls elevated navigation. */}
-          {hasCommandCenterAccess && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigate("unified-dashboard")}
-                aria-label="Open Command Center"
-                className="flex items-center gap-2 rounded-lg border border-orange-500/25 bg-orange-500/10 px-2.5 py-1.5 text-orange-100 transition hover:border-orange-400/50 hover:bg-orange-500/20"
-              >
-                {logo ? <img src={logo} alt="Black Phoenix" className="h-5 w-5 object-contain" /> : <Crown className="h-5 w-5 text-orange-400" />}
-                <span className="hidden text-sm font-semibold lg:inline">Command Center</span>
-              </button>
-              {isOwner && (
-                <button
-                  onClick={() => navigate("owners-dashboard")}
-                  aria-label="Open Owner Dashboard"
-                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-zinc-100 transition hover:border-orange-500/45 hover:bg-zinc-800 sm:text-sm"
-                >
-                  <span className="hidden sm:inline">Owner Dashboard</span>
-                  <Crown className="h-4 w-4 sm:hidden" />
-                </button>
+          {/* Platform Owner Command Center */}
+          {user?.role === UserRole.PLATFORM_OWNER && (
+            <button
+              onClick={() => navigate("unified-dashboard")}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              {logo ? (
+                <img src={logo} alt="Logo" className="w-5 h-5 object-contain" />
+              ) : (
+                <Crown className="w-5 h-5 text-[#ea580c]" />
               )}
-            </div>
+              <span className="text-white font-semibold hidden lg:inline">
+                Command Center
+              </span>
+            </button>
           )}
         </div>
 
@@ -1501,9 +1473,6 @@ function AppContent() {
                           </div>
                         )}
                       </Suspense>
-
-                      {/* Mobile-only portal controls. Desktop portal layouts are deliberately unchanged. */}
-                      <MobilePortalShell page={deferredPage} navigate={navigate} />
 
                       {/* Return to Landing Page Footer */}
                       {currentPage !== "landing" &&

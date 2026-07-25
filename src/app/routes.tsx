@@ -31,7 +31,6 @@ const CustomersNew = lazy(() => import("./pages/CustomersNew"));
 const InvoicesNew = lazy(() => import("./pages/InvoicesNew"));
 const PaymentComplete = lazy(() => import("./pages/PaymentComplete"));
 const ProjectsNew = lazy(() => import("./pages/ProjectsNew"));
-const DesignStudioPro = lazy(() => import("./pages/DesignStudioPro"));
 const StructuralDesign = lazy(() => import("./pages/StructuralDesign"));
 const VendorsAdminHub = lazy(() => import("./pages/VendorsAdminHub"));
 const VendorApplication = lazy(() => import("./pages/VendorApplication"));
@@ -100,7 +99,6 @@ const InvestorPortalView = lazy(() => import("./components/portals/InvestorPorta
 const PropertyManagerPortalView = lazy(() => import("./components/portals/PropertyManagerPortalView"));
 const CondoManagerPortalView = lazy(() => import("./components/portals/CondoManagerPortalView"));
 const LandlordPortalView = lazy(() => import("./components/portals/LandlordPortalView"));
-const TenantPortalView = lazy(() => import("./components/portals/TenantPortalView"));
 const PortalDemoSelector = lazy(() => import("./pages/PortalDemoSelector"));
 const TradesWorkerMarketing = lazy(() => import("./pages/marketing/TradesWorkerMarketing"));
 const VendorMarketing = lazy(() => import("./pages/marketing/VendorMarketing"));
@@ -211,12 +209,10 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Dashboards
   "dashboard":                  UnifiedDashboard,
   "unified-dashboard":          UnifiedDashboard,
-  "command-center":             UnifiedDashboard,
   "master-admin-dashboard":     MasterAdminDashboard,
   "admin-dashboard":            OwnersDashboard,
   "admin-advanced-dashboard":   OwnersDashboard,
   "owners-dashboard":           OwnersDashboard,
-  "owner-dashboard":            OwnersDashboard,
   "company-data-restoration":   CompanyDataRestoration,
   "company-recovery":           CompanyRecovery,
   "company-setup":              CompanySetup,
@@ -241,7 +237,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "materials-estimating-hub":   MaterialsCenter,
   "supplier-management-hub":    SupplierManagementHub,
   "hr-employee-hub":            HREmployeeHub,
-  "design-structural-hub":      DesignStudioPro,
+  "design-structural-hub":      StructuralDesign,
   "customer-quote-approval":    CustomerQuoteApproval,
 
   // Vendors & eCommerce
@@ -490,7 +486,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "building-codes":        PermitAI,
 
   // Design & Content
-  "design-studio-pro":        DesignStudioPro,
+  "design-studio-pro":        StructuralDesign,
   "structural-design":        StructuralDesign,
   "social-media":             SocialMediaManager,
   "social-media-manager":     SocialMediaManager,
@@ -526,7 +522,6 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "property-manager-portal":  PropertyManagerPortalView,
   "condo-manager-portal":     CondoManagerPortalView,
   "landlord-portal":          LandlordPortalView,
-  "tenant-portal":            TenantPortalView,
   "portal-demo-selector":     PortalDemoSelector,
   "marketing-trades-worker":  TradesWorkerMarketing,
   "marketing-vendor":         VendorMarketing,

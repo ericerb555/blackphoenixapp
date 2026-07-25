@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
-import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -62,17 +61,7 @@ const MOCK_ORDERS = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function loadConfig() {
-  try {
-    const config = JSON.parse(localStorage.getItem('bp_zendrop_config') || 'null') || {};
-    // Do not retain supplier credentials in browser storage. A legacy saved key
-    // is removed; future syncs use the server-side ZENDROP_API_KEY secret.
-    if (config.apiKey) {
-      const { apiKey: _removed, ...safeConfig } = config;
-      localStorage.setItem('bp_zendrop_config', JSON.stringify(safeConfig));
-      return safeConfig;
-    }
-    return config;
-  } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem('bp_zendrop_config') || 'null') || {}; } catch { return {}; }
 }
 
 function loadImported(): Set<string> {
@@ -95,7 +84,7 @@ export default function ZendropIntegration() {
   const [apiKey, setApiKey]       = useState(cfg.apiKey || '');
   const [storeId, setStoreId]     = useState(cfg.storeId || '');
   const [showKey, setShowKey]     = useState(false);
-  const [isConnected, setConnected] = useState(false);
+  const [isConnected, setConnected] = useState(!!cfg.apiKey);
   const [isTesting, setTesting]   = useState(false);
   const [isSyncing, setSyncing]   = useState(false);
   const [lastSync, setLastSync]   = useState<string | null>(cfg.lastSync || null);
@@ -116,17 +105,8 @@ export default function ZendropIntegration() {
   const [usWarehouse, setUsWarehouse] = useState<boolean>(cfg.usWarehouse !== false);
 
   function saveConfig(extra: object = {}) {
-    const data = { storeId, markupType, markupValue, autoFulfill, usWarehouse, productCount, lastSync, ...extra };
+    const data = { apiKey, storeId, markupType, markupValue, autoFulfill, usWarehouse, productCount, lastSync, ...extra };
     localStorage.setItem('bp_zendrop_config', JSON.stringify(data));
-  }
-
-  async function adminHeaders(contentType = false): Promise<Record<string, string>> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Sign in as the platform owner or an administrator to manage Zendrop.');
-    return {
-      Authorization: `Bearer ${session.access_token}`,
-      ...(contentType ? { 'Content-Type': 'application/json' } : {}),
-    };
   }
 
   async function testConnection(opts: { silent?: boolean } = {}) {
@@ -141,7 +121,7 @@ export default function ZendropIntegration() {
       // so all Zendrop API calls run on our Supabase Edge Function).
       const res = await fetch(`${SERVER}/zendrop/verify`, {
         method: 'POST',
-        headers: await adminHeaders(true),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
           apiKey: apiKey.trim(),
           storeId: storeId.trim(),
@@ -189,27 +169,25 @@ export default function ZendropIntegration() {
   async function loadLiveProducts() {
     setLoadingLive(true);
     try {
-      // Published products are served from the same canonical catalog used by
-      // the public storefront. Supplier inventory stays admin-only.
-      const res = await fetch(`${SERVER}/products?isActive=true&limit=100`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+      const res = await fetch(`${SERVER}/dropshipper/inventory`, {
+        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
       });
       const data = await res.json().catch(() => ({}));
-      const items = (data.products || []) as any[];
+      const items = (data.inventory || data.products || []) as any[];
       const mapped: ZendropProduct[] = items
-        .filter(p => String(p.providerId || p.source || p._dropshipper?.providerId || '').toLowerCase() === 'zendrop')
+        .filter(p => (p.providerId || '').toLowerCase() === 'zendrop')
         .map(p => ({
-          id: String(p.id || p.providerProductId || p.sku),
+          id: String(p.providerProductId || p.sku),
           name: p.name || 'Untitled Product',
           category: p.category || 'General',
-          cost: Number(p.costPrice ?? p.cost ?? 0),
-          msrp: Number(p.price ?? p.costPrice ?? p.cost ?? 0),
+          cost: Number(p.cost ?? 0),
+          msrp: Number(p.price ?? p.cost ?? 0),
           shipsFrom: 'USA',
           eta: '3–5 days',
           rating: Number(p.rating ?? 0),
           reviews: 0,
-          stock: Number(p.inventoryQuantity ?? p.stock ?? 0),
-          img: p.primaryImage || (p.images && p.images[0]) || '📦',
+          stock: Number(p.stock ?? 0),
+          img: (p.images && p.images[0]) || '📦',
           sku: p.sku || '',
           description: p.description || '',
         }));
@@ -240,7 +218,7 @@ export default function ZendropIntegration() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/zendrop/status`, {
-          headers: await adminHeaders(),
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` },
         });
         const status = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -275,7 +253,7 @@ export default function ZendropIntegration() {
     try {
       const res = await fetch(`${SERVER}/zendrop/sync`, {
         method: 'POST',
-        headers: await adminHeaders(true),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify({ apiKey, limit: 25 }),
       });
       const data = await res.json().catch(() => ({}));
@@ -298,11 +276,29 @@ export default function ZendropIntegration() {
   }
 
   function importProduct(p: ZendropProduct) {
-    // Zendrop sync already publishes every imported item to the canonical store
-    // catalog. This control only records the merchant's acknowledgement in the UI.
-    setImported(previous => new Set(previous).add(p.id));
-    localStorage.setItem('bp_zendrop_imported', JSON.stringify([...new Set([...importedIds, p.id])]));
-    toast.success(`"${p.name}" is already live in your store catalog.`);
+    const next = new Set(importedIds);
+    next.add(p.id);
+    setImported(next);
+    localStorage.setItem('bp_zendrop_imported', JSON.stringify([...next]));
+
+    // Add to store catalog
+    try {
+      const catalog = JSON.parse(localStorage.getItem('store_catalog') || '[]');
+      const existing = catalog.find((c: any) => c.id === `zendrop-${p.id}`);
+      if (!existing) {
+        const yourPrice = computePrice(p.cost);
+        catalog.push({
+          id: `zendrop-${p.id}`, sku: p.sku, name: p.name, category: p.category,
+          cost: p.cost, price: parseFloat(yourPrice), msrp: p.msrp,
+          source: 'zendrop', shipsFrom: p.shipsFrom, eta: p.eta,
+          rating: p.rating, stock: p.stock, description: p.description,
+          importedAt: new Date().toISOString(), autoFulfill,
+        });
+        localStorage.setItem('store_catalog', JSON.stringify(catalog));
+      }
+    } catch {}
+
+    toast.success(`"${p.name}" imported to your store.`);
   }
 
   function computePrice(cost: number): string {

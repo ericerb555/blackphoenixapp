@@ -1,11 +1,10 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
-import TenantPortalManager from './TenantPortalManager';
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, CreditCard, ChevronRight, ArrowUpRight, CheckCircle, Tag, BarChart3, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles, LoaderCircle, Plus, FileText,
+  TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles, LoaderCircle, Plus,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -281,8 +280,6 @@ export default function PropertyManagerPortalView() {
                 );
               })}
             </div>
-
-            <TenantPortalManager parentPortalType="property_manager" />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">

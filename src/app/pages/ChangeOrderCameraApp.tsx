@@ -20,7 +20,6 @@ import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { supabase } from '../lib/supabase';
 
 interface ChangeOrder {
   id: string;
@@ -760,13 +759,11 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
         ]
       };
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Sign in to submit a change order.');
       const response = await fetch(`${API_BASE}/change-orders`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json', apikey: publicAnonKey,
-          'Authorization': `Bearer ${session.access_token}`
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`
         },
         body: JSON.stringify(changeOrder)
       });

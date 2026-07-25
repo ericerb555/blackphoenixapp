@@ -11,12 +11,16 @@ const flashAuthHeaders = { 'Content-Type': 'application/json', Authorization: `B
 async function fetchSalesFromServer(): Promise<FlashSale[] | null> {
   try {
     const res = await fetch(`${SERVER}/flash-sales`, { headers: flashAuthHeaders });
-    const json = await res.json();
-    if (json.success && Array.isArray(json.sales)) return json.sales;
-    console.error('Failed to load flash sales:', json.error);
+    const json = await res.json().catch(() => null);
+    if (json && json.success && Array.isArray(json.sales)) return json.sales;
+    // Flash sales are a public storefront feature. If the endpoint is
+    // unavailable (e.g. an auth guard responding "Sign in required." before the
+    // public route is deployed), fall back to the locally cached list rather
+    // than surfacing an error — the local cache is the graceful degrade path.
+    console.warn('Flash sales unavailable from server, using local cache:', json?.error || res.status);
     return null;
   } catch (err) {
-    console.error('Network error loading flash sales:', err);
+    console.warn('Flash sales network fallback to local cache:', err);
     return null;
   }
 }
@@ -24,10 +28,10 @@ async function fetchSalesFromServer(): Promise<FlashSale[] | null> {
 async function saveSalesToServer(sales: FlashSale[]) {
   try {
     const res = await fetch(`${SERVER}/flash-sales`, { method: 'POST', headers: flashAuthHeaders, body: JSON.stringify({ sales }) });
-    const json = await res.json();
-    if (!json.success) console.error('Failed to save flash sales:', json.error);
+    const json = await res.json().catch(() => null);
+    if (!json || !json.success) console.warn('Flash sales not persisted to server (kept locally):', json?.error || res.status);
   } catch (err) {
-    console.error('Network error saving flash sales:', err);
+    console.warn('Flash sales network error (kept locally):', err);
   }
 }
 

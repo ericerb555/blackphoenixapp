@@ -1,8 +1,8 @@
 /**
  * Zendrop Integration Module
  * Real Zendrop API connection: verify credentials, pull top products, and
- * publish them into the canonical product catalog the public store reads
- * (`product_` KV prefix), while retaining a supplier-inventory mirror.
+ * import them into the SAME inventory the public store reads
+ * (`dropshipper_inventory:` KV prefix, via the dropshipper module).
  *
  * Docs: https://developers.zendrop.com
  *
@@ -207,125 +207,16 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
     .map((r) => normalize(r, markupType, markupValue))
     .filter((p) => p.name && p.cost >= 0);
 
-  // Keep a supplier-inventory mirror for internal dropship operations and
-  // publish the same records to the canonical catalog consumed by /products.
-  // Reusing the SKU makes repeated syncs updates instead of duplicate listings.
-  const writes = normalized.flatMap((p) => {
-    const productKey = `product_${p.sku}`;
-    return [
-      kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)),
-      (async () => {
-        const existing = await kv.get(productKey) as any;
-        await kv.set(productKey, {
-          ...(existing || {}),
-          id: p.sku,
-          vendorId: 'dropshipper_zendrop',
-          vendorName: 'Zendrop',
-          name: p.name,
-          description: p.description,
-          category: p.category || 'General',
-          price: p.price,
-          costPrice: p.cost,
-          inventoryQuantity: p.stock,
-          trackInventory: true,
-          images: p.images,
-          primaryImage: p.images[0] || '',
-          isActive: true,
-          isFeatured: existing?.isFeatured || false,
-          slug: String(p.name || p.sku).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-          sku: p.sku,
-          rating: p.rating,
-          orderCount: Number(existing?.orderCount || 0),
-          viewCount: Number(existing?.viewCount || 0),
-          createdAt: existing?.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          source: PROVIDER_ID,
-          providerId: PROVIDER_ID,
-          providerProductId: p.providerProductId,
-          _dropshipper: {
-            source: PROVIDER_ID,
-            providerId: PROVIDER_ID,
-            providerProductId: p.providerProductId,
-            syncedAt: p.lastSynced,
-          },
-        });
-      })(),
-    ];
-  });
+  // Write each product into the SAME inventory keyspace the store reads.
+  const writes = normalized.map((p) =>
+    kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)),
+  );
   await Promise.all(writes);
 
   await config.updateLastSync();
   await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: extractCount(result.data, normalized.length) });
 
   return { imported: normalized.length, sample: normalized.slice(0, 3), endpoint: result.url };
-}
-
-
-/**
- * Submit a paid, Zendrop-only store order to Zendrop.  This intentionally runs
- * server-side after Stripe confirmation and stores the result with the order.
- * It does not retry ambiguous failures automatically: an uncertain supplier
- * request is held for owner review instead of risking a duplicate shipment.
- */
-export async function forwardZendropOrder(order: any): Promise<any> {
-  const zendropItems = (order?.items || []).filter((item: any) => String(item?.providerId || '').toLowerCase() === PROVIDER_ID);
-  if (!zendropItems.length) return { status: 'not_applicable', attemptedAt: new Date().toISOString() };
-  if (zendropItems.length !== (order?.items || []).length) {
-    return { status: 'manual_review', reason: 'Order contains products from more than one fulfillment source.', attemptedAt: new Date().toISOString() };
-  }
-  const provider = await config.getProvider(PROVIDER_ID) as any;
-  const apiKey = String(provider?.apiKey || Deno.env.get('ZENDROP_API_KEY') || '').trim();
-  if (!provider?.enabled || !provider?.autoForwardOrders || !apiKey) {
-    return { status: 'manual_review', reason: 'Zendrop is not enabled for automatic fulfillment.', attemptedAt: new Date().toISOString() };
-  }
-
-  const addressParts = String(order.shipping_address || '').split(',').map((part) => part.trim()).filter(Boolean);
-  const payload = {
-    external_order_id: order.id,
-    order_reference: order.id,
-    customer: { name: order.customer_name, email: order.customer_email, phone: order.customer_phone || '' },
-    shipping_address: {
-      address1: addressParts[0] || String(order.shipping_address || ''),
-      address2: '', city: addressParts[1] || '', state: addressParts[2] || '', zip: addressParts[3] || '', country: 'US',
-    },
-    line_items: zendropItems.map((item: any) => ({
-      product_id: item.providerProductId,
-      variant_id: item.providerVariantId || undefined,
-      sku: item.sku,
-      quantity: Number(item.qty || 1),
-    })),
-  };
-  const endpoints = [
-    'https://api.zendrop.com/api/v1/orders',
-    'https://api.zendrop.com/v1/orders',
-  ];
-  let last = { status: 0, body: '' };
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'Idempotency-Key': `black-phoenix-${order.id}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      const raw = await response.text();
-      let data: any = {}; try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw }; }
-      if (response.ok) {
-        const providerOrderId = data?.id || data?.order_id || data?.data?.id || data?.data?.order_id || null;
-        return { status: 'submitted', provider: PROVIDER_ID, providerOrderId, submittedAt: new Date().toISOString(), endpoint, response: data };
-      }
-      last = { status: response.status, body: raw.slice(0, 1000) };
-      // A non-404 response means the supplier received this request shape. Do
-      // not try another endpoint and risk a duplicate order.
-      if (response.status !== 404) break;
-    } catch (error) { last = { status: 0, body: String(error) }; }
-  }
-  return { status: 'manual_review', provider: PROVIDER_ID, attemptedAt: new Date().toISOString(), reason: `Zendrop order submission was not accepted (HTTP ${last.status || 'network'}).`, detail: last.body };
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
@@ -423,15 +314,10 @@ zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {
     const provider = await config.getProvider(PROVIDER_ID);
     const cfg = await loadServerConfig();
     const inventory = await kv.getByPrefix(INVENTORY_KEY_PREFIX);
-    const catalog = await kv.getByPrefix('product_');
-    const publishedProducts = catalog.filter((product: any) =>
-      String(product?.providerId || product?.source || product?._dropshipper?.providerId || '').toLowerCase() === PROVIDER_ID,
-    );
     return c.json({
       success: true,
       connected: !!provider?.enabled,
-      productsInStore: publishedProducts.length,
-      supplierInventoryCount: inventory.length,
+      productsInStore: inventory.length,
       lastSync: cfg.lastSync || null,
       productCount: cfg.productCount || 0,
     });
