@@ -154,7 +154,8 @@
   },
   "pnpm": {
     "overrides": {
-      "vite": "6.3.5"
+      "vite": "6.3.5",
+      "rollup": "4.44.2"
     }
   },
   "readme": "ERROR: No README data found!",
