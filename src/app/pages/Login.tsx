@@ -263,6 +263,9 @@ export default function Login({ onNavigate }: LoginProps) {
           employee: 'employee-portal',
           service_provider: 'subcontractor-portal',
           property_manager: 'property-manager-portal',
+          condo_manager: 'condo-manager-portal',
+          landlord: 'landlord-portal',
+          tenant: 'tenant-portal',
           territory_owner: 'territory-portal',
           territory: 'territory-portal',
         };

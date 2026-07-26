@@ -1,6 +1,7 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
+import PortalTrialBanner from './PortalTrialBanner';
 import { useState } from 'react';
 import {
   Package, DollarSign, TrendingUp, ShoppingCart, FileText, Clock,
@@ -189,6 +190,7 @@ export default function VendorPortalView() {
     <LayoutManager pageName="Vendor Portal" enableCustomization={true} showEditButton={true}>
       <div className="w-full min-h-screen bg-[#0A0A0A]">
       <SponsoredMarquee />
+      <PortalTrialBanner />
       <AdvertisingMarquee placement="portal-header" dismissible />
         {/* Header */}
         <div className="bg-[#1A1A1A] border-b border-[#2A2A2A] sticky top-16 z-30">

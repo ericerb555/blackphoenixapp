@@ -623,6 +623,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'property_manager': 'property-management-hub',
       'condo_manager': 'condo-manager-portal',
       'landlord': 'landlord-portal',
+      'tenant': 'tenant-portal',
     };
 
     // Admin/Owner routes that should be accessible to elevated users
@@ -712,6 +713,12 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
         'crm',
         'service-scheduling',
         'materials-center',
+        'public-store',
+        'order-tracking',
+      ],
+      'tenant': [
+        'tenant-portal',
+        'sub-tenant-portal',
         'public-store',
         'order-tracking',
       ],

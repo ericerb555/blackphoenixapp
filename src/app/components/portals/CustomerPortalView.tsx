@@ -1,5 +1,6 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import SponsoredMarquee from '../SponsoredMarquee';
+import PortalTrialBanner from './PortalTrialBanner';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
@@ -710,6 +711,7 @@ export default function CustomerPortalView() {
     <div className="w-full min-h-screen bg-[#0A0A0A] text-white pb-12">
       {/* Sponsored Marquee at very top */}
       <Safe><SponsoredMarquee /></Safe>
+      <Safe><PortalTrialBanner /></Safe>
       <AdvertisingMarquee placement="customer-portal" dismissible />
 
       {/* Header */}

@@ -5,8 +5,12 @@ import {
   Home, DollarSign, Users, Wrench, Settings, Bell,
   Building2, BarChart3, ChevronRight, ArrowUpRight, Tag, MessageSquare,
   TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
+  FileText, FileSignature, Send, CreditCard, CheckCircle, ExternalLink,
 } from 'lucide-react';
+import LandlordLeaseManager from './LandlordLeaseManager';
+import MarketRentWidget from './MarketRentWidget';
 import SponsoredMarquee from '../SponsoredMarquee';
+import PortalTrialBanner, { FeatureGate } from './PortalTrialBanner';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
@@ -62,12 +66,13 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'tenants' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'tenants' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'properties', label: 'Properties', icon: Building2 },
   { id: 'tenants', label: 'Tenants', icon: Users },
+  { id: 'leases', label: 'Leases', icon: FileSignature },
   { id: 'maintenance', label: 'Maintenance', icon: Wrench },
   { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
   { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
@@ -114,7 +119,11 @@ export default function LandlordPortalView() {
   const [tenantsLoading, setTenantsLoading] = useState(true);
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [savingTenant, setSavingTenant] = useState(false);
-  const [tenantDraft, setTenantDraft] = useState({ name: '', unit: '', rent: '', status: 'current' });
+  const [tenantDraft, setTenantDraft] = useState({ name: '', email: '', unit: '', rent: '', status: 'current' });
+  const [tenantQuota, setTenantQuota] = useState<{ planId: string; limit: number; used: number; remaining: number } | null>(null);
+  const [stripeStatus, setStripeStatus] = useState<{ connected: boolean; chargesEnabled: boolean; payoutsEnabled: boolean; detailsSubmitted: boolean } | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(true);
+  const [stripeConnecting, setStripeConnecting] = useState(false);
   const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Landlord');
   const email = accountEmail || demoProfile?.email || '';
 
@@ -153,18 +162,76 @@ export default function LandlordPortalView() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load tenants.');
       setTenants(Array.isArray(payload.tenants) ? payload.tenants : []);
+      if (payload.quota) setTenantQuota(payload.quota);
     } catch (error: any) { setTenants([]); toast.error(error?.message || 'Unable to load tenants.'); }
     finally { setTenantsLoading(false); }
   };
   useEffect(() => { void loadTenants(); }, [session?.access_token]);
 
+  const loadStripeStatus = async () => {
+    if (!session?.access_token) { setStripeStatus(null); setStripeLoading(false); return; }
+    setStripeLoading(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/stripe/status`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load payout status.');
+      setStripeStatus({ connected: !!payload.connected, chargesEnabled: !!payload.chargesEnabled, payoutsEnabled: !!payload.payoutsEnabled, detailsSubmitted: !!payload.detailsSubmitted });
+    } catch { setStripeStatus({ connected: false, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false }); }
+    finally { setStripeLoading(false); }
+  };
+  useEffect(() => { void loadStripeStatus(); }, [session?.access_token]);
+
+  // Return from Stripe onboarding → refresh status and clean URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('stripe') === 'connected') {
+      toast.success('Stripe account connected. Verifying payout status…');
+      void loadStripeStatus();
+      params.delete('stripe');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
+
+  const connectStripe = async () => {
+    if (!session?.access_token || stripeConnecting) return;
+    setStripeConnecting(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/stripe/connect`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success || !payload.url) throw new Error(payload?.error || 'Unable to start Stripe onboarding.');
+      window.location.href = payload.url;
+    } catch (error: any) { toast.error(error?.message || 'Unable to start Stripe onboarding.'); setStripeConnecting(false); }
+  };
+
   async function addTenant(event: React.FormEvent) {
     event.preventDefault(); if (!session?.access_token || savingTenant) return; setSavingTenant(true);
     try {
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...tenantDraft, rent: Number(tenantDraft.rent) }) });
-      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add tenant.');
-      setTenants(current => [payload.tenant, ...current]); setTenantDraft({ name: '', unit: '', rent: '', status: 'current' }); setShowTenantForm(false); toast.success('Tenant saved to your roster.');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) { if (payload?.quota) setTenantQuota(payload.quota); throw new Error(payload?.error || 'Unable to add tenant.'); }
+      setTenants(current => [payload.tenant, ...current]); if (payload.quota) setTenantQuota(payload.quota); setTenantDraft({ name: '', email: '', unit: '', rent: '', status: 'current' }); setShowTenantForm(false); toast.success('Tenant sub-portal created.');
     } catch (error: any) { toast.error(error?.message || 'Unable to add tenant.'); } finally { setSavingTenant(false); }
+  }
+
+  const [invitingId, setInvitingId] = useState<string | null>(null);
+  async function inviteTenant(tenant: any) {
+    if (!session?.access_token || invitingId) return;
+    if (!tenant.email) { toast.error('Add an email to this tenant first, then invite them.'); return; }
+    setInvitingId(tenant.id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants/${tenant.id}/invite`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to invite tenant.');
+      setTenants(current => current.map(t => t.id === tenant.id ? payload.tenant : t));
+      if (payload.created && payload.tempPassword) {
+        toast.success(`Portal created for ${tenant.email}. Temp password: ${payload.tempPassword}`, { duration: 12000 });
+      } else if (payload.alreadyHadAccount) {
+        toast.success(`${tenant.email} already has an account — their portal is linked to you.`);
+      } else {
+        toast.success('Tenant invited to their portal.');
+      }
+    } catch (error: any) { toast.error(error?.message || 'Unable to invite tenant.'); } finally { setInvitingId(null); }
   }
 
   async function addProperty(event: React.FormEvent) {
@@ -209,6 +276,7 @@ export default function LandlordPortalView() {
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0A0A0A', color: '#fff' }}>
       <Safe><SponsoredMarquee /></Safe>
+      <Safe><PortalTrialBanner /></Safe>
 
       <div style={{ background: '#1A1A1A', borderBottom: '1px solid #2A2A2A', position: 'sticky', top: 64, zIndex: 30 }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
@@ -324,18 +392,37 @@ export default function LandlordPortalView() {
         {tab === 'properties' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Properties</h2><p className="mt-1 text-sm text-gray-400">Your saved landlord portfolio.</p></div><button type="button" onClick={() => setShowPropertyForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add property</button></div>
+            <FeatureGate feature="Market Rent Finder"><MarketRentWidget session={session} initialAddress={properties[0]?.address || ''} /></FeatureGate>
             {showPropertyForm && <form onSubmit={addProperty} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={propertyDraft.name} onChange={event => setPropertyDraft(value => ({ ...value, name: event.target.value }))} placeholder="Property name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required value={propertyDraft.address} onChange={event => setPropertyDraft(value => ({ ...value, address: event.target.value }))} placeholder="Street address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required min="1" type="number" value={propertyDraft.units} onChange={event => setPropertyDraft(value => ({ ...value, units: event.target.value }))} placeholder="Total units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" type="number" value={propertyDraft.vacancies} onChange={event => setPropertyDraft(value => ({ ...value, vacancies: event.target.value }))} placeholder="Vacant units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><div className="flex gap-2 sm:col-span-2"><button disabled={savingProperty} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingProperty ? 'Saving…' : 'Save property'}</button><button type="button" onClick={() => setShowPropertyForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
             {propertiesLoading ? <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">Loading property portfolio…</div> : properties.length === 0 ? <div className="rounded-xl border border-dashed border-[#3a3a3a] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">No properties have been added to this account yet.</div> : properties.map(p => <div key={p.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-teal-500/30 transition"><div className="flex items-start justify-between"><div><p className="font-bold text-lg">{p.name}</p><p className="text-gray-400 text-sm">{p.address}</p></div><div className="text-right"><p className="text-2xl font-bold">{p.units}</p><p className="text-gray-500 text-xs">Total Units</p></div></div><div className="mt-3 flex gap-4 text-sm"><span className="text-green-400 font-semibold">{Math.max(0, Number(p.units || 0) - Number(p.vacancies || 0))} Occupied</span>{Number(p.vacancies || 0) > 0 ? <span className="text-red-400 font-semibold">{p.vacancies} Vacant</span> : <span className="text-gray-500">Fully Occupied</span>}</div></div>)}
           </div>
         )}
 
         {tab === 'tenants' && (
+          <FeatureGate feature="Tenant Sub-Portals">
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Tenants</h2><p className="mt-1 text-sm text-gray-400">Your saved tenant roster and monthly rent status.</p></div><button type="button" onClick={() => setShowTenantForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add tenant</button></div>
-            {showTenantForm && <form onSubmit={addTenant} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={tenantDraft.name} onChange={event => setTenantDraft(value => ({ ...value, name: event.target.value }))} placeholder="Tenant full name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required value={tenantDraft.unit} onChange={event => setTenantDraft(value => ({ ...value, unit: event.target.value }))} placeholder="Unit / address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" step="0.01" type="number" value={tenantDraft.rent} onChange={event => setTenantDraft(value => ({ ...value, rent: event.target.value }))} placeholder="Monthly rent" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><select value={tenantDraft.status} onChange={event => setTenantDraft(value => ({ ...value, status: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"><option value="current">Current</option><option value="late">Late</option><option value="pending">Pending</option></select><div className="flex gap-2 sm:col-span-2"><button disabled={savingTenant} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingTenant ? 'Saving…' : 'Save tenant'}</button><button type="button" onClick={() => setShowTenantForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{tenantsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading tenants…</div> : tenants.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No tenants have been added to this account yet.</div> : tenants.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-bold">{t.name}</p><p className="text-gray-500 text-sm">{t.unit}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(t.rent || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span></div></div>)}</div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Tenant Sub-Portals</h2><p className="mt-1 text-sm text-gray-400">Each tenant you add gets their own maintenance & rent sub-portal.</p></div><button type="button" disabled={!!tenantQuota && Number.isFinite(tenantQuota.limit) && tenantQuota.used >= tenantQuota.limit} onClick={() => setShowTenantForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> Add tenant</button></div>
+            {tenantQuota && Number.isFinite(tenantQuota.limit) && (
+              <div className="rounded-xl border border-teal-500/25 bg-[#151515] p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-white">{tenantQuota.used} of {tenantQuota.limit} tenant sub-portals used</p>
+                  <span className="rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-0.5 text-xs font-bold uppercase tracking-wide text-teal-300">{tenantQuota.planId?.replace(/-/g, ' ')} plan</span>
+                </div>
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#0A0A0A]">
+                  <div className={`h-full rounded-full transition-all ${tenantQuota.used >= tenantQuota.limit ? 'bg-red-500' : tenantQuota.used / tenantQuota.limit >= 0.8 ? 'bg-amber-500' : 'bg-teal-500'}`} style={{ width: `${Math.min(100, (tenantQuota.used / tenantQuota.limit) * 100)}%` }} />
+                </div>
+                {tenantQuota.used >= tenantQuota.limit
+                  ? <p className="mt-2 text-xs text-red-400">You've reached your plan limit. Upgrade your plan to add more tenant sub-portals.</p>
+                  : <p className="mt-2 text-xs text-gray-400">{tenantQuota.remaining} sub-portal{tenantQuota.remaining === 1 ? '' : 's'} remaining on your plan.</p>}
+              </div>
+            )}
+            {showTenantForm && <form onSubmit={addTenant} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={tenantDraft.name} onChange={event => setTenantDraft(value => ({ ...value, name: event.target.value }))} placeholder="Tenant full name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input type="email" value={tenantDraft.email} onChange={event => setTenantDraft(value => ({ ...value, email: event.target.value }))} placeholder="Tenant email (for portal login)" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required value={tenantDraft.unit} onChange={event => setTenantDraft(value => ({ ...value, unit: event.target.value }))} placeholder="Unit / address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" step="0.01" type="number" value={tenantDraft.rent} onChange={event => setTenantDraft(value => ({ ...value, rent: event.target.value }))} placeholder="Monthly rent" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><select value={tenantDraft.status} onChange={event => setTenantDraft(value => ({ ...value, status: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"><option value="current">Current</option><option value="late">Late</option><option value="pending">Pending</option></select><div className="flex gap-2 sm:col-span-2"><button disabled={savingTenant} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingTenant ? 'Saving…' : 'Save tenant'}</button><button type="button" onClick={() => setShowTenantForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{tenantsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading tenants…</div> : tenants.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No tenants have been added to this account yet.</div> : tenants.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div className="min-w-0"><p className="font-bold">{t.name}{t.invited && <span className="ml-2 inline-flex items-center rounded border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-300">Portal active</span>}</p><p className="text-gray-500 text-sm">{t.unit}{t.email ? ` · ${t.email}` : ''}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(t.rent || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span><button type="button" onClick={() => inviteTenant(t)} disabled={invitingId === t.id || !t.email} title={t.email ? '' : 'Add an email to invite this tenant'} className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/40 px-3 py-1.5 text-xs font-bold text-teal-300 transition hover:bg-teal-500/10 disabled:cursor-not-allowed disabled:opacity-40">{invitingId === t.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{t.invited ? 'Resend' : 'Invite'}</button></div></div>)}</div>
           </div>
+          </FeatureGate>
         )}
+
+        {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><LandlordLeaseManager session={session} tenants={tenants} /></FeatureGate>}
 
         {tab === 'maintenance' && (
           <div className="space-y-4">
@@ -388,6 +475,7 @@ export default function LandlordPortalView() {
         )}
 
         {tab === 'revenue-ai' && (
+          <FeatureGate feature="Revenue AI">
           <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between flex-wrap gap-3">
@@ -476,6 +564,7 @@ export default function LandlordPortalView() {
               <TrendingUp className="w-4 h-4" /> Open Full AI Revenue Analysis →
             </button>
           </div>
+          </FeatureGate>
         )}
 
         {tab === 'messages' && (
@@ -501,6 +590,47 @@ export default function LandlordPortalView() {
                 className="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold transition">
                 Save Changes
               </button>
+            </div>
+
+            {/* Stripe Connect — collect rent directly to the landlord's own account */}
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+                  <CreditCard className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div>
+                  <p className="font-bold">Online Rent Collection</p>
+                  <p className="text-xs text-gray-400">Powered by Stripe — funds go straight to your bank.</p>
+                </div>
+              </div>
+
+              {stripeLoading ? (
+                <div className="flex items-center gap-2 py-2 text-sm text-gray-400"><LoaderCircle className="w-4 h-4 animate-spin" /> Checking payout status…</div>
+              ) : stripeStatus?.chargesEnabled ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2.5 text-sm text-green-300">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" /> Connected — you're ready to accept rent payments online.
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className={`px-2 py-0.5 rounded border ${stripeStatus.payoutsEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>Payouts {stripeStatus.payoutsEnabled ? 'enabled' : 'pending'}</span>
+                    <span className={`px-2 py-0.5 rounded border ${stripeStatus.detailsSubmitted ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>Details {stripeStatus.detailsSubmitted ? 'submitted' : 'incomplete'}</span>
+                  </div>
+                  <button onClick={connectStripe} disabled={stripeConnecting} className="inline-flex items-center gap-2 rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300 transition hover:text-white disabled:opacity-60">
+                    {stripeConnecting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />} Manage Stripe account
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-300 leading-relaxed">
+                    {stripeStatus?.connected
+                      ? 'Your Stripe account needs a few more details before you can accept payments. Finish onboarding to go live.'
+                      : 'Connect a Stripe account to let your tenants pay rent by card. You keep 100% of the rent — payouts land directly in your bank account.'}
+                  </p>
+                  <button onClick={connectStripe} disabled={stripeConnecting} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:opacity-60">
+                    {stripeConnecting ? <><LoaderCircle className="w-4 h-4 animate-spin" /> Opening Stripe…</> : <><CreditCard className="w-4 h-4" /> {stripeStatus?.connected ? 'Finish Stripe setup' : 'Connect Stripe'}</>}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

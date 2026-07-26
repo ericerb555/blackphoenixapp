@@ -47,6 +47,7 @@ export function RoleSwitcher() {
     [UserRole.PROPERTY_MANAGER]: 'property-manager-portal',
     [UserRole.CONDO_MANAGER]: 'condo-manager-portal',
     [UserRole.LANDLORD]: 'landlord-portal',
+    [UserRole.TENANT]: 'tenant-portal',
   };
 
   // Mock company profiles per role — lets you test each portal as a different business
@@ -117,6 +118,12 @@ export function RoleSwitcher() {
       company: 'Nguyen Rental Properties',
       email: 'patricia@nguyenrentals.com',
       phone: '(214) 555-0712',
+    },
+    [UserRole.TENANT]: {
+      name: 'Marcus Bell',
+      company: 'Tenant — Unit 4B',
+      email: 'marcus.bell@gmail.com',
+      phone: '(469) 555-0824',
     },
   };
 
@@ -228,6 +235,13 @@ export function RoleSwitcher() {
       description: 'Rental portfolio — tenants, leases & maintenance',
       color: 'teal'
     },
+    {
+      role: UserRole.TENANT,
+      icon: User,
+      label: 'Tenant (Sub-Portal)',
+      description: 'Renter — work requests, lease & rent payments',
+      color: 'sky'
+    },
   ];
 
   const currentRoleData = roles.find(r => r.role === user.role);
@@ -245,6 +259,7 @@ export function RoleSwitcher() {
       emerald: { bg: 'bg-emerald-600/20', border: 'border-emerald-500/30', text: 'text-emerald-400', hover: 'hover:bg-emerald-600/30' },
       cyan: { bg: 'bg-cyan-600/20', border: 'border-cyan-500/30', text: 'text-cyan-400', hover: 'hover:bg-cyan-600/30' },
       teal: { bg: 'bg-teal-600/20', border: 'border-teal-500/30', text: 'text-teal-400', hover: 'hover:bg-teal-600/30' },
+      sky:  { bg: 'bg-sky-600/20',  border: 'border-sky-500/30',  text: 'text-sky-400',  hover: 'hover:bg-sky-600/30' },
       amber: { bg: 'bg-amber-600/20', border: 'border-amber-500/30', text: 'text-amber-400', hover: 'hover:bg-amber-600/30' },
       rose:  { bg: 'bg-rose-600/20',  border: 'border-rose-500/30',  text: 'text-rose-400',  hover: 'hover:bg-rose-600/30' },
     };

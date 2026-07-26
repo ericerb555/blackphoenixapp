@@ -41,6 +41,12 @@ export interface SubscriptionPlan {
     campaigns?: number;
     monthlyHours?: number;
     monthlyTrips?: number;
+    /**
+     * Maximum number of tenant sub-portals a landlord/property-management plan
+     * may provision. Tier 1 (Landlord) = 25, Tier 2 (Condo Manager) = 50,
+     * Tier 3 (Property Manager) = 100.
+     */
+    tenantSubPortals?: number;
   };
   highlighted?: boolean;
   popular?: boolean;
@@ -361,6 +367,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       'Vendor coordination',
       'Seasonal maintenance programs',
       'Board meeting reports',
+      'Up to 50 tenant sub-portals',
       'Resident portal access',
       'Budget tracking & reporting',
       'Priority scheduling',
@@ -375,6 +382,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       storage: '25 GB',
       support: 'Email & Phone (24hr response)',
       teamMembers: 3,
+      tenantSubPortals: 50,
     },
   },
   {
@@ -388,6 +396,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
     popular: true,
     features: [
       'Up to 5 rental properties',
+      'Up to 25 tenant sub-portals',
       'Tenant maintenance requests',
       'Emergency repair coordination',
       'Property inspection services',
@@ -405,6 +414,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       storage: '10 GB',
       support: 'Email & Phone (48hr response)',
       teamMembers: 2,
+      tenantSubPortals: 25,
     },
   },
   {
@@ -425,6 +435,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       'Dedicated account manager',
       'Custom service agreements',
       'Preventive maintenance scheduling',
+      'Up to 100 tenant sub-portals',
       'White-label tenant portal',
       '🤖 PropertyAI Enterprise: Full suite (all 5 phases)',
       '📚 Knowledge Center: Complete NH property law + Eversource rebate guides',
@@ -439,6 +450,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       storage: 'Unlimited',
       support: '24/7 Phone & Priority',
       teamMembers: 999999,
+      tenantSubPortals: 100,
     },
   },
 ];

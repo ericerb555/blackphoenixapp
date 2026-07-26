@@ -2,6 +2,7 @@ import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode } from 'react';
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
+import PortalTrialBanner from './PortalTrialBanner';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
@@ -211,6 +212,8 @@ export default function SubcontractorPortal() {
 
   return (
     <div className="w-full min-h-screen bg-[#0A0A0A] text-white">
+
+      <PortalTrialBanner />
 
       {/* Rolling Sponsored Marquee */}
       <MarqueeSafe>

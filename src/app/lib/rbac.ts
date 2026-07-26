@@ -23,6 +23,7 @@ export enum UserRole {
   PROPERTY_MANAGER = 'property_manager',
   CONDO_MANAGER = 'condo_manager',
   LANDLORD = 'landlord',
+  TENANT = 'tenant',
 }
 
 export interface User {
@@ -186,6 +187,11 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'customer.submit_requests',
     'customer.view_own_projects',
   ],
+
+  [UserRole.TENANT]: [
+    'customer.submit_requests',
+    'customer.view_own_projects',
+  ],
 };
 
 // Check if user has permission
@@ -239,6 +245,7 @@ export function getRoleDisplayName(role: UserRole): string {
     [UserRole.PROPERTY_MANAGER]: 'Property Manager',
     [UserRole.CONDO_MANAGER]: 'Condo Manager',
     [UserRole.LANDLORD]: 'Landlord',
+    [UserRole.TENANT]: 'Tenant',
   };
   return names[role];
 }
@@ -258,6 +265,7 @@ export function getRoleColor(role: UserRole): string {
     [UserRole.PROPERTY_MANAGER]: 'amber',
     [UserRole.CONDO_MANAGER]: 'cyan',
     [UserRole.LANDLORD]: 'teal',
+    [UserRole.TENANT]: 'sky',
   };
   return colors[role];
 }

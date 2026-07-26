@@ -2735,6 +2735,38 @@ async function landlordActor(c: any) {
   return { user, admin: false, landlord: metadataRole === 'landlord' || access?.status === 'active' };
 }
 
+// Tenant sub-portal quota by property-management plan tier.
+// Tier 1 Landlord = 25, Tier 2 Condo Manager = 50, Tier 3 Property Manager = 100.
+const TENANT_SUBPORTAL_QUOTA: Record<string, number> = {
+  'landlord': 25,
+  'condo-manager': 50,
+  'property-manager': 100,
+};
+
+// Resolves a landlord's active plan tier and the tenant sub-portal quota it grants.
+// An active subscription's planId is the most reliable signal; when absent we fall
+// back to the Landlord tier (safe minimum). Admins are unlimited. An admin may set
+// an explicit override via `landlord_subportal_quota:${email}`.
+async function landlordSubPortalPlan(actor: any): Promise<{ planId: string; quota: number }> {
+  if (actor?.admin) return { planId: 'property-manager', quota: Number.POSITIVE_INFINITY };
+  const email = String(actor?.user?.email || '').toLowerCase();
+  if (!email) return { planId: 'landlord', quota: TENANT_SUBPORTAL_QUOTA['landlord'] };
+  const override = await kv.get(`landlord_subportal_quota:${email}`) as any;
+  if (override && Number.isFinite(Number(override.quota))) {
+    return { planId: String(override.planId || 'custom'), quota: Number(override.quota) };
+  }
+  try {
+    const subs = (await kv.getByPrefix('subscription:')) as any[] || [];
+    const mine = subs.filter((s: any) => String(s?.ownerEmail || s?.email || '').toLowerCase() === email && String(s?.status || '').toLowerCase() === 'active');
+    for (const planId of ['property-manager', 'condo-manager', 'landlord']) {
+      if (mine.some((s: any) => String(s?.planId || s?.plan || '').toLowerCase().includes(planId))) {
+        return { planId, quota: TENANT_SUBPORTAL_QUOTA[planId] };
+      }
+    }
+  } catch (_error) { /* fall through to default tier */ }
+  return { planId: 'landlord', quota: TENANT_SUBPORTAL_QUOTA['landlord'] };
+}
+
 app.get('/make-server-57095a78/landlord/work-requests', async (c) => {
   try {
     const actor = await landlordActor(c);
@@ -2771,7 +2803,13 @@ app.get('/make-server-57095a78/landlord/tenants', async (c) => {
     const actor = await landlordActor(c);
     if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view tenants.' }, 401);
     if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
-    return c.json({ success: true, tenants: ((await kv.get(landlordTenantsKey(actor.user.email))) as any[] || []).map(stripBase64) });
+    const tenants = ((await kv.get(landlordTenantsKey(actor.user.email))) as any[] || []).map(stripBase64);
+    const plan = await landlordSubPortalPlan(actor);
+    return c.json({
+      success: true,
+      tenants,
+      quota: { planId: plan.planId, limit: plan.quota, used: tenants.length, remaining: Math.max(0, plan.quota - tenants.length) },
+    });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load tenants.' }, 500); }
 });
 
@@ -2781,14 +2819,69 @@ app.post('/make-server-57095a78/landlord/tenants', async (c) => {
     if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a tenant.' }, 401);
     if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
     const body = stripBase64(await c.req.json()); const name = String(body.name || '').trim(); const unit = String(body.unit || '').trim(); const rent = Number(body.rent);
+    const tenantEmail = String(body.email || '').trim().toLowerCase();
     const status = ['current', 'late', 'pending'].includes(String(body.status || 'current')) ? String(body.status) : 'current';
     if (!name) return c.json({ success: false, error: 'Tenant name is required.' }, 400);
+    if (tenantEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenantEmail)) return c.json({ success: false, error: 'Enter a valid tenant email.' }, 400);
     if (!unit) return c.json({ success: false, error: 'Unit is required.' }, 400);
     if (!Number.isFinite(rent) || rent < 0) return c.json({ success: false, error: 'Monthly rent must be zero or greater.' }, 400);
-    const now = new Date().toISOString(); const tenant = { id: `tenant_${crypto.randomUUID()}`, name, unit, rent: Math.round(rent * 100) / 100, status, landlordEmail: actor.user.email, landlordUserId: actor.user.id, createdAt: now, updatedAt: now };
-    const key = landlordTenantsKey(actor.user.email); const existing = (await kv.get(key) as any[]) || []; await kv.set(key, [tenant, ...existing]);
-    return c.json({ success: true, tenant }, 201);
+    const key = landlordTenantsKey(actor.user.email); const existing = (await kv.get(key) as any[]) || [];
+    const plan = await landlordSubPortalPlan(actor);
+    if (existing.length >= plan.quota) {
+      return c.json({
+        success: false,
+        error: `Your ${plan.planId} plan includes ${plan.quota} tenant sub-portals and all are in use. Upgrade your plan to add more tenants.`,
+        quota: { planId: plan.planId, limit: plan.quota, used: existing.length, remaining: 0 },
+      }, 403);
+    }
+    const now = new Date().toISOString(); const tenant = { id: `tenant_${crypto.randomUUID()}`, name, email: tenantEmail, unit, rent: Math.round(rent * 100) / 100, status, landlordEmail: actor.user.email, landlordUserId: actor.user.id, createdAt: now, updatedAt: now };
+    await kv.set(key, [tenant, ...existing]);
+    // Map the tenant's email to their landlord so work requests submitted from the
+    // tenant portal route back to this landlord's Maintenance tab.
+    if (tenantEmail) await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: String(actor.user.email).toLowerCase(), landlordUserId: actor.user.id, tenantName: name, unit, updatedAt: now });
+    return c.json({ success: true, tenant, quota: { planId: plan.planId, limit: plan.quota, used: existing.length + 1, remaining: Math.max(0, plan.quota - existing.length - 1) } }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add tenant.' }, 500); }
+});
+
+// Provision (or refresh) a tenant's login so they can reach their sub-portal.
+// Creates a Supabase auth user with the tenant role, confirms the email (no mail
+// server configured), and returns a temporary password for the landlord to share.
+app.post('/make-server-57095a78/landlord/tenants/:id/invite', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before inviting a tenant.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const key = landlordTenantsKey(actor.user.email);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found on your roster.' }, 404);
+    const tenant = roster[idx];
+    const tenantEmail = String(tenant.email || '').trim().toLowerCase();
+    if (!tenantEmail) return c.json({ success: false, error: 'Add an email to this tenant before inviting them.' }, 400);
+
+    // Reuse an existing account when the tenant already signed up.
+    const { data: existingList } = await supabase.auth.admin.listUsers();
+    const already = (existingList?.users || []).find((u: any) => String(u.email || '').toLowerCase() === tenantEmail);
+    const tempPassword = `Tenant-${crypto.randomUUID().slice(0, 8)}`;
+    let created = false;
+    if (!already) {
+      const { error } = await supabase.auth.admin.createUser({
+        email: tenantEmail,
+        password: tempPassword,
+        user_metadata: { name: tenant.name, full_name: tenant.name, role: 'tenant', accountType: 'tenant', unit: tenant.unit, landlordEmail: String(actor.user.email).toLowerCase() },
+        // Confirm immediately since no email server is configured for this project.
+        email_confirm: true,
+      });
+      if (error) return c.json({ success: false, error: `Unable to create the tenant login: ${error.message}` }, 502);
+      created = true;
+    }
+    const now = new Date().toISOString();
+    // Keep the tenant→landlord mapping current for work-request routing.
+    await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: String(actor.user.email).toLowerCase(), landlordUserId: actor.user.id, tenantName: tenant.name, unit: tenant.unit, updatedAt: now });
+    roster[idx] = { ...tenant, invited: true, invitedAt: now, hasAccount: true, updatedAt: now };
+    await kv.set(key, roster);
+    return c.json({ success: true, tenant: roster[idx], created, tempPassword: created ? tempPassword : null, alreadyHadAccount: !created });
+  } catch (error: any) { console.log('Tenant invite error:', error); return c.json({ success: false, error: error.message || 'Unable to invite the tenant.' }, 500); }
 });
 
 function landlordPortfolioKey(email: string) { return `landlord_portfolio:${String(email).toLowerCase()}`; }
@@ -2822,6 +2915,529 @@ app.post('/make-server-57095a78/landlord/properties', async (c) => {
     const key = landlordPortfolioKey(actor.user.email); const existing = (await kv.get(key) as any[]) || []; await kv.set(key, [property, ...existing]);
     return c.json({ success: true, property }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add property.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TENANT WORK REQUESTS — the tenant sub-portal submits maintenance requests here.
+// Each request is stamped with the tenant's landlord (resolved from the
+// `tenant_landlord:${email}` mapping the landlord created) so it appears in the
+// landlord's existing Maintenance tab via `/landlord/work-requests`.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/tenant/work-requests', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view your work requests.' }, 401);
+    const all = await readWorkRequests();
+    const scoped = all.filter((record: any) => ownsWorkRequest(record, user));
+    return c.json({ success: true, workRequests: scoped.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load your work requests.' }, 500); }
+});
+
+app.post('/make-server-57095a78/tenant/work-requests', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in before submitting a request.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const body = await c.req.parseBody();
+    const title = String(body.title || '').trim().slice(0, 200);
+    if (!title) return c.json({ success: false, error: 'A request title is required.' }, 400);
+    const description = String(body.description || '').trim().slice(0, 4000);
+    const priority = ['low', 'medium', 'high', 'urgent'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+    const category = String(body.category || 'general').trim().slice(0, 80);
+    const unit = String(body.unit || '').trim().slice(0, 160);
+    const address = String(body.address || '').trim().slice(0, 300);
+
+    // Resolve the tenant's landlord so the request lands in their Maintenance tab.
+    const mapping = await kv.get(`tenant_landlord:${email}`) as any;
+    const landlordEmail = mapping?.landlordEmail ? String(mapping.landlordEmail).toLowerCase() : '';
+
+    // Preserve any attached photos/videos in a private bucket (best-effort).
+    const attachments: any[] = [];
+    try {
+      const files = Object.keys(body).filter(k => k.startsWith('attachment_')).map(k => body[k]).filter((f): f is File => f instanceof File);
+      if (files.length) {
+        const bucket = 'make-57095a78-tenant-media';
+        const { data: buckets } = await supabase.storage.listBuckets();
+        if (!buckets?.some((item: any) => item.name === bucket)) {
+          const created = await supabase.storage.createBucket(bucket, { public: false });
+          if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+        }
+        for (const file of files.slice(0, 5)) {
+          if (file.size > 25 * 1024 * 1024) continue;
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'attachment';
+          const path = `${email}/${crypto.randomUUID()}-${safeName}`;
+          const upload = await supabase.storage.from(bucket).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+          if (!upload.error) attachments.push({ name: file.name, bucket, path, contentType: file.type || '' });
+        }
+      }
+    } catch (attachErr: any) { console.log('Tenant attachment upload skipped:', attachErr?.message || attachErr); }
+
+    const now = new Date().toISOString();
+    const record = {
+      id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+      title, project_name: title, description, priority, category,
+      unit, address, client_email: email, clientEmail: email,
+      client_name: String(user.user_metadata?.full_name || user.user_metadata?.name || ''),
+      user_id: user.id, landlordEmail, type: 'landlord', source: 'tenant-portal',
+      status: 'pending', attachments, created_at: now, updated_at: now,
+    };
+    await persistWorkRequest(record);
+    return c.json({ success: true, workRequest: stripBase64(record) }, 201);
+  } catch (error: any) { console.log('Tenant work request error:', error); return c.json({ success: false, error: error.message || 'Unable to submit your request.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEASES — landlords build a lease with the AI assistant or upload an existing
+// document, then send it straight to a tenant's sub-portal. Leases are keyed to
+// the tenant's email so the tenant portal resolves them by the logged-in user.
+// ─────────────────────────────────────────────────────────────────────────────
+const LEASE_BUCKET = 'make-57095a78-leases';
+function leaseKey(id: string) { return `lease:${id}`; }
+function landlordLeasesKey(email: string) { return `landlord_leases:${String(email).toLowerCase()}`; }
+function tenantLeasesKey(email: string) { return `tenant_leases:${String(email).toLowerCase()}`; }
+
+async function ensureLeaseBucket() {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some((item: any) => item.name === LEASE_BUCKET)) {
+    const created = await supabase.storage.createBucket(LEASE_BUCKET, { public: false });
+    if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+  }
+}
+
+async function readLeasesFor(indexKey: string) {
+  const ids = (await kv.get(indexKey) as string[]) || [];
+  if (!ids.length) return [];
+  const records = (await kv.mget(ids.map(leaseKey))) as any[] || [];
+  return records.filter(Boolean).map((lease: any) => {
+    const { storageBucket, storagePath, ...rest } = lease || {};
+    return rest;
+  });
+}
+
+// AI drafting — generate a lease body from structured details.
+app.post('/make-server-57095a78/landlord/leases/draft', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to draft a lease.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const details = await c.req.json().catch(() => ({}));
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'AI drafting is not configured. Add an OpenAI API key.' }, 500);
+    const prompt = `You are a residential lease drafting assistant. Draft a clear, well-structured residential lease agreement using the details below. Use plain, professional language with numbered sections (Parties, Premises, Term, Rent, Security Deposit, Utilities, Pets, Maintenance, Tenant Obligations, Landlord Obligations, Default, Governing Law, Signatures). Leave signature lines. Only output the lease text.\n\nDetails:\n${JSON.stringify(details, null, 2)}`;
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!aiResp.ok) { const errText = await aiResp.text(); console.log('Lease AI draft error:', errText); return c.json({ success: false, error: 'The AI assistant could not draft the lease. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    const draft = aiJson?.choices?.[0]?.message?.content?.trim() || '';
+    if (!draft) return c.json({ success: false, error: 'The AI assistant returned an empty draft. Please try again.' }, 502);
+    return c.json({ success: true, draft });
+  } catch (error: any) { console.log('Lease draft error:', error); return c.json({ success: false, error: error.message || 'Unable to draft the lease.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKET RENT — live area rental rates for a property address. Uses the RentCast
+// API (real listing/AVM data) as the primary source and grounds an AI summary in
+// those live numbers. Falls back to a pure AI estimate if RentCast is unavailable.
+// Results are cached per-address for 7 days and auto-refresh when stale (or when
+// the landlord forces a refresh) so the widget stays current without re-billing.
+// ─────────────────────────────────────────────────────────────────────────────
+const MARKET_RENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+function marketRentKey(address: string) { return `market_rent:${address.toLowerCase().replace(/\s+/g, ' ').trim()}`; }
+
+// Query RentCast's long-term rent AVM for a live estimate + range + comparables.
+async function fetchRentCast(address: string) {
+  const key = Deno.env.get('RENTCAST_API_KEY');
+  if (!key) return null;
+  try {
+    const url = `https://api.rentcast.io/v1/avm/rent/long-term?address=${encodeURIComponent(address)}`;
+    const resp = await fetch(url, { headers: { 'X-Api-Key': key, accept: 'application/json' } });
+    if (!resp.ok) { console.log('RentCast error:', resp.status, await resp.text().catch(() => '')); return null; }
+    const data = await resp.json();
+    if (!data || !Number.isFinite(Number(data.rent))) return null;
+    return {
+      rent: Number(data.rent),
+      rentRangeLow: Number(data.rentRangeLow) || undefined,
+      rentRangeHigh: Number(data.rentRangeHigh) || undefined,
+      comparableCount: Array.isArray(data.comparables) ? data.comparables.length : undefined,
+    };
+  } catch (error: any) { console.log('RentCast fetch failed:', error?.message || error); return null; }
+}
+
+app.post('/make-server-57095a78/landlord/market-rent', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view market rents.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const address = String(body.address || '').trim();
+    const forceRefresh = Boolean(body.forceRefresh);
+    if (!address || address.length < 5) return c.json({ success: false, error: 'Enter a full property address.' }, 400);
+
+    const cacheKey = marketRentKey(address);
+    const cached = await kv.get(cacheKey) as any;
+    if (cached && !forceRefresh && cached.generatedAt && (Date.now() - new Date(cached.generatedAt).getTime()) < MARKET_RENT_TTL_MS) {
+      return c.json({ success: true, estimate: cached, cached: true });
+    }
+
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'Market rent estimates are not configured.' }, 500);
+
+    // 1) Pull live data from RentCast (if configured).
+    const live = await fetchRentCast(address);
+
+    // 2) Ground the AI response in the live figure when we have it.
+    const liveContext = live
+      ? `LIVE RENTCAST DATA for this exact address (use as ground truth; build the "typical" rent for the matching unit type around this number): estimated rent $${live.rent}/mo${live.rentRangeLow && live.rentRangeHigh ? `, range $${live.rentRangeLow}–$${live.rentRangeHigh}` : ''}${live.comparableCount ? `, based on ${live.comparableCount} comparable listings` : ''}.`
+      : 'No live API data available — use your own market knowledge for a careful estimate.';
+    const prompt = `You are a rental market analyst. For the area around "${address}", report CURRENT market rental rates for ${new Date().getFullYear()}.
+${liveContext}
+Respond ONLY with valid JSON in exactly this shape:
+{
+  "area": "City, State",
+  "currency": "USD",
+  "byType": [
+    {"type": "Studio", "low": 0, "typical": 0, "high": 0},
+    {"type": "1 Bed", "low": 0, "typical": 0, "high": 0},
+    {"type": "2 Bed", "low": 0, "typical": 0, "high": 0},
+    {"type": "3 Bed", "low": 0, "typical": 0, "high": 0}
+  ],
+  "pricePerSqFt": 0.0,
+  "yoyTrend": "e.g. +3.2% year over year",
+  "demand": "Low | Moderate | High",
+  "summary": "2-3 sentence summary of the local rental market and what a landlord can realistically charge.",
+  "tips": ["short actionable pricing tip", "another tip"]
+}
+Return realistic monthly rent numbers as integers. Do not include any text outside the JSON.`;
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.2, max_tokens: 900, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!aiResp.ok) { const errText = await aiResp.text(); console.log('Market rent AI error:', errText); return c.json({ success: false, error: 'Unable to fetch market rates right now. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    let parsed: any = {};
+    try { parsed = JSON.parse(aiJson?.choices?.[0]?.message?.content || '{}'); }
+    catch (_e) { return c.json({ success: false, error: 'The market data was malformed. Please try again.' }, 502); }
+
+    const estimate = {
+      ...parsed,
+      address,
+      source: live ? 'rentcast+ai' : 'ai',
+      live: live || null,
+      generatedAt: new Date().toISOString(),
+    };
+    await kv.set(cacheKey, estimate);
+    return c.json({ success: true, estimate, cached: false });
+  } catch (error: any) { console.log('Market rent error:', error); return c.json({ success: false, error: error.message || 'Unable to fetch market rates.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENT PAYMENTS via STRIPE CONNECT — each landlord onboards their own connected
+// Stripe (Express) account and tenant rent flows directly to them via destination
+// charges on the platform account. Payments are recorded for both the tenant's
+// history and the landlord's Financials tab (ownerEmail = landlord).
+// ─────────────────────────────────────────────────────────────────────────────
+const STRIPE_API = 'https://api.stripe.com/v1';
+function landlordStripeKey(email: string) { return `landlord_stripe:${String(email).toLowerCase()}`; }
+function rentPaymentKey(id: string) { return `payment:${id}`; }
+function tenantRentIndexKey(email: string) { return `rent_payments_tenant:${String(email).toLowerCase()}`; }
+
+async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' = 'POST') {
+  const key = stripeKeyFor('services');
+  if (!key) throw new Error('Stripe is not configured on the platform account.');
+  const resp = await fetch(`${STRIPE_API}/${path}`, {
+    method,
+    headers: { Authorization: `Basic ${btoa(`${key}:`)}`, ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+    body: method === 'POST' && params ? params.toString() : undefined,
+  });
+  const payload = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(payload?.error?.message || 'Stripe request failed.');
+  return payload;
+}
+
+function rentAppUrl() { return (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, ''); }
+
+// Landlord: begin (or resume) Stripe Connect onboarding — returns onboarding URL.
+app.post('/make-server-57095a78/landlord/stripe/connect', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to connect Stripe.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const now = new Date().toISOString();
+    let rec = await kv.get(landlordStripeKey(email)) as any;
+    if (!rec?.accountId) {
+      const acct = await stripeReq('accounts', new URLSearchParams({
+        type: 'express', email,
+        'capabilities[transfers][requested]': 'true',
+        'capabilities[card_payments][requested]': 'true',
+        'business_type': 'individual',
+      }));
+      rec = { accountId: acct.id, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, createdAt: now, updatedAt: now };
+      await kv.set(landlordStripeKey(email), rec);
+    }
+    const appUrl = rentAppUrl();
+    const link = await stripeReq('account_links', new URLSearchParams({
+      account: rec.accountId,
+      refresh_url: `${appUrl}/landlord-portal?tab=settings&stripe=refresh`,
+      return_url: `${appUrl}/landlord-portal?tab=settings&stripe=connected`,
+      type: 'account_onboarding',
+    }));
+    return c.json({ success: true, url: link.url, accountId: rec.accountId });
+  } catch (error: any) { console.log('Stripe connect error:', error); return c.json({ success: false, error: error.message || 'Unable to start Stripe onboarding.' }, 500); }
+});
+
+// Landlord: current Stripe Connect status (live from Stripe).
+app.get('/make-server-57095a78/landlord/stripe/status', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view Stripe status.' }, 401);
+    const email = String(actor.user.email).toLowerCase();
+    const rec = await kv.get(landlordStripeKey(email)) as any;
+    if (!rec?.accountId) return c.json({ success: true, connected: false, chargesEnabled: false });
+    const acct = await stripeReq(`accounts/${rec.accountId}`, undefined, 'GET');
+    const updated = { ...rec, chargesEnabled: !!acct.charges_enabled, payoutsEnabled: !!acct.payouts_enabled, detailsSubmitted: !!acct.details_submitted, updatedAt: new Date().toISOString() };
+    await kv.set(landlordStripeKey(email), updated);
+    return c.json({ success: true, connected: true, chargesEnabled: updated.chargesEnabled, payoutsEnabled: updated.payoutsEnabled, detailsSubmitted: updated.detailsSubmitted });
+  } catch (error: any) { console.log('Stripe status error:', error); return c.json({ success: false, error: error.message || 'Unable to check Stripe status.' }, 500); }
+});
+
+// Tenant: rent summary — amount due, whether landlord can accept online rent, history.
+app.get('/make-server-57095a78/tenant/rent', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view rent details.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const mapping = await kv.get(`tenant_landlord:${email}`) as any;
+    const landlordEmail = mapping?.landlordEmail ? String(mapping.landlordEmail).toLowerCase() : '';
+    let rent = 0; let unit = String(mapping?.unit || '');
+    if (landlordEmail) {
+      const roster = (await kv.get(landlordTenantsKey(landlordEmail)) as any[]) || [];
+      const me = roster.find((t: any) => String(t.email || '').toLowerCase() === email);
+      if (me) { rent = money(me.rent); unit = String(me.unit || unit); }
+    }
+    let landlordAcceptsOnline = false;
+    if (landlordEmail) {
+      const rec = await kv.get(landlordStripeKey(landlordEmail)) as any;
+      landlordAcceptsOnline = !!rec?.chargesEnabled;
+    }
+    const ids = (await kv.get(tenantRentIndexKey(email)) as string[]) || [];
+    const history = ids.length ? ((await kv.mget(ids.map(rentPaymentKey))) as any[] || []).filter(Boolean) : [];
+    return c.json({ success: true, rent, unit, landlordEmail, landlordAcceptsOnline, history });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load rent details.' }, 500); }
+});
+
+// Tenant: start a rent payment — destination charge to the landlord's connected account.
+app.post('/make-server-57095a78/tenant/rent/pay', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to pay rent.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const mapping = await kv.get(`tenant_landlord:${email}`) as any;
+    const landlordEmail = mapping?.landlordEmail ? String(mapping.landlordEmail).toLowerCase() : '';
+    if (!landlordEmail) return c.json({ success: false, error: 'No landlord is linked to your account yet.' }, 400);
+
+    const roster = (await kv.get(landlordTenantsKey(landlordEmail)) as any[]) || [];
+    const me = roster.find((t: any) => String(t.email || '').toLowerCase() === email);
+    const amount = money(body.amount ?? me?.rent);
+    if (amount <= 0) return c.json({ success: false, error: 'A positive rent amount is required.' }, 400);
+
+    const stripeRec = await kv.get(landlordStripeKey(landlordEmail)) as any;
+    if (!stripeRec?.accountId || !stripeRec?.chargesEnabled) {
+      return c.json({ success: false, error: 'Your landlord has not finished setting up online rent collection yet.' }, 400);
+    }
+
+    const paymentId = crypto.randomUUID();
+    const appUrl = rentAppUrl();
+    // Optional platform fee (percent) — set RENT_PLATFORM_FEE_PERCENT to enable.
+    const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
+    const applicationFee = feePercent > 0 ? Math.round(amount * 100 * (feePercent / 100)) : 0;
+
+    const params = new URLSearchParams({
+      'payment_method_types[]': 'card', mode: 'payment', customer_email: email,
+      success_url: `${appUrl}/tenant-portal?tab=rent&rent_payment=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/tenant-portal?tab=rent&rent_cancelled=1`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': `Rent${me?.unit ? ` · Unit ${me.unit}` : ''}`,
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1',
+      'payment_intent_data[transfer_data][destination]': stripeRec.accountId,
+      'metadata[rent_payment_id]': paymentId,
+      'metadata[tenant_email]': email,
+      'metadata[landlord_email]': landlordEmail,
+    });
+    if (applicationFee > 0) params.set('payment_intent_data[application_fee_amount]', String(applicationFee));
+
+    const session = await stripeReq('checkout/sessions', params);
+    const now = new Date().toISOString();
+    const payment = {
+      id: paymentId, type: 'rent', amount, status: 'pending_confirmation',
+      customerEmail: email, ownerEmail: landlordEmail, landlordEmail,
+      tenantName: me?.name || mapping?.tenantName || '', unit: me?.unit || mapping?.unit || '',
+      stripeCheckoutSessionId: session.id, connectedAccountId: stripeRec.accountId,
+      createdAt: now, updatedAt: now,
+    };
+    await kv.set(rentPaymentKey(paymentId), payment);
+    const idx = (await kv.get(tenantRentIndexKey(email)) as string[]) || [];
+    await kv.set(tenantRentIndexKey(email), [paymentId, ...idx]);
+    return c.json({ success: true, paymentId, checkoutUrl: session.url });
+  } catch (error: any) { console.log('Rent pay error:', error); return c.json({ success: false, error: error.message || 'Unable to start rent payment.' }, 500); }
+});
+
+// Tenant: confirm a rent payment after returning from Stripe Checkout.
+app.post('/make-server-57095a78/tenant/rent/confirm', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to confirm payment.' }, 401);
+    const body = await c.req.json().catch(() => ({}));
+    const paymentId = String(body.paymentId || '');
+    const payment = await kv.get(rentPaymentKey(paymentId)) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+    if (String(payment.customerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'This payment is not yours.' }, 403);
+    if (payment.status === 'paid') return c.json({ success: true, payment });
+    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(payment.stripeCheckoutSessionId)}`, undefined, 'GET');
+    const paid = session?.payment_status === 'paid';
+    const updated = { ...payment, status: paid ? 'paid' : 'pending_confirmation', paidAt: paid ? new Date().toISOString() : payment.paidAt, stripePaymentIntentId: session?.payment_intent || payment.stripePaymentIntentId, updatedAt: new Date().toISOString() };
+    await kv.set(rentPaymentKey(paymentId), updated);
+    return c.json({ success: true, payment: updated });
+  } catch (error: any) { console.log('Rent confirm error:', error); return c.json({ success: false, error: error.message || 'Unable to confirm payment.' }, 500); }
+});
+
+// Regenerate a single section of an existing draft with an optional instruction.
+// Returns the full revised lease with only the targeted section rewritten.
+app.post('/make-server-57095a78/landlord/leases/regenerate-section', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to edit a lease.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const leaseText = String(body.leaseText || '').trim();
+    const section = String(body.section || '').trim();
+    const instruction = String(body.instruction || '').trim();
+    if (!leaseText) return c.json({ success: false, error: 'Generate a lease draft first.' }, 400);
+    if (!section) return c.json({ success: false, error: 'Choose a section to regenerate.' }, 400);
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'AI editing is not configured.' }, 500);
+    const prompt = `You are editing a residential lease. Below is the full lease. Rewrite ONLY the "${section}" section${instruction ? ` according to this instruction: "${instruction}"` : ' to be clearer and more complete'}. Keep every other section exactly as-is, preserve the numbering and overall structure, and return the COMPLETE lease text with the revision applied. Do not add commentary.\n\nLEASE:\n${leaseText}`;
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!aiResp.ok) { const errText = await aiResp.text(); console.log('Lease regenerate error:', errText); return c.json({ success: false, error: 'The AI assistant could not revise the section. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    const draft = aiJson?.choices?.[0]?.message?.content?.trim() || '';
+    if (!draft) return c.json({ success: false, error: 'The AI assistant returned an empty result. Please try again.' }, 502);
+    return c.json({ success: true, draft });
+  } catch (error: any) { console.log('Lease regenerate error:', error); return c.json({ success: false, error: error.message || 'Unable to revise the section.' }, 500); }
+});
+
+app.get('/make-server-57095a78/landlord/leases', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your leases.' }, 401);
+    const leases = await readLeasesFor(landlordLeasesKey(actor.user.email));
+    return c.json({ success: true, leases });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load leases.' }, 500); }
+});
+
+// Create/send a lease (AI-generated body text OR an uploaded file) to a tenant.
+app.post('/make-server-57095a78/landlord/leases', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to send a lease.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const landlordEmail = String(actor.user.email).toLowerCase();
+    const body = await c.req.parseBody();
+    const tenantEmail = String(body.tenantEmail || '').trim().toLowerCase();
+    if (!tenantEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenantEmail)) return c.json({ success: false, error: 'A valid tenant email is required to send the lease.' }, 400);
+    const tenantName = String(body.tenantName || '').trim().slice(0, 200);
+    const title = String(body.title || 'Lease Agreement').trim().slice(0, 200);
+    const propertyAddress = String(body.propertyAddress || '').trim().slice(0, 300);
+    const unit = String(body.unit || '').trim().slice(0, 160);
+    const bodyText = String(body.bodyText || '').trim();
+    const source = String(body.source || (bodyText ? 'ai' : 'upload'));
+    const id = `lease_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const now = new Date().toISOString();
+
+    let storageBucket = ''; let storagePath = ''; let fileName = '';
+    const file = body.file;
+    if (file instanceof File) {
+      if (file.size > 15 * 1024 * 1024) return c.json({ success: false, error: 'The lease file must be 15MB or smaller.' }, 400);
+      await ensureLeaseBucket();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'lease';
+      storagePath = `${landlordEmail}/${id}-${safeName}`;
+      const upload = await supabase.storage.from(LEASE_BUCKET).upload(storagePath, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+      if (upload.error) throw upload.error;
+      storageBucket = LEASE_BUCKET; fileName = file.name;
+    }
+
+    if (!bodyText && !storagePath) return c.json({ success: false, error: 'Provide lease text or upload a document.' }, 400);
+
+    const record = {
+      id, title, tenantEmail, tenantName, landlordEmail, landlordUserId: actor.user.id,
+      propertyAddress, unit, bodyText, source, fileName, storageBucket, storagePath,
+      status: 'sent', signature: '', signedAt: '', createdAt: now, updatedAt: now,
+    };
+    await kv.set(leaseKey(id), record);
+    const landlordIndex = (await kv.get(landlordLeasesKey(landlordEmail)) as string[]) || [];
+    await kv.set(landlordLeasesKey(landlordEmail), [id, ...landlordIndex]);
+    const tenantIndex = (await kv.get(tenantLeasesKey(tenantEmail)) as string[]) || [];
+    await kv.set(tenantLeasesKey(tenantEmail), [id, ...tenantIndex]);
+
+    const { storageBucket: _b, storagePath: _p, ...safe } = record;
+    return c.json({ success: true, lease: safe }, 201);
+  } catch (error: any) { console.log('Lease send error:', error); return c.json({ success: false, error: error.message || 'Unable to send the lease.' }, 500); }
+});
+
+// Signed download link — accessible to the admin, owning landlord, or tenant.
+app.get('/make-server-57095a78/leases/:id/download', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to download this lease.' }, 401);
+    const id = c.req.param('id');
+    const lease = await kv.get(leaseKey(id)) as any;
+    if (!lease) return c.json({ success: false, error: 'Lease not found.' }, 404);
+    const email = String(user.email).toLowerCase();
+    const allowed = (await intakeIsAdmin(user)) || email === String(lease.landlordEmail || '').toLowerCase() || email === String(lease.tenantEmail || '').toLowerCase();
+    if (!allowed) return c.json({ success: false, error: 'You do not have access to this lease.' }, 403);
+    if (!lease.storagePath) return c.json({ success: false, error: 'This lease has no uploaded document.' }, 404);
+    const { data, error } = await supabase.storage.from(lease.storageBucket || LEASE_BUCKET).createSignedUrl(lease.storagePath, 300);
+    if (error) throw error;
+    return c.json({ success: true, url: data.signedUrl, fileName: lease.fileName || 'lease' });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to download the lease.' }, 500); }
+});
+
+app.get('/make-server-57095a78/tenant/leases', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view your leases.' }, 401);
+    const leases = await readLeasesFor(tenantLeasesKey(user.email));
+    return c.json({ success: true, leases });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load your leases.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/tenant/leases/:id/sign', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to sign this lease.' }, 401);
+    const id = c.req.param('id');
+    const lease = await kv.get(leaseKey(id)) as any;
+    if (!lease) return c.json({ success: false, error: 'Lease not found.' }, 404);
+    if (String(user.email).toLowerCase() !== String(lease.tenantEmail || '').toLowerCase()) return c.json({ success: false, error: 'This lease was not sent to you.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const signature = String(body.signature || '').trim().slice(0, 200);
+    if (!signature) return c.json({ success: false, error: 'Type your full legal name to sign.' }, 400);
+    const now = new Date().toISOString();
+    const updated = { ...lease, signature, signedAt: now, status: 'signed', updatedAt: now };
+    await kv.set(leaseKey(id), updated);
+    const { storageBucket: _b, storagePath: _p, ...safe } = updated;
+    return c.json({ success: true, lease: safe });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to sign the lease.' }, 500); }
 });
 
 function propertyPortfolioKey(email: string) { return `property_manager_portfolio:${String(email).toLowerCase()}`; }
@@ -4809,12 +5425,20 @@ app.post('/make-server-57095a78/owner-provisioning/invites', async (c) => {
     if (!name || !email || !phone) return c.json({ success: false, error: 'Name, email, and phone are required.' }, 400);
     if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
     if (!OWNER_PROVISION_PORTALS.has(portalType)) return c.json({ success: false, error: 'Choose a valid portal.' }, 400);
+    // Optional trial grant: full control of all features for N months (default 6), after which a plan is required.
+    const grantFullAccess = body.fullAccess !== false; // default on
+    const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
     const existingId = await kv.get(`intake:email:${email}`) as string | null;
     if (existingId) return c.json({ success: false, error: 'This email already has an onboarding or portal record. Use access control to change their access.' }, 409);
     const now = new Date().toISOString(); const applicationId = `OWNER-INVITE-${crypto.randomUUID()}`;
     const intake = { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
     const access = { id: `ACCESS-${crypto.randomUUID()}`, applicationId, email, portalType, applicantName: name, status: 'onboarding', onboardingStatus: intake.status, freeProvisioned: true, provisionedBy: actor.user.email, createdAt: now, updatedAt: now };
     await kv.set(`intake:onboarding:${applicationId}`, intake); await kv.set(`intake:email:${email}`, applicationId); await kv.set(`portal_access:${email}:${portalType}`, access); await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: 'pending' });
+    // Feature grant: full access for the trial window, then requires a plan.
+    if (grantFullAccess) {
+      const trialStart = now; const trialEnd = new Date(Date.now() + trialMonths * 30 * 24 * 60 * 60 * 1000).toISOString();
+      await kv.set(`feature_grant:${email}`, { email, portalType, level: 'full', trialMonths, trialStart, trialEnd, status: 'active', grantedBy: actor.user.email, applicationId, createdAt: now, updatedAt: now });
+    }
     let invitationSent = false; let inviteNotice = '';
     try {
       const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name, phone, role: portalType, accountType: portalType } });
@@ -4823,6 +5447,24 @@ app.post('/make-server-57095a78/owner-provisioning/invites', async (c) => {
     await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, updatedAt: new Date().toISOString() });
     return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, freeProvisioned: true } }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
+});
+
+// Entitlements: does this user have full-access via a trial grant, is it still
+// active, and do they now need to buy a plan? Drives portal gating + banners.
+app.get('/make-server-57095a78/me/entitlements', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view entitlements.' }, 401);
+    const email = String(user.email).toLowerCase();
+    if (await intakeIsAdmin(user)) return c.json({ success: true, entitlements: { level: 'full', trialActive: true, needsPlan: false, admin: true, daysLeft: null, trialEnd: null } });
+    const grant = await kv.get(`feature_grant:${email}`) as any;
+    // An active paid plan overrides the trial requirement.
+    const hasPlan = Boolean(await kv.get(`subscription:${email}`));
+    if (!grant) return c.json({ success: true, entitlements: { level: hasPlan ? 'full' : 'standard', trialActive: false, needsPlan: !hasPlan, hasGrant: false, daysLeft: null, trialEnd: null } });
+    const end = new Date(grant.trialEnd).getTime(); const nowMs = Date.now();
+    const trialActive = nowMs < end; const daysLeft = Math.max(0, Math.ceil((end - nowMs) / (24 * 60 * 60 * 1000)));
+    return c.json({ success: true, entitlements: { level: (trialActive || hasPlan) ? grant.level || 'full' : 'standard', trialActive, hasGrant: true, needsPlan: !trialActive && !hasPlan, daysLeft, trialEnd: grant.trialEnd, trialMonths: grant.trialMonths, portalType: grant.portalType } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load entitlements.' }, 500); }
 });
 
 app.get('/make-server-57095a78/intake/my-onboarding', async (c) => {

@@ -1023,11 +1023,18 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
   const handleBack = () => {
     const stepOrder = steps.map(s => s.id);
     const currentIndex = stepOrder.indexOf(currentStep);
-    if (currentIndex > 0) {
-      setCurrentStep(stepOrder[currentIndex - 1]);
-      // Smooth scroll to top
+    // First content step (index 1) or an unresolved step (index -1, which can
+    // happen when the step list recomputes after a mode/category change) both
+    // return to the mode chooser. Going back to mode-select also resets the mode
+    // so the two options ("Quick" / "Full Details") are shown fresh.
+    if (currentIndex <= 1) {
+      setFormMode('select');
+      setCurrentStep('mode-select');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
+    setCurrentStep(stepOrder[currentIndex - 1]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSubmit = async () => {
@@ -2817,11 +2824,8 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         {/* Footer — hidden on mode-select since navigation is via card clicks */}
         <div className={`flex items-center justify-between p-6 border-t border-[#2A2A2A] ${currentStep === 'mode-select' ? 'hidden' : ''}`}>
           <button
-            onClick={currentStep === 'project-type' && formMode === 'quick'
-              ? () => { setFormMode('select'); setCurrentStep('mode-select'); }
-              : handleBack
-            }
-            disabled={currentStepIndex === 0 && currentStep !== 'project-type'}
+            onClick={handleBack}
+            disabled={currentStep === 'mode-select'}
             className="px-4 py-2 bg-[#1A1A1A] text-white rounded-lg hover:bg-[#2A2A2A] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <ChevronLeft className="w-4 h-4" />

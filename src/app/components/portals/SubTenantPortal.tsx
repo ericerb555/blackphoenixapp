@@ -6,8 +6,10 @@ import {
   ChevronRight, ArrowUpRight, Tag, Star, Gift, Users,
   ShoppingCart, ExternalLink, Sparkles, Package, FileText,
   Plus, X, Image, Video, LoaderCircle, Phone, Mail, Building2,
+  FileSignature, Download, PenLine, CheckCircle2, CreditCard,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
+import PortalTrialBanner from './PortalTrialBanner';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
@@ -22,11 +24,12 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   render() { return this.state.err ? null : this.props.children; }
 }
 
-type Tab = 'dashboard' | 'work-requests' | 'rent' | 'deals' | 'shop' | 'referrals' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'work-requests' | 'lease' | 'rent' | 'deals' | 'shop' | 'referrals' | 'messages' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard',     label: 'Dashboard',     icon: Home },
   { id: 'work-requests', label: 'Work Requests',  icon: Wrench },
+  { id: 'lease',         label: 'Lease',          icon: FileSignature },
   { id: 'rent',          label: 'Rent & Payments', icon: DollarSign },
   { id: 'deals',         label: 'Deals & Offers',  icon: Tag },
   { id: 'shop',          label: 'Online Shop',     icon: ShoppingCart },
@@ -106,6 +109,114 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
 
   useEffect(() => { void loadWorkRequests(); }, [session?.access_token]);
 
+  // ── Leases ────────────────────────────────────────────────────────────────
+  const [leases, setLeases] = useState<any[]>([]);
+  const [loadingLeases, setLoadingLeases] = useState(true);
+  const [signingId, setSigningId] = useState<string | null>(null);
+  const [signatureName, setSignatureName] = useState('');
+
+  const loadLeases = async () => {
+    if (!session?.access_token) { setLeases([]); setLoadingLeases(false); return; }
+    setLoadingLeases(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant/leases`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load leases.');
+      setLeases(Array.isArray(payload.leases) ? payload.leases : []);
+    } catch { setLeases([]); }
+    finally { setLoadingLeases(false); }
+  };
+
+  useEffect(() => { void loadLeases(); }, [session?.access_token]);
+
+  const signLease = async (leaseId: string) => {
+    if (!session?.access_token) { toast.error('Sign in to sign this lease.'); return; }
+    if (!signatureName.trim()) { toast.error('Type your full legal name to sign.'); return; }
+    setSigningId(leaseId);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant/leases/${leaseId}/sign`,
+        { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ signature: signatureName.trim() }) }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to sign the lease.');
+      setLeases(prev => prev.map(l => l.id === leaseId ? payload.lease : l));
+      setSignatureName('');
+      toast.success('Lease signed. Your landlord has been notified.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to sign the lease.'); }
+    finally { setSigningId(null); }
+  };
+
+  const downloadLease = async (leaseId: string) => {
+    if (!session?.access_token) { toast.error('Sign in to download this lease.'); return; }
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/leases/${leaseId}/download`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to download the lease.');
+      window.open(payload.url, '_blank');
+    } catch (error: any) { toast.error(error?.message || 'Unable to download the lease.'); }
+  };
+
+  // ── Rent & payments ────────────────────────────────────────────────────────
+  const [rentInfo, setRentInfo] = useState<{ rent: number; unit: string; landlordEmail: string; landlordAcceptsOnline: boolean; history: any[] } | null>(null);
+  const [loadingRent, setLoadingRent] = useState(true);
+  const [payingRent, setPayingRent] = useState(false);
+
+  const loadRent = async () => {
+    if (!session?.access_token) { setRentInfo(null); setLoadingRent(false); return; }
+    setLoadingRent(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant/rent`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load rent details.');
+      setRentInfo({ rent: payload.rent || 0, unit: payload.unit || '', landlordEmail: payload.landlordEmail || '', landlordAcceptsOnline: !!payload.landlordAcceptsOnline, history: Array.isArray(payload.history) ? payload.history : [] });
+    } catch { setRentInfo(null); }
+    finally { setLoadingRent(false); }
+  };
+
+  useEffect(() => { void loadRent(); }, [session?.access_token]);
+
+  // Confirm a rent payment when returning from Stripe Checkout.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentId = params.get('rent_payment');
+    if (!paymentId || !session?.access_token) return;
+    (async () => {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant/rent/confirm`,
+          { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId }) }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok && payload?.success && payload.payment?.status === 'paid') { toast.success('Rent payment received. Thank you!'); void loadRent(); }
+      } catch { /* ignore */ }
+      finally { const url = new URL(window.location.href); url.searchParams.delete('rent_payment'); url.searchParams.delete('session_id'); window.history.replaceState({}, '', url.toString()); }
+    })();
+  }, [session?.access_token]);
+
+  const payRent = async (method: 'card' | 'ach' | 'both' = 'both') => {
+    if (!session?.access_token) { toast.error('Sign in to pay rent.'); return; }
+    setPayingRent(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/tenant/rent/pay`,
+        { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ method }) }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to start rent payment.');
+      window.location.href = payload.checkoutUrl;
+    } catch (error: any) { toast.error(error?.message || 'Unable to start rent payment.'); setPayingRent(false); }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     setAttachments(prev => [...prev, ...files].slice(0, 5));
@@ -168,6 +279,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0A0A0A', color: '#fff' }}>
       <Safe><SponsoredMarquee /></Safe>
+      <Safe><PortalTrialBanner /></Safe>
 
       {/* Portal Header */}
       <div style={{ background: '#1A1A1A', borderBottom: '1px solid #2A2A2A', position: 'sticky', top: 64, zIndex: 30 }}>
@@ -458,6 +570,52 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
           </div>
         )}
 
+        {/* LEASE */}
+        {tab === 'lease' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">Your Lease</h2>
+              <p className="mt-1 text-sm text-gray-400">Review and sign the lease your landlord sent to your portal.</p>
+            </div>
+            {loadingLeases ? (
+              <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400 flex items-center justify-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your leases…</div>
+            ) : leases.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#3a3a3a] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">No leases have been sent to you yet. When your landlord sends a lease, it will appear here.</div>
+            ) : leases.map(lease => (
+              <div key={lease.id} className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-white flex items-center gap-2"><FileSignature className="h-4 w-4 text-indigo-400" /> {lease.title || 'Lease Agreement'}</p>
+                    <p className="text-sm text-gray-400 mt-1">{[lease.propertyAddress, lease.unit].filter(Boolean).join(' · ') || '—'}</p>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded text-xs font-bold border ${lease.status === 'signed' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-orange-500/10 text-orange-400 border-orange-500/20'}`}>{lease.status === 'signed' ? 'Signed' : 'Awaiting signature'}</span>
+                </div>
+
+                {lease.bodyText && (
+                  <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4 text-sm text-gray-200">{lease.bodyText}</div>
+                )}
+
+                {lease.fileName && (
+                  <button onClick={() => downloadLease(lease.id)} className="inline-flex items-center gap-2 rounded-lg border border-indigo-500/40 px-4 py-2 text-sm font-bold text-indigo-300 transition hover:bg-indigo-500/10"><Download className="h-4 w-4" /> Download {lease.fileName}</button>
+                )}
+
+                {lease.status === 'signed' ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-3 text-sm text-green-300"><CheckCircle2 className="h-4 w-4" /> Signed by {lease.signature}{lease.signedAt ? ` on ${new Date(lease.signedAt).toLocaleDateString()}` : ''}.</div>
+                ) : (
+                  <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-white flex items-center gap-2"><PenLine className="h-4 w-4 text-indigo-400" /> Sign this lease</p>
+                    <p className="text-xs text-gray-400">Type your full legal name to electronically sign. This is legally binding.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <input value={signatureName} onChange={e => setSignatureName(e.target.value)} placeholder="Your full legal name" className="flex-1 min-w-[200px] rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500" />
+                      <button onClick={() => signLease(lease.id)} disabled={signingId === lease.id} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">{signingId === lease.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <PenLine className="h-4 w-4" />} Sign lease</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* RENT & PAYMENTS */}
         {tab === 'rent' && (
           <div className="space-y-6">
@@ -477,28 +635,68 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                   <p className="text-xs text-gray-400">Secure · Fast · Trackable</p>
                 </div>
               </div>
-              <p className="text-sm text-gray-300 leading-relaxed">
-                Your landlord has configured online rent payment through the Black Phoenix platform. Click below to pay your rent securely using a debit card, credit card, or bank transfer.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {['Visa / Mastercard', 'ACH Bank Transfer', 'Digital Wallet'].map(method => (
-                  <div key={method} className="flex items-center gap-2 bg-[#0A0A0A] rounded-lg px-3 py-2 text-sm text-gray-300">
-                    <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />{method}
+
+              {loadingRent ? (
+                <div className="flex items-center gap-2 py-4 text-sm text-gray-400"><LoaderCircle className="w-4 h-4 animate-spin" /> Loading rent details…</div>
+              ) : !rentInfo?.landlordEmail ? (
+                <p className="text-sm text-gray-400">Your account isn't linked to a landlord yet. Once your landlord adds you, your rent will appear here.</p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg bg-[#0A0A0A] p-4">
+                    <div>
+                      <p className="text-xs text-gray-400">Monthly rent due{rentInfo.unit ? ` · Unit ${rentInfo.unit}` : ''}</p>
+                      <p className="text-3xl font-bold text-white">${Number(rentInfo.rent || 0).toLocaleString()}</p>
+                    </div>
+                    {rentInfo.landlordAcceptsOnline
+                      ? <span className="inline-flex items-center gap-1 rounded-full border border-green-500/30 bg-green-500/10 px-2.5 py-0.5 text-xs font-bold text-green-300"><CheckCircle className="w-3.5 h-3.5" /> Online payments enabled</span>
+                      : <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-300"><AlertCircle className="w-3.5 h-3.5" /> Setup pending</span>}
                   </div>
-                ))}
-              </div>
-              <button className="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2">
-                <DollarSign className="w-5 h-5" /> Pay Rent Now
-              </button>
+
+                  {rentInfo.landlordAcceptsOnline ? (
+                    <>
+                      <p className="text-sm text-gray-300 leading-relaxed">Choose how you'd like to pay. Funds go directly to your landlord via Stripe.</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button onClick={() => payRent('ach')} disabled={payingRent || !(rentInfo.rent > 0)} className="flex flex-col items-start gap-1 rounded-xl border border-green-500/30 bg-green-600/10 p-4 text-left transition hover:bg-green-600/20 disabled:opacity-60 disabled:cursor-not-allowed">
+                          <span className="flex items-center gap-2 font-bold text-green-300"><Building2 className="w-4 h-4" /> Bank transfer (ACH)</span>
+                          <span className="text-xs text-gray-400">Lowest fees · takes 1–3 business days</span>
+                        </button>
+                        <button onClick={() => payRent('card')} disabled={payingRent || !(rentInfo.rent > 0)} className="flex flex-col items-start gap-1 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4 text-left transition hover:border-gray-500 disabled:opacity-60 disabled:cursor-not-allowed">
+                          <span className="flex items-center gap-2 font-bold text-white"><CreditCard className="w-4 h-4" /> Debit / credit card</span>
+                          <span className="text-xs text-gray-400">Instant · standard card fees apply</span>
+                        </button>
+                      </div>
+                      <button onClick={() => payRent('both')} disabled={payingRent || !(rentInfo.rent > 0)} className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm transition flex items-center justify-center gap-2">
+                        {payingRent ? <><LoaderCircle className="w-5 h-5 animate-spin" /> Redirecting to secure checkout…</> : <><DollarSign className="w-5 h-5" /> Pay ${Number(rentInfo.rent || 0).toLocaleString()} — choose at checkout</>}
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-amber-300/90">Your landlord hasn't finished setting up online rent collection yet. Please check back soon or contact them directly.</p>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Payment history — tenant sees own payment status only */}
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <h3 className="font-bold text-base mb-4">My Payment History</h3>
-              <div className="text-center py-8">
-                <Package className="w-10 h-10 text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-400 text-sm">Payment history will appear here after your first online payment.</p>
-              </div>
+              {rentInfo?.history && rentInfo.history.length > 0 ? (
+                <div className="divide-y divide-[#2A2A2A]">
+                  {rentInfo.history.map((p: any) => (
+                    <div key={p.id} className="flex items-center justify-between py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">${Number(p.amount || 0).toLocaleString()}{p.unit ? ` · Unit ${p.unit}` : ''}</p>
+                        <p className="text-xs text-gray-500">{new Date(p.paidAt || p.createdAt).toLocaleDateString()} {new Date(p.paidAt || p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold border ${p.status === 'paid' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>{p.status === 'paid' ? 'Paid' : 'Pending'}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Package className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-400 text-sm">Payment history will appear here after your first online payment.</p>
+                </div>
+              )}
             </div>
           </div>
         )}
