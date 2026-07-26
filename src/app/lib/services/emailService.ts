@@ -25,7 +25,7 @@ export class EmailService {
       const body = this.generateInvoiceEmailBody(invoiceData, customMessage);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/send-invoice-email`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/send-invoice-email`,
         {
           method: 'POST',
           headers: {
@@ -209,7 +209,7 @@ export class EmailService {
   static async getEmailHistory(): Promise<any[]> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/emails`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/emails`,
         {
           headers: {
             Authorization: `Bearer ${publicAnonKey}`,

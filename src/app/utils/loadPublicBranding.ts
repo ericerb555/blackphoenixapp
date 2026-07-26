@@ -28,7 +28,7 @@ export async function loadPublicBranding(): Promise<PublicBranding | null> {
     const timer = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/branding`,
+      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
       {
         headers: { 'Authorization': `Bearer ${publicAnonKey}` },
         signal: controller.signal,

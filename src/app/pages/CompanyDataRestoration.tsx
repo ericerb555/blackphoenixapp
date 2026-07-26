@@ -57,7 +57,7 @@ export default function CompanyDataRestoration({ onNavigate }: { onNavigate?: (p
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`,
         {
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -91,7 +91,7 @@ export default function CompanyDataRestoration({ onNavigate }: { onNavigate?: (p
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies/${company.id}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies/${company.id}`,
         {
           method: 'PUT',
           headers: {

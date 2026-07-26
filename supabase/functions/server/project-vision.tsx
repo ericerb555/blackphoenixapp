@@ -5,7 +5,7 @@
  * those frames to OpenAI GPT-4o Vision and gets back a structured scope of work
  * with materials and labor, ready to drop straight into the quote builder.
  *
- * POST /make-server-57095a78/project-vision/analyze
+ * POST /make-server-3eae23a6/project-vision/analyze
  *   body: { images: string[] (base64, no data: prefix), notes?: string, serviceType?: string }
  *   → { success, analysis: { summary, scope[], materials[], labor[], laborHours, materialsCost, laborCost, estimatedCost } }
  */
@@ -86,7 +86,7 @@ function normalizeAnalysis(a: any) {
   };
 }
 
-projectVisionRouter.post("/make-server-57095a78/project-vision/analyze", async (c) => {
+projectVisionRouter.post("/make-server-3eae23a6/project-vision/analyze", async (c) => {
   try {
     const body = await c.req.json();
     const images: string[] = Array.isArray(body?.images) ? body.images : [];
@@ -161,7 +161,7 @@ projectVisionRouter.post("/make-server-57095a78/project-vision/analyze", async (
   }
 });
 
-projectVisionRouter.get("/make-server-57095a78/project-vision/test", (c) =>
+projectVisionRouter.get("/make-server-3eae23a6/project-vision/test", (c) =>
   c.json({ success: true, message: "Project Vision API is running", timestamp: new Date().toISOString() }));
 
 export default projectVisionRouter;

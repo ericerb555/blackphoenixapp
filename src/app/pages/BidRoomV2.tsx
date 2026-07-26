@@ -178,7 +178,7 @@ export default function BidRoomV2() {
 
   // Jobs (with embedded bids) loaded from the server; source of truth.
   const [jobs, setJobs] = useState<Job[]>([]);
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   useEffect(() => {
     const loadJobs = async () => {

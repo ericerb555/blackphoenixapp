@@ -16,7 +16,7 @@ import * as config from "./dropshipper-config.tsx";
 
 const zendropRouter = new Hono();
 
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 const PROVIDER_ID = "zendrop";
 const INVENTORY_KEY_PREFIX = "dropshipper_inventory";
 const CONFIG_KEY = "bp_zendrop_config"; // server-side mirror of settings

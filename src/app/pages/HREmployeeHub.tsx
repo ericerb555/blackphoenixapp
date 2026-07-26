@@ -74,7 +74,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Sign in is required to load payroll hours.');
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/time-tracking/hours-summary`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking/hours-summary`,
           { headers: { Authorization: `Bearer ${session.access_token}` } }
         );
         if (!res.ok) throw new Error(`Time tracking responded ${res.status}`);

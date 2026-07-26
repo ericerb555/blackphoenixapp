@@ -77,7 +77,7 @@ async function logOwnerAction(
 
 /**
  * Get all companies with metrics for owner dashboard
- * GET /make-server-57095a78/owner/companies
+ * GET /make-server-3eae23a6/owner/companies
  */
 export async function getAllCompanies(c: Context) {
   try {
@@ -219,7 +219,7 @@ export async function getAllCompanies(c: Context) {
 
 /**
  * Get detailed metrics for a specific company
- * GET /make-server-57095a78/owner/company/:companyId/metrics
+ * GET /make-server-3eae23a6/owner/company/:companyId/metrics
  */
 export async function getCompanyMetrics(c: Context) {
   try {
@@ -259,7 +259,7 @@ export async function getCompanyMetrics(c: Context) {
 
 /**
  * Update branding for a specific company
- * PUT /make-server-57095a78/owner/company/:companyId/branding
+ * PUT /make-server-3eae23a6/owner/company/:companyId/branding
  */
 export async function updateCompanyBranding(c: Context) {
   try {
@@ -323,7 +323,7 @@ export async function updateCompanyBranding(c: Context) {
 
 /**
  * Get revenue analytics across all companies
- * GET /make-server-57095a78/owner/reports/revenue
+ * GET /make-server-3eae23a6/owner/reports/revenue
  */
 export async function getRevenueReport(c: Context) {
   try {
@@ -402,7 +402,7 @@ export async function getRevenueReport(c: Context) {
 
 /**
  * Get user growth analytics
- * GET /make-server-57095a78/owner/reports/users
+ * GET /make-server-3eae23a6/owner/reports/users
  */
 export async function getUsersReport(c: Context) {
   try {
@@ -477,7 +477,7 @@ export async function getUsersReport(c: Context) {
 
 /**
  * Get AI usage analytics
- * GET /make-server-57095a78/owner/reports/ai-usage
+ * GET /make-server-3eae23a6/owner/reports/ai-usage
  */
 export async function getAIUsageReport(c: Context) {
   try {
@@ -537,7 +537,7 @@ export async function getAIUsageReport(c: Context) {
 
 /**
  * Get access logs for audit trail
- * GET /make-server-57095a78/owner/access-logs
+ * GET /make-server-3eae23a6/owner/access-logs
  */
 export async function getAccessLogs(c: Context) {
   try {

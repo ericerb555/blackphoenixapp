@@ -8,7 +8,7 @@
  */
 import { projectId, publicAnonKey } from './supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export function isDataUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('data:image');

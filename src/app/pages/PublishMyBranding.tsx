@@ -89,7 +89,7 @@ export default function PublishMyBranding() {
       // Refresh server cache so it picks up the new branding
       try {
         const refreshResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/branding/refresh`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding/refresh`,
           {
             method: 'POST',
             headers: {

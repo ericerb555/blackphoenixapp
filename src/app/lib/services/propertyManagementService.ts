@@ -5,7 +5,7 @@ console.log('🔧 Property Management Service Initialized');
 console.log('  - Project ID:', projectId);
 console.log('  - Public Key:', publicAnonKey ? '✓ Loaded' : '✗ Missing');
 
-const BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management`;
+const BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
 
 console.log('  - BASE_URL:', BASE_URL);
 

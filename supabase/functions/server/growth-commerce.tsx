@@ -8,7 +8,7 @@ const router = new Hono();
 // Business-wide list of flash sale campaigns (shared, non-user-scoped).
 const FLASH_KEY = "flash_sales:default";
 
-router.get("/make-server-57095a78/flash-sales", async (c) => {
+router.get("/make-server-3eae23a6/flash-sales", async (c) => {
   try {
     const sales = await kv.get(FLASH_KEY);
     return c.json({ success: true, sales: Array.isArray(sales) ? sales : [] });
@@ -18,7 +18,7 @@ router.get("/make-server-57095a78/flash-sales", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/flash-sales", async (c) => {
+router.post("/make-server-3eae23a6/flash-sales", async (c) => {
   try {
     const { sales } = await c.req.json();
     if (!Array.isArray(sales)) {
@@ -75,7 +75,7 @@ async function attributeAffiliateSale(order: any) {
   return match;
 }
 
-router.get("/make-server-57095a78/affiliates/:email", async (c) => {
+router.get("/make-server-3eae23a6/affiliates/:email", async (c) => {
   try {
     const email = decodeURIComponent(c.req.param("email"));
     const stats = await kv.get(affiliateKey(email));
@@ -86,7 +86,7 @@ router.get("/make-server-57095a78/affiliates/:email", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/affiliates/:email", async (c) => {
+router.post("/make-server-3eae23a6/affiliates/:email", async (c) => {
   try {
     const email = decodeURIComponent(c.req.param("email"));
     const { stats } = await c.req.json();
@@ -104,7 +104,7 @@ router.post("/make-server-57095a78/affiliates/:email", async (c) => {
 // ─── TEMPORARY: purge the affiliate attribution demo data ──────────────────────
 // GET endpoint that removes the test affiliate and the demo orders created while
 // verifying attribution end-to-end. Remove this route once cleanup is confirmed.
-router.get("/make-server-57095a78/dev/purge-affiliate-demo", async (c) => {
+router.get("/make-server-3eae23a6/dev/purge-affiliate-demo", async (c) => {
   try {
     const removed: string[] = [];
 
@@ -136,7 +136,7 @@ router.get("/make-server-57095a78/dev/purge-affiliate-demo", async (c) => {
 // One loyalty account per customer, keyed by email.
 const loyaltyKey = (email: string) => `loyalty:${email.toLowerCase()}`;
 
-router.get("/make-server-57095a78/loyalty/:email", async (c) => {
+router.get("/make-server-3eae23a6/loyalty/:email", async (c) => {
   try {
     const email = decodeURIComponent(c.req.param("email"));
     const account = await kv.get(loyaltyKey(email));
@@ -147,7 +147,7 @@ router.get("/make-server-57095a78/loyalty/:email", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/loyalty/:email", async (c) => {
+router.post("/make-server-3eae23a6/loyalty/:email", async (c) => {
   try {
     const email = decodeURIComponent(c.req.param("email"));
     const { account, event } = await c.req.json();
@@ -173,7 +173,7 @@ router.post("/make-server-57095a78/loyalty/:email", async (c) => {
 // them; the Order Manager lists and updates fulfillment.
 const ORDER_PREFIX = "store_order:";
 
-router.get("/make-server-57095a78/store/orders", async (c) => {
+router.get("/make-server-3eae23a6/store/orders", async (c) => {
   try {
     const orders = await kv.getByPrefix(ORDER_PREFIX);
     const sorted = (orders || []).sort((a: any, b: any) =>
@@ -185,7 +185,7 @@ router.get("/make-server-57095a78/store/orders", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/store/orders", async (c) => {
+router.post("/make-server-3eae23a6/store/orders", async (c) => {
   try {
     const { order } = await c.req.json();
     if (!order || typeof order !== "object") {
@@ -234,7 +234,7 @@ router.post("/make-server-57095a78/store/orders", async (c) => {
   }
 });
 
-router.patch("/make-server-57095a78/store/orders/:orderId", async (c) => {
+router.patch("/make-server-3eae23a6/store/orders/:orderId", async (c) => {
   try {
     const orderId = c.req.param("orderId");
     const body = await c.req.json();

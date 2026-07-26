@@ -29,7 +29,7 @@ import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface SubscriptionPaymentDashboardProps {
   isOpen: boolean;

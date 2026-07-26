@@ -22,7 +22,7 @@ import { ActiveFlashBanner } from './FlashSaleManager';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface Product {
   id: string;
@@ -113,13 +113,17 @@ export default function PublicStore() {
   const [chatTyping, setChatTyping] = useState(false);
   const [chatUnread, setChatUnread] = useState(1);
 
-  // Fetch live products from connected dropshippers
+  // Fetch live catalog products. Shoppers are anonymous, so we read the PUBLIC
+  // /products endpoint (curated live catalog: manually added items + dropshipper
+  // items imported "to live"). The admin-only /dropshipper/inventory route can't
+  // be read with the anon key, which is why the store previously showed only the
+  // hardcoded fallback.
   useEffect(() => {
     async function loadDropshipProducts() {
       setLoadingProducts(true);
       try {
-        const res = await fetch(`${SERVER}/dropshipper/inventory`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        const res = await fetch(`${SERVER}/products?isActive=true`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
         });
         if (res.ok) {
           const data = await res.json();
@@ -204,7 +208,7 @@ export default function PublicStore() {
   async function submitLead(source = 'store_popup') {
     if (!leadEmail) return;
     try {
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/leads/capture`, {
+      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/leads/capture`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({

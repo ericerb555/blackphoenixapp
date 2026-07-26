@@ -9,7 +9,7 @@ const router = new Hono();
 // and shared across devices, while the frontend keeps its synchronous cache API.
 const PREFIX = "jobfin:";
 
-router.get("/make-server-57095a78/job-financials/snapshot", async (c) => {
+router.get("/make-server-3eae23a6/job-financials/snapshot", async (c) => {
   try {
     const rows = (await kv.getByPrefix(PREFIX)) || [];
     // Each stored value is { key, value }.
@@ -21,7 +21,7 @@ router.get("/make-server-57095a78/job-financials/snapshot", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/job-financials/kv", async (c) => {
+router.post("/make-server-3eae23a6/job-financials/kv", async (c) => {
   try {
     const { key, value } = await c.req.json();
     if (typeof key !== "string" || !key) {

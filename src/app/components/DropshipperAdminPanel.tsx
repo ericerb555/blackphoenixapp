@@ -17,7 +17,7 @@ import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
 import { StandardButton } from './ui/button';
 import ProductCatalogBrowser from './ProductCatalogBrowser';
 
-const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 async function secureHeaders(contentType = false) {
   const { supabase } = await import('../lib/supabase');

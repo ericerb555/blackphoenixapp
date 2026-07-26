@@ -56,7 +56,7 @@ export default function JobTrackingHub() {
   const loadChangeOrders = async () => {
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/change-orders`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/change-orders`,
         { headers: { Authorization: `Bearer ${publicAnonKey}` } }
       );
       if (!res.ok) throw new Error(`change-orders ${res.status}`);

@@ -73,7 +73,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
 
       // Load vendor profile
       const vendorResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/vendor-profile/${vendorId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-profile/${vendorId}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -84,7 +84,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
 
       // Load products
       const productsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/products?vendorId=${vendorId}&isActive=true`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/products?vendorId=${vendorId}&isActive=true`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

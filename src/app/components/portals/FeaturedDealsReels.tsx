@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Play, Tag, ExternalLink, Star, Clock, ChevronRight, Percent, Gift, Video } from 'lucide-react';
 
-const SERVER = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78';
+const SERVER = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTczMTIsImV4cCI6MjA4NTEzMzMxMn0.HcaTHZrVUG1qWfHnKr7ItKOHrDhDWoDaPFG46O1lu6o';
 
 // Static featured deals — shown when no live data

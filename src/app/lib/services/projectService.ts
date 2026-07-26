@@ -1,6 +1,6 @@
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   try {
@@ -33,7 +33,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
  */
 export async function testConnection() {
   try {
-    const response = await fetch(`${API_BASE}/make-server-57095a78/health`, {
+    const response = await fetch(`${API_BASE}/make-server-3eae23a6/health`, {
       headers: {
         'Authorization': `Bearer ${publicAnonKey}`,
       },

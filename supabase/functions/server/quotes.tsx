@@ -55,7 +55,7 @@ function normalizeDoc(input: any) {
 }
 
 // ── List all quotes/invoices ──────────────────────────────────────────────────
-quotesRouter.get("/make-server-57095a78/quotes", async (c) => {
+quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
   try {
     const docs = await kv.getByPrefix("quote:");
     return c.json({ success: true, quotes: docs || [] });
@@ -66,7 +66,7 @@ quotesRouter.get("/make-server-57095a78/quotes", async (c) => {
 });
 
 // ── Create or update a quote/invoice ──────────────────────────────────────────
-quotesRouter.post("/make-server-57095a78/quotes", async (c) => {
+quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
   try {
     const body = await c.req.json();
     const input = body?.quote || body;
@@ -87,7 +87,7 @@ quotesRouter.post("/make-server-57095a78/quotes", async (c) => {
 // ── Partial update (used by Design Studio to save the floor plan back) ─────────
 // Design Studio sends { floorPlanData, materials, lastModified } — we merge those
 // onto the existing quote without clobbering the customer-facing line items.
-quotesRouter.put("/make-server-57095a78/quotes/:id", async (c) => {
+quotesRouter.put("/make-server-3eae23a6/quotes/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -114,7 +114,7 @@ quotesRouter.put("/make-server-57095a78/quotes/:id", async (c) => {
 });
 
 // ── Assign / reassign a customer to an existing quote ─────────────────────────
-quotesRouter.post("/make-server-57095a78/quotes/:id/assign", async (c) => {
+quotesRouter.post("/make-server-3eae23a6/quotes/:id/assign", async (c) => {
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -140,7 +140,7 @@ quotesRouter.post("/make-server-57095a78/quotes/:id/assign", async (c) => {
 });
 
 // ── Delete a quote ────────────────────────────────────────────────────────────
-quotesRouter.delete("/make-server-57095a78/quotes/:id", async (c) => {
+quotesRouter.delete("/make-server-3eae23a6/quotes/:id", async (c) => {
   try {
     const id = c.req.param("id");
     await kv.del(`quote:${id}`);

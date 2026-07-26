@@ -141,7 +141,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
   const apiHeaders = async (contentType = false) => { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as an administrator to manage work orders.'); return { Authorization: `Bearer ${session.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; };
   const loadData = async () => {
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`, { headers: await apiHeaders() });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`, { headers: await apiHeaders() });
       const records = await response.json(); if (!response.ok || !Array.isArray(records)) throw new Error(records.error || 'Could not load work requests.');
       const requests = records.map((record: any) => ({ id: record.id, requestNumber: record.requestNumber || record.id, status: (record.status || 'pending') as WorkRequestStatus, customerName: record.client_name || record.clientName || '', customerEmail: record.client_email || record.clientEmail || '', customerPhone: record.client_phone || record.clientPhone || '', serviceType: record.serviceType || record.project_type || '', title: record.project_name || record.title || 'Service request', description: record.description || record.additionalNotes || '', location: record.address || record.siteAddress || '', urgency: record.urgency || 'medium', photos: record.photos || record.media_attachments?.photos || [], documents: record.documents || record.media_attachments?.blueprints || [], createdAt: record.created_at || record.createdAt || new Date().toISOString(), reviewedAt: record.reviewedAt, reviewedBy: record.reviewedBy, notes: record.notes }));
       setWorkRequests(requests); setWorkOrders(records.filter((record: any) => record.workOrder).map((record: any) => record.workOrder));
@@ -158,7 +158,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
     }
     const updatedOrder = { ...order, updatedAt: new Date().toISOString() };
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(order.requestId)}`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(order.requestId)}`, {
         method: 'PUT',
         headers: await apiHeaders(true),
         body: JSON.stringify({
@@ -172,7 +172,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
       if (updatedOrder.scheduledDate) {
         const day = updatedOrder.scheduledDate.slice(0, 10);
         const time = updatedOrder.scheduledTime || '09:00';
-        const scheduleResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(order.requestId)}/schedule`, {
+        const scheduleResponse = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(order.requestId)}/schedule`, {
           method: 'POST',
           headers: await apiHeaders(true),
           body: JSON.stringify({
@@ -217,7 +217,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
       updatedAt: new Date().toISOString()
     };
 
-    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(request.id)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', reviewedAt: new Date().toISOString(), workOrder: newOrder }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not create work order.'); saveOrders([...workOrders, newOrder]); saveRequests(workRequests.map(r => r.id === request.id ? { ...r, status: 'approved' as WorkRequestStatus, reviewedAt: new Date().toISOString() } : r)); toast.success(`Work order ${newOrder.workOrderNumber} created!`); } catch (error: any) { toast.error(error.message || 'Could not create work order.'); return; }
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(request.id)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', reviewedAt: new Date().toISOString(), workOrder: newOrder }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not create work order.'); saveOrders([...workOrders, newOrder]); saveRequests(workRequests.map(r => r.id === request.id ? { ...r, status: 'approved' as WorkRequestStatus, reviewedAt: new Date().toISOString() } : r)); toast.success(`Work order ${newOrder.workOrderNumber} created!`); } catch (error: any) { toast.error(error.message || 'Could not create work order.'); return; }
     setSelectedOrder(newOrder);
     setActiveTab('orders');
   };
@@ -246,7 +246,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
     });
 
     const updated = updatedOrders.find(order => order.id === orderId); if (!updated?.requestId) { toast.error('This work order is not linked to a persisted request.'); return; }
-    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: status === 'completed' ? 'completed' : 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not update work order status.'); saveOrders(updatedOrders); toast.success('Work order status updated!'); } catch (error: any) { toast.error(error.message || 'Could not update work order status.'); }
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: status === 'completed' ? 'completed' : 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not update work order status.'); saveOrders(updatedOrders); toast.success('Work order status updated!'); } catch (error: any) { toast.error(error.message || 'Could not update work order status.'); }
   };
 
   const assignWorkOrder = async (orderId: string, assignee: { id: string; name: string; type: 'crew' | 'contractor' }) => {
@@ -263,7 +263,7 @@ export default function WorkOrderManager({ view = 'all', onClose, onNavigate }: 
     );
 
     const updated = updatedOrders.find(order => order.id === orderId); if (!updated?.requestId) { toast.error('This work order is not linked to a persisted request.'); return; }
-    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not assign work order.'); saveOrders(updatedOrders); toast.success(`Assigned to ${assignee.name}!`); } catch (error: any) { toast.error(error.message || 'Could not assign work order.'); }
+    try { const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(updated.requestId)}`, { method: 'PUT', headers: await apiHeaders(true), body: JSON.stringify({ status: 'approved', workOrder: updated }) }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not assign work order.'); saveOrders(updatedOrders); toast.success(`Assigned to ${assignee.name}!`); } catch (error: any) { toast.error(error.message || 'Could not assign work order.'); }
   };
 
   const filteredRequests = workRequests.filter(request => {

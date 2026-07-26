@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Database, RefreshCw } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER_PREFIX = '/make-server-57095a78';
+const SERVER_PREFIX = '/make-server-3eae23a6';
 
 export default function DataPersistenceDiagnostics() {
   const [status, setStatus] = useState<{

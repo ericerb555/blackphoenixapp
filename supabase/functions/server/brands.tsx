@@ -2,9 +2,9 @@
  * Brands Router - KV Store Based Brand Management
  * 
  * Routes:
- * - GET    /make-server-57095a78/brands/:companyId - Get brand data for a company
- * - POST   /make-server-57095a78/brands/:companyId - Save/Update brand data for a company
- * - DELETE /make-server-57095a78/brands/:companyId - Delete brand data for a company
+ * - GET    /make-server-3eae23a6/brands/:companyId - Get brand data for a company
+ * - POST   /make-server-3eae23a6/brands/:companyId - Save/Update brand data for a company
+ * - DELETE /make-server-3eae23a6/brands/:companyId - Delete brand data for a company
  * 
  * All routes require authentication via Bearer token in Authorization header.
  */
@@ -48,7 +48,7 @@ const supabase = createClient(
 console.log("🎨 Brands Router loaded with CORS enabled");
 
 // Get brand data for a company
-brandsRouter.get('/make-server-57095a78/brands/:companyId', async (c) => {
+brandsRouter.get('/make-server-3eae23a6/brands/:companyId', async (c) => {
   try {
     console.log("[Brands] Fetching brand data...");
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -85,7 +85,7 @@ brandsRouter.get('/make-server-57095a78/brands/:companyId', async (c) => {
 });
 
 // Save/Update brand data for a company
-brandsRouter.post('/make-server-57095a78/brands/:companyId', async (c) => {
+brandsRouter.post('/make-server-3eae23a6/brands/:companyId', async (c) => {
   try {
     console.log("[Brands] Saving brand data...");
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -132,7 +132,7 @@ brandsRouter.post('/make-server-57095a78/brands/:companyId', async (c) => {
 });
 
 // Delete brand data for a company
-brandsRouter.delete('/make-server-57095a78/brands/:companyId', async (c) => {
+brandsRouter.delete('/make-server-3eae23a6/brands/:companyId', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     

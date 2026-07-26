@@ -56,7 +56,7 @@ export interface CustomerFilters {
   tags?: string[];
 }
 
-const CUSTOMER_ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/customers`;
+const CUSTOMER_ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/customers`;
 
 async function apiHeaders(contentType = false) {
   const { data: { session } } = await supabase.auth.getSession();

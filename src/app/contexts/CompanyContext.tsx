@@ -317,7 +317,7 @@ export function CompanyContextProvider({ children }: CompanyContextProviderProps
       }
 
       // Try to fetch companies from DATABASE via API
-      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies`;
+      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`;
       console.log('[CompanyContext] Attempting database fetch:', apiUrl);
 
       let response;

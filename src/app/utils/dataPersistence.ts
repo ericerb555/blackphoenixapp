@@ -20,7 +20,7 @@ import { stripDataUrlsDeep } from './imageStorage';
 const COMPRESSED_MARKER = '__lz_compressed__';
 
 // IMPORTANT: Use the correct server prefix for this project
-const SERVER_PREFIX = '/make-server-57095a78';
+const SERVER_PREFIX = '/make-server-3eae23a6';
 
 // UPDATED: Monitor only the NEW single-source keys (not old duplicate keys)
 const CRITICAL_KEYS = [

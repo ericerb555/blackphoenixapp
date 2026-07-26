@@ -17,7 +17,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 /**
  * Local fallback ruleset — mirrors the server's IRC 2021 defaults so the checker

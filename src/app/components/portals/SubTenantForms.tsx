@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { ClipboardList, PawPrint, LoaderCircle, PenLine, CheckCircle2, FileText } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const CONDITIONS = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged'];
 
 function typeLabel(t: string) {

@@ -7,10 +7,10 @@
  * This router handles all company CRUD operations using the KV store.
  * 
  * Routes:
- * - GET    /make-server-57095a78/companies - List all companies for authenticated user
- * - POST   /make-server-57095a78/companies - Create a new company
- * - PUT    /make-server-57095a78/companies/:id - Update a company
- * - DELETE /make-server-57095a78/companies/:id - Delete a company
+ * - GET    /make-server-3eae23a6/companies - List all companies for authenticated user
+ * - POST   /make-server-3eae23a6/companies - Create a new company
+ * - PUT    /make-server-3eae23a6/companies/:id - Update a company
+ * - DELETE /make-server-3eae23a6/companies/:id - Delete a company
  * 
  * All routes require authentication via Bearer token in Authorization header.
  */
@@ -54,7 +54,7 @@ const supabase = createClient(
 console.log("🏢 Companies Router loaded with CORS enabled");
 
 // Get all companies for a user
-companiesRouter.get('/make-server-57095a78/companies', async (c) => {
+companiesRouter.get('/make-server-3eae23a6/companies', async (c) => {
   try {
     console.log("[Companies] Fetching all companies...");
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -93,7 +93,7 @@ companiesRouter.get('/make-server-57095a78/companies', async (c) => {
 });
 
 // Create a new company
-companiesRouter.post('/make-server-57095a78/companies', async (c) => {
+companiesRouter.post('/make-server-3eae23a6/companies', async (c) => {
   try {
     console.log('[Companies] Creating new company...');
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -135,7 +135,7 @@ companiesRouter.post('/make-server-57095a78/companies', async (c) => {
 });
 
 // Update a company
-companiesRouter.put('/make-server-57095a78/companies/:id', async (c) => {
+companiesRouter.put('/make-server-3eae23a6/companies/:id', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
@@ -177,7 +177,7 @@ companiesRouter.put('/make-server-57095a78/companies/:id', async (c) => {
 });
 
 // Delete a company
-companiesRouter.delete('/make-server-57095a78/companies/:id', async (c) => {
+companiesRouter.delete('/make-server-3eae23a6/companies/:id', async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     

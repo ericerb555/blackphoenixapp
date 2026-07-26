@@ -15,7 +15,7 @@
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { ALL_SUBSCRIPTION_PLANS, type SubscriptionPlan } from '../config/subscriptionPlans';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export type PlanTier = 'starter' | 'professional' | 'enterprise';
 

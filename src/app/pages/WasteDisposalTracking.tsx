@@ -99,7 +99,7 @@ const COMMON_MATERIALS = [
 ];
 
 export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   const [activeTab, setActiveTab] = useState<'entries' | 'runs' | 'reports' | 'compliance'>('entries');
   const [wasteEntries, setWasteEntries] = useState<WasteEntry[]>([]);

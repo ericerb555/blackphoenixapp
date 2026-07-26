@@ -313,7 +313,7 @@ export default function MediaLibraryManager({
       formData.append('tags', '');
       formData.append('description', '');
 
-      const uploadUrl = `${API_BASE_URL}/make-server-57095a78/media/upload`;
+      const uploadUrl = `${API_BASE_URL}/make-server-3eae23a6/media/upload`;
       console.log('📡 Uploading media file...');
       console.log('  - File:', file.name);
       console.log('  - Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');

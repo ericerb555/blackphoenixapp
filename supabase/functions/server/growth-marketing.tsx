@@ -70,7 +70,7 @@ async function sendEmailViaResend(to: string[], subject: string, html: string) {
 // SMS MARKETING
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/sms/contacts", async (c) => {
+router.get("/make-server-3eae23a6/sms/contacts", async (c) => {
   try {
     const contacts = (await kv.getByPrefix("sms_contact:")) || [];
     contacts.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -81,7 +81,7 @@ router.get("/make-server-57095a78/sms/contacts", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/sms/contacts", async (c) => {
+router.post("/make-server-3eae23a6/sms/contacts", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.phone) return c.json({ success: false, error: "Phone number is required" }, 400);
@@ -102,7 +102,7 @@ router.post("/make-server-57095a78/sms/contacts", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/sms/contacts/:id", async (c) => {
+router.delete("/make-server-3eae23a6/sms/contacts/:id", async (c) => {
   try {
     await kv.del(SMS_CONTACT(c.req.param("id")));
     return c.json({ success: true });
@@ -111,7 +111,7 @@ router.delete("/make-server-57095a78/sms/contacts/:id", async (c) => {
   }
 });
 
-router.get("/make-server-57095a78/sms/campaigns", async (c) => {
+router.get("/make-server-3eae23a6/sms/campaigns", async (c) => {
   try {
     const campaigns = (await kv.getByPrefix("sms_campaign:")) || [];
     campaigns.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -122,7 +122,7 @@ router.get("/make-server-57095a78/sms/campaigns", async (c) => {
 });
 
 // Actually send an SMS blast through Twilio to a chosen audience.
-router.post("/make-server-57095a78/sms/send", async (c) => {
+router.post("/make-server-3eae23a6/sms/send", async (c) => {
   try {
     const b = await c.req.json();
     const { name, message, audience } = b as { name?: string; message?: string; audience?: string };
@@ -179,7 +179,7 @@ router.post("/make-server-57095a78/sms/send", async (c) => {
 // ABANDONED CART RECOVERY
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/abandoned-carts", async (c) => {
+router.get("/make-server-3eae23a6/abandoned-carts", async (c) => {
   try {
     const carts = (await kv.getByPrefix("abandoned_cart:")) || [];
     carts.sort((a: any, b: any) => new Date(b.abandonedAt).getTime() - new Date(a.abandonedAt).getTime());
@@ -190,7 +190,7 @@ router.get("/make-server-57095a78/abandoned-carts", async (c) => {
 });
 
 // Upsert an abandoned cart (called by the storefront when a checkout is left).
-router.post("/make-server-57095a78/abandoned-carts", async (c) => {
+router.post("/make-server-3eae23a6/abandoned-carts", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.email) return c.json({ success: false, error: "Email is required" }, 400);
@@ -213,7 +213,7 @@ router.post("/make-server-57095a78/abandoned-carts", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/abandoned-carts/:id/recover", async (c) => {
+router.post("/make-server-3eae23a6/abandoned-carts/:id/recover", async (c) => {
   try {
     const id = c.req.param("id");
     const cart: any = await kv.get(CART(id));
@@ -253,7 +253,7 @@ router.post("/make-server-57095a78/abandoned-carts/:id/recover", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/abandoned-carts/:id/mark-recovered", async (c) => {
+router.post("/make-server-3eae23a6/abandoned-carts/:id/mark-recovered", async (c) => {
   try {
     const id = c.req.param("id");
     const cart: any = await kv.get(CART(id));
@@ -270,7 +270,7 @@ router.post("/make-server-57095a78/abandoned-carts/:id/mark-recovered", async (c
 // PROMOTIONS
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/promotions", async (c) => {
+router.get("/make-server-3eae23a6/promotions", async (c) => {
   try {
     const promotions = (await kv.getByPrefix("promotion:")) || [];
     promotions.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -280,7 +280,7 @@ router.get("/make-server-57095a78/promotions", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/promotions", async (c) => {
+router.post("/make-server-3eae23a6/promotions", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.name || !b.code) return c.json({ success: false, error: "Name and code are required" }, 400);
@@ -307,7 +307,7 @@ router.post("/make-server-57095a78/promotions", async (c) => {
   }
 });
 
-router.put("/make-server-57095a78/promotions/:id", async (c) => {
+router.put("/make-server-3eae23a6/promotions/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const existing: any = await kv.get(PROMO(id));
@@ -326,7 +326,7 @@ router.put("/make-server-57095a78/promotions/:id", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/promotions/:id", async (c) => {
+router.delete("/make-server-3eae23a6/promotions/:id", async (c) => {
   try {
     await kv.del(PROMO(c.req.param("id")));
     return c.json({ success: true });
@@ -336,7 +336,7 @@ router.delete("/make-server-57095a78/promotions/:id", async (c) => {
 });
 
 // Validate a promo code (for the store/checkout to actually honor promotions).
-router.get("/make-server-57095a78/promotions/validate/:code", async (c) => {
+router.get("/make-server-3eae23a6/promotions/validate/:code", async (c) => {
   try {
     const code = c.req.param("code").toUpperCase();
     const promotions = (await kv.getByPrefix("promotion:")) || [];
@@ -355,7 +355,7 @@ router.get("/make-server-57095a78/promotions/validate/:code", async (c) => {
 // EXIT-INTENT LEAD CAPTURE
 // ════════════════════════════════════════════════════════════════════════════
 
-router.post("/make-server-57095a78/exit-intent/capture", async (c) => {
+router.post("/make-server-3eae23a6/exit-intent/capture", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.email || !b.email.includes("@")) return c.json({ success: false, error: "Valid email required" }, 400);
@@ -405,7 +405,7 @@ router.post("/make-server-57095a78/exit-intent/capture", async (c) => {
   }
 });
 
-router.get("/make-server-57095a78/exit-intent/leads", async (c) => {
+router.get("/make-server-3eae23a6/exit-intent/leads", async (c) => {
   try {
     const all = (await kv.getByPrefix("lead:")) || [];
     const leads = all.filter((l: any) => l.source === "exit-intent");
@@ -420,7 +420,7 @@ router.get("/make-server-57095a78/exit-intent/leads", async (c) => {
 // AI RANKING ENGINE — real OpenAI content generation + persistence
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/ranking/content", async (c) => {
+router.get("/make-server-3eae23a6/ranking/content", async (c) => {
   try {
     const content = (await kv.getByPrefix("ranking_content:")) || [];
     content.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -431,7 +431,7 @@ router.get("/make-server-57095a78/ranking/content", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/ranking/generate", async (c) => {
+router.post("/make-server-3eae23a6/ranking/generate", async (c) => {
   try {
     const b = await c.req.json();
     const type: string = b.type || "blog";
@@ -497,7 +497,7 @@ Return STRICT JSON only, no markdown fences, with keys:
   }
 });
 
-router.post("/make-server-57095a78/ranking/publish/:id", async (c) => {
+router.post("/make-server-3eae23a6/ranking/publish/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const piece: any = await kv.get(RANK_CONTENT(id));
@@ -510,7 +510,7 @@ router.post("/make-server-57095a78/ranking/publish/:id", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/ranking/auto", async (c) => {
+router.post("/make-server-3eae23a6/ranking/auto", async (c) => {
   try {
     const b = await c.req.json().catch(() => ({}));
     const settings = { autoRunning: !!b.autoRunning, updatedAt: new Date().toISOString(), ...b };

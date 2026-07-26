@@ -13,7 +13,7 @@ import { cors } from "npm:hono/cors";
 import * as kv from "./kv_store.tsx";
 
 const portalSettingsRouter = new Hono();
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 const KEY = "portal_global_settings:default";
 
 portalSettingsRouter.use("*", cors({

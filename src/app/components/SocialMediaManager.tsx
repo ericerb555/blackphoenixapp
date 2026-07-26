@@ -17,9 +17,9 @@ const API_BASE = (() => {
   try {
     // dynamically get from the same supabase info the rest of the app uses
     const { projectId } = require('../utils/supabase/info');
-    return `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+    return `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
   } catch {
-    return 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78';
+    return 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
   }
 })();
 
@@ -199,7 +199,7 @@ export default function SocialMediaManager() {
     setTimeout(() => setCopied(''), 2000);
   }
 
-  const REDIRECT_URI = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/social/callback';
+  const REDIRECT_URI = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/social/callback';
   const platformMeta = PLATFORMS.find(p => p.id === oauthTab)!;
 
   const PlatformIcon: Record<string, any> = { instagram: Instagram, facebook: Facebook, youtube: Youtube, tiktok: Music2, custom: Globe };

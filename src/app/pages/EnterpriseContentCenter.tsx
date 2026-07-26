@@ -1184,7 +1184,7 @@ export default function EnterpriseContentCenter() {
       };
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/reels`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1252,7 +1252,7 @@ export default function EnterpriseContentCenter() {
       });
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/video/ai-edit`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/video/ai-edit`,
         {
           method: 'POST',
           headers: {

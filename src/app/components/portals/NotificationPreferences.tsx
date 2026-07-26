@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { BellRing, LoaderCircle, Mail, MessageCircle, Monitor } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 type Channel = 'email' | 'sms' | 'inApp';
 interface EventPref { email: boolean; sms: boolean; inApp: boolean; }

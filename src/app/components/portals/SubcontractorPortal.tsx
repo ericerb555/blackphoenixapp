@@ -107,7 +107,7 @@ export default function SubcontractorPortal() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bids`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bids`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const payload = await response.json().catch(() => ({}));
         if (active && response.ok && payload.success) setSubmittedBids(payload.bids || []);
       } catch { /* Keep the portal usable if history is temporarily unavailable. */ }
@@ -140,7 +140,7 @@ export default function SubcontractorPortal() {
     setShowModal(false); setSelectedJob(null); setBidAmount(''); setBidNotes(''); setBidDuration(''); setBidMedia([]); setPlayingVideo(null);
     for (const item of pendingMedia) {
       URL.revokeObjectURL(item.url);
-      try { const { data: { session } } = await supabase.auth.getSession(); if (session?.access_token) await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } }); } catch { /* Submitted files return 409 and remain protected. */ }
+      try { const { data: { session } } = await supabase.auth.getSession(); if (session?.access_token) await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bid-attachments/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } }); } catch { /* Submitted files return 409 and remain protected. */ }
     }
   }
 
@@ -157,7 +157,7 @@ export default function SubcontractorPortal() {
         if (!isVideo && !isImage) { toast.error(`${file.name} is not a supported image or video`); continue; }
         if (file.size > 50 * 1024 * 1024) { toast.error(`${file.name} is too large (max 50MB)`); continue; }
         const form = new FormData(); form.set('file', file);
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bid-attachments`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload.success) throw new Error(payload.error || `Could not upload ${file.name}.`);
         setBidMedia((current) => [...current, { id: payload.attachment.id, type: payload.attachment.type, url: URL.createObjectURL(file), name: payload.attachment.name }]);
@@ -171,7 +171,7 @@ export default function SubcontractorPortal() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in before removing an attachment.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(target.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bid-attachments/${encodeURIComponent(target.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not remove attachment.');
       URL.revokeObjectURL(target.url); setBidMedia((current) => current.filter((_, itemIndex) => itemIndex !== idx));
     } catch (error: any) { toast.error(error.message || 'Could not remove attachment.'); }
@@ -180,7 +180,7 @@ export default function SubcontractorPortal() {
   async function openBidAttachment(attachmentId: string) {
     try {
       const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in to open bid attachments.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bid-attachments/${encodeURIComponent(attachmentId)}/download`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const payload = await response.json().catch(() => ({})); if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not open attachment.'); window.open(payload.url, '_blank', 'noopener,noreferrer');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bid-attachments/${encodeURIComponent(attachmentId)}/download`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const payload = await response.json().catch(() => ({})); if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not open attachment.'); window.open(payload.url, '_blank', 'noopener,noreferrer');
     } catch (error: any) { toast.error(error.message || 'Could not open attachment.'); }
   }
 
@@ -189,7 +189,7 @@ export default function SubcontractorPortal() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in before submitting a bid.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/subcontractor/bids`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ jobId: selectedJob.id, jobTitle: selectedJob.title, amount: Number(bidAmount), notes: bidNotes, duration: bidDuration, attachments: bidMedia.map((item) => ({ id: item.id })) }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bids`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ jobId: selectedJob.id, jobTitle: selectedJob.title, amount: Number(bidAmount), notes: bidNotes, duration: bidDuration, attachments: bidMedia.map((item) => ({ id: item.id })) }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not submit your bid.');
       setSubmittedBids((current) => [payload.bid, ...current]);

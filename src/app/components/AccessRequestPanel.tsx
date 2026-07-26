@@ -10,7 +10,7 @@ import { CheckCircle, XCircle, User, Clock, Send } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const AR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const AR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const arAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 function persistAccessRequests(requests: any[]) {

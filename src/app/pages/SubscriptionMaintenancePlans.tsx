@@ -29,7 +29,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 async function draftAuthHeaders() { const { data: { session } } = await supabase.auth.getSession(); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || publicAnonKey}` }; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

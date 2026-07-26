@@ -111,7 +111,7 @@ export default function CondoManagerPortalView() {
     if (!session?.access_token) { setRequests([]); setRequestsLoading(false); return; }
     setRequestsLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/condo-manager/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load work requests.');
       setRequests(Array.isArray(payload.workRequests) ? payload.workRequests : []);
@@ -124,7 +124,7 @@ export default function CondoManagerPortalView() {
     if (!session?.access_token) { setUnits([]); setUnitsLoading(false); return; }
     setUnitsLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/units`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/condo-manager/units`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load association units.');
       setUnits(Array.isArray(payload.units) ? payload.units : []);
     } catch (error: any) { setUnits([]); toast.error(error?.message || 'Unable to load association units.'); } finally { setUnitsLoading(false); }
@@ -134,7 +134,7 @@ export default function CondoManagerPortalView() {
   async function addUnit(event: React.FormEvent) {
     event.preventDefault(); if (!session?.access_token || savingUnit) return; setSavingUnit(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/units`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(unitDraft) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/condo-manager/units`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(unitDraft) });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add unit.');
       setUnits(current => [payload.unit, ...current]); setUnitDraft({ number: '', owner: '', status: 'occupied', dues: 'current' }); setShowUnitForm(false); toast.success('Unit added to the association roster.');
     } catch (error: any) { toast.error(error?.message || 'Unable to add unit.'); } finally { setSavingUnit(false); }
@@ -146,7 +146,7 @@ export default function CondoManagerPortalView() {
     const loadFinancials = async () => {
       setFinancialsLoading(true);
       try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/condo-manager/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load financial records.');
         if (!cancelled) setFinancials({ ...payload.summary, payments: Array.isArray(payload.payments) ? payload.payments : [], invoices: Array.isArray(payload.invoices) ? payload.invoices : [] });
@@ -160,7 +160,7 @@ export default function CondoManagerPortalView() {
   async function decide(id: string, decision: 'approved' | 'rejected') {
     if (!session?.access_token || decisionId) return; setDecisionId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/condo-manager/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/condo-manager/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to update work request.');
       setRequests(current => current.map(request => request.id === id ? payload.workRequest : request)); toast.success(decision === 'approved' ? 'Work request approved and saved.' : 'Work request rejected and saved.');
     } catch (error: any) { toast.error(error?.message || 'Unable to update work request.'); } finally { setDecisionId(null); }

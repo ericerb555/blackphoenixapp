@@ -35,7 +35,7 @@ console.log("📋 Pipeline Router loaded with CORS enabled");
 // ============================================================================
 
 // Get all pipeline items
-pipelineRouter.get("/make-server-57095a78/pipeline/items", async (c) => {
+pipelineRouter.get("/make-server-3eae23a6/pipeline/items", async (c) => {
   try {
     console.log("[Pipeline] Fetching all pipeline items...");
     const items = await kv.getByPrefix("pipeline_");
@@ -57,7 +57,7 @@ pipelineRouter.get("/make-server-57095a78/pipeline/items", async (c) => {
 });
 
 // Get a single pipeline item by ID
-pipelineRouter.get("/make-server-57095a78/pipeline/items/:id", async (c) => {
+pipelineRouter.get("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
   try {
     const id = c.req.param("id");
     console.log(`[Pipeline] Fetching item: ${id}`);
@@ -86,7 +86,7 @@ pipelineRouter.get("/make-server-57095a78/pipeline/items/:id", async (c) => {
 });
 
 // Create a new pipeline item
-pipelineRouter.post("/make-server-57095a78/pipeline/items", async (c) => {
+pipelineRouter.post("/make-server-3eae23a6/pipeline/items", async (c) => {
   try {
     const body = await c.req.json();
     console.log("[Pipeline] Creating new item:", body.id);
@@ -114,7 +114,7 @@ pipelineRouter.post("/make-server-57095a78/pipeline/items", async (c) => {
 });
 
 // Update a pipeline item
-pipelineRouter.put("/make-server-57095a78/pipeline/items/:id", async (c) => {
+pipelineRouter.put("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -156,7 +156,7 @@ pipelineRouter.put("/make-server-57095a78/pipeline/items/:id", async (c) => {
 });
 
 // Delete a pipeline item
-pipelineRouter.delete("/make-server-57095a78/pipeline/items/:id", async (c) => {
+pipelineRouter.delete("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
   try {
     const id = c.req.param("id");
     console.log(`[Pipeline] Deleting item: ${id}`);
@@ -178,7 +178,7 @@ pipelineRouter.delete("/make-server-57095a78/pipeline/items/:id", async (c) => {
 });
 
 // Move item to different stage
-pipelineRouter.post("/make-server-57095a78/pipeline/items/:id/move", async (c) => {
+pipelineRouter.post("/make-server-3eae23a6/pipeline/items/:id/move", async (c) => {
   try {
     const id = c.req.param("id");
     const { stage } = await c.req.json();
@@ -216,7 +216,7 @@ pipelineRouter.post("/make-server-57095a78/pipeline/items/:id/move", async (c) =
 });
 
 // Batch update multiple items
-pipelineRouter.post("/make-server-57095a78/pipeline/items/batch", async (c) => {
+pipelineRouter.post("/make-server-3eae23a6/pipeline/items/batch", async (c) => {
   try {
     const { items } = await c.req.json();
     console.log(`[Pipeline] Batch updating ${items?.length || 0} items`);
@@ -255,7 +255,7 @@ pipelineRouter.post("/make-server-57095a78/pipeline/items/batch", async (c) => {
 });
 
 // Health check for pipeline API
-pipelineRouter.get("/make-server-57095a78/pipeline/health", async (c) => {
+pipelineRouter.get("/make-server-3eae23a6/pipeline/health", async (c) => {
   console.log("[Pipeline] Health check");
   return c.json({ 
     success: true,

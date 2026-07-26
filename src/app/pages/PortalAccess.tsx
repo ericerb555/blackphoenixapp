@@ -168,7 +168,7 @@ export default function PortalAccess() {
       else { localStorage.removeItem('rememberMe'); localStorage.removeItem('lastEmail'); }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Your sign-in session could not be verified.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.access?.active) throw new Error('Your application is not active yet. Complete onboarding or contact Black Phoenix for assistance.');
       const roleForAccess: Record<string, UserRole> = { subcontractor: 'subcontractor', vendor: 'vendor', employee: 'employee', investor: 'investor' };

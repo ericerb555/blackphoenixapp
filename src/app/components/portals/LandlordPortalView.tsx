@@ -141,7 +141,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token) { setMaintenance([]); setMaintenanceLoading(false); return; }
     setMaintenanceLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/work-requests`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load maintenance requests.');
       setMaintenance(Array.isArray(payload.workRequests) ? payload.workRequests : []);
@@ -155,7 +155,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token) { setProperties([]); setPropertiesLoading(false); return; }
     setPropertiesLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load properties.');
       setProperties(Array.isArray(payload.properties) ? payload.properties : []);
@@ -168,7 +168,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token) { setTenants([]); setTenantsLoading(false); return; }
     setTenantsLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/tenants`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load tenants.');
       setTenants(Array.isArray(payload.tenants) ? payload.tenants : []);
@@ -182,7 +182,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token) { setStripeStatus(null); setStripeLoading(false); return; }
     setStripeLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/stripe/status`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/stripe/status`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load payout status.');
       setStripeStatus({ connected: !!payload.connected, chargesEnabled: !!payload.chargesEnabled, payoutsEnabled: !!payload.payoutsEnabled, detailsSubmitted: !!payload.detailsSubmitted });
@@ -207,7 +207,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token || stripeConnecting) return;
     setStripeConnecting(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/stripe/connect`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/stripe/connect`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success || !payload.url) throw new Error(payload?.error || 'Unable to start Stripe onboarding.');
       window.location.href = payload.url;
@@ -217,7 +217,7 @@ export default function LandlordPortalView() {
   async function addTenant(event: React.FormEvent) {
     event.preventDefault(); if (!session?.access_token || savingTenant) return; setSavingTenant(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...tenantDraft, rent: Number(tenantDraft.rent) }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/tenants`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...tenantDraft, rent: Number(tenantDraft.rent) }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) { if (payload?.quota) setTenantQuota(payload.quota); throw new Error(payload?.error || 'Unable to add tenant.'); }
       setTenants(current => [payload.tenant, ...current]); if (payload.quota) setTenantQuota(payload.quota); setTenantDraft({ name: '', email: '', unit: '', rent: '', status: 'current' }); setShowTenantForm(false); toast.success('Tenant sub-portal created.');
@@ -230,7 +230,7 @@ export default function LandlordPortalView() {
     if (!tenant.email) { toast.error('Add an email to this tenant first, then invite them.'); return; }
     setInvitingId(tenant.id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/tenants/${tenant.id}/invite`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/tenants/${tenant.id}/invite`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' } });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to invite tenant.');
       setTenants(current => current.map(t => t.id === tenant.id ? payload.tenant : t));
@@ -270,8 +270,8 @@ export default function LandlordPortalView() {
       Object.entries(propertyDraft).forEach(([k, v]) => fd.append(k, String(v ?? '')));
       propertyMedia.forEach((file, i) => fd.append(`media_${i}`, file));
       const url = isEdit
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${editingPropertyId}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`;
+        ? `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties/${editingPropertyId}`
+        : `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties`;
       const response = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: fd });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to save property.');
       setProperties(current => isEdit ? current.map(p => p.id === editingPropertyId ? payload.property : p) : [payload.property, ...current]);
@@ -285,7 +285,7 @@ export default function LandlordPortalView() {
     if (!window.confirm('Delete this property and its uploaded photos/videos? This cannot be undone.')) return;
     setDeletingId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to delete property.');
       setProperties(current => current.filter(p => p.id !== id));
       if (editingPropertyId === id) resetPropertyForm();
@@ -296,7 +296,7 @@ export default function LandlordPortalView() {
   async function createWorkOrders(id: string) {
     if (!session?.access_token || creatingOrdersId) return; setCreatingOrdersId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}/create-work-orders`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties/${id}/create-work-orders`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to create work orders.');
       toast.success(`Created ${payload.created} work order${payload.created === 1 ? '' : 's'} from the AI report.`);
       void loadMaintenance();
@@ -306,7 +306,7 @@ export default function LandlordPortalView() {
   async function analyzeProperty(id: string) {
     if (!session?.access_token || analyzingId) return; setAnalyzingId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}/analyze`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/properties/${id}/analyze`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
       const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to analyze property.');
       setProperties(current => current.map(p => p.id === id ? { ...p, aiCondition: payload.aiCondition } : p));
       toast.success('AI condition assessment complete.');
@@ -319,7 +319,7 @@ export default function LandlordPortalView() {
     const loadFinancials = async () => {
       setFinancialsLoading(true);
       try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/financials`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load financial records.');
         if (!cancelled) setFinancials({ ...payload.summary, payments: Array.isArray(payload.payments) ? payload.payments : [], invoices: Array.isArray(payload.invoices) ? payload.invoices : [] });
@@ -334,7 +334,7 @@ export default function LandlordPortalView() {
     if (!session?.access_token || decisionId) return;
     setDecisionId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/work-requests/${id}/decision`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to update maintenance request.');
       setMaintenance(current => current.map(request => request.id === id ? payload.workRequest : request));

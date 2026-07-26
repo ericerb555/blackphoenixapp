@@ -65,7 +65,7 @@ export default function CustomerMarketplace() {
     
     try {
       const productsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/products?isActive=true`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/products?isActive=true`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

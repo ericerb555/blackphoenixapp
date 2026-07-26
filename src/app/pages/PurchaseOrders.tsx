@@ -52,7 +52,7 @@ export default function PurchaseOrders() {
   const fetchOrders = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/purchase-orders`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -92,7 +92,7 @@ export default function PurchaseOrders() {
       };
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/purchase-orders`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
         {
           method: 'POST',
           headers: {
@@ -117,7 +117,7 @@ export default function PurchaseOrders() {
   const handleUpdateStatus = async (orderId: string, newStatus: PurchaseOrder['status']) => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/purchase-orders/${orderId}/status`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}/status`,
         {
           method: 'PATCH',
           headers: {
@@ -145,7 +145,7 @@ export default function PurchaseOrders() {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/purchase-orders/${orderId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}`,
         {
           method: 'DELETE',
           headers: {

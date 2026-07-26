@@ -65,7 +65,7 @@ export default function ResetPassword({ onNavigate }: ResetPasswordProps) {
 
     try {
       const response = await fetch(
-        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/auth/reset-password`,
+        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/auth/reset-password`,
         {
           method: 'POST',
           headers: {

@@ -101,7 +101,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
   useEffect(() => {
     const loadCommandSummary = async () => {
-      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center summary.'); setCommandSummary(result.summary); } catch (error) { console.error('[OwnersDashboard] Command Center summary unavailable:', error); }
+      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center summary.'); setCommandSummary(result.summary); } catch (error) { console.error('[OwnersDashboard] Command Center summary unavailable:', error); }
     };
     loadCommandSummary(); const interval = setInterval(loadCommandSummary, 60000); return () => clearInterval(interval);
   }, []);
@@ -309,7 +309,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         let accessRequests: any[] = [];
         try {
           const res = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/access-requests`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/access-requests`,
             { headers: { Authorization: `Bearer ${publicAnonKey}` } },
           );
           const json = await res.json();
@@ -360,7 +360,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in again before creating a portal invite.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/owner-provisioning/invites`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/owner-provisioning/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify(freePortalInvite),

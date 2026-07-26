@@ -21,7 +21,7 @@ async function checkServerAvailability(): Promise<boolean> {
   
   try {
     const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/health`,
+      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/health`,
       {
         method: 'GET',
         headers: {
@@ -47,7 +47,7 @@ export async function getCart(): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/${sessionId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/${sessionId}`,
         {
           method: 'GET',
           headers: {
@@ -83,7 +83,7 @@ export async function addToCart(productId: string, quantity: number, productDeta
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/add`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/add`,
         {
           method: 'POST',
           headers: {
@@ -121,7 +121,7 @@ export async function updateCartItem(itemId: string, quantity: number): Promise<
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/update`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/update`,
         {
           method: 'PUT',
           headers: {
@@ -159,7 +159,7 @@ export async function removeFromCart(itemId: string): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/remove`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/remove`,
         {
           method: 'DELETE',
           headers: {
@@ -197,7 +197,7 @@ export async function clearCart(): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/clear`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/clear`,
         {
           method: 'DELETE',
           headers: {

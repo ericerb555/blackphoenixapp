@@ -16,7 +16,7 @@ function ok(data: Record<string, unknown> = {}) {
 }
 
 // ─── CRM Contacts (Unified CRM Hub) ───────────────────────────────────────────
-router.get("/make-server-57095a78/crm/contacts", async (c) => {
+router.get("/make-server-3eae23a6/crm/contacts", async (c) => {
   try {
     const contacts = (await kv.get(CRM_CONTACTS_KEY)) || null;
     const hidden = (await kv.get(CRM_HIDDEN_KEY)) || [];
@@ -27,7 +27,7 @@ router.get("/make-server-57095a78/crm/contacts", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/crm/contacts", async (c) => {
+router.post("/make-server-3eae23a6/crm/contacts", async (c) => {
   try {
     const { contacts, hidden } = await c.req.json();
     if (Array.isArray(contacts)) await kv.set(CRM_CONTACTS_KEY, contacts);
@@ -40,7 +40,7 @@ router.post("/make-server-57095a78/crm/contacts", async (c) => {
 });
 
 // ─── Review / Survey Manager ──────────────────────────────────────────────────
-router.get("/make-server-57095a78/surveys", async (c) => {
+router.get("/make-server-3eae23a6/surveys", async (c) => {
   try {
     const surveys = (await kv.get(SURVEYS_KEY)) || null;
     return c.json(ok({ surveys }));
@@ -50,7 +50,7 @@ router.get("/make-server-57095a78/surveys", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/surveys", async (c) => {
+router.post("/make-server-3eae23a6/surveys", async (c) => {
   try {
     const { surveys } = await c.req.json();
     if (!Array.isArray(surveys)) {
@@ -65,7 +65,7 @@ router.post("/make-server-57095a78/surveys", async (c) => {
 });
 
 // ─── Influencer / Ambassador Tracker ──────────────────────────────────────────
-router.get("/make-server-57095a78/influencers", async (c) => {
+router.get("/make-server-3eae23a6/influencers", async (c) => {
   try {
     const influencers = (await kv.get(INFLUENCERS_KEY)) || null;
     return c.json(ok({ influencers }));
@@ -75,7 +75,7 @@ router.get("/make-server-57095a78/influencers", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/influencers", async (c) => {
+router.post("/make-server-3eae23a6/influencers", async (c) => {
   try {
     const { influencers } = await c.req.json();
     if (!Array.isArray(influencers)) {
@@ -90,7 +90,7 @@ router.post("/make-server-57095a78/influencers", async (c) => {
 });
 
 // ─── Affiliate Program (per-email stats) ──────────────────────────────────────
-router.get("/make-server-57095a78/affiliates/:email", async (c) => {
+router.get("/make-server-3eae23a6/affiliates/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const stats = (await kv.get(AFFILIATE(email))) || null;
@@ -101,7 +101,7 @@ router.get("/make-server-57095a78/affiliates/:email", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/affiliates/:email", async (c) => {
+router.post("/make-server-3eae23a6/affiliates/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const { stats } = await c.req.json();
@@ -117,7 +117,7 @@ router.post("/make-server-57095a78/affiliates/:email", async (c) => {
 });
 
 // ─── Maintenance Plan Draft (per-email checkout handoff) ───────────────────────
-router.get("/make-server-57095a78/maintenance-draft/:email", async (c) => {
+router.get("/make-server-3eae23a6/maintenance-draft/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const draft = (await kv.get(MAINT_DRAFT(email))) || null;
@@ -128,7 +128,7 @@ router.get("/make-server-57095a78/maintenance-draft/:email", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/maintenance-draft/:email", async (c) => {
+router.post("/make-server-3eae23a6/maintenance-draft/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const { draft } = await c.req.json();

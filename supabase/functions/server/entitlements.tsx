@@ -48,20 +48,20 @@ export async function recordEntitlementEvent(event: EntitlementEvent) {
   return { entry, duplicate: false, balance };
 }
 
-entitlementsRouter.get("/make-server-57095a78/entitlements/:planId", async c => {
+entitlementsRouter.get("/make-server-3eae23a6/entitlements/:planId", async c => {
   const planId = c.req.param("planId");
   const [balance, entries] = await Promise.all([kv.get(BALANCE(planId)), kv.getByPrefix(`entitlement_ledger:${planId}:`)]);
   return c.json({ success: true, balance: balance || null, entries: (entries || []).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")) });
 });
 
-entitlementsRouter.post("/make-server-57095a78/entitlements/events", async c => {
+entitlementsRouter.post("/make-server-3eae23a6/entitlements/events", async c => {
   try { return c.json({ success: true, ...(await recordEntitlementEvent(await c.req.json())) }); }
   catch (error: any) { return c.json({ success: false, error: error.message || "Could not record entitlement event" }, 400); }
 });
 
 // Shared read model for every portal. It references existing plans, contracts,
 // invoices and ledger balances; it does not create a second financial system.
-entitlementsRouter.get("/make-server-57095a78/entitlements-summary", async c => {
+entitlementsRouter.get("/make-server-3eae23a6/entitlements-summary", async c => {
   try {
     const owner = String(c.req.query("owner") || c.req.query("email") || "").toLowerCase();
     const portalType = String(c.req.query("portalType") || "");

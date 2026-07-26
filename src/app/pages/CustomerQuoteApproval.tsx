@@ -103,7 +103,7 @@ export default function CustomerQuoteApproval() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     if (token) {
-      fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/by-token/${token}`, {
+      fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}`, {
         headers: { Authorization: `Bearer ${publicAnonKey}` },
       })
         .then(r => r.ok ? r.json() : null)
@@ -197,7 +197,7 @@ export default function CustomerQuoteApproval() {
         : null;
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/by-token/${token}/sign`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}/sign`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
@@ -867,7 +867,7 @@ export default function CustomerQuoteApproval() {
             onClick={async () => {
               const depositAmt = Math.round(quote.totalCost * 0.30);
               const res = await fetch(
-                `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`,
+                `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`,
                 {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },

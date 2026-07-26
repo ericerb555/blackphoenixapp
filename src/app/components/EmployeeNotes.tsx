@@ -5,7 +5,7 @@ import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface Note { id: string; content: string; author: string; authorId?: string; createdAt: string; updatedAt?: string; }
 interface EmployeeNotesProps { project: any; onClose: () => void; onSave?: (notes: Note[]) => void; }

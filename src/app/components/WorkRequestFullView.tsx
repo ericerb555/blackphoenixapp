@@ -87,7 +87,7 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${wrId}`, {
+      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${wrId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ media_attachments: { photos, videos } }),

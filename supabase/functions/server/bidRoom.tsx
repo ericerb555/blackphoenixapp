@@ -15,7 +15,7 @@ import { cors } from "npm:hono/cors";
 import * as kv from "./kv_store.tsx";
 
 const bidRoomRouter = new Hono();
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 
 bidRoomRouter.use("*", cors({
   origin: "*",

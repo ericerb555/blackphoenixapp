@@ -357,7 +357,7 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
     }
   });
 
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   // Load any previously saved settings from the server, merging over the defaults
   // so newly-added setting fields still have sensible values.

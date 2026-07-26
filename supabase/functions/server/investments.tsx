@@ -10,7 +10,7 @@ const router = new Hono();
 const PREFIX = "investment_opp:";
 
 // GET all opportunities
-router.get("/make-server-57095a78/investments/opportunities", async (c) => {
+router.get("/make-server-3eae23a6/investments/opportunities", async (c) => {
   try {
     const opportunities = await kv.getByPrefix(PREFIX);
     return c.json({ success: true, opportunities: opportunities || [] });
@@ -21,7 +21,7 @@ router.get("/make-server-57095a78/investments/opportunities", async (c) => {
 });
 
 // POST create an opportunity
-router.post("/make-server-57095a78/investments/opportunities", async (c) => {
+router.post("/make-server-3eae23a6/investments/opportunities", async (c) => {
   try {
     const body = await c.req.json();
     const id = body.id || `opp-${Date.now()}`;
@@ -40,7 +40,7 @@ router.post("/make-server-57095a78/investments/opportunities", async (c) => {
 });
 
 // PUT update an opportunity (accepts partial fields)
-router.put("/make-server-57095a78/investments/opportunities/:id", async (c) => {
+router.put("/make-server-3eae23a6/investments/opportunities/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -58,7 +58,7 @@ router.put("/make-server-57095a78/investments/opportunities/:id", async (c) => {
 });
 
 // DELETE an opportunity
-router.delete("/make-server-57095a78/investments/opportunities/:id", async (c) => {
+router.delete("/make-server-3eae23a6/investments/opportunities/:id", async (c) => {
   try {
     const id = c.req.param("id");
     await kv.del(`${PREFIX}${id}`);

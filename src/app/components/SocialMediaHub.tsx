@@ -15,7 +15,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { useCompany } from '../contexts/CompanyContext';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface SocialAccount {
   platform: 'facebook' | 'instagram' | 'tiktok';

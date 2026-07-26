@@ -30,7 +30,7 @@ import { getAdminAlerts, addAdminAlert, updateAlertStatus, deleteAlert as delete
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface AdminAlertsPanelProps {
   onNavigate?: (route: string) => void;
@@ -359,7 +359,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || publicAnonKey;
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/notifications/admin-alerts`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/admin-alerts`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.ok) {
@@ -408,7 +408,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
         // Try server endpoint
         try {
           const res = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (res.ok) {

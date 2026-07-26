@@ -175,7 +175,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
     setLoading(true);
 
     try {
-      const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       const fullName = `${formData.firstName} ${formData.lastName}`.trim();
 
       // 1) Create the real auth account (also creates profile, role, CRM entry).

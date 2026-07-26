@@ -3,7 +3,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 /**
  * Centralized API configuration
  * The Supabase Edge Function is named "server"
- * All routes use the prefix /make-server-57095a78
+ * All routes use the prefix /make-server-3eae23a6
  */
 export const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
 

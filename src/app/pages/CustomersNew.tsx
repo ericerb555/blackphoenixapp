@@ -63,7 +63,7 @@ export default function CustomersNew() {
     try {
       if (localStorage.getItem('crm_backfill_done') === 'true') return;
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/admin/backfill-crm`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/admin/backfill-crm`,
         {
           method: 'POST',
           headers: {

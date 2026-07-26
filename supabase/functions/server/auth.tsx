@@ -75,7 +75,7 @@ async function ensureCrmCustomer(params: {
  * Called right after a successful signup to add the user to the CRM and
  * persist their profile. Safe to call multiple times (deduped by email).
  */
-authRouter.post("/make-server-57095a78/auth/register-crm", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/register-crm", async (c) => {
   try {
     const { email, fullName, phone, userId, accountType } = await c.req.json();
     if (!email) {
@@ -97,7 +97,7 @@ authRouter.post("/make-server-57095a78/auth/register-crm", async (c) => {
  * One-time recovery: iterate all existing auth users and ensure each has a
  * CRM customer record. Fixes users who signed up before CRM sync existed.
  */
-authRouter.post("/make-server-57095a78/admin/backfill-crm", async (c) => {
+authRouter.post("/make-server-3eae23a6/admin/backfill-crm", async (c) => {
   try {
     const supabase = getSupabaseAdmin();
     let created = 0;
@@ -164,7 +164,7 @@ const getSupabaseClient = () => {
 };
 
 // Sign up endpoint
-authRouter.post("/make-server-57095a78/auth/signup", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
   try {
     const { email, password, full_name, role = "client" } = await c.req.json();
 
@@ -242,7 +242,7 @@ authRouter.post("/make-server-57095a78/auth/signup", async (c) => {
       // Only send if customer signup notifications are enabled
       if (notificationSettings.triggers?.customerSignup !== false) {
         // Call the notification endpoint (fire and forget)
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-57095a78/notifications/customer-signup`, {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/notifications/customer-signup`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -278,7 +278,7 @@ authRouter.post("/make-server-57095a78/auth/signup", async (c) => {
 });
 
 // Verify token endpoint
-authRouter.post("/make-server-57095a78/auth/verify", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/verify", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -318,7 +318,7 @@ authRouter.post("/make-server-57095a78/auth/verify", async (c) => {
 });
 
 // Get current user profile
-authRouter.get("/make-server-57095a78/auth/me", async (c) => {
+authRouter.get("/make-server-3eae23a6/auth/me", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -365,7 +365,7 @@ authRouter.get("/make-server-57095a78/auth/me", async (c) => {
 });
 
 // Update user profile
-authRouter.patch("/make-server-57095a78/auth/profile", async (c) => {
+authRouter.patch("/make-server-3eae23a6/auth/profile", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -403,7 +403,7 @@ authRouter.patch("/make-server-57095a78/auth/profile", async (c) => {
 });
 
 // Complete onboarding
-authRouter.post("/make-server-57095a78/auth/complete-onboarding", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/complete-onboarding", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -458,7 +458,7 @@ authRouter.post("/make-server-57095a78/auth/complete-onboarding", async (c) => {
 });
 
 // Admin: Get all users
-authRouter.get("/make-server-57095a78/admin/users", async (c) => {
+authRouter.get("/make-server-3eae23a6/admin/users", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -541,7 +541,7 @@ authRouter.get("/make-server-57095a78/admin/users", async (c) => {
 });
 
 // Admin: Update user role
-authRouter.patch("/make-server-57095a78/admin/users/:userId/role", async (c) => {
+authRouter.patch("/make-server-3eae23a6/admin/users/:userId/role", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -598,7 +598,7 @@ authRouter.patch("/make-server-57095a78/admin/users/:userId/role", async (c) => 
 });
 
 // Admin: Toggle user status (activate/deactivate)
-authRouter.patch("/make-server-57095a78/admin/users/:userId/status", async (c) => {
+authRouter.patch("/make-server-3eae23a6/admin/users/:userId/status", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -652,7 +652,7 @@ authRouter.patch("/make-server-57095a78/admin/users/:userId/status", async (c) =
 });
 
 // Admin: Delete user
-authRouter.delete("/make-server-57095a78/admin/users/:userId", async (c) => {
+authRouter.delete("/make-server-3eae23a6/admin/users/:userId", async (c) => {
   try {
     const authHeader = c.req.header("Authorization");
     
@@ -702,7 +702,7 @@ authRouter.delete("/make-server-57095a78/admin/users/:userId", async (c) => {
 });
 
 // Password Reset: Request reset email
-authRouter.post("/make-server-57095a78/auth/forgot-password", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/forgot-password", async (c) => {
   try {
     const { email } = await c.req.json();
 
@@ -741,7 +741,7 @@ authRouter.post("/make-server-57095a78/auth/forgot-password", async (c) => {
 });
 
 // Password Reset: Verify token and update password
-authRouter.post("/make-server-57095a78/auth/reset-password", async (c) => {
+authRouter.post("/make-server-3eae23a6/auth/reset-password", async (c) => {
   try {
     const { token, password } = await c.req.json();
 

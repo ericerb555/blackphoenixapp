@@ -10,7 +10,7 @@ const GATEWAYS_KEY = "payment_gateways:default";
 const BRANDING_KEY = "public_branding:default";
 
 // --- Media library (bulk array) -----------------------------------------------
-router.get("/make-server-57095a78/media-library", async (c) => {
+router.get("/make-server-3eae23a6/media-library", async (c) => {
   try {
     const items = await kv.get(MEDIA_KEY);
     return c.json({ success: true, items: Array.isArray(items) ? items : null });
@@ -20,7 +20,7 @@ router.get("/make-server-57095a78/media-library", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/media-library", async (c) => {
+router.post("/make-server-3eae23a6/media-library", async (c) => {
   try {
     const { items } = await c.req.json();
     await kv.set(MEDIA_KEY, Array.isArray(items) ? items : []);
@@ -32,7 +32,7 @@ router.post("/make-server-57095a78/media-library", async (c) => {
 });
 
 // --- QR codes (bulk array) ----------------------------------------------------
-router.get("/make-server-57095a78/qr-codes", async (c) => {
+router.get("/make-server-3eae23a6/qr-codes", async (c) => {
   try {
     const codes = await kv.get(QR_KEY);
     return c.json({ success: true, codes: Array.isArray(codes) ? codes : null });
@@ -42,7 +42,7 @@ router.get("/make-server-57095a78/qr-codes", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/qr-codes", async (c) => {
+router.post("/make-server-3eae23a6/qr-codes", async (c) => {
   try {
     const { codes } = await c.req.json();
     await kv.set(QR_KEY, Array.isArray(codes) ? codes : []);
@@ -54,7 +54,7 @@ router.post("/make-server-57095a78/qr-codes", async (c) => {
 });
 
 // --- Access requests (bulk array) ---------------------------------------------
-router.get("/make-server-57095a78/access-requests", async (c) => {
+router.get("/make-server-3eae23a6/access-requests", async (c) => {
   try {
     const requests = await kv.get(ACCESS_REQ_KEY);
     return c.json({ success: true, requests: Array.isArray(requests) ? requests : [] });
@@ -64,7 +64,7 @@ router.get("/make-server-57095a78/access-requests", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/access-requests", async (c) => {
+router.post("/make-server-3eae23a6/access-requests", async (c) => {
   try {
     const { requests } = await c.req.json();
     await kv.set(ACCESS_REQ_KEY, Array.isArray(requests) ? requests : []);
@@ -79,7 +79,7 @@ router.post("/make-server-57095a78/access-requests", async (c) => {
 // SECURITY: we deliberately store and return only the non-secret gateway state
 // (is_active, test_mode, timestamps). API keys/secrets are never sent to or from
 // this anon-readable endpoint — they stay in the operator's local browser.
-router.get("/make-server-57095a78/payment-gateways", async (c) => {
+router.get("/make-server-3eae23a6/payment-gateways", async (c) => {
   try {
     const configs = await kv.get(GATEWAYS_KEY);
     return c.json({ success: true, configs: configs && typeof configs === "object" ? configs : {} });
@@ -89,7 +89,7 @@ router.get("/make-server-57095a78/payment-gateways", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/payment-gateways", async (c) => {
+router.post("/make-server-3eae23a6/payment-gateways", async (c) => {
   try {
     const { configs } = await c.req.json();
     const safe: Record<string, any> = {};
@@ -119,7 +119,7 @@ router.post("/make-server-57095a78/payment-gateways", async (c) => {
 // GET is intentionally public-friendly (anon key) so unauthenticated landing-page
 // visitors can load the brand. We never store base64 logo blobs — only real
 // Storage URLs — so the response is safe to transfer across devices.
-router.get("/make-server-57095a78/public/branding", async (c) => {
+router.get("/make-server-3eae23a6/public/branding", async (c) => {
   try {
     const branding = await kv.get(BRANDING_KEY);
     if (!branding) return c.json(null);
@@ -130,7 +130,7 @@ router.get("/make-server-57095a78/public/branding", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/branding-profile", async (c) => {
+router.post("/make-server-3eae23a6/branding-profile", async (c) => {
   try {
     const { branding } = await c.req.json();
     const b = branding && typeof branding === "object" ? { ...branding } : {};

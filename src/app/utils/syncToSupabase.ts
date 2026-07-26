@@ -5,7 +5,7 @@
 
 import { projectId, publicAnonKey } from './supabase/info';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 /**
  * Sync company/business profile data to Supabase

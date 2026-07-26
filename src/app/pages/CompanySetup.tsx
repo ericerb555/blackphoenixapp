@@ -93,7 +93,7 @@ export default function CompanySetup({ onNavigate }: CompanySetupProps) {
         return;
       }
 
-      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies`;
+      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`;
       const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -182,7 +182,7 @@ export default function CompanySetup({ onNavigate }: CompanySetupProps) {
       }
 
       // Create company via API
-      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies`;
+      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`;
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {

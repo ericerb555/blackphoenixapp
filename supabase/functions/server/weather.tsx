@@ -11,7 +11,7 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 
 const weatherRouter = new Hono();
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 
 weatherRouter.use("*", cors({
   origin: "*",

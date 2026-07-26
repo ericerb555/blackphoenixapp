@@ -209,8 +209,8 @@ export default function Login({ onNavigate }: LoginProps) {
         };
         try {
           const [identity, onboarding] = await Promise.all([
-            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auth/me`),
-            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-onboarding`),
+            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/me`),
+            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-onboarding`),
           ]);
           if (identity?.user?.role && !isOwnerEmail) {
             const verifiedRole = String(identity.user.role).toLowerCase();

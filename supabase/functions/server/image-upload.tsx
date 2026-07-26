@@ -5,8 +5,8 @@
  * returns permanent public URLs (unlike media-library's 24h signed URLs).
  *
  * ENDPOINTS:
- * - POST /make-server-57095a78/images/upload       → JSON { dataUrl, folder? } (base64 data URL)
- * - POST /make-server-57095a78/images/upload-file  → multipart/form-data { file, folder? }
+ * - POST /make-server-3eae23a6/images/upload       → JSON { dataUrl, folder? } (base64 data URL)
+ * - POST /make-server-3eae23a6/images/upload-file  → multipart/form-data { file, folder? }
  *
  * STORAGE:
  * - Bucket: make-57095a78-images (public)
@@ -122,7 +122,7 @@ async function uploadBytes(bytes: Uint8Array, mime: string, folder: string): Pro
  * POST /images/upload — base64 data URL in JSON. Best for migrating existing
  * localStorage images and for small client uploads.
  */
-imageUploadRouter.post("/make-server-57095a78/images/upload", async (c) => {
+imageUploadRouter.post("/make-server-3eae23a6/images/upload", async (c) => {
   try {
     const { dataUrl, folder } = await c.req.json();
     if (!dataUrl || typeof dataUrl !== "string") {
@@ -150,7 +150,7 @@ imageUploadRouter.post("/make-server-57095a78/images/upload", async (c) => {
 /**
  * POST /images/upload-file — multipart file upload.
  */
-imageUploadRouter.post("/make-server-57095a78/images/upload-file", async (c) => {
+imageUploadRouter.post("/make-server-3eae23a6/images/upload-file", async (c) => {
   try {
     const form = await c.req.formData();
     const file = form.get("file") as File | null;

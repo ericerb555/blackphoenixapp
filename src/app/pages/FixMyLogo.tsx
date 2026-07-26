@@ -53,7 +53,7 @@ export default function FixMyLogo() {
     // Check what the live site public endpoint returns
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/branding`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
         { headers: { Authorization: `Bearer ${publicAnonKey}` } }
       );
       if (res.ok) {
@@ -87,7 +87,7 @@ export default function FixMyLogo() {
       // Upload base64 to Supabase Storage
       setMessage('Uploading logo to permanent storage...');
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/logo/upload`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
@@ -118,7 +118,7 @@ export default function FixMyLogo() {
 
     // Bust server cache
     await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/branding/refresh`,
+      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding/refresh`,
       { method: 'POST', headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' } }
     );
 

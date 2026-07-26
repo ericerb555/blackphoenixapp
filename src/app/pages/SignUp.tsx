@@ -74,7 +74,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
       // The endpoint is idempotent by code + new email, so a retry cannot double-count it.
       const referralCode = new URLSearchParams(window.location.search).get('ref')?.trim();
       if (referralCode) {
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/referrals/attributions`, {
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/referrals/attributions`, {
           method: 'POST', headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: referralCode, referredEmail: formData.email, referredName: formData.fullName.trim() }),
         }).catch(() => undefined);

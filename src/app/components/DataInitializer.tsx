@@ -31,7 +31,7 @@ export default function DataInitializer() {
     console.log('💾 This app uses localStorage as primary data store - server init is optional');
     
     try {
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       const headers = {
         'Authorization': `Bearer ${publicAnonKey}`,
         'Content-Type': 'application/json'

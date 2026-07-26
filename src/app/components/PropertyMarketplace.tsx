@@ -17,7 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -350,7 +350,7 @@ function Stars({ rating }: { rating: number }) {
 
 async function processCheckout(items: CartItem[], email: string, name: string): Promise<boolean> {
   try {
-    const CHECKOUT_URL = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/marketplace/checkout`;
+    const CHECKOUT_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/marketplace/checkout`;
     const res = await fetch(CHECKOUT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },

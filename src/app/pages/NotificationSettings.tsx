@@ -111,7 +111,7 @@ export default function NotificationSettings() {
     setIsTesting(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/notifications/test-email`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-email`,
         {
           method: 'POST',
           headers: {
@@ -150,7 +150,7 @@ export default function NotificationSettings() {
     setIsTesting(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/notifications/test-sms`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-sms`,
         {
           method: 'POST',
           headers: {

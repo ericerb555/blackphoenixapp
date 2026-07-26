@@ -30,7 +30,7 @@ export default function ForgotPassword({ onNavigate }: ForgotPasswordProps) {
 
     try {
       const response = await fetch(
-        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/auth/forgot-password`,
+        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/auth/forgot-password`,
         {
           method: 'POST',
           headers: {

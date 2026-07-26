@@ -39,7 +39,7 @@ function genId() {
 
 // ── Tier config ───────────────────────────────────────────────────────────────
 
-techRosterRouter.get("/make-server-57095a78/tech-tiers/config", async (c) => {
+techRosterRouter.get("/make-server-3eae23a6/tech-tiers/config", async (c) => {
   try {
     const stored = await kv.get(TIERS_KEY);
     const tiers = Array.isArray(stored?.tiers) && stored.tiers.length > 0 ? stored.tiers : DEFAULT_TIERS;
@@ -50,7 +50,7 @@ techRosterRouter.get("/make-server-57095a78/tech-tiers/config", async (c) => {
   }
 });
 
-techRosterRouter.post("/make-server-57095a78/tech-tiers/config", async (c) => {
+techRosterRouter.post("/make-server-3eae23a6/tech-tiers/config", async (c) => {
   try {
     const body = await c.req.json();
     const tiers = body?.tiers;
@@ -76,7 +76,7 @@ techRosterRouter.post("/make-server-57095a78/tech-tiers/config", async (c) => {
 
 // ── Tech roster ─────────────────────────────────────────────────────────────
 
-techRosterRouter.get("/make-server-57095a78/tech-roster", async (c) => {
+techRosterRouter.get("/make-server-3eae23a6/tech-roster", async (c) => {
   try {
     const techs = await kv.getByPrefix("tech:");
     return c.json({ success: true, techs: techs || [] });
@@ -86,7 +86,7 @@ techRosterRouter.get("/make-server-57095a78/tech-roster", async (c) => {
   }
 });
 
-techRosterRouter.post("/make-server-57095a78/tech-roster", async (c) => {
+techRosterRouter.post("/make-server-3eae23a6/tech-roster", async (c) => {
   try {
     const body = await c.req.json();
     const input = body?.tech;
@@ -117,7 +117,7 @@ techRosterRouter.post("/make-server-57095a78/tech-roster", async (c) => {
   }
 });
 
-techRosterRouter.delete("/make-server-57095a78/tech-roster/:id", async (c) => {
+techRosterRouter.delete("/make-server-3eae23a6/tech-roster/:id", async (c) => {
   try {
     const id = c.req.param("id");
     await kv.del(`tech:${id}`);

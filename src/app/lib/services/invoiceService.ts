@@ -177,7 +177,7 @@ export interface ValidationError {
 }
 
 export class InvoiceService {
-  private static readonly endpoint = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/invoices`;
+  private static readonly endpoint = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices`;
 
   private static async headers(contentType = false) {
     const { data: { session } } = await supabase.auth.getSession();

@@ -5,7 +5,7 @@
  * route stores those images in private Supabase Storage and records their
  * metadata on the quote doc, so the crew has concrete plans to build from.
  *
- * Routes (all prefixed /make-server-57095a78):
+ * Routes (all prefixed /make-server-3eae23a6):
  *   POST   /quotes/:id/deliverables        body { name, kind, dataUrl }
  *   GET    /quotes/:id/deliverables        → { deliverables:[{..., signedUrl}] }
  *   DELETE /quotes/:id/deliverables/:did
@@ -66,7 +66,7 @@ function extFor(contentType: string): string {
 }
 
 // ── Attach a plan/rendering to a quote ────────────────────────────────────────
-deliverablesRouter.post("/make-server-57095a78/quotes/:id/deliverables", async (c) => {
+deliverablesRouter.post("/make-server-3eae23a6/quotes/:id/deliverables", async (c) => {
   try {
     const quoteId = c.req.param("id");
     const body = await c.req.json();
@@ -108,7 +108,7 @@ deliverablesRouter.post("/make-server-57095a78/quotes/:id/deliverables", async (
 });
 
 // ── List a quote's deliverables (with fresh signed URLs) ──────────────────────
-deliverablesRouter.get("/make-server-57095a78/quotes/:id/deliverables", async (c) => {
+deliverablesRouter.get("/make-server-3eae23a6/quotes/:id/deliverables", async (c) => {
   try {
     const quoteId = c.req.param("id");
     const quote = await kv.get(`quote:${quoteId}`);
@@ -126,7 +126,7 @@ deliverablesRouter.get("/make-server-57095a78/quotes/:id/deliverables", async (c
 });
 
 // ── Remove a deliverable ──────────────────────────────────────────────────────
-deliverablesRouter.delete("/make-server-57095a78/quotes/:id/deliverables/:did", async (c) => {
+deliverablesRouter.delete("/make-server-3eae23a6/quotes/:id/deliverables/:did", async (c) => {
   try {
     const quoteId = c.req.param("id");
     const did = c.req.param("did");

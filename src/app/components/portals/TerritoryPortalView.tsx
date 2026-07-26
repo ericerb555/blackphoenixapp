@@ -89,7 +89,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/settings`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Could not load territory settings.');
         if (mounted && data.settings) setTerritorySettings(data.settings);
@@ -112,8 +112,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
         if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
         const headers = { Authorization: `Bearer ${session.access_token}` };
         const [customerResponse, subResponse] = await Promise.all([
-          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers`, { headers }),
-          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subcontractors`, { headers }),
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/customers`, { headers }),
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/subcontractors`, { headers }),
         ]);
         const [customerData, subData] = await Promise.all([customerResponse.json(), subResponse.json()]);
         if (!customerResponse.ok || !customerData.success) throw new Error(customerData.error || 'Could not load customers.');
@@ -136,7 +136,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Could not load territory subscriptions.');
         if (mounted) {
@@ -156,7 +156,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       if (!user?.id) { setPipeline([]); setPipelineLoading(false); return; }
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`, { headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`, { headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` } });
         const data = await response.json(); if (!response.ok || !Array.isArray(data)) throw new Error(data.error || 'Could not load territory pipeline.');
         setPipeline(data.map((record: any) => ({ id: record.id, customer: record.client_name || record.clientName || 'Customer', service: record.serviceType || record.project_type || 'Service request', status: record.status || 'new', priority: record.urgency || 'medium', submitted: record.created_at || record.createdAt || '', budget: record.budget || 'Quote pending', description: record.description || '', raw: record })));
       } catch (error: any) { toast.error(error.message || 'Could not load the territory pipeline.'); setPipeline([]); }
@@ -167,7 +167,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
 
   const assignSubcontractor = async (workRequest: any) => {
     const assignedTo = window.prompt('Enter the subcontractor or crew name to assign:')?.trim(); if (!assignedTo) return;
-    try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
+    try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
   };
 
   const mrr = Number(subscriptionSummary.mrr || 0);
@@ -179,7 +179,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Please sign in again before adding a customer.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/customers`, {
         method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(cForm),
       });
       const data = await response.json();
@@ -197,7 +197,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Please sign in again before adding a subcontractor.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/subcontractors`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/subcontractors`, {
         method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(sForm),
       });
       const data = await response.json();
@@ -214,7 +214,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Please sign in again before saving settings.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/settings`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(territorySettings) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/settings`, { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(territorySettings) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save territory settings.');
       setTerritorySettings(data.settings); toast.success('Territory settings saved.');
@@ -228,7 +228,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Please sign in again before removing a customer.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/customers/${encodeURIComponent(record.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/customers/${encodeURIComponent(record.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not remove customer.');
       setCustomers(rows => rows.filter(item => item.id !== record.id));
@@ -242,7 +242,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Please sign in again before reviewing this record.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/territory/${kind}/${encodeURIComponent(record.id)}/status`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/${kind}/${encodeURIComponent(record.id)}/status`, {
         method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
       });
       const data = await response.json();

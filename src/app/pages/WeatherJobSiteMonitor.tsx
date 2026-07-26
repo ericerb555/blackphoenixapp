@@ -138,7 +138,7 @@ const DELAY_COST_RATES = {
 };
 
 export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   const [activeTab, setActiveTab] = useState<'monitor' | 'alerts' | 'delays' | 'schedule' | 'calculator' | 'historical'>('monitor');
   

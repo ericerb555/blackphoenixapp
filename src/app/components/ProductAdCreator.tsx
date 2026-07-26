@@ -17,7 +17,7 @@ import ProductAdCreatorClient from './ProductAdCreatorClient';
 
 // Updated API_URL to correct Supabase Edge Function format
 const BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
-const API_PREFIX = '/make-server-57095a78';
+const API_PREFIX = '/make-server-3eae23a6';
 
 // Helper function to build API URLs
 const buildApiUrl = (path: string) => {
@@ -413,7 +413,7 @@ function ProductSelector({ onSelect }: { onSelect: (products: Product[]) => void
         
         try {
           // Fetch from KV store using client-side approach
-          const kvUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/dropshipper/catalog/staging`;
+          const kvUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/dropshipper/catalog/staging`;
           console.log('  Trying KV endpoint:', kvUrl);
           
           const controller = new AbortController();

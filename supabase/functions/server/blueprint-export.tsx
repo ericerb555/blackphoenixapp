@@ -5,11 +5,11 @@
  * Integrated with Quote System and Supabase Storage
  * 
  * ENDPOINTS:
- * - POST   /make-server-57095a78/blueprints/export              → Create new export
- * - GET    /make-server-57095a78/blueprints/export/:exportId   → Get export status
- * - GET    /make-server-57095a78/blueprints/project/:projectId/exports → List project exports
- * - GET    /make-server-57095a78/blueprints/exports            → Get all exports (admin)
- * - DELETE /make-server-57095a78/blueprints/export/:exportId   → Delete export
+ * - POST   /make-server-3eae23a6/blueprints/export              → Create new export
+ * - GET    /make-server-3eae23a6/blueprints/export/:exportId   → Get export status
+ * - GET    /make-server-3eae23a6/blueprints/project/:projectId/exports → List project exports
+ * - GET    /make-server-3eae23a6/blueprints/exports            → Get all exports (admin)
+ * - DELETE /make-server-3eae23a6/blueprints/export/:exportId   → Delete export
  * 
  * STORAGE:
  * - Bucket: make-824f083c-blueprints (private)
@@ -81,7 +81,7 @@ initializeBucket();
 
 /**
  * Generate Blueprint Export
- * POST /make-server-57095a78/blueprints/export
+ * POST /make-server-3eae23a6/blueprints/export
  * 
  * Body: {
  *   projectId: string;
@@ -99,7 +99,7 @@ initializeBucket();
  *   metadata?: any;
  * }
  */
-blueprintRouter.post("/make-server-57095a78/blueprints/export", async (c) => {
+blueprintRouter.post("/make-server-3eae23a6/blueprints/export", async (c) => {
   try {
     const body = await c.req.json();
     const {
@@ -255,9 +255,9 @@ blueprintRouter.post("/make-server-57095a78/blueprints/export", async (c) => {
 
 /**
  * Get Export Status
- * GET /make-server-57095a78/blueprints/export/:exportId
+ * GET /make-server-3eae23a6/blueprints/export/:exportId
  */
-blueprintRouter.get("/make-server-57095a78/blueprints/export/:exportId", async (c) => {
+blueprintRouter.get("/make-server-3eae23a6/blueprints/export/:exportId", async (c) => {
   try {
     const exportId = c.req.param("exportId");
     const exportData = await kv.get(`blueprint:export:${exportId}`);
@@ -284,9 +284,9 @@ blueprintRouter.get("/make-server-57095a78/blueprints/export/:exportId", async (
 
 /**
  * List Project Exports
- * GET /make-server-57095a78/blueprints/project/:projectId/exports
+ * GET /make-server-3eae23a6/blueprints/project/:projectId/exports
  */
-blueprintRouter.get("/make-server-57095a78/blueprints/project/:projectId/exports", async (c) => {
+blueprintRouter.get("/make-server-3eae23a6/blueprints/project/:projectId/exports", async (c) => {
   try {
     const projectId = c.req.param("projectId");
     const exports = (await kv.get(`blueprint:project:${projectId}:exports`)) || [];
@@ -312,9 +312,9 @@ blueprintRouter.get("/make-server-57095a78/blueprints/project/:projectId/exports
 
 /**
  * Get All Exports (Admin)
- * GET /make-server-57095a78/blueprints/exports
+ * GET /make-server-3eae23a6/blueprints/exports
  */
-blueprintRouter.get("/make-server-57095a78/blueprints/exports", async (c) => {
+blueprintRouter.get("/make-server-3eae23a6/blueprints/exports", async (c) => {
   try {
     const exports = await kv.getByPrefix("blueprint:export:");
     return c.json({
@@ -329,9 +329,9 @@ blueprintRouter.get("/make-server-57095a78/blueprints/exports", async (c) => {
 
 /**
  * Delete Export
- * DELETE /make-server-57095a78/blueprints/export/:exportId
+ * DELETE /make-server-3eae23a6/blueprints/export/:exportId
  */
-blueprintRouter.delete("/make-server-57095a78/blueprints/export/:exportId", async (c) => {
+blueprintRouter.delete("/make-server-3eae23a6/blueprints/export/:exportId", async (c) => {
   try {
     const exportId = c.req.param("exportId");
     const exportData = await kv.get(`blueprint:export:${exportId}`);

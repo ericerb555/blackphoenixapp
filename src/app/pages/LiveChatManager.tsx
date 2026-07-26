@@ -12,7 +12,7 @@ import { toast } from 'sonner@2.0.3';
 import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 async function adminHeaders() { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage live chat.'); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }; }
 
 interface ChatConfig {

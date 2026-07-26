@@ -19,7 +19,7 @@ import * as kv from "./kv_store.tsx";
 import { syncToCrm, extractContact } from "./crm-sync.tsx";
 
 const router = new Hono();
-const P = "/make-server-57095a78";
+const P = "/make-server-3eae23a6";
 
 const uid = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const APPLICATIONS_KEY = "applications";

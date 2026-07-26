@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { TIER_STYLES, type TechTier } from './TechRosterManager';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Canonical default tiers — must match the server's DEFAULT_TECH_TIERS. Used ONLY
 // as a fallback if the network request fails; the live source of truth is the

@@ -13,7 +13,7 @@
  * ownerKey isolates projects per user (e.g. "customer_user-123"). It is derived
  * on the frontend from the same UserContext used by userStorageManager.
  *
- * Routes are registered with full "/make-server-57095a78/design-projects" prefixes
+ * Routes are registered with full "/make-server-3eae23a6/design-projects" prefixes
  * and the router is mounted at "/" in index.tsx (same convention as plansRouter).
  */
 
@@ -104,7 +104,7 @@ async function snapshot(id: string, project: any, note: string) {
 
 // ─── routes ───────────────────────────────────────────────────────────────────
 
-designProjectsRouter.get('/make-server-57095a78/design-projects/test', (c) =>
+designProjectsRouter.get('/make-server-3eae23a6/design-projects/test', (c) =>
   c.json({ success: true, message: 'Design Projects service running', timestamp: new Date().toISOString() }),
 );
 
@@ -112,7 +112,7 @@ designProjectsRouter.get('/make-server-57095a78/design-projects/test', (c) =>
  * POST /design-projects — create OR upsert a project, capturing a version snapshot.
  * Body: { id?, name, ownerKey, floors?, elements?, layers?, quoteId?, note? }
  */
-designProjectsRouter.post('/make-server-57095a78/design-projects', async (c) => {
+designProjectsRouter.post('/make-server-3eae23a6/design-projects', async (c) => {
   try {
     const body = await c.req.json();
     const ownerKey = (body.ownerKey || 'shared').trim();
@@ -150,7 +150,7 @@ designProjectsRouter.post('/make-server-57095a78/design-projects', async (c) => 
 /**
  * GET /design-projects?owner=... — list a user's projects (summaries only).
  */
-designProjectsRouter.get('/make-server-57095a78/design-projects', async (c) => {
+designProjectsRouter.get('/make-server-3eae23a6/design-projects', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
     let projects: any[] = (await kv.getByPrefix(PROJECT_PREFIX(ownerKey))) || [];
@@ -165,7 +165,7 @@ designProjectsRouter.get('/make-server-57095a78/design-projects', async (c) => {
 /**
  * GET /design-projects/:id?owner=... — full project + its version history (metadata).
  */
-designProjectsRouter.get('/make-server-57095a78/design-projects/:id', async (c) => {
+designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
     const id = c.req.param('id');
@@ -191,7 +191,7 @@ designProjectsRouter.get('/make-server-57095a78/design-projects/:id', async (c) 
 /**
  * GET /design-projects/:id/versions/:versionId — fetch a specific snapshot's data.
  */
-designProjectsRouter.get('/make-server-57095a78/design-projects/:id/versions/:versionId', async (c) => {
+designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id/versions/:versionId', async (c) => {
   try {
     const id = c.req.param('id');
     const versionId = c.req.param('versionId');
@@ -208,7 +208,7 @@ designProjectsRouter.get('/make-server-57095a78/design-projects/:id/versions/:ve
  * POST /design-projects/:id/restore — restore a version as the current project.
  * Body: { ownerKey, versionId }. Restoring itself creates a new version.
  */
-designProjectsRouter.post('/make-server-57095a78/design-projects/:id/restore', async (c) => {
+designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/restore', async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
@@ -241,7 +241,7 @@ designProjectsRouter.post('/make-server-57095a78/design-projects/:id/restore', a
 /**
  * DELETE /design-projects/:id?owner=... — remove a project and all its versions.
  */
-designProjectsRouter.delete('/make-server-57095a78/design-projects/:id', async (c) => {
+designProjectsRouter.delete('/make-server-3eae23a6/design-projects/:id', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
     const id = c.req.param('id');

@@ -83,7 +83,7 @@ export interface UnifiedProduct {
 }
 
 class ProductDataSourceManager {
-  private serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  private serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
   private configKey = 'product-data-sources-config';
 
   /**

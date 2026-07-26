@@ -540,10 +540,10 @@ function generateSubscriptionEmailHTML(data: {
 }
 
 /**
- * POST /make-server-57095a78/notifications/work-request
+ * POST /make-server-3eae23a6/notifications/work-request
  * Send email and SMS notifications for new work requests
  */
-router.post('/make-server-57095a78/notifications/work-request', async (c) => {
+router.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
   try {
     const body = await c.req.json();
     const {
@@ -668,10 +668,10 @@ router.post('/make-server-57095a78/notifications/work-request', async (c) => {
 });
 
 /**
- * POST /make-server-57095a78/notifications/test-email
+ * POST /make-server-3eae23a6/notifications/test-email
  * Test email configuration
  */
-router.post('/make-server-57095a78/notifications/test-email', async (c) => {
+router.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
   try {
     const { email } = await c.req.json();
     
@@ -727,10 +727,10 @@ router.post('/make-server-57095a78/notifications/test-email', async (c) => {
 });
 
 /**
- * POST /make-server-57095a78/notifications/test-sms
+ * POST /make-server-3eae23a6/notifications/test-sms
  * Test SMS configuration
  */
-router.post('/make-server-57095a78/notifications/test-sms', async (c) => {
+router.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
   try {
     const { phone } = await c.req.json();
     
@@ -763,10 +763,10 @@ router.post('/make-server-57095a78/notifications/test-sms', async (c) => {
 });
 
 /**
- * POST /make-server-57095a78/notifications/customer-signup
+ * POST /make-server-3eae23a6/notifications/customer-signup
  * Send notifications when a new customer signs up
  */
-router.post('/make-server-57095a78/notifications/customer-signup', async (c) => {
+router.post('/make-server-3eae23a6/notifications/customer-signup', async (c) => {
   try {
     const body = await c.req.json();
     const {
@@ -863,10 +863,10 @@ router.post('/make-server-57095a78/notifications/customer-signup', async (c) => 
 });
 
 /**
- * POST /make-server-57095a78/notifications/subscription-added
+ * POST /make-server-3eae23a6/notifications/subscription-added
  * Send notifications when a new subscription is created
  */
-router.post('/make-server-57095a78/notifications/subscription-added', async (c) => {
+router.post('/make-server-3eae23a6/notifications/subscription-added', async (c) => {
   try {
     const body = await c.req.json();
     const {

@@ -88,7 +88,7 @@ export default function ProjectInfoPanel({ quoteId, onClose }: ProjectInfoPanelP
       setLoading(true);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/studio/project-info/${quoteId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/project-info/${quoteId}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

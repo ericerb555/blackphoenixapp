@@ -81,6 +81,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   const [alertCount, setAlertCount] = useState(8);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
+  const [zendropStatus, setZendropStatus] = useState<{ connected: boolean; products: number } | null>(null);
 
   // Metrics state - MUST be here before any conditional returns
   const [revenueData, setRevenueData] = useState<any[]>([]);
@@ -129,7 +130,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   useEffect(() => {
     const fetchCompanyBranding = async () => {
       try {
-        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
         const response = await fetch(`${API_BASE}/business-profiles`, {
           headers: { 'Authorization': `Bearer ${publicAnonKey}` }
         });
@@ -150,6 +151,27 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     fetchCompanyBranding();
   }, []);
 
+  // Live Zendrop connection status for the dropshipping sidebar button.
+  useEffect(() => {
+    const fetchZendropStatus = async () => {
+      try {
+        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+        const res = await fetch(`${API_BASE}/zendrop/status`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+        });
+        if (!res.ok) { setZendropStatus({ connected: false, products: 0 }); return; }
+        const data = await res.json().catch(() => ({}));
+        setZendropStatus({
+          connected: !!data.connected,
+          products: Number(data.productsInStore ?? data.productCount ?? 0),
+        });
+      } catch {
+        setZendropStatus({ connected: false, products: 0 });
+      }
+    };
+    fetchZendropStatus();
+  }, []);
+
   // Command Center metrics are calculated from canonical invoices, payments,
   // applications, CRM contacts, and work requests—not browser demo data.
   useEffect(() => {
@@ -157,7 +179,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const result = await response.json();
         if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center metrics.');
         const summary = result.summary;
@@ -961,8 +983,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-emerald-500/50 hover:bg-emerald-600/10"
           >
             {sidebarCollapsed ? (
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center relative">
                 <span className="text-xl">⚡</span>
+                {zendropStatus?.connected && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-between">
@@ -971,9 +996,21 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-white">Zendrop</p>
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">BACKUP</span>
+                      {zendropStatus === null ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gray-600 text-white">…</span>
+                      ) : zendropStatus.connected ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-green-600 text-white flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gray-600 text-white">NOT CONNECTED</span>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-400">US-based auto-fulfillment</p>
+                    <p className="text-sm text-gray-400">
+                      {zendropStatus?.connected
+                        ? `${zendropStatus.products.toLocaleString()} products live · auto-fulfillment`
+                        : 'US-based auto-fulfillment · tap to connect'}
+                    </p>
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-emerald-400" />

@@ -55,7 +55,7 @@ function normalizeLead(l: any) {
   };
 }
 
-router.get("/make-server-57095a78/crm/leads", async (c) => {
+router.get("/make-server-3eae23a6/crm/leads", async (c) => {
   try {
     const raw = (await kv.getByPrefix("lead:")) || [];
     const leads = raw.map(normalizeLead).sort((a: any, b: any) => (b._ts || 0) - (a._ts || 0));
@@ -66,7 +66,7 @@ router.get("/make-server-57095a78/crm/leads", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/crm/leads", async (c) => {
+router.post("/make-server-3eae23a6/crm/leads", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.name || !b.email) return c.json({ success: false, error: "Name and email are required" }, 400);
@@ -95,7 +95,7 @@ router.post("/make-server-57095a78/crm/leads", async (c) => {
   }
 });
 
-router.put("/make-server-57095a78/crm/leads/:id", async (c) => {
+router.put("/make-server-3eae23a6/crm/leads/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const existing: any = await kv.get(LEAD(id));
@@ -111,7 +111,7 @@ router.put("/make-server-57095a78/crm/leads/:id", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/crm/leads/:id", async (c) => {
+router.delete("/make-server-3eae23a6/crm/leads/:id", async (c) => {
   try {
     await kv.del(LEAD(c.req.param("id")));
     return c.json({ success: true });
@@ -120,7 +120,7 @@ router.delete("/make-server-57095a78/crm/leads/:id", async (c) => {
   }
 });
 
-router.get("/make-server-57095a78/crm/notes", async (c) => {
+router.get("/make-server-3eae23a6/crm/notes", async (c) => {
   try {
     const notes = (await kv.getByPrefix("crm_note:")) || [];
     notes.sort((a: any, b: any) => new Date(b.at).getTime() - new Date(a.at).getTime());
@@ -130,7 +130,7 @@ router.get("/make-server-57095a78/crm/notes", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/crm/notes", async (c) => {
+router.post("/make-server-3eae23a6/crm/notes", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.leadId || !b.body) return c.json({ success: false, error: "leadId and body are required" }, 400);
@@ -147,7 +147,7 @@ router.post("/make-server-57095a78/crm/notes", async (c) => {
 // REVIEWS MODERATION
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/reviews/moderation", async (c) => {
+router.get("/make-server-3eae23a6/reviews/moderation", async (c) => {
   try {
     const state = (await kv.get(REVIEWS_MODERATION)) || { approved: [], hidden: [] };
     return c.json({ success: true, approved: state.approved || [], hidden: state.hidden || [] });
@@ -156,7 +156,7 @@ router.get("/make-server-57095a78/reviews/moderation", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/reviews/moderation", async (c) => {
+router.post("/make-server-3eae23a6/reviews/moderation", async (c) => {
   try {
     const b = await c.req.json();
     const state = {
@@ -175,7 +175,7 @@ router.post("/make-server-57095a78/reviews/moderation", async (c) => {
 // COUPONS
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/coupons", async (c) => {
+router.get("/make-server-3eae23a6/coupons", async (c) => {
   try {
     const coupons = (await kv.getByPrefix("coupon:")) || [];
     coupons.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -185,7 +185,7 @@ router.get("/make-server-57095a78/coupons", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/coupons", async (c) => {
+router.post("/make-server-3eae23a6/coupons", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.code) return c.json({ success: false, error: "Code is required" }, 400);
@@ -213,7 +213,7 @@ router.post("/make-server-57095a78/coupons", async (c) => {
   }
 });
 
-router.put("/make-server-57095a78/coupons/:id", async (c) => {
+router.put("/make-server-3eae23a6/coupons/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const existing: any = await kv.get(COUPON(id));
@@ -233,7 +233,7 @@ router.put("/make-server-57095a78/coupons/:id", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/coupons/:id", async (c) => {
+router.delete("/make-server-3eae23a6/coupons/:id", async (c) => {
   try {
     await kv.del(COUPON(c.req.param("id")));
     return c.json({ success: true });
@@ -243,7 +243,7 @@ router.delete("/make-server-57095a78/coupons/:id", async (c) => {
 });
 
 // Validate a coupon code for checkout.
-router.get("/make-server-57095a78/coupons/validate/:code", async (c) => {
+router.get("/make-server-3eae23a6/coupons/validate/:code", async (c) => {
   try {
     const code = c.req.param("code").toUpperCase();
     const coupons = (await kv.getByPrefix("coupon:")) || [];
@@ -262,7 +262,7 @@ router.get("/make-server-57095a78/coupons/validate/:code", async (c) => {
 // LIVE CHAT
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/chat/config", async (c) => {
+router.get("/make-server-3eae23a6/chat/config", async (c) => {
   try {
     const config = (await kv.get(CHAT_CONFIG)) || null;
     return c.json({ success: true, config });
@@ -271,7 +271,7 @@ router.get("/make-server-57095a78/chat/config", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/chat/config", async (c) => {
+router.post("/make-server-3eae23a6/chat/config", async (c) => {
   try {
     const b = await c.req.json();
     const config = { ...b, updatedAt: new Date().toISOString() };
@@ -282,7 +282,7 @@ router.post("/make-server-57095a78/chat/config", async (c) => {
   }
 });
 
-router.get("/make-server-57095a78/chat/leads", async (c) => {
+router.get("/make-server-3eae23a6/chat/leads", async (c) => {
   try {
     const leads = (await kv.getByPrefix("chat_lead:")) || [];
     leads.sort((a: any, b: any) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
@@ -293,7 +293,7 @@ router.get("/make-server-57095a78/chat/leads", async (c) => {
 });
 
 // Called by the chat widget when a visitor leaves their contact info.
-router.post("/make-server-57095a78/chat/leads", async (c) => {
+router.post("/make-server-3eae23a6/chat/leads", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.email) return c.json({ success: false, error: "Email is required" }, 400);
@@ -312,7 +312,7 @@ router.post("/make-server-57095a78/chat/leads", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/chat/leads", async (c) => {
+router.delete("/make-server-3eae23a6/chat/leads", async (c) => {
   try {
     const leads = (await kv.getByPrefix("chat_lead:")) || [];
     if (leads.length) await kv.mdel(leads.map((l: any) => CHAT_LEAD(l.id)));
@@ -326,7 +326,7 @@ router.delete("/make-server-57095a78/chat/leads", async (c) => {
 // BLOG
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get("/make-server-57095a78/blog/posts", async (c) => {
+router.get("/make-server-3eae23a6/blog/posts", async (c) => {
   try {
     const posts = (await kv.getByPrefix("blog_post:")) || [];
     posts.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -337,7 +337,7 @@ router.get("/make-server-57095a78/blog/posts", async (c) => {
 });
 
 // Upsert a blog post (create or update).
-router.post("/make-server-57095a78/blog/posts", async (c) => {
+router.post("/make-server-3eae23a6/blog/posts", async (c) => {
   try {
     const b = await c.req.json();
     if (!b.id) return c.json({ success: false, error: "Post id is required" }, 400);
@@ -348,7 +348,7 @@ router.post("/make-server-57095a78/blog/posts", async (c) => {
   }
 });
 
-router.delete("/make-server-57095a78/blog/posts/:id", async (c) => {
+router.delete("/make-server-3eae23a6/blog/posts/:id", async (c) => {
   try {
     await kv.del(BLOG_POST(c.req.param("id")));
     return c.json({ success: true });
@@ -358,7 +358,7 @@ router.delete("/make-server-57095a78/blog/posts/:id", async (c) => {
 });
 
 // Register a real view: atomically increment the post's view counter.
-router.post("/make-server-57095a78/blog/posts/:id/view", async (c) => {
+router.post("/make-server-3eae23a6/blog/posts/:id/view", async (c) => {
   try {
     const id = c.req.param("id");
     const post = await kv.get(BLOG_POST(id));

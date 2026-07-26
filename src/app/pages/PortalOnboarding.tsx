@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { projectId } from "../utils/supabase/info";
 
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 type Task = { id: string; label: string; required?: boolean; status: string; submittedAt?: string; reviewedAt?: string };
 type DocumentRecord = { id: string; taskId: string; name: string; status: string; uploadedAt?: string; reviewNote?: string };

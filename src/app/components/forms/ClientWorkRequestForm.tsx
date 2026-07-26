@@ -27,8 +27,8 @@ import { API_BASE_URL } from '../../lib/apiConfig';
 import BlueprintUploadWidget from '../BlueprintUploadWidget';
 import { DIRECTORY_SECTIONS, getSectionByCohortType } from '../../config/directoryLandingSections';
 
-// Correct server base — the Edge Function is named "make-server-57095a78"
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+// Correct server base — the Edge Function is named "make-server-3eae23a6"
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface ClientWorkRequestFormProps {
   onClose: () => void;
@@ -1530,7 +1530,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           };
 
           const autoQuoteResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/auto-generate-quote`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auto-generate-quote`,
             {
               method: 'POST',
               headers: {
@@ -1591,7 +1591,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
 
               // Store in KV store for unified pipeline
               await fetch(
-                `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/kv/set`,
+                `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/kv/set`,
                 {
                   method: 'POST',
                   headers: {
@@ -2013,7 +2013,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
 
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/ai-guide-chat`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-guide-chat`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },

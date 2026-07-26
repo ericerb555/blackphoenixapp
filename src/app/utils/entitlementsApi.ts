@@ -1,6 +1,6 @@
 import { projectId } from "./supabase/info";
 import { supabase } from "../lib/supabase";
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 export async function loadEntitlementSummary(params: { owner?: string; email?: string; portalType?: string }) {
   const query = new URLSearchParams(Object.entries(params).filter(([, value]) => Boolean(value)) as [string, string][]);
   const { data: { session } } = await supabase.auth.getSession();

@@ -451,7 +451,7 @@ async function processEcommercePayment(orderId: string, order: EcommerceOrder) {
 }
 
 // Subscription renewals are now recorded only through the protected
-// /make-server-57095a78/payments/confirm handler in the main server.
+// /make-server-3eae23a6/payments/confirm handler in the main server.
 // Keeping this module from auto-completing payments prevents duplicate hours.
 
 

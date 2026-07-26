@@ -9,7 +9,7 @@ const notifications = new Hono();
 // ============================================
 
 // Save push subscription
-notifications.post('/make-server-57095a78/api/notifications/subscribe', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/subscribe', async (c) => {
   try {
     const { subscription, userAgent, userId } = await c.req.json();
     
@@ -39,7 +39,7 @@ notifications.post('/make-server-57095a78/api/notifications/subscribe', async (c
 });
 
 // Unsubscribe
-notifications.post('/make-server-57095a78/api/notifications/unsubscribe', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/unsubscribe', async (c) => {
   try {
     const { subscriptionId } = await c.req.json();
     
@@ -62,7 +62,7 @@ notifications.post('/make-server-57095a78/api/notifications/unsubscribe', async 
 // ============================================
 
 // Send notification to specific user
-notifications.post('/make-server-57095a78/api/notifications/send', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/send', async (c) => {
   try {
     const {
       userId,
@@ -141,7 +141,7 @@ notifications.post('/make-server-57095a78/api/notifications/send', async (c) => 
 });
 
 // Broadcast notification to all users
-notifications.post('/make-server-57095a78/api/notifications/broadcast', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/broadcast', async (c) => {
   try {
     const {
       title,
@@ -211,7 +211,7 @@ notifications.post('/make-server-57095a78/api/notifications/broadcast', async (c
 // ============================================
 
 // Order update notification
-notifications.post('/make-server-57095a78/api/notifications/order-update', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/order-update', async (c) => {
   try {
     const { orderId, status, userId } = await c.req.json();
 
@@ -245,7 +245,7 @@ notifications.post('/make-server-57095a78/api/notifications/order-update', async
 });
 
 // Promotion notification
-notifications.post('/make-server-57095a78/api/notifications/promotion', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/promotion', async (c) => {
   try {
     const {
       title,
@@ -275,7 +275,7 @@ notifications.post('/make-server-57095a78/api/notifications/promotion', async (c
 });
 
 // Cart abandonment reminder
-notifications.post('/make-server-57095a78/api/notifications/cart-reminder', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/cart-reminder', async (c) => {
   try {
     const { userId, cartItems } = await c.req.json();
 
@@ -304,7 +304,7 @@ notifications.post('/make-server-57095a78/api/notifications/cart-reminder', asyn
 });
 
 // Low stock alert (for vendors/admins)
-notifications.post('/make-server-57095a78/api/notifications/low-stock', async (c) => {
+notifications.post('/make-server-3eae23a6/api/notifications/low-stock', async (c) => {
   try {
     const { productId, productName, quantity, vendorId } = await c.req.json();
 
@@ -333,7 +333,7 @@ notifications.post('/make-server-57095a78/api/notifications/low-stock', async (c
 // NOTIFICATION HISTORY
 // ============================================
 
-notifications.get('/make-server-57095a78/api/notifications/history/:userId', async (c) => {
+notifications.get('/make-server-3eae23a6/api/notifications/history/:userId', async (c) => {
   try {
     const userId = c.req.param('userId');
     const limit = parseInt(c.req.query('limit') || '50');

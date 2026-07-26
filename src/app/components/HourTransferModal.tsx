@@ -111,7 +111,7 @@ export default function HourTransferModal({
       const targetSub = subscriptions.find(s => s.id === selectedTargetId);
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/hour-transfers/send-verification`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/send-verification`,
         {
           method: 'POST',
           headers: {
@@ -169,7 +169,7 @@ export default function HourTransferModal({
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/hour-transfers/verify-and-request`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/verify-and-request`,
         {
           method: 'POST',
           headers: {

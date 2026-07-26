@@ -14,7 +14,7 @@
  *   plan_usage:{id}:{entryId} → individual hour-usage entries for a plan
  *   giftcard:{code}           → gift cards issued by a plan (also embedded in plan)
  *
- * Routes are registered with full "/make-server-57095a78/plans" prefixes and the
+ * Routes are registered with full "/make-server-3eae23a6/plans" prefixes and the
  * router is mounted at "/" in index.tsx (same convention as companiesRouter).
  */
 
@@ -137,14 +137,14 @@ function searchHaystack(plan: any): string {
 
 // ─── routes ───────────────────────────────────────────────────────────────────
 
-plansRouter.get('/make-server-57095a78/plans/test', (c) =>
+plansRouter.get('/make-server-3eae23a6/plans/test', (c) =>
   c.json({ success: true, message: 'Plans service running', timestamp: new Date().toISOString() }),
 );
 
 /**
  * POST /plans — create & persist a plan, auto-linking hours/gift cards/promos/offers.
  */
-plansRouter.post('/make-server-57095a78/plans', async (c) => {
+plansRouter.post('/make-server-3eae23a6/plans', async (c) => {
   try {
     const body = await c.req.json(); const actor = c.get('actor'); const admin = c.get('admin');
     if (!admin && body.ownerEmail && String(body.ownerEmail).toLowerCase() !== String(actor.email).toLowerCase()) return c.json({ success: false, error: 'You may only create a plan for your own account.' }, 403);
@@ -193,7 +193,7 @@ plansRouter.post('/make-server-57095a78/plans', async (c) => {
  * GET /plans — list/search plans.
  * Query: ?search= ?owner= ?portalType= ?status=
  */
-plansRouter.get('/make-server-57095a78/plans', async (c) => {
+plansRouter.get('/make-server-3eae23a6/plans', async (c) => {
   try {
     const search = (c.req.query('search') || '').trim().toLowerCase();
     const owner = (c.req.query('owner') || '').trim().toLowerCase();
@@ -220,7 +220,7 @@ plansRouter.get('/make-server-57095a78/plans', async (c) => {
 /**
  * GET /plans/:id — single plan with its usage log.
  */
-plansRouter.get('/make-server-57095a78/plans/:id', async (c) => {
+plansRouter.get('/make-server-3eae23a6/plans/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
@@ -238,7 +238,7 @@ plansRouter.get('/make-server-57095a78/plans/:id', async (c) => {
 /**
  * PATCH /plans/:id — update status / plan fields.
  */
-plansRouter.patch('/make-server-57095a78/plans/:id', async (c) => {
+plansRouter.patch('/make-server-3eae23a6/plans/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
@@ -263,7 +263,7 @@ plansRouter.patch('/make-server-57095a78/plans/:id', async (c) => {
 /**
  * POST /plans/:id/usage — log hours used (ties the plan to the hours system).
  */
-plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
+plansRouter.post('/make-server-3eae23a6/plans/:id/usage', async (c) => {
   try {
     const id = c.req.param('id');
     const plan = await kv.get(`${PLAN_PREFIX}${id}`);
@@ -304,7 +304,7 @@ plansRouter.post('/make-server-57095a78/plans/:id/usage', async (c) => {
 /**
  * DELETE /plans/:id — cancel/remove a plan.
  */
-plansRouter.delete('/make-server-57095a78/plans/:id', async (c) => {
+plansRouter.delete('/make-server-3eae23a6/plans/:id', async (c) => {
   try {
     const id = c.req.param('id'); const plan = await kv.get(`${PLAN_PREFIX}${id}`) as any;
     if (!plan) return c.json({ success: false, error: 'Plan not found.' }, 404);
@@ -320,7 +320,7 @@ plansRouter.delete('/make-server-57095a78/plans/:id', async (c) => {
 /**
  * GET /plans-stats — quick aggregate for command-center header cards.
  */
-plansRouter.get('/make-server-57095a78/plans-stats', async (c) => {
+plansRouter.get('/make-server-3eae23a6/plans-stats', async (c) => {
   try {
     let plans: any[] = (await kv.getByPrefix(PLAN_PREFIX)) || [];
     if (!c.get('admin')) plans = plans.filter(plan => ownsPlan(plan, c.get('actor')));

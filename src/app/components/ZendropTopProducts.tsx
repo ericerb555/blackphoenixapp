@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface ZendropProduct {
   providerProductId: string;

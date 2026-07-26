@@ -272,7 +272,7 @@ const DEFAULT_OPPORTUNITIES = [
     }
   ];
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export default function InvestmentOpportunityManager() {
   const [opportunities, setOpportunities] = useState<any[]>([]);

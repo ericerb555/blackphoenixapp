@@ -10,7 +10,7 @@ import { getLoyaltyAccount } from './LoyaltyProgram';
 import { useAuth } from '../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const RA_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const RA_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const raAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

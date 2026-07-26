@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Bell, X, CheckCheck, LoaderCircle, Trash2 } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface Notif { id: string; event: string; title: string; body: string; read: boolean; createdAt: string; }
 

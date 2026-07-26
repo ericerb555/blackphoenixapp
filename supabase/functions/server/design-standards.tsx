@@ -21,7 +21,7 @@
  *   design_standard:code-rules:{jurisdiction}   → CodeRuleSet
  *   design_standard:schedule-templates          → SchedulePhase[]
  *
- * Registered with full "/make-server-57095a78/design-standards" prefixes and
+ * Registered with full "/make-server-3eae23a6/design-standards" prefixes and
  * mounted at "/" in index.tsx (same convention as designProjectsRouter).
  */
 
@@ -230,11 +230,11 @@ const DEFAULT_SCHEDULE_PHASES: any[] = [
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
-designStandardsRouter.get('/make-server-57095a78/design-standards/test', (c) =>
+designStandardsRouter.get('/make-server-3eae23a6/design-standards/test', (c) =>
   c.json({ success: true, message: 'design-standards router alive' }));
 
 // Building-code ruleset for a jurisdiction (seeds defaults into KV on first read).
-designStandardsRouter.get('/make-server-57095a78/design-standards/code-rules', async (c) => {
+designStandardsRouter.get('/make-server-3eae23a6/design-standards/code-rules', async (c) => {
   try {
     const jurisdiction = c.req.query('jurisdiction') || 'IRC2021';
     let ruleset = await kv.get(CODE_RULES_KEY(jurisdiction));
@@ -250,7 +250,7 @@ designStandardsRouter.get('/make-server-57095a78/design-standards/code-rules', a
 });
 
 // Construction schedule phase/task templates (seeds defaults into KV on first read).
-designStandardsRouter.get('/make-server-57095a78/design-standards/schedule-templates', async (c) => {
+designStandardsRouter.get('/make-server-3eae23a6/design-standards/schedule-templates', async (c) => {
   try {
     let phases = await kv.get(SCHEDULE_KEY);
     if (!phases) {

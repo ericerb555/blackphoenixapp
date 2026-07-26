@@ -92,7 +92,7 @@ export default function CodeTracker() {
 
   const testServerHealth = async () => {
     try {
-      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -238,7 +238,7 @@ export default function CodeTracker() {
 
   const fetchBusinessProfiles = async () => {
     try {
-      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       console.log('🔍 Fetching business profiles from:', `${API_BASE}/business-profiles`);
       
       const controller = new AbortController();
@@ -278,7 +278,7 @@ export default function CodeTracker() {
   const fetchWorkflows = async () => {
     setLoading(true);
     try {
-      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       console.log('🔍 Fetching workflows from API base:', API_BASE);
       
       // Fetch work requests with error handling

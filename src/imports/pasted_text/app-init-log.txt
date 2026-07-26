@@ -20,7 +20,7 @@ console.warn @ VM63 unified-dashboard:30
 propertyManagementService.ts:4 🔧 Property Management Service Initialized
 propertyManagementService.ts:5   - Project ID: plzsvzwwcdopnawtiwzm
 propertyManagementService.ts:6   - Public Key: ✓ Loaded
-propertyManagementService.ts:10   - BASE_URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/property-management
+propertyManagementService.ts:10   - BASE_URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/property-management
 initializeOwnerProfile.ts:48 ✅ Owner profile updated: Object
 initializeOwnerProfile.ts:82 🔧 Owner profile initialized successfully
 syncToSupabase.ts:84 📥 [Sync] Loading company data from Supabase...
@@ -59,7 +59,7 @@ DataInitializer.tsx:19 🎭 Demo mode detected - skipping server data initializa
 App.tsx:540 🔍 [CompanySelector] Logo variants raw: null
 usePendingApprovals.ts:25 🔍 Fetching pending approval counts...
 propertyManagementService.ts:334 🌐 [Property Management Service] Fetching pending counts...
-propertyManagementService.ts:335   - URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/property-management/pending-counts
+propertyManagementService.ts:335   - URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/property-management/pending-counts
 UnifiedDashboard.tsx:218 ⚠️ Server check disabled, working in offline mode
 CompanyDataRestorer.tsx:61 ✅ Company data already exists
 dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
@@ -96,17 +96,17 @@ CompanyContext.tsx:661 [CompanyContext] User: Object
 CompanyContext.tsx:663 [CompanyContext] No user, setting loading=false
 CompanyContext.tsx:722 [CompanyContext] ✅ Restore complete, setting loading=false
 CompanyContext.tsx:841 [CompanyContext] Auth state changed: INITIAL_SESSION
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
 dataPersistence.ts:215 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
 dataPersistence.ts:252 ⏰ [DataPersistence] Auto-backup started (every 30 seconds)
 dataPersistence.ts:275 👁️ [DataPersistence] Storage monitoring active
 dataPersistence.ts:287 💾 [DataPersistence] Before-unload backup registered
 dataPersistence.ts:65 ✅ [DataPersistence] System initialized
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/metrics/revenue:1  Failed to load resource: the server responded with a status of 404 ()
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/customers:1  Failed to load resource: the server responded with a status of 404 ()
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/jobs/active-count:1  Failed to load resource: the server responded with a status of 404 ()
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/kv/test_key:1  Failed to load resource: the server responded with a status of 404 ()
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/customers/count:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/metrics/revenue:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/customers:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/jobs/active-count:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/kv/test_key:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/customers/count:1  Failed to load resource: the server responded with a status of 404 ()
 propertyManagementService.ts:347 📡 Response status: 200 
 syncToSupabase.ts:100 ℹ️ [Sync] No profiles found in Supabase
 syncToSupabase.ts:15 🔄 [Sync] Starting company data sync to Supabase...
@@ -114,7 +114,7 @@ syncToSupabase.ts:22 ℹ️ [Sync] No company data found in localStorage
 syncToSupabase.ts:154 ✅ [Sync] Data sync initialized - will auto-sync every 30 seconds
 propertyManagementService.ts:361 ✅ Response data: Object
 usePendingApprovals.ts:27 📊 Pending approval counts response: Object
-plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/employees/count:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/employees/count:1  Failed to load resource: the server responded with a status of 404 ()
 App.tsx:1682 🧭 Navigating to: owners-dashboard
 App.tsx:1686 🧭 Normalized path: owners-dashboard
 App.tsx:1687 🧭 Route exists in pageMap? true

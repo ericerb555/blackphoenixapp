@@ -1,7 +1,7 @@
 🔧 Property Management Service Initialized
 propertyManagementService.ts:5   - Project ID: plzsvzwwcdopnawtiwzm
 propertyManagementService.ts:6   - Public Key: ✓ Loaded
-propertyManagementService.ts:10   - BASE_URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/property-management
+propertyManagementService.ts:10   - BASE_URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/property-management
 initializeOwnerProfile.ts:48 ✅ Owner profile updated: {email: 'ericerb555@proton.me', fullName: 'Eric Erb', phone: '6177100058', createdAt: '2024-01-01T00:00:00.000Z', accountType: 'owner', …}
 initializeOwnerProfile.ts:82 🔧 Owner profile initialized successfully
 syncToSupabase.ts:84 📥 [Sync] Loading company data from Supabase...
@@ -132,7 +132,7 @@ App.tsx:528 SignOutButton render - user: true hasProfile: true
 CompanyContext.tsx:492 [CompanyContext] User: {hasUser: true, email: 'ericerb555@proton.me'}
 CompanyContext.tsx:236 [CompanyContext] fetchUserCompanies called
 CompanyContext.tsx:640 [CompanyContext] Auth state changed: INITIAL_SESSION
-productDataSourceManager.tsx:94  GET https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/product-sources 404 (Not Found)
+productDataSourceManager.tsx:94  GET https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/product-sources 404 (Not Found)
 getDataSources @ productDataSourceManager.tsx:94
 (anonymous) @ MaterialsCenter.tsx:129
 (anonymous) @ MaterialsCenter.tsx:97

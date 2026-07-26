@@ -271,7 +271,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
         { method: 'POST', headers: await quoteAuthHeaders(true), body: JSON.stringify({
           title: currentQuote?.title || currentQuote?.name || workRequest.title || 'Service Contract',
           amount: currentQuote?.total || currentQuote?.grandTotal || currentQuote?.totalCost || undefined,
@@ -301,7 +301,7 @@ export function QuoteToContractEditor({
     setLoadingBids(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/bids`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote?.id}/bids`,
         {
           headers: await quoteAuthHeaders(),
         }
@@ -326,7 +326,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote.id}/request-bids`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote.id}/request-bids`,
         {
           method: 'POST',
           headers: await quoteAuthHeaders(true),
@@ -709,7 +709,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests/${encodeURIComponent(workRequest.id)}/project-schedule`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}/project-schedule`,
         { method: 'PUT', headers: await quoteAuthHeaders(true), body: JSON.stringify({ quoteNumber: currentQuote?.quoteNumber, projectTitle: workRequest.title, tasks: projectSchedule }) }
       );
       const data = await response.json();
@@ -744,7 +744,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${editedQuote.id}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${editedQuote.id}`,
         {
           method: 'PUT',
           headers: await quoteAuthHeaders(true),
@@ -781,7 +781,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/${workRequest.quote?.id}/send-to-customer`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote?.id}/send-to-customer`,
         {
           method: 'POST',
           headers: await quoteAuthHeaders(true),

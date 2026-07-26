@@ -64,7 +64,7 @@ export default function CompanyRecovery({ onNavigate }: { onNavigate?: (page: st
           console.log('Uploading company:', company.name);
           
           const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/companies`,
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`,
             {
               method: 'POST',
               headers: {

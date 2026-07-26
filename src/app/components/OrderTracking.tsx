@@ -42,7 +42,7 @@ export default function OrderTracking() {
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78${endpoint}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`

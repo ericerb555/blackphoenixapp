@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Activity, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
 
-const API_BASE = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_BASE = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface DiagnosticResult {
   test: string;
@@ -211,7 +211,7 @@ export default function SupabaseDiagnostics() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Route Prefix:</span>
-                <span className="text-white font-mono">/make-server-57095a78</span>
+                <span className="text-white font-mono">/make-server-3eae23a6</span>
               </div>
             </div>
           </div>

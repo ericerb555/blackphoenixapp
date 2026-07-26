@@ -8,7 +8,7 @@ const analytics = new Hono();
 // CUSTOMER BEHAVIOR ANALYTICS
 // ============================================
 
-analytics.get('/make-server-57095a78/api/analytics/customer-behavior', async (c) => {
+analytics.get('/make-server-3eae23a6/api/analytics/customer-behavior', async (c) => {
   try {
     const { timeframe = '30d', customerId } = c.req.query();
     
@@ -118,7 +118,7 @@ async function analyzeCustomerBehavior(events: any[], customerId: string) {
 // SALES FORECASTING WITH AI/ML
 // ============================================
 
-analytics.get('/make-server-57095a78/api/analytics/sales-forecast', async (c) => {
+analytics.get('/make-server-3eae23a6/api/analytics/sales-forecast', async (c) => {
   try {
     const { periods = '30', granularity = 'day' } = c.req.query();
     
@@ -305,7 +305,7 @@ function generateInsights(historical: any[], forecast: any[]) {
 // REAL-TIME DASHBOARD METRICS
 // ============================================
 
-analytics.get('/make-server-57095a78/api/analytics/dashboard', async (c) => {
+analytics.get('/make-server-3eae23a6/api/analytics/dashboard', async (c) => {
   try {
     const { timeframe = '7d' } = c.req.query();
     const timeframeMs = parseTimeframe(timeframe);
@@ -387,7 +387,7 @@ analytics.get('/make-server-57095a78/api/analytics/dashboard', async (c) => {
 // PERSONALIZED MARKETING AUTOMATION
 // ============================================
 
-analytics.post('/make-server-57095a78/api/marketing/personalize', async (c) => {
+analytics.post('/make-server-3eae23a6/api/marketing/personalize', async (c) => {
   try {
     const { customerId, context } = await c.req.json();
     

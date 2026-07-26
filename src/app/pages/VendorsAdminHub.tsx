@@ -64,7 +64,7 @@ interface VendorStatus {
   }>;
 }
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 type TabId = 'relationships' | 'advertising' | 'api-integrations';
 

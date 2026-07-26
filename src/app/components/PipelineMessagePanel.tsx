@@ -19,7 +19,7 @@ interface Props {
   onClose?: () => void;
 }
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export default function PipelineMessagePanel({ workRequestId, customerName, customerEmail, customerPhone, adminName = 'Black Phoenix Team', onClose }: Props) {
   const [messages, setMessages] = useState<any[]>([]);

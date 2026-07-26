@@ -148,7 +148,7 @@ export function useContentManagement() {
   const [error, setError] = useState<string | null>(null);
 
 
-  const CMS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cms`;
+  const CMS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cms`;
 
   // Shared fetch helper: attaches the user's access token when available, otherwise
   // falls back to the public anon key. Throws with contextual info on failure.

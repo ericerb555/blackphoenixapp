@@ -212,7 +212,7 @@ export default function BusinessProfilesHub() {
       toast.loading('Saving logo permanently...', { id: 'logo-upload' });
       try {
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/logo/upload`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },

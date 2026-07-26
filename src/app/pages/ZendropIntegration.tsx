@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

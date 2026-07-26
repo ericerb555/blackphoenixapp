@@ -15,7 +15,7 @@ import { X, Plus, Calendar, Clock, Users, Package, FileText, Download, Save, Ale
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface ScheduleTask {
   id: string;

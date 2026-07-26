@@ -17,13 +17,13 @@
  *
  * SECRETS USED: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, OPENAI_API_KEY.
  * The Facebook app MUST whitelist this redirect URI:
- *   {SUPABASE_URL}/functions/v1/make-server-57095a78/social/callback/facebook
+ *   {SUPABASE_URL}/functions/v1/make-server-3eae23a6/social/callback/facebook
  */
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 const GRAPH = "https://graph.facebook.com/v18.0";
 
 const socialRouter = new Hono();
@@ -39,7 +39,7 @@ const FB_APP_SECRET = Deno.env.get("FACEBOOK_APP_SECRET") || "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 
 const fbRedirectUri = (platform: string) =>
-  `${SUPABASE_URL}/functions/v1/make-server-57095a78/social/callback/${platform}`;
+  `${SUPABASE_URL}/functions/v1/make-server-3eae23a6/social/callback/${platform}`;
 
 // ── Types & storage ─────────────────────────────────────────────────────────
 interface SocialAccount {

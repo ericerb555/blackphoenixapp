@@ -31,7 +31,7 @@ export default function SupplierManagementHub() {
 
   // Load suppliers + purchase orders from the server.
   useEffect(() => {
-    const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+    const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
     const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
     (async () => {
       try {

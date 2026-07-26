@@ -10,7 +10,7 @@ import { Star, Quote, ChevronLeft, ChevronRight, Plus, X, Send, RefreshCw } from
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Placeholder reviews shown before real ones load
 const PLACEHOLDER_REVIEWS = [

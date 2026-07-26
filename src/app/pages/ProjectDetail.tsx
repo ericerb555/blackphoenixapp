@@ -61,7 +61,7 @@ export default function ProjectDetail({ projectId, onBack, onEdit }: ProjectDeta
     try {
       setLoading(true);
       const res = await fetch(
-        `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-57095a78/projects/${encodeURIComponent(projectId)}`,
+        `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6/projects/${encodeURIComponent(projectId)}`,
         { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
       );
       if (!res.ok) {

@@ -5,11 +5,11 @@
  * Integrates with OpenAI Vision API for space analysis
  * 
  * Routes:
- * - POST /make-server-57095a78/ai-floorplan/analyze-video
- * - POST /make-server-57095a78/ai-floorplan/analyze-image
- * - POST /make-server-57095a78/ai-floorplan/generate-from-description
- * - POST /make-server-57095a78/ai-floorplan/analyze-kitchen - NEW: Kitchen-specific analysis
- * - GET  /make-server-57095a78/ai-floorplan/projects/:id
+ * - POST /make-server-3eae23a6/ai-floorplan/analyze-video
+ * - POST /make-server-3eae23a6/ai-floorplan/analyze-image
+ * - POST /make-server-3eae23a6/ai-floorplan/generate-from-description
+ * - POST /make-server-3eae23a6/ai-floorplan/analyze-kitchen - NEW: Kitchen-specific analysis
+ * - GET  /make-server-3eae23a6/ai-floorplan/projects/:id
  */
 
 import { Hono } from 'npm:hono';
@@ -177,7 +177,7 @@ async function analyzeWithOpenAI(
 }
 
 /**
- * POST /make-server-57095a78/ai-floorplan/analyze-image
+ * POST /make-server-3eae23a6/ai-floorplan/analyze-image
  * Analyze a single image to extract floor plan data
  */
 app.post('/analyze-image', async (c) => {
@@ -389,7 +389,7 @@ All measurements should be in inches. Be as precise as possible based on visible
 });
 
 /**
- * POST /make-server-57095a78/ai-floorplan/analyze-video
+ * POST /make-server-3eae23a6/ai-floorplan/analyze-video
  * Analyze video frames to extract floor plan data
  */
 app.post('/analyze-video', async (c) => {
@@ -422,7 +422,7 @@ app.post('/analyze-video', async (c) => {
 });
 
 /**
- * POST /make-server-57095a78/ai-floorplan/generate-from-description
+ * POST /make-server-3eae23a6/ai-floorplan/generate-from-description
  * Generate floor plan from text description using AI
  */
 app.post('/generate-from-description', async (c) => {
@@ -599,7 +599,7 @@ All measurements in inches. Create a functional, realistic layout.`;
 });
 
 /**
- * POST /make-server-57095a78/ai-floorplan/analyze-kitchen
+ * POST /make-server-3eae23a6/ai-floorplan/analyze-kitchen
  * Analyze a kitchen image to extract kitchen-specific data
  */
 app.post('/analyze-kitchen', async (c) => {

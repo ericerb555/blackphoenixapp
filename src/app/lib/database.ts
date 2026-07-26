@@ -6,7 +6,7 @@
 import { supabase } from './supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 
-const API_BASE = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78';
+const API_BASE = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
 
 /**
  * Get current user's access token for authenticated requests

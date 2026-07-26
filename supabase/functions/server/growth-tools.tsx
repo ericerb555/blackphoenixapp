@@ -16,7 +16,7 @@ function ok(data: Record<string, unknown> = {}) {
 }
 
 // ─── Marketing Automation ─────────────────────────────────────────────────────
-router.get("/make-server-57095a78/automation/workflows", async (c) => {
+router.get("/make-server-3eae23a6/automation/workflows", async (c) => {
   try {
     const workflows = (await kv.get(WORKFLOWS_KEY)) || null;
     return c.json(ok({ workflows }));
@@ -26,7 +26,7 @@ router.get("/make-server-57095a78/automation/workflows", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/automation/workflows", async (c) => {
+router.post("/make-server-3eae23a6/automation/workflows", async (c) => {
   try {
     const { workflows } = await c.req.json();
     if (!Array.isArray(workflows)) {
@@ -43,7 +43,7 @@ router.post("/make-server-57095a78/automation/workflows", async (c) => {
 // Execute a workflow: increments its real run count and records the last run
 // time. Called when a workflow actually fires (manual "Run now" or a trigger
 // event), replacing the hardcoded runCount values.
-router.post("/make-server-57095a78/automation/workflows/:id/run", async (c) => {
+router.post("/make-server-3eae23a6/automation/workflows/:id/run", async (c) => {
   try {
     const id = c.req.param("id");
     const workflows = (await kv.get(WORKFLOWS_KEY)) || [];
@@ -66,7 +66,7 @@ router.post("/make-server-57095a78/automation/workflows/:id/run", async (c) => {
 });
 
 // ─── Keyword Tracker ──────────────────────────────────────────────────────────
-router.get("/make-server-57095a78/keywords", async (c) => {
+router.get("/make-server-3eae23a6/keywords", async (c) => {
   try {
     const keywords = (await kv.get(KEYWORDS_KEY)) || null;
     return c.json(ok({ keywords }));
@@ -76,7 +76,7 @@ router.get("/make-server-57095a78/keywords", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/keywords", async (c) => {
+router.post("/make-server-3eae23a6/keywords", async (c) => {
   try {
     const { keywords } = await c.req.json();
     if (!Array.isArray(keywords)) {
@@ -91,7 +91,7 @@ router.post("/make-server-57095a78/keywords", async (c) => {
 });
 
 // ─── Flash Sales ──────────────────────────────────────────────────────────────
-router.get("/make-server-57095a78/flash-sales", async (c) => {
+router.get("/make-server-3eae23a6/flash-sales", async (c) => {
   try {
     const sales = (await kv.get(FLASH_KEY)) || [];
     return c.json(ok({ sales }));
@@ -101,7 +101,7 @@ router.get("/make-server-57095a78/flash-sales", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/flash-sales", async (c) => {
+router.post("/make-server-3eae23a6/flash-sales", async (c) => {
   try {
     const { sales } = await c.req.json();
     if (!Array.isArray(sales)) {
@@ -116,7 +116,7 @@ router.post("/make-server-57095a78/flash-sales", async (c) => {
 });
 
 // ─── Loyalty Program (per-email accounts) ─────────────────────────────────────
-router.get("/make-server-57095a78/loyalty/:email", async (c) => {
+router.get("/make-server-3eae23a6/loyalty/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const account = (await kv.get(LOYALTY(email))) || null;
@@ -127,7 +127,7 @@ router.get("/make-server-57095a78/loyalty/:email", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/loyalty/:email", async (c) => {
+router.post("/make-server-3eae23a6/loyalty/:email", async (c) => {
   try {
     const email = c.req.param("email");
     const { account } = await c.req.json();
@@ -143,7 +143,7 @@ router.post("/make-server-57095a78/loyalty/:email", async (c) => {
 });
 
 // ─── Referral Rewards ─────────────────────────────────────────────────────────
-router.get("/make-server-57095a78/referrals", async (c) => {
+router.get("/make-server-3eae23a6/referrals", async (c) => {
   try {
     const referrals = (await kv.get(REFERRALS_KEY)) || null;
     const programs = (await kv.get(PROGRAMS_KEY)) || null;
@@ -154,7 +154,7 @@ router.get("/make-server-57095a78/referrals", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/referrals", async (c) => {
+router.post("/make-server-3eae23a6/referrals", async (c) => {
   try {
     const { referrals, programs } = await c.req.json();
     if (Array.isArray(referrals)) await kv.set(REFERRALS_KEY, referrals);

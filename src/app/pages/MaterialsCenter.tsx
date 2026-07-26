@@ -83,7 +83,7 @@ function MaterialsAIChat({ onClose }: { onClose: () => void }) {
     setMessages(history);
     setLoading(true);
     try {
-      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/permit-ai/chat`, {
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/permit-ai/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
@@ -682,7 +682,7 @@ function MyStoreSection({ quickAddToQuote }: { quickAddToQuote: (m: any) => void
     try {
       const { supabase } = await import('../lib/supabase');
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
-      const server = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const server = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
 
@@ -700,7 +700,7 @@ function MyStoreSection({ quickAddToQuote }: { quickAddToQuote: (m: any) => void
     try {
       const { supabase } = await import('../lib/supabase');
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
-      const server = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const server = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
 
@@ -1023,7 +1023,7 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
     try {
       const searchTerm = material.description || material.name;
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/vendor-pricing/compare`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-pricing/compare`,
         {
           method: 'POST',
           headers: {

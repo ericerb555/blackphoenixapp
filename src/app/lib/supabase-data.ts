@@ -7,7 +7,7 @@
 import { supabase } from './supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 async function serverRequest(path: string, init: RequestInit = {}) {
   const { data: { session } } = await supabase.auth.getSession();

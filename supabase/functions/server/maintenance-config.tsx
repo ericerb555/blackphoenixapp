@@ -9,7 +9,7 @@ const router = new Hono();
 // nothing has been saved yet).
 const CONFIG_KEY = "maintenance_config:default";
 
-router.get("/make-server-57095a78/maintenance-config", async (c) => {
+router.get("/make-server-3eae23a6/maintenance-config", async (c) => {
   try {
     const config = await kv.get(CONFIG_KEY);
     return c.json({ success: true, config: config || null });
@@ -19,7 +19,7 @@ router.get("/make-server-57095a78/maintenance-config", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/maintenance-config", async (c) => {
+router.post("/make-server-3eae23a6/maintenance-config", async (c) => {
   try {
     const { config } = await c.req.json();
     if (!config || typeof config !== "object") {

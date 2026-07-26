@@ -135,7 +135,7 @@ export default function InvoicesNew() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in to pay this invoice.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`, {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
         method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceId: invoice.id, amount: invoice.balance_due, paymentMethod, description: `Invoice #${invoice.invoice_number}` }),
       });
@@ -150,7 +150,7 @@ export default function InvoicesNew() {
     e.stopPropagation(); setStellarInvoice(invoice); setStellarInstructions(null); setStellarTransactionHash(''); setStellarAmount(''); setStellarLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/invoices/${encodeURIComponent(invoice.id)}/stellar-instructions`, { headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices/${encodeURIComponent(invoice.id)}/stellar-instructions`, { headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
       const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Stellar payments are not currently available.'); setStellarInstructions(result);
     } catch (error: any) { toast.error(error?.message || 'Could not load Stellar instructions.'); setStellarInvoice(null); }
     finally { setStellarLoading(false); }
@@ -160,7 +160,7 @@ export default function InvoicesNew() {
     if (!stellarInvoice || !stellarTransactionHash) return;
     try {
       setStellarLoading(true); const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/invoices/${encodeURIComponent(stellarInvoice.id)}/stellar-payment-submissions`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionHash: stellarTransactionHash, amount: stellarAmount, assetCode: stellarInstructions?.wallet?.assetCode }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices/${encodeURIComponent(stellarInvoice.id)}/stellar-payment-submissions`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionHash: stellarTransactionHash, amount: stellarAmount, assetCode: stellarInstructions?.wallet?.assetCode }) });
       const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Could not submit Stellar payment.'); toast.success('Stellar transaction submitted for reconciliation.'); setStellarInvoice(null);
     } catch (error: any) { toast.error(error?.message || 'Could not submit Stellar payment.'); }
     finally { setStellarLoading(false); }

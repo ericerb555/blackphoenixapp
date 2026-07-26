@@ -32,7 +32,7 @@ import { BankTransaction, ReconciliationMatch, ReconciliationPeriod, Reconciliat
 import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';

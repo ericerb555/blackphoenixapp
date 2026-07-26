@@ -9,7 +9,7 @@ import { toast } from 'sonner@2.0.3';
 import { uploadImageDataUrl } from '../utils/imageStorage';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const LOGO_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const LOGO_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export default function UploadMyLogo() {
   const [uploading, setUploading] = useState(false);

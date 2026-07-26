@@ -40,7 +40,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
 
       // Fetch active quotes
       const quotesResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/quotes/list`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/list`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -56,7 +56,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
 
       // Fetch recent studio projects from KV store
       const recentResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/studio/recent-projects`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/recent-projects`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -87,7 +87,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
     // Save to recent projects
     try {
       await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/studio/save-recent`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/save-recent`,
         {
           method: 'POST',
           headers: {

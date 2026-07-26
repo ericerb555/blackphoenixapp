@@ -220,6 +220,6 @@ code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ⚠️ Emergency t
 code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ⚠️ No branding profile found anywhere
 code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
 code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
-dataPersistence.ts:194  POST https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-57095a78/data/backup 404 (Not Found)
+dataPersistence.ts:194  POST https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/data/backup 404 (Not Found)
 backupToDatabase @ dataPersistence.ts:194
 (anonymous) @ dataPersistence.ts:249

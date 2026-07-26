@@ -11,7 +11,7 @@ import {
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export const PORTAL_OPTIONS = [
   { id: 'all',              label: 'All Portals',       color: 'bg-white/10 text-white border-white/20' },

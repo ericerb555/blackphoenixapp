@@ -20,7 +20,7 @@ import { PageHeader } from '../components/PageHeader';
 import { toast } from 'sonner@2.0.3';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const DEFAULT_PROMOS = [

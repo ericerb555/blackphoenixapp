@@ -7,7 +7,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface Order {
   id: string;
@@ -187,7 +187,7 @@ export default function OrderManager() {
             <div className="mt-3 space-y-1.5 text-xs text-gray-500">
               <p>1. Go to <span className="text-orange-400">supabase.com → your project → Edge Functions → Secrets</span></p>
               <p>2. Add <code className="text-orange-300">STRIPE_SECRET_KEY</code> = your Stripe secret key (from stripe.com → Developers → API Keys)</p>
-              <p>3. Add webhook in Stripe pointing to <code className="text-orange-300">https://{projectId}.supabase.co/functions/v1/make-server-57095a78/store/webhook</code></p>
+              <p>3. Add webhook in Stripe pointing to <code className="text-orange-300">https://{projectId}.supabase.co/functions/v1/make-server-3eae23a6/store/webhook</code></p>
               <p>4. Add <code className="text-orange-300">STRIPE_WEBHOOK_SECRET</code> from the webhook signing secret</p>
             </div>
           </div>

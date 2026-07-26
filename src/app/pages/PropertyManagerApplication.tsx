@@ -109,7 +109,7 @@ export default function PropertyManagerApplication({ onNavigate }: PropertyManag
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/applications`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/applications`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },

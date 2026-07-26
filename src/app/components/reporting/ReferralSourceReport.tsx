@@ -54,7 +54,7 @@ export default function ReferralSourceReport() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in as the Platform Owner to view referral reporting.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/reporting/referral-sources`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/reporting/referral-sources`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load referral reporting.');
       setReferralData(result.sources || []); setFunnelData(result.funnel || null);

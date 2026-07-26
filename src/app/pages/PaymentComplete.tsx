@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, LoaderCircle, ArrowRight, RefreshCw, ShieldC
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const SAFE_PORTALS = new Set(['customer-portal-app', 'vendor-portal', 'advertiser-portal', 'subcontractor-portal', 'employee-portal', 'investor-portal', 'property-manager-portal', 'condo-manager-portal', 'landlord-portal', 'territory-portal']);
 
 export default function PaymentComplete({ onNavigate }: { onNavigate?: (page: string) => void }) {

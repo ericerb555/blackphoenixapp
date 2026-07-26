@@ -13,7 +13,7 @@ import { projectId } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const EMPLOYEE_ROLE = 'Field Technician';
 
 interface FieldTask {

@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { CheckCircle, MapPin, Star, Zap, Shield, Users, ArrowRight, ChevronDown } from 'lucide-react';
 import { projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 

@@ -8,7 +8,7 @@ const seo = new Hono();
 // SITEMAP GENERATION
 // ============================================
 
-seo.get('/make-server-57095a78/api/seo/sitemap.xml', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/sitemap.xml', async (c) => {
   try {
     const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
     
@@ -78,7 +78,7 @@ ${item.images.map((img: string) => `    <image:image>
 // STRUCTURED DATA (JSON-LD)
 // ============================================
 
-seo.get('/make-server-57095a78/api/seo/product/:productId/schema', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/product/:productId/schema', async (c) => {
   try {
     const productId = c.req.param('productId');
     const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
@@ -159,7 +159,7 @@ seo.get('/make-server-57095a78/api/seo/product/:productId/schema', async (c) => 
 });
 
 // Organization Schema
-seo.get('/make-server-57095a78/api/seo/organization-schema', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/organization-schema', async (c) => {
   try {
     const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
     
@@ -191,7 +191,7 @@ seo.get('/make-server-57095a78/api/seo/organization-schema', async (c) => {
 });
 
 // BreadcrumbList Schema
-seo.get('/make-server-57095a78/api/seo/breadcrumb-schema', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/breadcrumb-schema', async (c) => {
   try {
     const path = c.req.query('path') || '/';
     const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
@@ -235,7 +235,7 @@ seo.get('/make-server-57095a78/api/seo/breadcrumb-schema', async (c) => {
 // META TAGS GENERATION
 // ============================================
 
-seo.get('/make-server-57095a78/api/seo/product/:productId/meta', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/product/:productId/meta', async (c) => {
   try {
     const productId = c.req.param('productId');
     const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
@@ -310,7 +310,7 @@ function generateKeywords(product: any): string {
 // ROBOTS.TXT
 // ============================================
 
-seo.get('/make-server-57095a78/api/seo/robots.txt', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/robots.txt', async (c) => {
   const baseUrl = c.req.header('X-Base-URL') || 'https://example.com';
   
   const robotsTxt = `User-agent: *
@@ -334,7 +334,7 @@ Crawl-delay: 1`;
 // SEO ANALYSIS & RECOMMENDATIONS
 // ============================================
 
-seo.get('/make-server-57095a78/api/seo/analyze/:productId', async (c) => {
+seo.get('/make-server-3eae23a6/api/seo/analyze/:productId', async (c) => {
   try {
     const productId = c.req.param('productId');
     const product = await kv.get(`product:${productId}`);
@@ -483,7 +483,7 @@ seo.get('/make-server-57095a78/api/seo/analyze/:productId', async (c) => {
 // BULK SEO OPERATIONS
 // ============================================
 
-seo.post('/make-server-57095a78/api/seo/bulk-optimize', async (c) => {
+seo.post('/make-server-3eae23a6/api/seo/bulk-optimize', async (c) => {
   try {
     const { productIds } = await c.req.json();
     

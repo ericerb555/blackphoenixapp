@@ -265,7 +265,7 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
   const [subcontractors, setSubcontractors] = useState<any[]>([]);
 
   useEffect(() => {
-    const base = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+    const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
     const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
     const getJson = async (path: string) => {
       const res = await fetch(`${base}${path}`, { headers: authHeaders });

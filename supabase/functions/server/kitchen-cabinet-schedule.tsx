@@ -5,9 +5,9 @@
  * Includes material takeoffs, cost estimates, and installation sequences
  * 
  * Routes:
- * - POST /make-server-57095a78/cabinet-schedule/generate
- * - GET  /make-server-57095a78/cabinet-schedule/:id
- * - POST /make-server-57095a78/cabinet-schedule/export-pdf
+ * - POST /make-server-3eae23a6/cabinet-schedule/generate
+ * - GET  /make-server-3eae23a6/cabinet-schedule/:id
+ * - POST /make-server-3eae23a6/cabinet-schedule/export-pdf
  */
 
 import { Hono } from 'npm:hono@4';
@@ -364,7 +364,7 @@ function generateMaterialTakeoff(cabinets: CabinetScheduleItem[], countertops: C
 }
 
 /**
- * POST /make-server-57095a78/cabinet-schedule/generate
+ * POST /make-server-3eae23a6/cabinet-schedule/generate
  * Generate a complete cabinet schedule from kitchen layout data
  */
 app.post('/generate', async (c) => {
@@ -485,7 +485,7 @@ app.post('/generate', async (c) => {
 });
 
 /**
- * GET /make-server-57095a78/cabinet-schedule/:id
+ * GET /make-server-3eae23a6/cabinet-schedule/:id
  * Retrieve a saved cabinet schedule
  */
 app.get('/:id', async (c) => {
@@ -509,7 +509,7 @@ app.get('/:id', async (c) => {
 });
 
 /**
- * POST /make-server-57095a78/cabinet-schedule/export-pdf
+ * POST /make-server-3eae23a6/cabinet-schedule/export-pdf
  * Export cabinet schedule as PDF (future implementation)
  */
 app.post('/export-pdf', async (c) => {

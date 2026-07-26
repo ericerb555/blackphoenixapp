@@ -50,7 +50,7 @@ export default function CustomerDetail({ customerId, onBack, onEdit }: CustomerD
     try {
       setLoading(true);
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/customers/${encodeURIComponent(customerId)}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/customers/${encodeURIComponent(customerId)}`,
         { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
       );
       if (!res.ok) {

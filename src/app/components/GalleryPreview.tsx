@@ -8,7 +8,7 @@ import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 const PLACEHOLDERS = [
   { id: 'p1', title: 'Full Kitchen Remodel', category: 'Kitchen', beforeUrl: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=800&q=80', afterUrl: 'https://images.unsplash.com/photo-1556909172-54557c7e4fb7?w=800&q=80' },

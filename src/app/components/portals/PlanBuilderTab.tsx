@@ -141,7 +141,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     setFollowUp('');
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/plan-builder/generate`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/generate`,
         {
           method: 'POST',
           headers: {

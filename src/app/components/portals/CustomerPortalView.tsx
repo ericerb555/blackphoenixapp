@@ -98,7 +98,7 @@ export default function CustomerPortalView() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Sign in to view your work requests.');
 
-        const url = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/work-requests`);
+        const url = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`);
         url.searchParams.append('userId', user.id);
         // Also send email as fallback — catches requests where user_id wasn't saved
         if (user.email) url.searchParams.append('email', user.email);
@@ -138,7 +138,7 @@ export default function CustomerPortalView() {
 
       try {
         setLoadingQuotes(true);
-        const url = new URL(`${API_BASE_URL}/make-server-57095a78/quotes`);
+        const url = new URL(`${API_BASE_URL}/make-server-3eae23a6/quotes`);
         url.searchParams.append('userId', user.id);
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -178,7 +178,7 @@ export default function CustomerPortalView() {
 
       try {
         setLoadingInvoices(true);
-        const url = new URL(`${API_BASE_URL}/make-server-57095a78/invoices`);
+        const url = new URL(`${API_BASE_URL}/make-server-3eae23a6/invoices`);
         url.searchParams.append('userId', user.id);
 
         const { data: { session } } = await supabase.auth.getSession();
@@ -216,7 +216,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Sign in to view contracts.');
-        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/contracts`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/contracts`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Could not load contracts.');
         setContracts(data.contracts || []);
@@ -233,7 +233,7 @@ export default function CustomerPortalView() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
-      const response = await fetch(`${API_BASE_URL}/make-server-57095a78/contracts/${encodeURIComponent(contract.id)}/sign`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ acceptTerms: true, signatureName }) });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/contracts/${encodeURIComponent(contract.id)}/sign`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ acceptTerms: true, signatureName }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not sign this contract.');
       setContracts(current => current.map(item => item.id === contract.id ? data.contract : item));
@@ -252,7 +252,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/payments/complete`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId, sessionId }) });
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/complete`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId, sessionId }) });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Payment is still being confirmed.');
         if (data.subscription) setCustomerSubscription({ plan: data.subscription.plan || 'premium', hoursIncluded: Number(data.subscription.hoursIncluded || 0), hoursUsed: Number(data.subscription.hoursUsed || 0), hoursRollover: Number(data.subscription.hoursRollover || 0), hoursGifted: Number(data.subscription.hoursGifted || 0), nextBillingDate: data.subscription.renewalDate || '', price: Number(data.subscription.amount || 0) });
@@ -328,7 +328,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`${API_BASE_URL}/make-server-57095a78/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/subscriptions`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await response.json();
         const subscription = (data.subscriptions || []).find((item: any) => item.status === 'active') || data.subscriptions?.[0];
         if (!response.ok || !subscription) return;
@@ -370,7 +370,7 @@ export default function CustomerPortalView() {
   ];
   const [videoReels, setVideoReels] = useState<any[]>(STATIC_REELS);
   useEffect(() => {
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/reels`, {
+    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`, {
       headers: { Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })
@@ -497,7 +497,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/giveaways/entries`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/giveaways/entries`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const payload = await response.json().catch(() => ({}));
         if (active && response.ok && payload.success) setEnteredGiveaways((payload.entries || []).map((entry: any) => entry.giveawayId));
       } catch { /* The giveaway card remains available; submit will surface any error. */ }
@@ -510,7 +510,7 @@ export default function CustomerPortalView() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in before entering a giveaway.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/giveaways/entries`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ giveawayId, giveawayTitle }) });
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/giveaways/entries`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ giveawayId, giveawayTitle }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not enter the giveaway.');
       setEnteredGiveaways((current) => [...current, giveawayId]);
@@ -607,7 +607,7 @@ export default function CustomerPortalView() {
     setSubmittingQuoteRequest(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${API_BASE_URL}/make-server-57095a78/work-requests`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientEmail: user.email, clientName: displayName || user.user_metadata?.full_name || user.email.split('@')[0], serviceType: 'Quote request', project_name: `Quote request – ${quoteItems.map(item => item.title).join(', ')}`, description: quoteItems.map(item => `${item.title}: ${item.description}`).join('\n'), quoteItems, source: 'customer-portal-quote-builder' }) });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/work-requests`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientEmail: user.email, clientName: displayName || user.user_metadata?.full_name || user.email.split('@')[0], serviceType: 'Quote request', project_name: `Quote request – ${quoteItems.map(item => item.title).join(', ')}`, description: quoteItems.map(item => `${item.title}: ${item.description}`).join('\n'), quoteItems, source: 'customer-portal-quote-builder' }) });
       const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not submit your quote request.');
       toast.success(`Quote request submitted for ${quoteItems.length} item(s).`); setQuoteItems([]); setShowQuoteBuilder(false);
     } catch (error: any) { toast.error(error.message || 'Could not submit your quote request.'); }
@@ -667,7 +667,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || publicAnonKey;
-        const convUrl = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/messaging/conversations/${user.id || 'guest'}`);
+        const convUrl = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/messaging/conversations/${user.id || 'guest'}`);
         if (user.email) convUrl.searchParams.set('email', user.email);
         const res = await fetch(convUrl.toString(), { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
@@ -1422,7 +1422,7 @@ export default function CustomerPortalView() {
                             onClick={async () => {
                               const { data: { session } } = await supabase.auth.getSession();
                               const token = session?.access_token || publicAnonKey;
-                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`, {
+                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ amount: Math.round((quote.amount || quote.total || 0) * 0.30), description: `30% Deposit — ${quote.title || 'Project'}`, clientName: user?.email, clientEmail: user?.email, workRequestId: quote.workRequestId }),
                               });
@@ -1485,7 +1485,7 @@ export default function CustomerPortalView() {
                             onClick={async () => {
                               const { data: { session } } = await supabase.auth.getSession();
                               const tok = session?.access_token || publicAnonKey;
-                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/payments/create-checkout`, {
+                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ amount: invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount, description: `Invoice #${invoice.invoice_number || invoice.id}`, clientEmail: user?.email, clientName: user?.email?.split('@')[0], invoiceId: invoice.id, workRequestId: invoice.workRequestId }),
                               });
@@ -1574,7 +1574,7 @@ export default function CustomerPortalView() {
                   try {
                     const { data: { session } } = await supabase.auth.getSession();
                     if (!session?.access_token) throw new Error('Sign in to reload your work requests.');
-                    const response = await fetch(`${API_BASE_URL}/make-server-57095a78/work-requests`, {
+                    const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/work-requests`, {
                       headers: { Authorization: `Bearer ${session.access_token}` },
                     });
                     const data = await response.json();
@@ -1668,7 +1668,7 @@ export default function CustomerPortalView() {
           if (!user?.email) { toast.error('Sign in before selecting a subscription.'); return; }
           try {
             const { data: { session } } = await supabase.auth.getSession();
-            const response = await fetch(`${API_BASE_URL}/make-server-57095a78/subscriptions/checkout`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: 'premium', amount: 49, billingCycle: 'monthly', name: displayName || user.user_metadata?.full_name || user.email.split('@')[0] }) });
+            const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/subscriptions/checkout`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: 'premium', amount: 49, billingCycle: 'monthly', name: displayName || user.user_metadata?.full_name || user.email.split('@')[0] }) });
             const data = await response.json(); if (!response.ok || !data.success || !data.checkoutUrl) throw new Error(data.error || 'Could not start secure checkout.');
             window.location.assign(data.checkoutUrl);
           } catch (error: any) { toast.error(error.message || 'Could not start secure checkout.'); }
@@ -1688,7 +1688,7 @@ function CustomerMessagesTab({ userId, userEmail, userName }: { userId: string; 
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+  const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();

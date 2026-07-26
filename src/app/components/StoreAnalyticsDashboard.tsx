@@ -113,7 +113,7 @@ export default function StoreAnalyticsDashboard() {
   async function loadAnalytics() {
     setLoading(true);
     try {
-      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/analytics/store`, {
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/analytics/store`, {
         headers: { Authorization: `Bearer ${publicAnonKey}` },
       });
       const data = await res.json().catch(() => ({}));

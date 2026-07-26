@@ -21,7 +21,7 @@ export default function PropertyManagementTest() {
 
     // Test 2: Test health endpoint
     try {
-      const healthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management/health`;
+      const healthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management/health`;
       console.log('Testing health endpoint:', healthUrl);
       
       const healthRes = await fetch(healthUrl, {
@@ -55,7 +55,7 @@ export default function PropertyManagementTest() {
 
     // Test 3: Test pending-counts endpoint
     try {
-      const countsUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management/pending-counts`;
+      const countsUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management/pending-counts`;
       console.log('Testing pending-counts endpoint:', countsUrl);
       
       const countsRes = await fetch(countsUrl, {
@@ -89,7 +89,7 @@ export default function PropertyManagementTest() {
 
     // Test 4: Test inline health endpoint
     try {
-      const inlineHealthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management-test`;
+      const inlineHealthUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management-test`;
       console.log('Testing inline test endpoint:', inlineHealthUrl);
       
       const inlineRes = await fetch(inlineHealthUrl, {
@@ -123,7 +123,7 @@ export default function PropertyManagementTest() {
 
     // Test 5: Test base server endpoint
     try {
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
       console.log('Testing base server endpoint:', baseUrl);
       
       const baseRes = await fetch(baseUrl, {

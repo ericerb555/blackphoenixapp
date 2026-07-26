@@ -206,8 +206,8 @@ Be comprehensive and specific. Include all necessary materials, supplies, and co
   }
 });
 
-// POST /make-server-57095a78/auto-generate-quote - Pipeline-specific auto-generation endpoint
-quoteRouter.post('/make-server-57095a78/auto-generate-quote', async (c) => {
+// POST /make-server-3eae23a6/auto-generate-quote - Pipeline-specific auto-generation endpoint
+quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
   console.log('[AI Quote Generator] Pipeline auto-generation request received');
   
   try {

@@ -31,7 +31,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
 
       // Now try the simple test endpoint we just created
       const testResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/bid-router/simple-test`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/simple-test`,
         {
           method: 'POST',
           headers: {
@@ -56,7 +56,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
 
       // Now try the actual analysis endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/bid-router/ai-analyze`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/ai-analyze`,
         {
           method: 'POST',
           headers: {
@@ -119,7 +119,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
     setRouting(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/bid-router/ai-route`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/ai-route`,
         {
           method: 'POST',
           headers: {

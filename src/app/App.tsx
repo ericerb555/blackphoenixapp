@@ -862,7 +862,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setState("allowed"); return; }
     if (!session?.access_token) { setState("blocked"); return; }
     setState("checking");
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/intake/my-access`, {
+    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     }).then(async response => ({ response, data: await response.json() }))
       .then(({ data }) => { if (active) setState(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })

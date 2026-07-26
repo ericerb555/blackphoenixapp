@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { getStoreReviews, type StoreReview } from '../components/StoreReviews';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const ALL_PRODUCT_IDS = ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10'];

@@ -55,7 +55,7 @@ export default function PropertyManagementHub() {
   const [filterPriority, setFilterPriority] = useState<'all' | 'low' | 'medium' | 'high' | 'urgent'>('all');
   const [selectedRequest, setSelectedRequest] = useState<WorkRequest | null>(null);
 
-  const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management`;
+  const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
 
   useEffect(() => {
     loadData();

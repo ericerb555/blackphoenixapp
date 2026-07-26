@@ -35,7 +35,7 @@ export default function SubmitReelForApproval({ submitterName, submitterType }: 
       const token = session?.access_token || publicAnonKey;
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/social/submit-reel`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/social/submit-reel`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

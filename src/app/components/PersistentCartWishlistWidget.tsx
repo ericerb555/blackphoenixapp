@@ -77,7 +77,7 @@ export default function PersistentCartWishlistWidget({
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/${sessionId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/${sessionId}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -125,7 +125,7 @@ export default function PersistentCartWishlistWidget({
       if (!sessionId) return;
 
       await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cart/remove`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/remove`,
         {
           method: 'DELETE',
           headers: {

@@ -8,7 +8,7 @@ const AUTO_PRODUCTS_KEY = "auto_products:default";
 const SOCIAL_CUSTOM_KEY = "social_custom_accounts:default";
 
 // --- Retargeting pixel config (single object) ---------------------------------
-router.get("/make-server-57095a78/retargeting-pixels", async (c) => {
+router.get("/make-server-3eae23a6/retargeting-pixels", async (c) => {
   try {
     const config = await kv.get(PIXELS_KEY);
     return c.json({ success: true, config: config || null });
@@ -18,7 +18,7 @@ router.get("/make-server-57095a78/retargeting-pixels", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/retargeting-pixels", async (c) => {
+router.post("/make-server-3eae23a6/retargeting-pixels", async (c) => {
   try {
     const { config } = await c.req.json();
     await kv.set(PIXELS_KEY, config || {});
@@ -30,7 +30,7 @@ router.post("/make-server-57095a78/retargeting-pixels", async (c) => {
 });
 
 // --- Auto product pilot (bulk array) ------------------------------------------
-router.get("/make-server-57095a78/auto-products", async (c) => {
+router.get("/make-server-3eae23a6/auto-products", async (c) => {
   try {
     const products = await kv.get(AUTO_PRODUCTS_KEY);
     return c.json({ success: true, products: Array.isArray(products) ? products : null });
@@ -40,7 +40,7 @@ router.get("/make-server-57095a78/auto-products", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/auto-products", async (c) => {
+router.post("/make-server-3eae23a6/auto-products", async (c) => {
   try {
     const { products } = await c.req.json();
     await kv.set(AUTO_PRODUCTS_KEY, Array.isArray(products) ? products : []);
@@ -52,7 +52,7 @@ router.post("/make-server-57095a78/auto-products", async (c) => {
 });
 
 // --- Social custom accounts (bulk array) --------------------------------------
-router.get("/make-server-57095a78/social/custom-accounts", async (c) => {
+router.get("/make-server-3eae23a6/social/custom-accounts", async (c) => {
   try {
     const accounts = await kv.get(SOCIAL_CUSTOM_KEY);
     return c.json({ success: true, accounts: Array.isArray(accounts) ? accounts : [] });
@@ -62,7 +62,7 @@ router.get("/make-server-57095a78/social/custom-accounts", async (c) => {
   }
 });
 
-router.post("/make-server-57095a78/social/custom-accounts", async (c) => {
+router.post("/make-server-3eae23a6/social/custom-accounts", async (c) => {
   try {
     const { accounts } = await c.req.json();
     await kv.set(SOCIAL_CUSTOM_KEY, Array.isArray(accounts) ? accounts : []);

@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentDataSheet } from './InvestmentDataSheet';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Server stores opportunities in snake_case; the view uses camelCase.
 function fromServer(opp: any): any {

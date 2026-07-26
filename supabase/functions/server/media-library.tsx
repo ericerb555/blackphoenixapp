@@ -5,12 +5,12 @@
  * Integrated with Supabase Storage and KV Store
  * 
  * ENDPOINTS:
- * - POST   /make-server-57095a78/media/upload              → Upload media file
- * - GET    /make-server-57095a78/media                     → List all media
- * - GET    /make-server-57095a78/media/:mediaId            → Get media details
- * - DELETE /make-server-57095a78/media/:mediaId            → Delete media
- * - PUT    /make-server-57095a78/media/:mediaId            → Update media metadata
- * - GET    /make-server-57095a78/media/folder/:folderId    → Get media by folder
+ * - POST   /make-server-3eae23a6/media/upload              → Upload media file
+ * - GET    /make-server-3eae23a6/media                     → List all media
+ * - GET    /make-server-3eae23a6/media/:mediaId            → Get media details
+ * - DELETE /make-server-3eae23a6/media/:mediaId            → Delete media
+ * - PUT    /make-server-3eae23a6/media/:mediaId            → Update media metadata
+ * - GET    /make-server-3eae23a6/media/folder/:folderId    → Get media by folder
  * 
  * STORAGE:
  * - Bucket: make-824f083c-media (private)
@@ -116,7 +116,7 @@ function generateStoragePath(filename: string): string {
 }
 
 // Upload media file
-mediaRouter.post("/make-server-57095a78/media/upload", async (c) => {
+mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
   console.log("📤 Media upload request received");
   try {
     const formData = await c.req.formData();
@@ -238,7 +238,7 @@ mediaRouter.post("/make-server-57095a78/media/upload", async (c) => {
 });
 
 // List all media
-mediaRouter.get("/make-server-57095a78/media", async (c) => {
+mediaRouter.get("/make-server-3eae23a6/media", async (c) => {
   try {
     const allMediaKey = 'media:all';
     const mediaIds = await kv.get(allMediaKey) || [];
@@ -280,7 +280,7 @@ mediaRouter.get("/make-server-57095a78/media", async (c) => {
 });
 
 // Get media by ID
-mediaRouter.get("/make-server-57095a78/media/:mediaId", async (c) => {
+mediaRouter.get("/make-server-3eae23a6/media/:mediaId", async (c) => {
   try {
     const { mediaId } = c.req.param();
     const mediaItem = await kv.get(`media:${mediaId}`);
@@ -315,7 +315,7 @@ mediaRouter.get("/make-server-57095a78/media/:mediaId", async (c) => {
 });
 
 // Delete media
-mediaRouter.delete("/make-server-57095a78/media/:mediaId", async (c) => {
+mediaRouter.delete("/make-server-3eae23a6/media/:mediaId", async (c) => {
   try {
     const { mediaId } = c.req.param();
     const mediaItem = await kv.get(`media:${mediaId}`);
@@ -369,7 +369,7 @@ mediaRouter.delete("/make-server-57095a78/media/:mediaId", async (c) => {
 });
 
 // Update media metadata
-mediaRouter.put("/make-server-57095a78/media/:mediaId", async (c) => {
+mediaRouter.put("/make-server-3eae23a6/media/:mediaId", async (c) => {
   try {
     const { mediaId } = c.req.param();
     const updates = await c.req.json();
@@ -410,7 +410,7 @@ mediaRouter.put("/make-server-57095a78/media/:mediaId", async (c) => {
 });
 
 // Get media by folder
-mediaRouter.get("/make-server-57095a78/media/folder/:folderId", async (c) => {
+mediaRouter.get("/make-server-3eae23a6/media/folder/:folderId", async (c) => {
   try {
     const { folderId } = c.req.param();
     const folderMediaKey = `media:folder:${folderId}`;

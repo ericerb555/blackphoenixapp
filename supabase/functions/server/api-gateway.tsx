@@ -6,7 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 export const apiGatewayRouter = new Hono();
 
 // Health check for API Gateway
-apiGatewayRouter.get('/make-server-57095a78/api/health', (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/health', (c) => {
   console.log('✅ API Gateway health check');
   return c.json({
     status: 'ok',
@@ -61,7 +61,7 @@ const requireApiKey = async (c: any, next: any) => {
 // ============================================
 
 // Get all products with filtering, pagination, and sorting
-apiGatewayRouter.get('/make-server-57095a78/api/products', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/products', async (c) => {
   try {
     const { 
       page = '1', 
@@ -149,7 +149,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/products', async (c) => {
 });
 
 // Get single product by ID
-apiGatewayRouter.get('/make-server-57095a78/api/products/:id', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/products/:id', async (c) => {
   try {
     const productId = c.req.param('id');
     const currency = c.req.query('currency') || 'USD';
@@ -188,7 +188,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/products/:id', async (c) => {
 // REAL-TIME INVENTORY MANAGEMENT
 // ============================================
 
-apiGatewayRouter.get('/make-server-57095a78/api/inventory/:productId', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/inventory/:productId', async (c) => {
   try{
     const productId = c.req.param('productId');
     
@@ -213,7 +213,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/inventory/:productId', async (c)
   }
 });
 
-apiGatewayRouter.post('/make-server-57095a78/api/inventory/update', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/inventory/update', async (c) => {
   try {
     const { productId, quantity, operation } = await c.req.json();
     
@@ -267,7 +267,7 @@ apiGatewayRouter.post('/make-server-57095a78/api/inventory/update', async (c) =>
 });
 
 // Bulk inventory check (for cart validation)
-apiGatewayRouter.post('/make-server-57095a78/api/inventory/check-bulk', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/inventory/check-bulk', async (c) => {
   try {
     const { items } = await c.req.json(); // [{ productId, quantity }]
     
@@ -305,7 +305,7 @@ apiGatewayRouter.post('/make-server-57095a78/api/inventory/check-bulk', async (c
 // REAL-TIME ORDER TRACKING
 // ============================================
 
-apiGatewayRouter.post('/make-server-57095a78/api/orders/create', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/orders/create', async (c) => {
   try {
     const orderData = await c.req.json();
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -367,7 +367,7 @@ apiGatewayRouter.post('/make-server-57095a78/api/orders/create', async (c) => {
   }
 });
 
-apiGatewayRouter.get('/make-server-57095a78/api/orders/:orderId/track', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/orders/:orderId/track', async (c) => {
   try {
     const orderId = c.req.param('orderId');
     
@@ -393,7 +393,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/orders/:orderId/track', async (c
   }
 });
 
-apiGatewayRouter.post('/make-server-57095a78/api/orders/:orderId/update-status', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/orders/:orderId/update-status', async (c) => {
   try {
     const orderId = c.req.param('orderId');
     const { status, message, trackingNumber } = await c.req.json();
@@ -483,7 +483,7 @@ async function detectFraud(order: any): Promise<number> {
   return Math.min(score, 1);
 }
 
-apiGatewayRouter.post('/make-server-57095a78/api/fraud/check', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/fraud/check', async (c) => {
   try {
     const orderData = await c.req.json();
     const fraudScore = await detectFraud(orderData);
@@ -547,7 +547,7 @@ async function getExchangeRate(from: string, to: string): Promise<number> {
   return rate;
 }
 
-apiGatewayRouter.get('/make-server-57095a78/api/currency/rates', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/currency/rates', async (c) => {
   try {
     const base = c.req.query('base') || 'USD';
     const targets = c.req.query('targets')?.split(',') || Object.keys(exchangeRates);
@@ -570,7 +570,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/currency/rates', async (c) => {
   }
 });
 
-apiGatewayRouter.post('/make-server-57095a78/api/currency/convert', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/currency/convert', async (c) => {
   try {
     const { amount, from, to } = await c.req.json();
     const rate = await getExchangeRate(from, to);
@@ -621,7 +621,7 @@ const translations: { [key: string]: any } = {
   }
 };
 
-apiGatewayRouter.get('/make-server-57095a78/api/i18n/translations', async (c) => {
+apiGatewayRouter.get('/make-server-3eae23a6/api/i18n/translations', async (c) => {
   try {
     const language = c.req.query('language') || 'en';
     
@@ -636,7 +636,7 @@ apiGatewayRouter.get('/make-server-57095a78/api/i18n/translations', async (c) =>
   }
 });
 
-apiGatewayRouter.post('/make-server-57095a78/api/geo/detect', async (c) => {
+apiGatewayRouter.post('/make-server-3eae23a6/api/geo/detect', async (c) => {
   try {
     const ipAddress = c.req.header('CF-Connecting-IP') || 
                       c.req.header('X-Forwarded-For') || 

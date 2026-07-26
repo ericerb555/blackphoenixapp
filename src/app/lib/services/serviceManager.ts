@@ -97,7 +97,7 @@ export class ServiceManager {
       
       // Insert via API
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/services`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
         {
           method: 'POST',
           headers: {
@@ -142,7 +142,7 @@ export class ServiceManager {
       
       // Update via API
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/services/${serviceId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
         {
           method: 'PUT',
           headers: {
@@ -189,7 +189,7 @@ export class ServiceManager {
   static async getServices(companyId: string, includeInactive: boolean = false): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/services`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -235,7 +235,7 @@ export class ServiceManager {
   static async getService(serviceId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/services/${serviceId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

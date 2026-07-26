@@ -384,7 +384,7 @@ class UnifiedPaymentService {
       try {
         const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/stripe/charge`,
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/stripe/charge`,
           {
             method: 'POST',
             headers: {

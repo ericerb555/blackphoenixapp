@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, User, Bot, Phone, Mail, ChevronDown, Minimize2, Maximize2, CheckCircle } from 'lucide-react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const chatAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 interface ChatConfig {

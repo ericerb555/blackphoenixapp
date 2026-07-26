@@ -62,7 +62,7 @@ export default function ReferralRewards() {
   useEffect(() => {
     if (!user?.email) return;
     const loadCode = async () => {
-      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/referrals/my-code`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const data = await response.json(); if (response.ok && data.success) setServerReferralCode(data.code); } catch { /* local code remains a short offline fallback */ }
+      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/referrals/my-code`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const data = await response.json(); if (response.ok && data.success) setServerReferralCode(data.code); } catch { /* local code remains a short offline fallback */ }
     };
     void loadCode();
   }, [user?.email]);
@@ -75,7 +75,7 @@ export default function ReferralRewards() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/referrals/mine`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/referrals/mine`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Unable to load referrals.');
         setReferrals((data.referrals || []).map((item: any) => ({

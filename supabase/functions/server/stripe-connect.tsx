@@ -26,7 +26,7 @@ import * as kv from "./kv_store.tsx";
 
 const stripeConnectRouter = new Hono();
 
-const PREFIX = "/make-server-57095a78";
+const PREFIX = "/make-server-3eae23a6";
 const COMPANY_PREFIX = "stripe_company";
 const COMPANY_INDEX = "stripe_company_index";
 const PAYMENT_PREFIX = "stripe_payment";

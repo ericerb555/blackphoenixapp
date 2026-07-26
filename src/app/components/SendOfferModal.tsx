@@ -34,7 +34,7 @@ export default function SendOfferModal({ workRequest, propertyType, onClose, onS
     setSending(true);
     
     try {
-      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/property-management`;
+      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
       
       const response = await fetch(`${API_BASE}/offers/send`, {
         method: 'POST',

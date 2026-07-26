@@ -7,7 +7,7 @@ import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 const SERVICES = [
   { id: 'construction', label: 'Construction & Renovation', icon: HardHat, color: '#ea580c', emoji: '🏗️', desc: 'Additions, remodels, structural work', duration: '1–4 weeks', startingAt: 'Free estimate' },

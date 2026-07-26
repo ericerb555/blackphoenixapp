@@ -93,7 +93,7 @@ export default function AIVideoUpload({
 
       // Call AI analysis endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/ai-floorplan/analyze-image`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/analyze-image`,
         {
           method: 'POST',
           headers: {
@@ -149,7 +149,7 @@ export default function AIVideoUpload({
       console.log('📝 Generating floor plan from description...');
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/ai-floorplan/generate-from-description`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/generate-from-description`,
         {
           method: 'POST',
           headers: {

@@ -16,7 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const STORAGE_KEY = 'bp_mkt_products';
 const PURCHASED_KEY = 'bp_mkt_purchased';
 
@@ -175,7 +175,7 @@ export default function DigitalStorefront() {
     if (!name.trim() || !email.trim()) { toast.error('Name and email are required'); return; }
     setCheckoutStep('processing');
     try {
-      const res = await fetch(`${SERVER.replace('/make-server-57095a78', '')}/make-server-57095a78/marketplace/checkout`, {
+      const res = await fetch(`${SERVER.replace('/make-server-3eae23a6', '')}/make-server-3eae23a6/marketplace/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify({

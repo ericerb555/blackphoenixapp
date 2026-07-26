@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Human labels for the secret-key env vars (values never touch the browser).
 const KEY_ENV_LABELS: Record<string, string> = {

@@ -54,7 +54,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   // Live reels from vendors / subcontractors / advertisers / content creation
   const [liveReels, setLiveReels] = useState<any[]>([]);
   useEffect(() => {
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/public/reels`, {
+    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`, {
       headers: { Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })

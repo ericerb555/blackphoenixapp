@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
-const QR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
+const QR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const qrAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const BASE_URL = 'https://theblackphoenixcompany.com';
