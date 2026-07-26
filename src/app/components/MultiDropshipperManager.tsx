@@ -200,6 +200,13 @@ export default function MultiDropshipperManager() {
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [importingToStore, setImportingToStore] = useState<string | null>(null);
 
+  // Zendrop quick-connect (inline in the dropshipping area).
+  const [zendropKey, setZendropKey] = useState('');
+  const [zendropStore, setZendropStore] = useState('');
+  const [zendropShowKey, setZendropShowKey] = useState(false);
+  const [zendropConnecting, setZendropConnecting] = useState(false);
+  const zendropConnected = connected.some(s => s.supplierId === 'zendrop');
+
   // Load REAL connected providers + inventory from the server so this tab
   // reflects the actual connection state (e.g. Zendrop connected on the
   // integration page must show here too). Previously this used mock data,
@@ -317,6 +324,41 @@ export default function MultiDropshipperManager() {
     setCredentials({});
   }
 
+  // Connect Zendrop directly from the dropshipping area using the entered API key
+  // + store number, then it's immediately syncable from here.
+  async function connectZendropInline() {
+    setZendropConnecting(true);
+    try {
+      const res = await fetch(`${SERVER}/zendrop/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          apiKey: zendropKey.trim(),
+          storeId: zendropStore.trim(),
+          markupType: 'percent',
+          markupValue: 75,
+          autoImport: true,
+          limit: 25,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Zendrop connection failed (HTTP ${res.status}). Check your API key.`;
+        console.error('[DropshipperManager] Zendrop inline verify failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      toast.success(`✅ Zendrop connected! ${(data.imported || data.productCount || 0)} products imported. You can now sync anytime.`);
+      setZendropKey('');
+      await loadConnected();
+    } catch (e: any) {
+      console.error('[DropshipperManager] Zendrop inline verify error:', e);
+      toast.error(`Could not reach the server to connect Zendrop: ${e?.message || e}`);
+    } finally {
+      setZendropConnecting(false);
+    }
+  }
+
   async function syncSupplier(id: string) {
     setSyncing(id);
     await new Promise(r => setTimeout(r, 2000));
@@ -422,6 +464,68 @@ export default function MultiDropshipperManager() {
       {/* ── SUPPLIERS TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'suppliers' && (
         <div className="space-y-4">
+          {/* Zendrop quick-connect — enter API key + store number, then sync */}
+          <div className="bg-[#1A1A1A] border border-emerald-500/20 rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 flex items-center justify-center text-xl flex-shrink-0">⚡</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-white">Zendrop</p>
+                  {zendropConnected ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> Connected
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-500/20 text-gray-400">Not connected</span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">Enter your Zendrop API key and store number to connect, then sync your catalog.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Zendrop API Key</label>
+                <div className="relative">
+                  <input
+                    type={zendropShowKey ? 'text' : 'password'}
+                    value={zendropKey}
+                    onChange={e => setZendropKey(e.target.value)}
+                    placeholder="zdp_live_••••••••••••"
+                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600 pr-10"
+                  />
+                  <button type="button" onClick={() => setZendropShowKey(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition">
+                    {zendropShowKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Store Number <span className="text-gray-600">(optional)</span></label>
+                <input
+                  value={zendropStore}
+                  onChange={e => setZendropStore(e.target.value)}
+                  placeholder="Your Zendrop Store ID"
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-4 flex-wrap">
+              <button onClick={connectZendropInline} disabled={zendropConnecting}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:brightness-110 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition">
+                {zendropConnecting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Connecting…</> : <><Zap className="w-4 h-4" /> {zendropConnected ? 'Reconnect' : 'Connect'} Zendrop</>}
+              </button>
+              {zendropConnected && (
+                <button onClick={() => syncSupplier('zendrop')} disabled={syncing === 'zendrop'}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/25 disabled:opacity-50 rounded-xl text-sm font-bold transition">
+                  <RefreshCw className={`w-4 h-4 ${syncing === 'zendrop' ? 'animate-spin' : ''}`} /> Sync Catalog
+                </button>
+              )}
+              <p className="text-xs text-gray-600">Leave the API key blank to use the account key already configured on the server.</p>
+            </div>
+          </div>
+
           {connected.length === 0 ? (
             <div className="text-center py-16 bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl">
               <Globe className="w-10 h-10 text-gray-700 mx-auto mb-3" />
