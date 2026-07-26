@@ -14,6 +14,9 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import SubTenantForms from './SubTenantForms';
+import NotificationBell from './NotificationBell';
+import NotificationPreferences from './NotificationPreferences';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 
@@ -295,12 +298,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {unreadMessages > 0 && (
-                <span className="relative">
-                  <Bell className="w-5 h-5 text-gray-400" />
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 rounded-full text-[9px] font-black text-white flex items-center justify-center">{unreadMessages}</span>
-                </span>
-              )}
+              <NotificationBell session={session} accent="indigo" />
             </div>
           </div>
 
@@ -613,6 +611,12 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                 )}
               </div>
             ))}
+
+            <div className="border-t border-[#2A2A2A] pt-5">
+              <h2 className="text-xl font-bold text-white">Inspection & Pet Forms</h2>
+              <p className="mb-4 mt-1 text-sm text-gray-400">Complete and sign any move-in/out checklists or pet deposit agreements your landlord sent.</p>
+              <SubTenantForms session={session} />
+            </div>
           </div>
         )}
 
@@ -833,6 +837,8 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                 Save Changes
               </button>
             </div>
+
+            <NotificationPreferences session={session} accent="indigo" />
 
             {/* Contact info */}
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">

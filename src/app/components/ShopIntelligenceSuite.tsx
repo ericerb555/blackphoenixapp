@@ -15,6 +15,7 @@ import {
   Bell, AlertTriangle, ShoppingCart, Plus, Globe, TrendingUp as TrendUp,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import ZendropTopProducts from './ZendropTopProducts';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -371,7 +372,7 @@ const US_REGIONS = [
   { name: 'West Coast', products: ['Ice Roller', 'LED Strips', 'Earbuds'], hot: 'Ice Roller +198%' },
 ];
 
-type Tab = 'overview' | 'products' | 'alerts' | 'creators' | 'competitors' | 'video-insights' | 'ai-assistant';
+type Tab = 'overview' | 'products' | 'zendrop' | 'alerts' | 'creators' | 'competitors' | 'video-insights' | 'ai-assistant';
 
 interface Props {
   onSendToCreatorStudio?: (product: TrendingProduct) => void;
@@ -514,6 +515,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
     { id: 'overview', label: 'Overview', icon: Zap },
     { id: 'alerts', label: 'Market Alerts', icon: Bell, badge: criticalAlerts.length },
     { id: 'products', label: 'Trending Products', icon: Flame, badge: TRENDING_PRODUCTS.filter(p => p.trend === 'rising').length },
+    { id: 'zendrop', label: 'Top Zendrop → Store', icon: ShoppingBag },
     { id: 'creators', label: 'Creator Discovery', icon: Users },
     { id: 'competitors', label: 'Competitors', icon: Target },
     { id: 'video-insights', label: 'Video Analytics', icon: BarChart3 },
@@ -1067,6 +1069,10 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
       )}
 
       {/* ── CREATOR DISCOVERY ─────────────────────────────────────────────────── */}
+      {activeTab === 'zendrop' && (
+        <ZendropTopProducts />
+      )}
+
       {activeTab === 'creators' && (
         <div className="space-y-4">
           <div className="flex items-center gap-3 flex-wrap">

@@ -2441,14 +2441,24 @@ app.post('/make-server-57095a78/notifications/work-request', async (c) => {
 // SMS when someone requests work, signs a lease, sends a message, or makes a
 // payment. Preferences are stored per event/channel and set from the portal.
 // ─────────────────────────────────────────────────────────────────────────────
-const NOTIF_EVENTS = ['work_request', 'lease_signed', 'message', 'payment'] as const;
+const NOTIF_EVENTS = ['work_request', 'lease_signed', 'landlord_form', 'form_completed', 'message', 'payment'] as const;
 type NotifEvent = typeof NOTIF_EVENTS[number];
+// Human labels for the preferences UI (sent to the client alongside prefs).
+const NOTIF_EVENT_LABELS: Record<string, string> = {
+  work_request: 'New maintenance / work requests',
+  lease_signed: 'Lease signed by tenant',
+  landlord_form: 'New form to complete',
+  form_completed: 'Form completed by tenant',
+  message: 'New portal messages',
+  payment: 'Rent & payment activity',
+};
 
 function notifPrefsKey(email: string) { return `notif_prefs:${String(email).toLowerCase()}`; }
+function notifInboxKey(email: string) { return `notif_inbox:${String(email).toLowerCase()}`; }
 
 function defaultNotifPrefs(email: string, phone = '') {
-  const events: Record<string, { email: boolean; sms: boolean }> = {};
-  for (const e of NOTIF_EVENTS) events[e] = { email: true, sms: true };
+  const events: Record<string, { email: boolean; sms: boolean; inApp: boolean }> = {};
+  for (const e of NOTIF_EVENTS) events[e] = { email: true, sms: true, inApp: true };
   return { email: String(email || '').toLowerCase(), phone: phone || '', events, updatedAt: null as string | null };
 }
 
@@ -2458,7 +2468,20 @@ async function loadNotifPrefs(email: string) {
   const saved = await kv.get(notifPrefsKey(lower)) as any;
   if (!saved) return defaultNotifPrefs(lower);
   const base = defaultNotifPrefs(lower, saved.phone);
-  return { ...base, ...saved, events: { ...base.events, ...(saved.events || {}) } };
+  const mergedEvents: Record<string, any> = { ...base.events };
+  for (const e of NOTIF_EVENTS) mergedEvents[e] = { ...base.events[e], ...(saved.events?.[e] || {}) };
+  return { ...base, ...saved, events: mergedEvents };
+}
+
+// Persist an in-app notification to the recipient's inbox (capped, newest-first).
+async function pushInAppNotification(email: string, event: string, title: string, body: string) {
+  const lower = String(email || '').toLowerCase();
+  if (!lower) return;
+  try {
+    const inbox = (await kv.get(notifInboxKey(lower)) as any[]) || [];
+    const record = { id: `ntf_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`, event, title, body, read: false, createdAt: new Date().toISOString() };
+    await kv.set(notifInboxKey(lower), [record, ...inbox].slice(0, 100));
+  } catch (e) { console.error(`[pushInAppNotification] failed for ${lower}:`, e); }
 }
 
 // Best-effort fan-out to one recipient honoring their saved channel prefs.
@@ -2467,8 +2490,11 @@ async function notifyRecipient(email: string, event: NotifEvent, opts: { subject
     const lower = String(email || '').toLowerCase();
     if (!lower) return;
     const prefs = await loadNotifPrefs(lower);
-    const evt = (prefs?.events?.[event]) || { email: true, sms: true };
+    const evt = (prefs?.events?.[event]) || { email: true, sms: true, inApp: true };
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+
+    // Always record an in-app notification (unless the user muted this event in-app).
+    if (evt.inApp !== false) { await pushInAppNotification(lower, event, opts.subject, opts.text); }
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     if (evt.email && RESEND_API_KEY) {
@@ -2509,7 +2535,7 @@ app.get('/make-server-57095a78/me/notification-prefs', async (c) => {
     if (!user?.email) return c.json({ success: false, error: 'Sign in to view notification settings.' }, 401);
     const prefs = await loadNotifPrefs(user.email);
     if (prefs && !prefs.phone) prefs.phone = String(user.user_metadata?.phone || '').trim();
-    return c.json({ success: true, prefs, events: NOTIF_EVENTS });
+    return c.json({ success: true, prefs, events: NOTIF_EVENTS, labels: NOTIF_EVENT_LABELS });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load notification settings.' }, 500); }
 });
 
@@ -2520,16 +2546,49 @@ app.put('/make-server-57095a78/me/notification-prefs', async (c) => {
     const lower = String(user.email).toLowerCase();
     const body = await c.req.json().catch(() => ({}));
     const base = defaultNotifPrefs(lower);
-    const events: Record<string, { email: boolean; sms: boolean }> = {};
+    const events: Record<string, { email: boolean; sms: boolean; inApp: boolean }> = {};
     for (const e of NOTIF_EVENTS) {
       const incoming = body?.events?.[e] || {};
-      events[e] = { email: incoming.email !== false, sms: incoming.sms !== false };
+      events[e] = { email: incoming.email !== false, sms: incoming.sms !== false, inApp: incoming.inApp !== false };
     }
     const phone = String(body.phone || '').trim().slice(0, 40);
     const prefs = { ...base, phone, events, updatedAt: new Date().toISOString() };
     await kv.set(notifPrefsKey(lower), prefs);
     return c.json({ success: true, prefs });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save notification settings.' }, 500); }
+});
+
+// In-app notification inbox (the bell dropdown).
+app.get('/make-server-57095a78/me/notifications', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view notifications.' }, 401);
+    const inbox = (await kv.get(notifInboxKey(user.email)) as any[]) || [];
+    const unread = inbox.filter((n: any) => !n.read).length;
+    return c.json({ success: true, notifications: inbox, unread });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load notifications.' }, 500); }
+});
+
+app.post('/make-server-57095a78/me/notifications/read', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to update notifications.' }, 401);
+    const body = await c.req.json().catch(() => ({}));
+    const ids: string[] = Array.isArray(body.ids) ? body.ids : [];
+    const inbox = (await kv.get(notifInboxKey(user.email)) as any[]) || [];
+    const next = inbox.map((n: any) => (ids.length === 0 || ids.includes(n.id)) ? { ...n, read: true } : n);
+    await kv.set(notifInboxKey(user.email), next);
+    return c.json({ success: true, unread: next.filter((n: any) => !n.read).length });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update notifications.' }, 500); }
+});
+
+app.post('/make-server-57095a78/me/notifications/clear', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to update notifications.' }, 401);
+    await kv.set(notifInboxKey(user.email), []);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to clear notifications.' }, 500); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3756,6 +3815,29 @@ app.post('/make-server-57095a78/landlord/tenants/:id/invite', async (c) => {
 
 function landlordPortfolioKey(email: string) { return `landlord_portfolio:${String(email).toLowerCase()}`; }
 
+const PROPERTY_MEDIA_BUCKET = 'make-57095a78-property-media';
+async function ensurePropertyMediaBucket() {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some((item: any) => item.name === PROPERTY_MEDIA_BUCKET)) {
+    const created = await supabase.storage.createBucket(PROPERTY_MEDIA_BUCKET, { public: false });
+    if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+  }
+}
+
+// Regenerate fresh signed URLs for a property's stored media (private bucket).
+async function signPropertyMedia(property: any) {
+  const media = Array.isArray(property?.media) ? property.media : [];
+  if (media.length === 0) return property;
+  const signed = await Promise.all(media.map(async (m: any) => {
+    if (!m?.path) return m;
+    try {
+      const { data } = await supabase.storage.from(m.bucket || PROPERTY_MEDIA_BUCKET).createSignedUrl(m.path, 60 * 60 * 24 * 7);
+      return { ...m, url: data?.signedUrl || '' };
+    } catch { return { ...m, url: '' }; }
+  }));
+  return { ...property, media: signed };
+}
+
 app.get('/make-server-57095a78/landlord/properties', async (c) => {
   try {
     const actor = await landlordActor(c);
@@ -3766,7 +3848,9 @@ app.get('/make-server-57095a78/landlord/properties', async (c) => {
     const legacy = (await kv.get('properties') as any[]) || [];
     const compatible = legacy.filter((property: any) => String(property.landlordEmail || property.ownerEmail || '').toLowerCase() === email || (actor.user?.id && String(property.landlordUserId || property.ownerUserId || '') === String(actor.user.id)));
     const seen = new Set(saved.map((property: any) => String(property.id)));
-    return c.json({ success: true, properties: [...saved, ...compatible.filter((property: any) => !seen.has(String(property.id)))].map(stripBase64) });
+    const merged = [...saved, ...compatible.filter((property: any) => !seen.has(String(property.id)))].map(stripBase64);
+    const withMedia = await Promise.all(merged.map((p: any) => signPropertyMedia(p)));
+    return c.json({ success: true, properties: withMedia });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load landlord properties.' }, 500); }
 });
 
@@ -3775,16 +3859,293 @@ app.post('/make-server-57095a78/landlord/properties', async (c) => {
     const actor = await landlordActor(c);
     if (!actor.user?.email) return c.json({ success: false, error: 'Sign in before adding a property.' }, 401);
     if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
-    const body = stripBase64(await c.req.json()); const name = String(body.name || '').trim(); const address = String(body.address || '').trim(); const suppliedUnits = Number(body.units); const suppliedVacancies = Number(body.vacancies || 0);
+    const email = String(actor.user.email).toLowerCase();
+
+    // Accept either JSON (legacy) or multipart form-data (with photos/videos).
+    const contentType = String(c.req.header('content-type') || '');
+    let body: any = {};
+    let files: File[] = [];
+    if (contentType.includes('multipart/form-data')) {
+      const parsed = await c.req.parseBody();
+      body = parsed;
+      files = Object.keys(parsed).filter(k => k.startsWith('media_')).map(k => parsed[k]).filter((f): f is File => f instanceof File);
+    } else {
+      body = stripBase64(await c.req.json());
+    }
+
+    const str = (v: any, max = 2000) => String(v ?? '').trim().slice(0, max);
+    const numOrNull = (v: any) => { const n = Number(v); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : null; };
+
+    const name = str(body.name, 200); const address = str(body.address, 300);
+    const suppliedUnits = Number(body.units); const suppliedVacancies = Number(body.vacancies || 0);
     if (!name) return c.json({ success: false, error: 'Property name is required.' }, 400);
     if (!address) return c.json({ success: false, error: 'Property address is required.' }, 400);
     if (!Number.isFinite(suppliedUnits) || suppliedUnits < 1) return c.json({ success: false, error: 'Enter at least one unit.' }, 400);
     if (!Number.isFinite(suppliedVacancies) || suppliedVacancies < 0) return c.json({ success: false, error: 'Vacancies must be zero or greater.' }, 400);
-    const units = Math.floor(suppliedUnits); const vacancies = Math.min(units, Math.floor(suppliedVacancies)); const now = new Date().toISOString();
-    const property = { id: `landlord_property_${crypto.randomUUID()}`, name, address, units, vacancies, ownerEmail: actor.user.email, landlordEmail: actor.user.email, landlordUserId: actor.user.id, createdAt: now, updatedAt: now };
+    const units = Math.floor(suppliedUnits); const vacancies = Math.min(units, Math.floor(suppliedVacancies));
+
+    // Upload any attached photos/videos to a private bucket (best-effort).
+    const media: any[] = [];
+    try {
+      if (files.length) {
+        await ensurePropertyMediaBucket();
+        for (const file of files.slice(0, 12)) {
+          if (file.size > 100 * 1024 * 1024) continue; // 100MB cap (covers short videos)
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'media';
+          const path = `${email}/${crypto.randomUUID()}-${safeName}`;
+          const upload = await supabase.storage.from(PROPERTY_MEDIA_BUCKET).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+          if (!upload.error) media.push({ name: file.name, bucket: PROPERTY_MEDIA_BUCKET, path, contentType: file.type || '', kind: (file.type || '').startsWith('video') ? 'video' : 'image' });
+        }
+      }
+    } catch (mediaErr: any) { console.log('Property media upload skipped:', mediaErr?.message || mediaErr); }
+
+    const now = new Date().toISOString();
+    const property = {
+      id: `landlord_property_${crypto.randomUUID()}`,
+      name, address, units, vacancies,
+      propertyType: str(body.propertyType, 60),
+      yearBuilt: numOrNull(body.yearBuilt),
+      squareFootage: numOrNull(body.squareFootage),
+      bedrooms: numOrNull(body.bedrooms),
+      bathrooms: numOrNull(body.bathrooms),
+      lotSize: str(body.lotSize, 60),
+      parkingSpaces: numOrNull(body.parkingSpaces),
+      heatingType: str(body.heatingType, 60),
+      monthlyRent: numOrNull(body.monthlyRent),
+      purchasePrice: numOrNull(body.purchasePrice),
+      currentValue: numOrNull(body.currentValue),
+      amenities: str(body.amenities, 1000),
+      conditionNotes: str(body.conditionNotes, 4000),
+      media,
+      aiCondition: null,
+      ownerEmail: actor.user.email, landlordEmail: actor.user.email, landlordUserId: actor.user.id,
+      createdAt: now, updatedAt: now,
+    };
     const key = landlordPortfolioKey(actor.user.email); const existing = (await kv.get(key) as any[]) || []; await kv.set(key, [property, ...existing]);
-    return c.json({ success: true, property }, 201);
+    const signed = await signPropertyMedia(property);
+    return c.json({ success: true, property: signed }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add property.' }, 500); }
+});
+
+// AI condition assessment — reads the property's photos and returns a structured
+// condition report so landlords can track issues without an on-site visit.
+app.post('/make-server-57095a78/landlord/properties/:id/analyze', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to analyze a property.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'OpenAI is not configured for this account.' }, 500);
+    const propertyId = c.req.param('id');
+    const key = landlordPortfolioKey(actor.user.email);
+    const portfolio = (await kv.get(key) as any[]) || [];
+    const idx = portfolio.findIndex((p: any) => String(p.id) === String(propertyId));
+    if (idx === -1) return c.json({ success: false, error: 'Property not found.' }, 404);
+    const property = portfolio[idx];
+    const photos = (Array.isArray(property.media) ? property.media : []).filter((m: any) => m.kind !== 'video');
+    if (photos.length === 0) return c.json({ success: false, error: 'Add at least one photo before running an AI condition assessment.' }, 400);
+
+    // Sign the photos so the vision model can fetch them.
+    const imageUrls: string[] = [];
+    for (const m of photos.slice(0, 6)) {
+      try {
+        const { data } = await supabase.storage.from(m.bucket || PROPERTY_MEDIA_BUCKET).createSignedUrl(m.path, 60 * 30);
+        if (data?.signedUrl) imageUrls.push(data.signedUrl);
+      } catch { /* skip */ }
+    }
+    if (imageUrls.length === 0) return c.json({ success: false, error: 'Could not access property photos for analysis.' }, 500);
+
+    const prompt = `You are a property inspector. Assess the condition of this rental property from the photos. Property: ${property.name}, ${property.address}. Notes from landlord: ${property.conditionNotes || 'none'}. Return STRICT JSON with keys: "overallScore" (1-10 integer), "summary" (2-3 sentences), "issues" (array of {area, severity: "low"|"medium"|"high", description}), "recommendations" (array of strings). No markdown, JSON only.`;
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        ...imageUrls.map(url => ({ type: 'image_url', image_url: { url } })),
+      ],
+    }];
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages, max_tokens: 900, response_format: { type: 'json_object' } }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return c.json({ success: false, error: `AI analysis failed: ${data?.error?.message || res.status}` }, 500);
+    let report: any = {};
+    try { report = JSON.parse(data.choices?.[0]?.message?.content || '{}'); } catch { report = { summary: data.choices?.[0]?.message?.content || 'No report.' }; }
+    const aiCondition = { ...report, analyzedAt: new Date().toISOString(), photoCount: imageUrls.length };
+    portfolio[idx] = { ...property, aiCondition, updatedAt: new Date().toISOString() };
+    await kv.set(key, portfolio);
+    return c.json({ success: true, aiCondition });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to analyze property.' }, 500); }
+});
+
+// Update an existing property's tracking fields (and optionally append new media).
+app.put('/make-server-57095a78/landlord/properties/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to edit a property.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const propertyId = c.req.param('id');
+    const key = landlordPortfolioKey(actor.user.email);
+    const portfolio = (await kv.get(key) as any[]) || [];
+    const idx = portfolio.findIndex((p: any) => String(p.id) === String(propertyId));
+    if (idx === -1) return c.json({ success: false, error: 'Property not found.' }, 404);
+    const existing = portfolio[idx];
+
+    const contentType = String(c.req.header('content-type') || '');
+    let body: any = {}; let files: File[] = [];
+    if (contentType.includes('multipart/form-data')) {
+      const parsed = await c.req.parseBody();
+      body = parsed;
+      files = Object.keys(parsed).filter(k => k.startsWith('media_')).map(k => parsed[k]).filter((f): f is File => f instanceof File);
+    } else { body = stripBase64(await c.req.json()); }
+
+    const str = (v: any, max = 2000) => String(v ?? '').trim().slice(0, max);
+    const numOrNull = (v: any) => { const n = Number(v); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : null; };
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+
+    const name = has('name') ? str(body.name, 200) : existing.name;
+    const address = has('address') ? str(body.address, 300) : existing.address;
+    if (!name) return c.json({ success: false, error: 'Property name is required.' }, 400);
+    if (!address) return c.json({ success: false, error: 'Property address is required.' }, 400);
+    const units = has('units') ? Math.max(1, Math.floor(Number(body.units) || existing.units || 1)) : existing.units;
+    const vacancies = has('vacancies') ? Math.min(units, Math.max(0, Math.floor(Number(body.vacancies) || 0))) : Math.min(units, existing.vacancies || 0);
+
+    // Append any newly uploaded media.
+    const media: any[] = Array.isArray(existing.media) ? [...existing.media] : [];
+    try {
+      if (files.length) {
+        await ensurePropertyMediaBucket();
+        for (const file of files.slice(0, 12)) {
+          if (file.size > 100 * 1024 * 1024) continue;
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'media';
+          const path = `${email}/${crypto.randomUUID()}-${safeName}`;
+          const upload = await supabase.storage.from(PROPERTY_MEDIA_BUCKET).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+          if (!upload.error) media.push({ name: file.name, bucket: PROPERTY_MEDIA_BUCKET, path, contentType: file.type || '', kind: (file.type || '').startsWith('video') ? 'video' : 'image' });
+        }
+      }
+    } catch (mediaErr: any) { console.log('Property media update skipped:', mediaErr?.message || mediaErr); }
+
+    const updated = {
+      ...existing, name, address, units, vacancies,
+      propertyType: has('propertyType') ? str(body.propertyType, 60) : existing.propertyType,
+      yearBuilt: has('yearBuilt') ? numOrNull(body.yearBuilt) : existing.yearBuilt,
+      squareFootage: has('squareFootage') ? numOrNull(body.squareFootage) : existing.squareFootage,
+      bedrooms: has('bedrooms') ? numOrNull(body.bedrooms) : existing.bedrooms,
+      bathrooms: has('bathrooms') ? numOrNull(body.bathrooms) : existing.bathrooms,
+      lotSize: has('lotSize') ? str(body.lotSize, 60) : existing.lotSize,
+      parkingSpaces: has('parkingSpaces') ? numOrNull(body.parkingSpaces) : existing.parkingSpaces,
+      heatingType: has('heatingType') ? str(body.heatingType, 60) : existing.heatingType,
+      monthlyRent: has('monthlyRent') ? numOrNull(body.monthlyRent) : existing.monthlyRent,
+      purchasePrice: has('purchasePrice') ? numOrNull(body.purchasePrice) : existing.purchasePrice,
+      currentValue: has('currentValue') ? numOrNull(body.currentValue) : existing.currentValue,
+      amenities: has('amenities') ? str(body.amenities, 1000) : existing.amenities,
+      conditionNotes: has('conditionNotes') ? str(body.conditionNotes, 4000) : existing.conditionNotes,
+      media, updatedAt: new Date().toISOString(),
+    };
+    portfolio[idx] = updated;
+    await kv.set(key, portfolio);
+    const signed = await signPropertyMedia(updated);
+    return c.json({ success: true, property: signed });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update property.' }, 500); }
+});
+
+// Delete a property (and clean up its stored media).
+app.delete('/make-server-57095a78/landlord/properties/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to delete a property.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const propertyId = c.req.param('id');
+    const key = landlordPortfolioKey(actor.user.email);
+    const portfolio = (await kv.get(key) as any[]) || [];
+    const target = portfolio.find((p: any) => String(p.id) === String(propertyId));
+    if (!target) return c.json({ success: false, error: 'Property not found.' }, 404);
+    const paths = (Array.isArray(target.media) ? target.media : []).map((m: any) => m.path).filter(Boolean);
+    if (paths.length) { try { await supabase.storage.from(PROPERTY_MEDIA_BUCKET).remove(paths); } catch (rmErr: any) { console.log('Property media cleanup skipped:', rmErr?.message || rmErr); } }
+    await kv.set(key, portfolio.filter((p: any) => String(p.id) !== String(propertyId)));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete property.' }, 500); }
+});
+
+// Turn an AI condition report's issues into maintenance work orders that appear
+// in the landlord's Maintenance tab (scoped via landlordEmail).
+app.post('/make-server-57095a78/landlord/properties/:id/create-work-orders', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to create work orders.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const propertyId = c.req.param('id');
+    const portfolio = (await kv.get(landlordPortfolioKey(actor.user.email)) as any[]) || [];
+    const property = portfolio.find((p: any) => String(p.id) === String(propertyId));
+    if (!property) return c.json({ success: false, error: 'Property not found.' }, 404);
+    const issues = Array.isArray(property.aiCondition?.issues) ? property.aiCondition.issues : [];
+    if (issues.length === 0) return c.json({ success: false, error: 'No AI-detected issues to convert. Run an assessment first.' }, 400);
+
+    const sevToPriority: Record<string, string> = { high: 'urgent', medium: 'high', low: 'low' };
+    const created: any[] = [];
+    const now = new Date().toISOString();
+    for (const iss of issues) {
+      const title = `${iss.area || 'Issue'} — ${property.name}`.slice(0, 200);
+      const record = {
+        id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+        title, project_name: title,
+        description: String(iss.description || '').slice(0, 4000),
+        priority: sevToPriority[String(iss.severity || 'low').toLowerCase()] || 'medium',
+        category: 'ai-inspection', unit: property.address || '', address: property.address || '',
+        client_email: email, clientEmail: email,
+        client_name: String(actor.user.user_metadata?.full_name || actor.user.user_metadata?.name || ''),
+        user_id: actor.user.id, landlordEmail: email, ownerEmail: email,
+        type: 'landlord', source: 'ai-condition-report', propertyId: property.id,
+        status: 'pending', attachments: [], created_at: now, updated_at: now,
+      };
+      await persistWorkRequest(record);
+      created.push(record);
+    }
+    return c.json({ success: true, created: created.length, workRequests: created.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create work orders.' }, 500); }
+});
+
+// Create a single maintenance work request from a unit-turnover checklist.
+app.post('/make-server-57095a78/landlord/turnover-request', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to create a work request.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const items = Array.isArray(body.items) ? body.items.filter((i: any) => i && i.label) : [];
+    if (items.length === 0) return c.json({ success: false, error: 'Select at least one turnover item.' }, 400);
+    const unit = String(body.unit || '').trim().slice(0, 160);
+    const address = String(body.address || '').trim().slice(0, 300);
+    const propertyName = String(body.propertyName || '').trim().slice(0, 200);
+    const priority = ['low', 'medium', 'high', 'urgent'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+    const notes = String(body.notes || '').trim().slice(0, 4000);
+
+    // Group items by category for a readable description.
+    const byCat: Record<string, string[]> = {};
+    for (const it of items) { const cat = String(it.category || 'General'); (byCat[cat] ||= []).push(String(it.label)); }
+    const lines = Object.entries(byCat).map(([cat, labels]) => `${cat}:\n${labels.map(l => `  • ${l}`).join('\n')}`);
+    const description = `Unit turnover scope (${items.length} item${items.length === 1 ? '' : 's'}):\n\n${lines.join('\n\n')}${notes ? `\n\nNotes:\n${notes}` : ''}`;
+    const titleLoc = unit || propertyName || address || 'Unit';
+    const title = `Unit Turnover — ${titleLoc}`.slice(0, 200);
+    const now = new Date().toISOString();
+    const record = {
+      id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+      title, project_name: title, description, priority,
+      category: 'turnover', unit: unit || address, address,
+      client_email: email, clientEmail: email,
+      client_name: String(actor.user.user_metadata?.full_name || actor.user.user_metadata?.name || ''),
+      user_id: actor.user.id, landlordEmail: email, ownerEmail: email,
+      type: 'landlord', source: 'turnover-checklist',
+      propertyId: body.propertyId || '', turnoverItems: items,
+      status: 'pending', attachments: [], created_at: now, updated_at: now,
+    };
+    await persistWorkRequest(record);
+    return c.json({ success: true, workRequest: stripBase64(record) }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create the turnover work request.' }, 500); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4336,6 +4697,123 @@ app.patch('/make-server-57095a78/tenant/leases/:id/sign', async (c) => {
     const { storageBucket: _b, storagePath: _p, ...safe } = updated;
     return c.json({ success: true, lease: safe });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to sign the lease.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LANDLORD FORMS — move-in / move-out condition checklists and pet deposit forms.
+// A landlord builds a form and sends it to a tenant's sub-portal, where the
+// tenant reviews, completes, and signs it. Records are keyed like leases.
+// ─────────────────────────────────────────────────────────────────────────────
+function formKey(id: string) { return `landlord_form:${id}`; }
+function landlordFormsKey(email: string) { return `landlord_forms:${String(email).toLowerCase()}`; }
+function tenantFormsKey(email: string) { return `tenant_forms:${String(email).toLowerCase()}`; }
+const FORM_TYPES = ['move-in', 'move-out', 'pet-deposit'];
+
+async function readFormsFor(indexKey: string) {
+  const ids = (await kv.get(indexKey) as string[]) || [];
+  if (!ids.length) return [];
+  const records = (await kv.mget(ids.map(formKey))) as any[] || [];
+  return records.filter(Boolean);
+}
+
+app.get('/make-server-57095a78/landlord/forms', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your forms.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const forms = await readFormsFor(landlordFormsKey(actor.user.email));
+    return c.json({ success: true, forms: forms.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load forms.' }, 500); }
+});
+
+app.post('/make-server-57095a78/landlord/forms', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to create a form.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const landlordEmail = String(actor.user.email).toLowerCase();
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const type = String(body.type || '').trim();
+    if (!FORM_TYPES.includes(type)) return c.json({ success: false, error: 'Unknown form type.' }, 400);
+    const tenantEmail = String(body.tenantEmail || '').trim().toLowerCase();
+    if (!tenantEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenantEmail)) return c.json({ success: false, error: 'A valid tenant email is required to send the form.' }, 400);
+    const defaultTitle = type === 'pet-deposit' ? 'Pet Deposit Agreement' : type === 'move-out' ? 'Move-Out Inspection Checklist' : 'Move-In Inspection Checklist';
+    const title = String(body.title || defaultTitle).trim().slice(0, 200);
+    const now = new Date().toISOString();
+    const id = `form_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const record = {
+      id, type, title,
+      tenantEmail, tenantName: String(body.tenantName || '').trim().slice(0, 200),
+      propertyAddress: String(body.propertyAddress || '').trim().slice(0, 300),
+      unit: String(body.unit || '').trim().slice(0, 160),
+      data: body.data && typeof body.data === 'object' ? body.data : {},
+      landlordEmail, landlordUserId: actor.user.id,
+      status: 'sent', tenantResponses: {}, signature: '', completedAt: '',
+      createdAt: now, updatedAt: now,
+    };
+    await kv.set(formKey(id), record);
+    const li = (await kv.get(landlordFormsKey(landlordEmail)) as string[]) || [];
+    await kv.set(landlordFormsKey(landlordEmail), [id, ...li]);
+    const ti = (await kv.get(tenantFormsKey(tenantEmail)) as string[]) || [];
+    await kv.set(tenantFormsKey(tenantEmail), [id, ...ti]);
+    notifyRecipient(tenantEmail, 'landlord_form', {
+      subject: `📋 New form to complete: ${title}`,
+      text: `Your landlord sent you a "${title}" to review and complete.\n\nOpen your tenant portal to fill it out and sign.`,
+      sms: `New form from your landlord: "${title}". Complete it in your tenant portal.`,
+    }).catch(() => {});
+    return c.json({ success: true, form: stripBase64(record) }, 201);
+  } catch (error: any) { console.log('Form create error:', error); return c.json({ success: false, error: error.message || 'Unable to create the form.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/landlord/forms/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to delete a form.' }, 401);
+    const id = c.req.param('id');
+    const form = await kv.get(formKey(id)) as any;
+    if (!form) return c.json({ success: false, error: 'Form not found.' }, 404);
+    const email = String(actor.user.email).toLowerCase();
+    if (!actor.admin && email !== String(form.landlordEmail || '').toLowerCase()) return c.json({ success: false, error: 'This form is not on your account.' }, 403);
+    await kv.del(formKey(id));
+    await kv.set(landlordFormsKey(form.landlordEmail), ((await kv.get(landlordFormsKey(form.landlordEmail)) as string[]) || []).filter(x => x !== id));
+    if (form.tenantEmail) await kv.set(tenantFormsKey(form.tenantEmail), ((await kv.get(tenantFormsKey(form.tenantEmail)) as string[]) || []).filter(x => x !== id));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete the form.' }, 500); }
+});
+
+app.get('/make-server-57095a78/tenant/forms', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view your forms.' }, 401);
+    const forms = await readFormsFor(tenantFormsKey(user.email));
+    return c.json({ success: true, forms: forms.map(stripBase64) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load your forms.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/tenant/forms/:id/complete', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to complete this form.' }, 401);
+    const id = c.req.param('id');
+    const form = await kv.get(formKey(id)) as any;
+    if (!form) return c.json({ success: false, error: 'Form not found.' }, 404);
+    if (String(user.email).toLowerCase() !== String(form.tenantEmail || '').toLowerCase()) return c.json({ success: false, error: 'This form was not sent to you.' }, 403);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const signature = String(body.signature || '').trim().slice(0, 200);
+    if (!signature) return c.json({ success: false, error: 'Type your full legal name to sign.' }, 400);
+    const now = new Date().toISOString();
+    const updated = { ...form, tenantResponses: body.tenantResponses && typeof body.tenantResponses === 'object' ? body.tenantResponses : form.tenantResponses, signature, status: 'completed', completedAt: now, updatedAt: now };
+    await kv.set(formKey(id), updated);
+    if (form.landlordEmail) {
+      const who = form.tenantName || signature || String(user.email);
+      notifyRecipient(String(form.landlordEmail), 'form_completed', {
+        subject: `✅ ${who} completed "${form.title}"`,
+        text: `${who} completed and signed the form "${form.title}".\n\nSigned as: ${signature}\nDate: ${new Date(now).toLocaleString()}\n\nOpen your Landlord portal to review it.`,
+        sms: `${who} completed the form "${form.title}". Review it in your portal.`,
+      }).catch(() => {});
+    }
+    return c.json({ success: true, form: stripBase64(updated) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to complete the form.' }, 500); }
 });
 
 function propertyPortfolioKey(email: string) { return `property_manager_portfolio:${String(email).toLowerCase()}`; }

@@ -343,6 +343,137 @@ zendropRouter.post(`${PREFIX}/zendrop/sync`, async (c) => {
 });
 
 /**
+ * Fetch the top (best-selling) Zendrop products, normalized, WITHOUT importing.
+ */
+async function fetchTopProducts(apiKey: string, limit: number): Promise<{ products: NormalizedProduct[]; endpoint: string }> {
+  const { markupType, markupValue } = await loadServerConfig();
+  let result = await zendropFetch(apiKey, `?limit=${limit}&sort=best_selling`);
+  if (!result.ok) result = await zendropFetch(apiKey, `?limit=${limit}`);
+  if (!result.ok) {
+    throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
+  }
+  const raw = extractProducts(result.data);
+  const products = raw
+    .map((r) => normalize(r, markupType, markupValue))
+    .filter((p) => p.name && p.cost >= 0);
+  return { products, endpoint: result.url };
+}
+
+/**
+ * GET /zendrop/top-products?limit=25
+ * Returns real best-selling Zendrop products for display (does NOT publish).
+ */
+zendropRouter.get(`${PREFIX}/zendrop/top-products`, async (c) => {
+  try {
+    const apiKey = resolveKey();
+    if (!apiKey) {
+      return c.json({ success: false, error: "No Zendrop API key configured.", products: [] }, 400);
+    }
+    const limit = num(c.req.query("limit"), 25);
+    const { products, endpoint } = await fetchTopProducts(apiKey, limit);
+    const enriched = products.map((p, i) => ({
+      ...p,
+      rank: i + 1,
+      margin: p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0,
+      profitPerUnit: +(p.price - p.cost).toFixed(2),
+    }));
+    return c.json({ success: true, products: enriched, endpoint });
+  } catch (error) {
+    console.log(`[Zendrop] top-products error: ${error}`);
+    return c.json({ success: false, error: `${error}`, products: [] }, 500);
+  }
+});
+
+/**
+ * POST /zendrop/publish-to-store
+ * Takes a Zendrop product (full object, or { sku } to look up from imported
+ * inventory), optionally generates AI-enhanced marketing copy, and writes it
+ * into the LIVE store catalog (`store_product:` — what the public store reads).
+ * Body: { product?, sku?, generateInfo?: boolean }
+ */
+zendropRouter.post(`${PREFIX}/zendrop/publish-to-store`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    let source: NormalizedProduct | null = body.product && typeof body.product === "object" ? body.product : null;
+
+    if (!source && body.sku) {
+      const raw = await kv.get(`${INVENTORY_KEY_PREFIX}:${body.sku}`);
+      source = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    }
+    if (!source || !source.name) {
+      return c.json({ success: false, error: "No product provided. Pass a product object or a known sku." }, 400);
+    }
+
+    let name = source.name;
+    let description = source.description || "";
+    let tags: string[] = [];
+
+    if (body.generateInfo !== false) {
+      const openaiKey = Deno.env.get("OPENAI_API_KEY");
+      if (openaiKey) {
+        try {
+          const res = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [
+                { role: "system", content: "You are an expert e-commerce copywriter. Respond with valid JSON only, no markdown fences." },
+                { role: "user", content: `Write store-ready product info for this dropshipping product.\n\nName: ${source.name}\nCategory: ${source.category}\nCurrent description: ${source.description?.slice(0, 500) || "(none)"}\nSell price: $${source.price}\n\nRespond ONLY with strict JSON: {"name":"<catchy retail product title, max 8 words>","description":"<2 short persuasive paragraphs, SEO-friendly, ends with a call to action>","tags":["<5-7 relevant keywords>"]}` },
+              ],
+              temperature: 0.7,
+              max_tokens: 500,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const rawTxt = (data.choices?.[0]?.message?.content || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+            const parsed = JSON.parse(rawTxt);
+            name = parsed.name || name;
+            description = parsed.description || description;
+            tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          }
+        } catch (e) {
+          console.log(`[Zendrop] AI copy generation failed, using original: ${e}`);
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    const id = `prod_zd_${source.sku || source.providerProductId || crypto.randomUUID()}`;
+    const product = {
+      id, name, description,
+      category: source.category || "General",
+      price: source.price,
+      compare_at_price: source.price > 0 ? +(source.price * 1.3).toFixed(2) : undefined,
+      cost_price: source.cost,
+      images: source.images || [],
+      primaryImage: source.images?.[0] || "",
+      inventoryQuantity: source.stock ?? 100,
+      trackInventory: false,
+      isActive: true,
+      isFeatured: false,
+      vendorId: PROVIDER_ID,
+      vendorName: "Zendrop",
+      source: "zendrop",
+      sku: source.sku,
+      tags,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+      viewCount: 0,
+      orderCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await kv.set(`store_product:${id}`, product);
+    return c.json({ success: true, product });
+  } catch (error) {
+    console.log(`[Zendrop] publish-to-store error: ${error}`);
+    return c.json({ success: false, error: `${error}` }, 500);
+  }
+});
+
+/**
  * GET /zendrop/status — quick connection + inventory snapshot.
  */
 zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {

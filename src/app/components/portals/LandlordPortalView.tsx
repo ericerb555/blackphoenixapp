@@ -6,8 +6,13 @@ import {
   Building2, BarChart3, ChevronRight, ArrowUpRight, Tag, MessageSquare,
   TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
   FileText, FileSignature, Send, CreditCard, CheckCircle, ExternalLink,
+  Image as ImageIcon, Video, Upload, AlertTriangle, Trash2, Pencil,
 } from 'lucide-react';
 import LandlordLeaseManager from './LandlordLeaseManager';
+import LandlordFormsManager from './LandlordFormsManager';
+import UnitTurnoverChecklist from './UnitTurnoverChecklist';
+import NotificationBell from './NotificationBell';
+import NotificationPreferences from './NotificationPreferences';
 import MarketRentWidget from './MarketRentWidget';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner, { FeatureGate } from './PortalTrialBanner';
@@ -114,7 +119,12 @@ export default function LandlordPortalView() {
   const [propertiesLoading, setPropertiesLoading] = useState(true);
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [savingProperty, setSavingProperty] = useState(false);
-  const [propertyDraft, setPropertyDraft] = useState({ name: '', address: '', units: '1', vacancies: '0' });
+  const [propertyDraft, setPropertyDraft] = useState({ name: '', address: '', units: '1', vacancies: '0', propertyType: 'single-family', yearBuilt: '', squareFootage: '', bedrooms: '', bathrooms: '', lotSize: '', parkingSpaces: '', heatingType: '', monthlyRent: '', purchasePrice: '', currentValue: '', amenities: '', conditionNotes: '' });
+  const [propertyMedia, setPropertyMedia] = useState<File[]>([]);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [creatingOrdersId, setCreatingOrdersId] = useState<string | null>(null);
   const [tenants, setTenants] = useState<any[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(true);
   const [showTenantForm, setShowTenantForm] = useState(false);
@@ -234,13 +244,73 @@ export default function LandlordPortalView() {
     } catch (error: any) { toast.error(error?.message || 'Unable to invite tenant.'); } finally { setInvitingId(null); }
   }
 
+  const emptyPropertyDraft = { name: '', address: '', units: '1', vacancies: '0', propertyType: 'single-family', yearBuilt: '', squareFootage: '', bedrooms: '', bathrooms: '', lotSize: '', parkingSpaces: '', heatingType: '', monthlyRent: '', purchasePrice: '', currentValue: '', amenities: '', conditionNotes: '' };
+
+  function resetPropertyForm() { setPropertyDraft(emptyPropertyDraft); setPropertyMedia([]); setEditingPropertyId(null); setShowPropertyForm(false); }
+
+  function startEditProperty(p: any) {
+    setEditingPropertyId(p.id);
+    setPropertyDraft({
+      name: p.name ?? '', address: p.address ?? '', units: String(p.units ?? '1'), vacancies: String(p.vacancies ?? '0'),
+      propertyType: p.propertyType || 'single-family', yearBuilt: p.yearBuilt != null ? String(p.yearBuilt) : '', squareFootage: p.squareFootage != null ? String(p.squareFootage) : '',
+      bedrooms: p.bedrooms != null ? String(p.bedrooms) : '', bathrooms: p.bathrooms != null ? String(p.bathrooms) : '', lotSize: p.lotSize || '',
+      parkingSpaces: p.parkingSpaces != null ? String(p.parkingSpaces) : '', heatingType: p.heatingType || '',
+      monthlyRent: p.monthlyRent != null ? String(p.monthlyRent) : '', purchasePrice: p.purchasePrice != null ? String(p.purchasePrice) : '', currentValue: p.currentValue != null ? String(p.currentValue) : '',
+      amenities: p.amenities || '', conditionNotes: p.conditionNotes || '',
+    });
+    setPropertyMedia([]); setShowPropertyForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0);
+  }
+
   async function addProperty(event: React.FormEvent) {
     event.preventDefault(); if (!session?.access_token || savingProperty) return; setSavingProperty(true);
+    const isEdit = !!editingPropertyId;
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...propertyDraft, units: Number(propertyDraft.units), vacancies: Number(propertyDraft.vacancies) }) });
-      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to add property.');
-      setProperties(current => [payload.property, ...current]); setPropertyDraft({ name: '', address: '', units: '1', vacancies: '0' }); setShowPropertyForm(false); toast.success('Property added to your portfolio.');
-    } catch (error: any) { toast.error(error?.message || 'Unable to add property.'); } finally { setSavingProperty(false); }
+      const fd = new FormData();
+      Object.entries(propertyDraft).forEach(([k, v]) => fd.append(k, String(v ?? '')));
+      propertyMedia.forEach((file, i) => fd.append(`media_${i}`, file));
+      const url = isEdit
+        ? `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${editingPropertyId}`
+        : `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties`;
+      const response = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: fd });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to save property.');
+      setProperties(current => isEdit ? current.map(p => p.id === editingPropertyId ? payload.property : p) : [payload.property, ...current]);
+      resetPropertyForm();
+      toast.success(isEdit ? 'Property updated.' : 'Property added to your portfolio.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to save property.'); } finally { setSavingProperty(false); }
+  }
+
+  async function deleteProperty(id: string) {
+    if (!session?.access_token || deletingId) return;
+    if (!window.confirm('Delete this property and its uploaded photos/videos? This cannot be undone.')) return;
+    setDeletingId(id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to delete property.');
+      setProperties(current => current.filter(p => p.id !== id));
+      if (editingPropertyId === id) resetPropertyForm();
+      toast.success('Property deleted.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to delete property.'); } finally { setDeletingId(null); }
+  }
+
+  async function createWorkOrders(id: string) {
+    if (!session?.access_token || creatingOrdersId) return; setCreatingOrdersId(id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}/create-work-orders`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to create work orders.');
+      toast.success(`Created ${payload.created} work order${payload.created === 1 ? '' : 's'} from the AI report.`);
+      void loadMaintenance();
+    } catch (error: any) { toast.error(error?.message || 'Unable to create work orders.'); } finally { setCreatingOrdersId(null); }
+  }
+
+  async function analyzeProperty(id: string) {
+    if (!session?.access_token || analyzingId) return; setAnalyzingId(id);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/landlord/properties/${id}/analyze`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await response.json().catch(() => ({})); if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to analyze property.');
+      setProperties(current => current.map(p => p.id === id ? { ...p, aiCondition: payload.aiCondition } : p));
+      toast.success('AI condition assessment complete.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to analyze property.'); } finally { setAnalyzingId(null); }
   }
 
   useEffect(() => {
@@ -290,9 +360,7 @@ export default function LandlordPortalView() {
                 <p className="text-xs text-gray-500 font-medium">{name} · {email} · Landlord</p>
               </div>
             </div>
-            <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
-              <Bell className="w-5 h-5" />
-            </button>
+            <NotificationBell session={session} accent="teal" />
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {TABS.map(t => {
@@ -391,10 +459,106 @@ export default function LandlordPortalView() {
 
         {tab === 'properties' && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Properties</h2><p className="mt-1 text-sm text-gray-400">Your saved landlord portfolio.</p></div><button type="button" onClick={() => setShowPropertyForm(value => !value)} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add property</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Properties</h2><p className="mt-1 text-sm text-gray-400">Your saved landlord portfolio.</p></div><button type="button" onClick={() => { if (showPropertyForm) { resetPropertyForm(); } else { setEditingPropertyId(null); setPropertyDraft(emptyPropertyDraft); setPropertyMedia([]); setShowPropertyForm(true); } }} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add property</button></div>
             <FeatureGate feature="Market Rent Finder"><MarketRentWidget session={session} initialAddress={properties[0]?.address || ''} /></FeatureGate>
-            {showPropertyForm && <form onSubmit={addProperty} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={propertyDraft.name} onChange={event => setPropertyDraft(value => ({ ...value, name: event.target.value }))} placeholder="Property name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required value={propertyDraft.address} onChange={event => setPropertyDraft(value => ({ ...value, address: event.target.value }))} placeholder="Street address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 sm:col-span-2" /><input required min="1" type="number" value={propertyDraft.units} onChange={event => setPropertyDraft(value => ({ ...value, units: event.target.value }))} placeholder="Total units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" type="number" value={propertyDraft.vacancies} onChange={event => setPropertyDraft(value => ({ ...value, vacancies: event.target.value }))} placeholder="Vacant units" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><div className="flex gap-2 sm:col-span-2"><button disabled={savingProperty} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingProperty ? 'Saving…' : 'Save property'}</button><button type="button" onClick={() => setShowPropertyForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
-            {propertiesLoading ? <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">Loading property portfolio…</div> : properties.length === 0 ? <div className="rounded-xl border border-dashed border-[#3a3a3a] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">No properties have been added to this account yet.</div> : properties.map(p => <div key={p.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-teal-500/30 transition"><div className="flex items-start justify-between"><div><p className="font-bold text-lg">{p.name}</p><p className="text-gray-400 text-sm">{p.address}</p></div><div className="text-right"><p className="text-2xl font-bold">{p.units}</p><p className="text-gray-500 text-xs">Total Units</p></div></div><div className="mt-3 flex gap-4 text-sm"><span className="text-green-400 font-semibold">{Math.max(0, Number(p.units || 0) - Number(p.vacancies || 0))} Occupied</span>{Number(p.vacancies || 0) > 0 ? <span className="text-red-400 font-semibold">{p.vacancies} Vacant</span> : <span className="text-gray-500">Fully Occupied</span>}</div></div>)}
+            {showPropertyForm && <form onSubmit={addProperty} className="space-y-5 rounded-xl border border-teal-500/25 bg-[#151515] p-5">
+              <p className="text-sm font-bold text-teal-300">{editingPropertyId ? 'Edit property' : 'New property'}</p>
+              {(() => {
+                const field = "rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500 w-full";
+                const label = "block text-xs font-semibold text-gray-400 mb-1";
+                const set = (k: string) => (e: any) => setPropertyDraft(v => ({ ...v, [k]: e.target.value }));
+                return <>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-2">Property basics</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="sm:col-span-2"><label className={label}>Property name</label><input required value={propertyDraft.name} onChange={set('name')} placeholder="e.g. Maple Street Duplex" className={field} /></div>
+                      <div className="sm:col-span-2"><label className={label}>Street address</label><input required value={propertyDraft.address} onChange={set('address')} placeholder="123 Maple St, City, ST" className={field} /></div>
+                      <div><label className={label}>Property type</label><select value={propertyDraft.propertyType} onChange={set('propertyType')} className={field}><option value="single-family">Single-family</option><option value="multi-family">Multi-family</option><option value="condo">Condo</option><option value="townhouse">Townhouse</option><option value="apartment">Apartment building</option><option value="commercial">Commercial</option><option value="other">Other</option></select></div>
+                      <div><label className={label}>Year built</label><input type="number" value={propertyDraft.yearBuilt} onChange={set('yearBuilt')} placeholder="1998" className={field} /></div>
+                      <div><label className={label}>Total units</label><input required min="1" type="number" value={propertyDraft.units} onChange={set('units')} placeholder="1" className={field} /></div>
+                      <div><label className={label}>Vacant units</label><input required min="0" type="number" value={propertyDraft.vacancies} onChange={set('vacancies')} placeholder="0" className={field} /></div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-2">Specs</p>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      <div><label className={label}>Bedrooms</label><input type="number" value={propertyDraft.bedrooms} onChange={set('bedrooms')} placeholder="3" className={field} /></div>
+                      <div><label className={label}>Bathrooms</label><input type="number" step="0.5" value={propertyDraft.bathrooms} onChange={set('bathrooms')} placeholder="2" className={field} /></div>
+                      <div><label className={label}>Square footage</label><input type="number" value={propertyDraft.squareFootage} onChange={set('squareFootage')} placeholder="1500" className={field} /></div>
+                      <div><label className={label}>Lot size</label><input value={propertyDraft.lotSize} onChange={set('lotSize')} placeholder="0.25 acre" className={field} /></div>
+                      <div><label className={label}>Parking spaces</label><input type="number" value={propertyDraft.parkingSpaces} onChange={set('parkingSpaces')} placeholder="2" className={field} /></div>
+                      <div><label className={label}>Heating type</label><input value={propertyDraft.heatingType} onChange={set('heatingType')} placeholder="Forced air" className={field} /></div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-2">Financials</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div><label className={label}>Monthly rent ($)</label><input type="number" step="0.01" value={propertyDraft.monthlyRent} onChange={set('monthlyRent')} placeholder="1800" className={field} /></div>
+                      <div><label className={label}>Purchase price ($)</label><input type="number" step="0.01" value={propertyDraft.purchasePrice} onChange={set('purchasePrice')} placeholder="250000" className={field} /></div>
+                      <div><label className={label}>Current value ($)</label><input type="number" step="0.01" value={propertyDraft.currentValue} onChange={set('currentValue')} placeholder="320000" className={field} /></div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className={label}>Amenities</label><input value={propertyDraft.amenities} onChange={set('amenities')} placeholder="In-unit laundry, dishwasher, central A/C, fenced yard" className={field} />
+                  </div>
+                  <div>
+                    <label className={label}>Condition notes (for AI context)</label><textarea value={propertyDraft.conditionNotes} onChange={set('conditionNotes')} rows={3} placeholder="Describe known issues, recent renovations, or areas to inspect…" className={field} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-1 flex items-center gap-2"><Upload className="h-4 w-4 text-teal-400" /> Photos & video</p>
+                    <p className="text-xs text-gray-500 mb-2">{editingPropertyId ? 'Add more photos/videos — existing media is kept.' : 'Upload photos and short videos so AI can assess the property’s condition.'} Up to 12 files, 100MB each.</p>
+                    <input type="file" accept="image/*,video/*" multiple onChange={e => setPropertyMedia(Array.from(e.target.files || []))} className="block w-full text-sm text-gray-400 file:mr-3 file:rounded-lg file:border-0 file:bg-teal-600 file:px-4 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-teal-500" />
+                    {propertyMedia.length > 0 && <p className="mt-2 text-xs text-teal-300">{propertyMedia.length} file{propertyMedia.length === 1 ? '' : 's'} selected</p>}
+                  </div>
+                  <div className="flex gap-2"><button disabled={savingProperty} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingProperty ? 'Saving…' : editingPropertyId ? 'Save changes' : 'Save property'}</button><button type="button" onClick={resetPropertyForm} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div>
+                </>;
+              })()}
+            </form>}
+            {propertiesLoading ? <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">Loading property portfolio…</div> : properties.length === 0 ? <div className="rounded-xl border border-dashed border-[#3a3a3a] bg-[#1A1A1A] p-8 text-center text-sm text-gray-400">No properties have been added to this account yet.</div> : properties.map(p => {
+              const media = Array.isArray(p.media) ? p.media : [];
+              const photos = media.filter((m: any) => m.kind !== 'video');
+              const ai = p.aiCondition;
+              return <div key={p.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-teal-500/30 transition">
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="font-bold text-lg">{p.name}</p><p className="text-gray-400 text-sm">{p.address}</p>{p.propertyType && <span className="mt-1 inline-block rounded border border-[#363636] px-2 py-0.5 text-[11px] uppercase tracking-wide text-gray-400">{String(p.propertyType).replace(/-/g, ' ')}</span>}</div>
+                  <div className="flex items-start gap-3">
+                    <div className="text-right"><p className="text-2xl font-bold">{p.units}</p><p className="text-gray-500 text-xs">Total Units</p></div>
+                    <div className="flex flex-col gap-1.5">
+                      <button type="button" onClick={() => startEditProperty(p)} title="Edit property" className="rounded-lg border border-[#363636] p-1.5 text-gray-400 transition hover:border-teal-500/40 hover:text-teal-300"><Pencil className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => deleteProperty(p.id)} disabled={deletingId === p.id} title="Delete property" className="rounded-lg border border-[#363636] p-1.5 text-gray-400 transition hover:border-red-500/40 hover:text-red-400 disabled:opacity-40">{deletingId === p.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-4 text-sm"><span className="text-green-400 font-semibold">{Math.max(0, Number(p.units || 0) - Number(p.vacancies || 0))} Occupied</span>{Number(p.vacancies || 0) > 0 ? <span className="text-red-400 font-semibold">{p.vacancies} Vacant</span> : <span className="text-gray-500">Fully Occupied</span>}</div>
+                {(p.bedrooms || p.bathrooms || p.squareFootage || p.yearBuilt || p.monthlyRent || p.currentValue) && <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-400 sm:grid-cols-3">
+                  {p.bedrooms != null && <span>{p.bedrooms} bd</span>}
+                  {p.bathrooms != null && <span>{p.bathrooms} ba</span>}
+                  {p.squareFootage != null && <span>{Number(p.squareFootage).toLocaleString()} sq ft</span>}
+                  {p.yearBuilt != null && <span>Built {p.yearBuilt}</span>}
+                  {p.monthlyRent != null && <span className="text-white">${Number(p.monthlyRent).toLocaleString()}/mo</span>}
+                  {p.currentValue != null && <span className="text-white">${Number(p.currentValue).toLocaleString()} value</span>}
+                </div>}
+                {media.length > 0 && <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                  {media.slice(0, 8).map((m: any, i: number) => <div key={i} className="relative h-20 w-28 flex-shrink-0 overflow-hidden rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+                    {m.kind === 'video'
+                      ? (m.url ? <video src={m.url} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-gray-600"><Video className="h-6 w-6" /></div>)
+                      : (m.url ? <img src={m.url} alt={m.name || 'Property photo'} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-gray-600"><ImageIcon className="h-6 w-6" /></div>)}
+                    {m.kind === 'video' && <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1"><Video className="h-3 w-3 text-white" /></span>}
+                  </div>)}
+                </div>}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => analyzeProperty(p.id)} disabled={analyzingId === p.id || photos.length === 0} title={photos.length === 0 ? 'Add photos to enable AI assessment' : ''} className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/40 px-3 py-1.5 text-xs font-bold text-teal-300 transition hover:bg-teal-500/10 disabled:cursor-not-allowed disabled:opacity-40">{analyzingId === p.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{ai ? 'Re-run AI assessment' : 'AI condition assessment'}</button>
+                  {ai?.analyzedAt && <span className="text-[11px] text-gray-500">Last analyzed {new Date(ai.analyzedAt).toLocaleDateString()}</span>}
+                </div>
+                {ai && <div className="mt-3 rounded-lg border border-teal-500/20 bg-[#101816] p-4">
+                  <div className="flex items-center justify-between"><p className="text-sm font-bold text-teal-300 flex items-center gap-2"><Sparkles className="h-4 w-4" /> AI Condition Report</p>{ai.overallScore != null && <span className="rounded-full bg-teal-500/15 px-2.5 py-0.5 text-sm font-bold text-teal-300">{ai.overallScore}/10</span>}</div>
+                  {ai.summary && <p className="mt-2 text-sm text-gray-300">{ai.summary}</p>}
+                  {Array.isArray(ai.issues) && ai.issues.length > 0 && <div className="mt-3 space-y-1.5">{ai.issues.map((iss: any, i: number) => <div key={i} className="flex items-start gap-2 text-xs"><AlertTriangle className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${iss.severity === 'high' ? 'text-red-400' : iss.severity === 'medium' ? 'text-amber-400' : 'text-gray-400'}`} /><span className="text-gray-300"><span className="font-semibold text-white">{iss.area}:</span> {iss.description}</span></div>)}</div>}
+                  {Array.isArray(ai.recommendations) && ai.recommendations.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-gray-400">{ai.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>}
+                  {Array.isArray(ai.issues) && ai.issues.length > 0 && <button type="button" onClick={() => createWorkOrders(p.id)} disabled={creatingOrdersId === p.id} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-teal-500 disabled:opacity-50">{creatingOrdersId === p.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}Create {ai.issues.length} work order{ai.issues.length === 1 ? '' : 's'}</button>}
+                </div>}
+              </div>;
+            })}
           </div>
         )}
 
@@ -422,7 +586,7 @@ export default function LandlordPortalView() {
           </FeatureGate>
         )}
 
-        {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><LandlordLeaseManager session={session} tenants={tenants} /></FeatureGate>}
+        {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><div className="space-y-6"><LandlordLeaseManager session={session} tenants={tenants} /><div className="border-t border-[#2A2A2A] pt-6"><LandlordFormsManager session={session} tenants={tenants} /></div></div></FeatureGate>}
 
         {tab === 'maintenance' && (
           <div className="space-y-4">
@@ -447,6 +611,10 @@ export default function LandlordPortalView() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="pt-2">
+              <UnitTurnoverChecklist session={session} properties={properties} onCreated={loadMaintenance} />
             </div>
           </div>
         )}
@@ -591,6 +759,8 @@ export default function LandlordPortalView() {
                 Save Changes
               </button>
             </div>
+
+            <NotificationPreferences session={session} accent="teal" />
 
             {/* Stripe Connect — collect rent directly to the landlord's own account */}
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">

@@ -2,13 +2,14 @@
  * StoreAnalyticsDashboard — Ecommerce store sales breakdown & financials
  * Revenue · Orders · Products · Customers · Profit & Loss · Payouts
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DollarSign, ShoppingCart, Package, Users, TrendingUp, TrendingDown,
   ArrowUpRight, ArrowDownRight, BarChart3, Calendar, Download,
   Star, RefreshCw, Eye, CreditCard, Truck, Tag, Award,
   ChevronDown, ChevronUp, Minus,
 } from 'lucide-react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -17,7 +18,7 @@ import { toast } from 'sonner@2.0.3';
 
 // ── Demo Data ──────────────────────────────────────────────────────────────────
 
-const REVENUE_DATA = [
+const DEMO_REVENUE_DATA = [
   { month: 'Jan', revenue: 4200, orders: 38, profit: 1680 },
   { month: 'Feb', revenue: 5800, orders: 52, profit: 2320 },
   { month: 'Mar', revenue: 7100, orders: 64, profit: 2840 },
@@ -27,7 +28,7 @@ const REVENUE_DATA = [
   { month: 'Jul', revenue: 13800, orders: 124, profit: 5520 },
 ];
 
-const DAILY_DATA = [
+const DEMO_DAILY_DATA = [
   { day: 'Mon', revenue: 420, orders: 4 },
   { day: 'Tue', revenue: 680, orders: 6 },
   { day: 'Wed', revenue: 520, orders: 5 },
@@ -37,7 +38,7 @@ const DAILY_DATA = [
   { day: 'Sun', revenue: 980, orders: 9 },
 ];
 
-const TOP_PRODUCTS = [
+const DEMO_TOP_PRODUCTS = [
   { id: 'p1', name: 'Wireless Noise-Cancelling Earbuds', category: 'Electronics', unitsSold: 142, revenue: 5538, profit: 2215, margin: 40, trend: 'up', trendPct: 28, image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=80&q=80' },
   { id: 'p2', name: 'Stanley Tumbler 40oz', category: 'Kitchen', unitsSold: 218, revenue: 3924, profit: 1570, margin: 40, trend: 'up', trendPct: 89, image: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=80&q=80' },
   { id: 'p3', name: 'LED Strip Lights 50ft', category: 'Electronics', unitsSold: 189, revenue: 4536, profit: 1814, margin: 40, trend: 'up', trendPct: 44, image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=80&q=80' },
@@ -46,7 +47,7 @@ const TOP_PRODUCTS = [
   { id: 'p6', name: 'Mini Waffle Maker', category: 'Kitchen', unitsSold: 267, revenue: 3738, profit: 1495, margin: 40, trend: 'up', trendPct: 115, image: 'https://images.unsplash.com/photo-1585515320310-259814833e62?w=80&q=80' },
 ];
 
-const RECENT_ORDERS = [
+const DEMO_RECENT_ORDERS = [
   { id: '#8842', customer: 'Sarah M.', product: 'Wireless Earbuds', amount: 39, status: 'delivered', date: 'Today 2:14pm', supplier: 'Doba' },
   { id: '#8841', customer: 'James K.', product: 'Stanley Tumbler', amount: 18, status: 'shipped', date: 'Today 11:30am', supplier: 'CJ Dropshipping' },
   { id: '#8840', customer: 'Maria L.', product: 'LED Strip Lights', amount: 24, status: 'processing', date: 'Today 9:48am', supplier: 'Doba' },
@@ -55,7 +56,7 @@ const RECENT_ORDERS = [
   { id: '#8837', customer: 'Chris P.', product: 'Spin Scrubber', amount: 34, status: 'shipped', date: '2 days ago', supplier: 'Doba' },
 ];
 
-const CATEGORY_DATA = [
+const DEMO_CATEGORY_DATA = [
   { name: 'Electronics', value: 38, color: '#3b82f6' },
   { name: 'Kitchen', value: 24, color: '#f97316' },
   { name: 'Health & Beauty', value: 19, color: '#a855f7' },
@@ -63,7 +64,7 @@ const CATEGORY_DATA = [
   { name: 'Other', value: 7, color: '#6b7280' },
 ];
 
-const FINANCIALS = {
+const DEMO_FINANCIALS = {
   grossRevenue: 13800,
   productCost: 6900,
   grossProfit: 6900,
@@ -95,6 +96,54 @@ export default function StoreAnalyticsDashboard() {
   const [activeTab, setActiveTab] = useState<DashTab>('overview');
   const [dateRange, setDateRange] = useState('30d');
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+
+  // Real data from the server, falling back to demo data until orders exist.
+  const [isSample, setIsSample] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [REVENUE_DATA, setRevenueData] = useState(DEMO_REVENUE_DATA);
+  const [DAILY_DATA, setDailyData] = useState(DEMO_DAILY_DATA);
+  const [TOP_PRODUCTS, setTopProducts] = useState<any[]>(DEMO_TOP_PRODUCTS);
+  const [RECENT_ORDERS, setRecentOrders] = useState<any[]>(DEMO_RECENT_ORDERS);
+  const [CATEGORY_DATA, setCategoryData] = useState(DEMO_CATEGORY_DATA);
+  const [FINANCIALS, setFinancials] = useState(DEMO_FINANCIALS);
+  const [kpis, setKpis] = useState<{ totalRevenue: number; totalOrders: number; netProfit: number; margin: number; pendingPayout: number } | null>(null);
+
+  useEffect(() => { loadAnalytics(); }, []);
+
+  async function loadAnalytics() {
+    setLoading(true);
+    try {
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-57095a78/analytics/store`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.success && data.hasData) {
+        setIsSample(false);
+        if (data.revenueByMonth?.length) setRevenueData(data.revenueByMonth);
+        if (data.dailyThisWeek?.length) setDailyData(data.dailyThisWeek);
+        if (data.topProducts?.length) setTopProducts(data.topProducts);
+        if (data.recentOrders?.length) setRecentOrders(data.recentOrders);
+        if (data.categoryData?.length) setCategoryData(data.categoryData);
+        if (data.financials) setFinancials({ ...DEMO_FINANCIALS, ...data.financials });
+        if (data.kpis) setKpis(data.kpis);
+      } else {
+        setIsSample(true);
+      }
+    } catch (e: any) {
+      console.error('Store analytics load failed, showing sample data:', e);
+      setIsSample(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const fmt = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const KPI_CARDS = [
+    { label: 'Total Revenue', value: kpis ? fmt(kpis.totalRevenue) : '$13,800', sub: 'This month', trend: 'up', pct: 21, icon: DollarSign, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { label: 'Total Orders', value: kpis ? String(kpis.totalOrders) : '124', sub: 'This month', trend: 'up', pct: 18, icon: ShoppingCart, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+    { label: 'Net Profit', value: kpis ? fmt(kpis.netProfit) : '$5,520', sub: kpis ? `${kpis.margin}% margin` : '40% margin', trend: 'up', pct: 24, icon: TrendingUp, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+    { label: 'Pending Payout', value: kpis ? fmt(kpis.pendingPayout) : '$4,280', sub: 'Awaiting fulfillment', trend: 'up', pct: 11, icon: CreditCard, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
+  ];
 
   const tabs: { id: DashTab; label: string; icon: any }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -131,14 +180,17 @@ export default function StoreAnalyticsDashboard() {
         </div>
       </div>
 
+      {/* Sample-data notice */}
+      {isSample && !loading && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-2.5 text-xs text-blue-300 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 flex-shrink-0" />
+          Showing sample data — real numbers will appear here automatically once your store has orders.
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Revenue', value: '$13,800', sub: 'This month', trend: 'up', pct: 21, icon: DollarSign, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
-          { label: 'Total Orders', value: '124', sub: 'This month', trend: 'up', pct: 18, icon: ShoppingCart, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-          { label: 'Net Profit', value: '$5,520', sub: '40% margin', trend: 'up', pct: 24, icon: TrendingUp, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
-          { label: 'Pending Payout', value: '$4,280', sub: 'Next: Thu', trend: 'up', pct: 11, icon: CreditCard, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
-        ].map((k, i) => {
+        {KPI_CARDS.map((k, i) => {
           const Icon = k.icon;
           return (
             <div key={i} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5 hover:border-orange-500/20 transition">
