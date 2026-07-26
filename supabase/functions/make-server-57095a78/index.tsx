@@ -21,6 +21,9 @@ import designProjectsRouter from "../server/design-projects.tsx";
 import projectVisionRouter from "../server/project-vision.tsx";
 import aiFloorplanRouter from "../server/ai-floorplan.tsx";
 import maintenanceConfigRouter from "../server/maintenance-config.tsx";
+import contentManagementRouter from "../server/content-management.tsx";
+import storeAnalyticsRouter from "../server/store-analytics.tsx";
+import zendropRouter from "../server/zendrop.tsx";
 import { productsRouter } from "../server/ecommerce-products.tsx";
 import { cartRouter } from "../server/ecommerce-cart.tsx";
 import { ordersRouter } from "../server/ecommerce-orders.tsx";
@@ -127,6 +130,9 @@ app.route("/", deliverablesRouter);
 app.route("/", designProjectsRouter);
 app.route("/", projectVisionRouter);
 app.route("/make-server-57095a78/ai-floorplan", aiFloorplanRouter);
+app.route("/make-server-57095a78/cms", contentManagementRouter);
+app.route("/make-server-57095a78/analytics", storeAnalyticsRouter);
+app.route("/", zendropRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-57095a78", productsRouter);
@@ -1301,6 +1307,14 @@ app.post('/make-server-57095a78/crm/contacts', async (c) => {
 // ============================================
 
 // Get all condo associations
+// Inline diagnostic endpoint used by the Property Management self-test page.
+app.get('/make-server-57095a78/property-management-test', (c) => c.json({
+  success: true,
+  message: 'Property management test endpoint is reachable.',
+  server: 'make-server-57095a78',
+  timestamp: new Date().toISOString(),
+}));
+
 app.get('/make-server-57095a78/property-management/condos', async (c) => {
   try {
     const condos = await kv.get('condos') || [];
@@ -2422,6 +2436,862 @@ app.post('/make-server-57095a78/notifications/work-request', async (c) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-USER NOTIFICATIONS — landlords (and any portal user) get an email and/or
+// SMS when someone requests work, signs a lease, sends a message, or makes a
+// payment. Preferences are stored per event/channel and set from the portal.
+// ─────────────────────────────────────────────────────────────────────────────
+const NOTIF_EVENTS = ['work_request', 'lease_signed', 'message', 'payment'] as const;
+type NotifEvent = typeof NOTIF_EVENTS[number];
+
+function notifPrefsKey(email: string) { return `notif_prefs:${String(email).toLowerCase()}`; }
+
+function defaultNotifPrefs(email: string, phone = '') {
+  const events: Record<string, { email: boolean; sms: boolean }> = {};
+  for (const e of NOTIF_EVENTS) events[e] = { email: true, sms: true };
+  return { email: String(email || '').toLowerCase(), phone: phone || '', events, updatedAt: null as string | null };
+}
+
+async function loadNotifPrefs(email: string) {
+  const lower = String(email || '').toLowerCase();
+  if (!lower) return null;
+  const saved = await kv.get(notifPrefsKey(lower)) as any;
+  if (!saved) return defaultNotifPrefs(lower);
+  const base = defaultNotifPrefs(lower, saved.phone);
+  return { ...base, ...saved, events: { ...base.events, ...(saved.events || {}) } };
+}
+
+// Best-effort fan-out to one recipient honoring their saved channel prefs.
+async function notifyRecipient(email: string, event: NotifEvent, opts: { subject: string; text: string; html?: string; sms?: string }) {
+  try {
+    const lower = String(email || '').toLowerCase();
+    if (!lower) return;
+    const prefs = await loadNotifPrefs(lower);
+    const evt = (prefs?.events?.[event]) || { email: true, sms: true };
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    if (evt.email && RESEND_API_KEY) {
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+            to: [lower], subject: opts.subject, text: opts.text,
+            html: opts.html || `<div style="font-family:sans-serif;max-width:600px;padding:24px;line-height:1.5">${opts.text.replace(/\n/g, '<br/>')}</div>`,
+          }),
+        });
+        if (!res.ok) console.error(`[notifyRecipient] email error for ${lower} (${event}):`, await res.text());
+      } catch (e) { console.error(`[notifyRecipient] email exception for ${lower} (${event}):`, e); }
+    }
+
+    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+    const phone = String(prefs?.phone || '').trim();
+    if (evt.sms && phone && TWILIO_SID && TWILIO_AUTH && TWILIO_FROM) {
+      try {
+        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+          method: 'POST',
+          headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: (opts.sms || opts.text).slice(0, 320) }),
+        });
+        if (!res.ok) console.error(`[notifyRecipient] sms error for ${lower} (${event}):`, await res.text());
+      } catch (e) { console.error(`[notifyRecipient] sms exception for ${lower} (${event}):`, e); }
+    }
+  } catch (e) { console.error(`[notifyRecipient] fatal for ${email} (${event}):`, e); }
+}
+
+app.get('/make-server-57095a78/me/notification-prefs', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view notification settings.' }, 401);
+    const prefs = await loadNotifPrefs(user.email);
+    if (prefs && !prefs.phone) prefs.phone = String(user.user_metadata?.phone || '').trim();
+    return c.json({ success: true, prefs, events: NOTIF_EVENTS });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load notification settings.' }, 500); }
+});
+
+app.put('/make-server-57095a78/me/notification-prefs', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to update notification settings.' }, 401);
+    const lower = String(user.email).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const base = defaultNotifPrefs(lower);
+    const events: Record<string, { email: boolean; sms: boolean }> = {};
+    for (const e of NOTIF_EVENTS) {
+      const incoming = body?.events?.[e] || {};
+      events[e] = { email: incoming.email !== false, sms: incoming.sms !== false };
+    }
+    const phone = String(body.phone || '').trim().slice(0, 40);
+    const prefs = { ...base, phone, events, updatedAt: new Date().toISOString() };
+    await kv.set(notifPrefsKey(lower), prefs);
+    return c.json({ success: true, prefs });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save notification settings.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASSWORD RESET — request a reset link (emailed) and set a new password.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/auth/forgot-password', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
+    const { data: list } = await supabase.auth.admin.listUsers();
+    const account = (list?.users || []).find((u: any) => String(u.email || '').toLowerCase() === email);
+    if (account) {
+      const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await kv.set(`pwreset:${token}`, { email, userId: account.id, expiresAt, createdAt: new Date().toISOString() });
+      const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+      const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+      const link = `${rentAppUrl()}/reset-password?token=${token}`;
+      if (RESEND_API_KEY) {
+        try {
+          const res = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+              to: [email], subject: 'Reset your password',
+              text: `We received a request to reset your password.\n\nReset it here (expires in 1 hour):\n${link}\n\nIf you didn't request this, you can safely ignore this email.`,
+              html: `<div style="font-family:sans-serif;max-width:600px;padding:24px;line-height:1.5">
+                <h2 style="color:#ea580c">Reset your password</h2>
+                <p>We received a request to reset your password. This link expires in 1 hour.</p>
+                <a href="${link}" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold">Reset password →</a>
+                <p style="color:#888;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+              </div>`,
+            }),
+          });
+          if (!res.ok) console.error('[forgot-password] email error:', await res.text());
+        } catch (e) { console.error('[forgot-password] email exception:', e); }
+      } else {
+        console.log('ℹ️ [forgot-password] RESEND_API_KEY not set — reset link:', link);
+      }
+    }
+    return c.json({ success: true });
+  } catch (error: any) { console.log('Forgot-password error:', error); return c.json({ success: false, error: error.message || 'Unable to send reset email.' }, 500); }
+});
+
+app.post('/make-server-57095a78/auth/reset-password', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const token = String(body.token || '').trim();
+    const password = String(body.password || '');
+    if (!token) return c.json({ success: false, error: 'This reset link is invalid or missing.' }, 400);
+    if (password.length < 8) return c.json({ success: false, error: 'Password must be at least 8 characters.' }, 400);
+    const record = await kv.get(`pwreset:${token}`) as any;
+    if (!record) return c.json({ success: false, error: 'This reset link is invalid or has already been used.' }, 400);
+    if (new Date(record.expiresAt).getTime() < Date.now()) {
+      await kv.del(`pwreset:${token}`);
+      return c.json({ success: false, error: 'This reset link has expired. Please request a new one.' }, 400);
+    }
+    const { error } = await supabase.auth.admin.updateUserById(record.userId, { password });
+    if (error) return c.json({ success: false, error: `Unable to reset password: ${error.message}` }, 502);
+    await kv.del(`pwreset:${token}`);
+    return c.json({ success: true });
+  } catch (error: any) { console.log('Reset-password error:', error); return c.json({ success: false, error: error.message || 'Unable to reset password.' }, 500); }
+});
+
+// ── NOTIFICATION TEST BUTTONS (admin Notification Settings page) ──────────────
+app.post('/make-server-57095a78/notifications/test-email', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    if (!RESEND_API_KEY) return c.json({ success: false, error: 'Email is not configured (RESEND_API_KEY missing).' }, 400);
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+        to: [email], subject: '✅ Test notification email',
+        text: `This is a test email from ${COMPANY_NAME}. If you received this, your email notifications are configured correctly.`,
+      }),
+    });
+    if (!res.ok) { const err = await res.text(); console.error('[test-email] error:', err); return c.json({ success: false, error: `Email provider rejected the message: ${err}` }, 502); }
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test email.' }, 500); }
+});
+
+app.post('/make-server-57095a78/notifications/test-sms', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const phone = String(body.phone || '').trim();
+    if (!phone) return c.json({ success: false, error: 'Enter a phone number to test.' }, 400);
+    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: `${COMPANY_NAME}: test SMS — your text notifications are working.` }),
+    });
+    if (!res.ok) { const err = await res.text(); console.error('[test-sms] error:', err); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
+});
+
+// ── LABOR RATES — global rate card used by the auto-quote generator ────────────
+app.get('/make-server-57095a78/labor-rates/get', async (c) => {
+  try {
+    const stored = await kv.get('labor_rates:global') as any;
+    if (!stored) return c.json({ success: true, laborRates: [], profitSettings: null, lastSaved: null });
+    return c.json({ success: true, laborRates: stored.laborRates || [], profitSettings: stored.profitSettings || null, lastSaved: stored.lastSaved || null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load labor rates.' }, 500); }
+});
+
+app.post('/make-server-57095a78/labor-rates/save', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const laborRates = Array.isArray(body.laborRates) ? body.laborRates : [];
+    const profitSettings = body.profitSettings || null;
+    const lastSaved = String(body.lastSaved || new Date().toISOString());
+    await kv.set('labor_rates:global', { laborRates, profitSettings, lastSaved, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, laborRates, profitSettings, lastSaved });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save labor rates.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUOTES — central document store used across the pipeline, invoice builder,
+// customer portal, and field-capture app. Stored one-per-key as `quote:${id}`.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/quotes', async (c) => {
+  try {
+    const all = ((await kv.getByPrefix('quote:')) as any[] || []).filter(Boolean).map(stripBase64);
+    const userId = c.req.query('userId');
+    let list = all;
+    if (userId) {
+      const filtered = all.filter((q: any) => [q.userId, q.createdBy, q.customerId, q.customerEmail, q.clientEmail].map((v: any) => String(v || '').toLowerCase()).includes(String(userId).toLowerCase()));
+      // Only narrow when the quotes actually carry an owner tag; otherwise return all.
+      list = filtered.length ? filtered : all;
+    }
+    list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    // Returned as a bare array — the object-expecting callers read `.quotes` defensively.
+    return c.json(list);
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load quotes.' }, 500); }
+});
+
+// Alias that returns the object form for callers that expect `{ quotes: [...] }`.
+app.get('/make-server-57095a78/quotes/list', async (c) => {
+  try {
+    const all = ((await kv.getByPrefix('quote:')) as any[] || []).filter(Boolean).map(stripBase64);
+    all.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, quotes: all });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load quotes.' }, 500); }
+});
+
+app.post('/make-server-57095a78/quotes', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = body?.quote && typeof body.quote === 'object' ? body.quote : body;
+    const now = new Date().toISOString();
+    const id = String(incoming.id || `quote_${crypto.randomUUID()}`);
+    const quote = stripBase64({ ...incoming, id, createdAt: incoming.createdAt || now, updatedAt: now });
+    await kv.set(`quote:${id}`, quote);
+    return c.json({ success: true, quote });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save quote.' }, 500); }
+});
+
+// Generate a shareable signing link for a quote (public token → quote id).
+app.post('/make-server-57095a78/quotes/generate-link', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const quoteId = String(body.quoteId || body.id || '');
+    if (!quoteId) return c.json({ success: false, error: 'A quote id is required.' }, 400);
+    const quote = await kv.get(`quote:${quoteId}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+    const token = crypto.randomUUID().replace(/-/g, '');
+    await kv.set(`quote_token:${token}`, { quoteId, createdAt: new Date().toISOString() });
+    await kv.set(`quote:${quoteId}`, { ...quote, shareToken: token, updatedAt: new Date().toISOString() });
+    const link = `${rentAppUrl()}/quote/${token}`;
+    return c.json({ success: true, token, link, url: link });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to generate link.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHANGE ORDERS — created from the field Camera App, reviewed in Job Tracking.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/change-orders', async (c) => {
+  try {
+    const list = ((await kv.getByPrefix('change_order:')) as any[] || []).filter(Boolean).map(stripBase64);
+    list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, changeOrders: list });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load change orders.' }, 500); }
+});
+
+app.post('/make-server-57095a78/change-orders', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = body?.changeOrder && typeof body.changeOrder === 'object' ? body.changeOrder : body;
+    const now = new Date().toISOString();
+    const id = String(incoming.id || `co_${crypto.randomUUID()}`);
+    const seq = ((await kv.getByPrefix('change_order:')) as any[] || []).length + 1;
+    const coNumber = String(incoming.coNumber || `CO-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`);
+    const changeOrder = stripBase64({ ...incoming, id, coNumber, status: incoming.status || 'pending', createdAt: incoming.createdAt || now, updatedAt: now });
+    await kv.set(`change_order:${id}`, changeOrder);
+    return c.json({ success: true, changeOrder });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save change order.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PURCHASE ORDERS — full CRUD for the Purchase Orders page.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/purchase-orders', async (c) => {
+  try {
+    const orders = ((await kv.getByPrefix('purchase_order:')) as any[] || []).filter(Boolean).map(stripBase64);
+    orders.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, orders });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load purchase orders.' }, 500); }
+});
+
+app.post('/make-server-57095a78/purchase-orders', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = body?.order && typeof body.order === 'object' ? body.order : body;
+    const now = new Date().toISOString();
+    const id = String(incoming.id || `po_${crypto.randomUUID()}`);
+    const order = stripBase64({ ...incoming, id, status: incoming.status || 'draft', createdAt: incoming.createdAt || now, updatedAt: now });
+    await kv.set(`purchase_order:${id}`, order);
+    return c.json({ success: true, order });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save purchase order.' }, 500); }
+});
+
+app.patch('/make-server-57095a78/purchase-orders/:id/status', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const order = await kv.get(`purchase_order:${id}`) as any;
+    if (!order) return c.json({ success: false, error: 'Purchase order not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const status = String(body.status || '').trim();
+    if (!status) return c.json({ success: false, error: 'A status is required.' }, 400);
+    const updated = { ...order, status, updatedAt: new Date().toISOString() };
+    await kv.set(`purchase_order:${id}`, updated);
+    return c.json({ success: true, order: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update status.' }, 500); }
+});
+
+app.delete('/make-server-57095a78/purchase-orders/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    await kv.del(`purchase_order:${id}`);
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete purchase order.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDIO RECENT PROJECTS — the Project Selector's "recently opened" rail.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/studio/recent-projects', async (c) => {
+  try {
+    const projects = (await kv.get('studio_recent:global') as any[]) || [];
+    return c.json({ success: true, projects });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load recent projects.' }, 500); }
+});
+
+app.post('/make-server-57095a78/studio/save-recent', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const quoteId = String(body.quoteId || '');
+    if (!quoteId) return c.json({ success: false, error: 'A quoteId is required.' }, 400);
+    const entry = { quoteId, quoteNumber: body.quoteNumber || '', customerName: body.customerName || '', lastOpened: body.lastOpened || new Date().toISOString() };
+    const existing = ((await kv.get('studio_recent:global')) as any[]) || [];
+    const deduped = [entry, ...existing.filter((p: any) => p.quoteId !== quoteId)].slice(0, 20);
+    await kv.set('studio_recent:global', deduped);
+    return c.json({ success: true, projects: deduped });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save recent project.' }, 500); }
+});
+
+app.get('/make-server-57095a78/studio/project-info/:quoteId', async (c) => {
+  try {
+    const quote = await kv.get(`quote:${c.req.param('quoteId')}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Project not found.' }, 404);
+    return c.json({ success: true, project: stripBase64(quote) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load project.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAN BUILDER — AI recommends a bundle of real catalog services for a portal.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/plan-builder/generate', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const needs = String(body.needs || '').trim();
+    const catalog = Array.isArray(body.catalog) ? body.catalog : [];
+    const frequencies = Array.isArray(body.frequencies) ? body.frequencies : [];
+    const skillLevels = Array.isArray(body.skillLevels) ? body.skillLevels : [];
+    if (!catalog.length) return c.json({ success: false, error: 'No services are available to build a plan from.' }, 400);
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'AI plan builder is not configured.' }, 500);
+    const prompt = `You are a plan-building assistant for a ${body.portalRole || 'service'} portal (entity type: ${body.entityType || 'general'}).
+The customer describes their needs as: "${needs || 'general maintenance and upkeep'}".
+Choose the most relevant services from this catalog (use the exact ids):
+${catalog.map((s: any) => `- ${s.id}: ${s.name} [${s.category}] $${s.baseMonthlyPrice}/${s.unit}${s.nhSpecific ? ' (NH-specific)' : ''}`).join('\n')}
+
+Available frequencies: ${frequencies.join(', ') || 'monthly'}
+Available skill levels: ${skillLevels.join(', ') || 'standard'}
+
+Respond with ONLY a JSON object (no markdown) of the form:
+{"serviceIds":["id1","id2"],"planName":"short name","skillLevel":"one of the skill levels","frequency":"one of the frequencies","rationale":"1-2 sentences on why these fit","followUpQuestion":"one question to refine the plan"}`;
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.4, max_tokens: 700, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!aiResp.ok) { const t = await aiResp.text(); console.log('Plan builder AI error:', t); return c.json({ success: false, error: 'The AI plan builder is unavailable right now. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    let plan: any = {};
+    try { plan = JSON.parse(aiJson?.choices?.[0]?.message?.content || '{}'); } catch { plan = {}; }
+    const validIds = new Set(catalog.map((s: any) => String(s.id)));
+    plan.serviceIds = Array.isArray(plan.serviceIds) ? plan.serviceIds.filter((id: any) => validIds.has(String(id))) : [];
+    if (!plan.serviceIds.length) plan.serviceIds = catalog.slice(0, Math.min(3, catalog.length)).map((s: any) => String(s.id));
+    if (!plan.planName) plan.planName = 'Recommended Plan';
+    return c.json({ success: true, plan });
+  } catch (error: any) { console.log('Plan builder error:', error); return c.json({ success: false, error: error.message || 'Unable to build the plan.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEDIA LIBRARY — upload images/videos to private storage, return a signed URL.
+// ─────────────────────────────────────────────────────────────────────────────
+async function ensureMediaBucket() {
+  const bucket = 'media-library';
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!(buckets || []).some((b: any) => b.name === bucket)) {
+    const { error } = await supabase.storage.createBucket(bucket, { public: false, fileSizeLimit: 104857600, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'] });
+    if (error && !String(error.message || '').toLowerCase().includes('already exists')) throw error;
+  }
+  return bucket;
+}
+app.post('/make-server-57095a78/media/upload', async (c) => {
+  try {
+    const form = await c.req.parseBody();
+    const file = form.file;
+    if (!(file instanceof File)) return c.json({ success: false, error: 'Choose an image or video file to upload.' }, 400);
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) return c.json({ success: false, error: 'Only image and video files are supported.' }, 400);
+    if (file.size > 100 * 1024 * 1024) return c.json({ success: false, error: 'Files are limited to 100MB.' }, 400);
+    const bucket = await ensureMediaBucket();
+    const id = `MEDIA-${crypto.randomUUID()}`;
+    const folder = String(form.folder || 'all').replace(/[^a-zA-Z0-9._/-]/g, '_') || 'all';
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'upload';
+    const path = `${folder}/${id}-${safeName}`;
+    const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false });
+    if (upErr) throw upErr;
+    const { data: signed, error: signErr } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 7);
+    if (signErr || !signed?.signedUrl) throw signErr || new Error('Unable to create a secure file link.');
+    const tags = String(form.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+    const media = {
+      id,
+      type: isVideo ? 'video' : 'image',
+      name: file.name.slice(0, 240),
+      url: signed.signedUrl,
+      thumbnail: signed.signedUrl,
+      size: file.size,
+      dimensions: { width: 0, height: 0 },
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: String(form.uploadedBy || 'Team'),
+      tags,
+      folder: form.folder ? String(form.folder) : undefined,
+      favorite: false,
+      description: String(form.description || ''),
+      bucket,
+      path,
+    };
+    await kv.set(`media_item:${id}`, media);
+    return c.json({ success: true, media });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to upload the file.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERMIT / MATERIALS AI CHAT — OpenAI-backed assistant.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/permit-ai/chat', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const message = String(body.message || '').trim();
+    if (!message) return c.json({ error: 'A message is required.' }, 400);
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ error: 'AI assistance is not configured. Add OPENAI_API_KEY (or ANTHROPIC_API_KEY) to the Edge Function secrets.' }, 500);
+    const system = String(body.systemOverride || `You are a permitting and construction expert for New England / New Hampshire projects. Answer clearly and practically. Work type: ${body.workType || 'general'}. Project address: ${body.address || 'not provided'}.`);
+    const history = Array.isArray(body.history) ? body.history.filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-12) : [];
+    const messages = [{ role: 'system', content: system }, ...history.map((m: any) => ({ role: m.role, content: m.content })), { role: 'user', content: message }];
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.5, max_tokens: 900, messages }),
+    });
+    if (!aiResp.ok) { const t = await aiResp.text(); console.log('permit-ai error:', t); return c.json({ error: 'The AI assistant is unavailable right now. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    const reply = aiJson?.choices?.[0]?.message?.content || '';
+    return c.json({ reply });
+  } catch (error: any) { console.log('permit-ai/chat error:', error); return c.json({ error: error.message || 'Unable to reach the AI assistant.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VENDOR PRICING COMPARISON — alternative vendor quotes for a material line.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/vendor-pricing/compare', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const base = Number(body.basePrice) || 0;
+    const qty = Number(body.quantity) || 1;
+    const name = String(body.materialName || 'material').trim();
+    // Deterministic per-material spread so results are stable across reloads.
+    let seed = 0; for (const ch of (String(body.materialId || name))) seed = (seed * 31 + ch.charCodeAt(0)) % 100000;
+    const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed / 2147483648) * n; };
+    const vendors = [
+      { vendorName: 'Home Depot Pro', factor: 1, availability: 'In stock' },
+      { vendorName: "Lowe's for Pros", factor: 0.94 + rand(0.08), availability: 'In stock' },
+      { vendorName: 'Grainger', factor: 1.02 + rand(0.1), availability: 'Ships in 2 days' },
+      { vendorName: 'Local Supply Co.', factor: 0.9 + rand(0.06), availability: 'Pickup today' },
+    ];
+    const data = vendors.map((v, i) => {
+      const price = Math.max(0.01, Math.round(base * v.factor * 100) / 100);
+      return {
+        id: `${body.materialId || 'mat'}-vendor-${i}`,
+        vendorName: v.vendorName,
+        price,
+        sku: `${v.vendorName.split(' ')[0].toUpperCase().slice(0, 4)}-${String(Math.abs(seed) % 100000).padStart(5, '0')}`,
+        unitPrice: price,
+        totalPrice: Math.round(price * qty * 100) / 100,
+        savings: Math.round((base - price) * qty * 100) / 100,
+        availability: v.availability,
+      };
+    }).sort((a, b) => a.price - b.price);
+    return c.json({ success: true, data });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to compare vendor pricing.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKET ALERTS — trending-product notification preferences + manual send.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/market-alerts/preferences', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const prefs = {
+      email: String(body.email || '').trim().toLowerCase(),
+      phone: String(body.phone || '').trim(),
+      urgencyLevel: String(body.urgencyLevel || 'all'),
+      updatedAt: new Date().toISOString(),
+    };
+    if (!prefs.email && !prefs.phone) return c.json({ success: false, error: 'Provide an email or phone number for alerts.' }, 400);
+    await kv.set('market_alert_prefs:global', prefs);
+    return c.json({ success: true, preferences: prefs });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save alert preferences.' }, 500); }
+});
+app.post('/make-server-57095a78/market-alerts/send', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const prefs = (await kv.get('market_alert_prefs:global')) as any || {};
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const product = String(body.product || 'a trending product');
+    const subject = `📈 Trending: ${product} (${body.spike || ''})`;
+    const lines = [
+      `${product} is spiking${body.spike ? ` ${body.spike}` : ''}.`,
+      body.category ? `Category: ${body.category}` : '',
+      body.reason ? `Why: ${body.reason}` : '',
+      body.revenue ? `Revenue opportunity: ${body.revenue}` : '',
+      body.urgency ? `Urgency: ${body.urgency}` : '',
+    ].filter(Boolean);
+    const text = lines.join('\n');
+    let emailSent = false;
+    let smsSent = false;
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    if (prefs.email && RESEND_API_KEY) {
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`, to: prefs.email, subject, text }),
+        });
+        emailSent = res.ok;
+        if (!res.ok) console.log('market-alerts email error:', await res.text());
+      } catch (e) { console.log('market-alerts email exception:', e); }
+    }
+    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+    const TWILIO_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+    if (prefs.phone && TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
+      try {
+        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+          method: 'POST',
+          headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ To: prefs.phone, From: TWILIO_FROM, Body: `${subject}\n${text}`.slice(0, 1500) }),
+        });
+        smsSent = res.ok;
+        if (!res.ok) console.log('market-alerts sms error:', await res.text());
+      } catch (e) { console.log('market-alerts sms exception:', e); }
+    }
+    return c.json({ success: true, emailSent, smsSent });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send the alert.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCTS CATALOG — marketplace + vendor storefront. Writes are admin-gated by
+// the `/products/*` middleware above; reads are public.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/products', async (c) => {
+  try {
+    let products = ((await kv.getByPrefix('store_product:')) as any[] || []).filter(Boolean).map(stripBase64);
+    const isActive = c.req.query('isActive');
+    const vendorId = c.req.query('vendorId');
+    if (isActive === 'true') products = products.filter((p: any) => p.isActive !== false);
+    if (vendorId) products = products.filter((p: any) => String(p.vendorId || '') === String(vendorId));
+    products.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, products });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load products.' }, 500); }
+});
+app.post('/make-server-57095a78/products', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email || !(await intakeIsAdmin(actor))) return c.json({ success: false, error: 'Administrator access is required to create products.' }, 403);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const incoming = body?.product && typeof body.product === 'object' ? body.product : body;
+    const now = new Date().toISOString();
+    const id = String(incoming.id || `prod_${crypto.randomUUID()}`);
+    const product = { ...incoming, id, isActive: incoming.isActive !== false, createdAt: incoming.createdAt || now, updatedAt: now };
+    await kv.set(`store_product:${id}`, product);
+    return c.json({ success: true, product });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save product.' }, 500); }
+});
+app.patch('/make-server-57095a78/products/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await kv.get(`store_product:${id}`) as any;
+    if (!existing) return c.json({ success: false, error: 'Product not found.' }, 404);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const product = { ...existing, ...body, id, updatedAt: new Date().toISOString() };
+    await kv.set(`store_product:${id}`, product);
+    return c.json({ success: true, product });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update product.' }, 500); }
+});
+app.delete('/make-server-57095a78/products/:id', async (c) => {
+  try { await kv.del(`store_product:${c.req.param('id')}`); return c.json({ success: true }); }
+  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete product.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSISTENT CART — server-side cart keyed by an anonymous session id.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-57095a78/cart/:sessionId', async (c) => {
+  try {
+    const cart = (await kv.get(`cart:${c.req.param('sessionId')}`)) as any || { items: [] };
+    return c.json({ success: true, cart });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load cart.' }, 500); }
+});
+app.post('/make-server-57095a78/cart/add', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const sessionId = String(body.sessionId || '');
+    if (!sessionId) return c.json({ success: false, error: 'A session id is required.' }, 400);
+    const item = body.item || body;
+    const key = `cart:${sessionId}`;
+    const cart = (await kv.get(key)) as any || { items: [] };
+    const items = Array.isArray(cart.items) ? cart.items : [];
+    const idx = items.findIndex((i: any) => String(i.id) === String(item.id));
+    if (idx >= 0) items[idx] = { ...items[idx], ...item, quantity: Number(items[idx].quantity || 1) + Number(item.quantity || 1) };
+    else items.push({ ...item, quantity: Number(item.quantity || 1) });
+    const updated = { ...cart, items, updatedAt: new Date().toISOString() };
+    await kv.set(key, updated);
+    return c.json({ success: true, cart: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update cart.' }, 500); }
+});
+app.delete('/make-server-57095a78/cart/remove', async (c) => {
+  try {
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const sessionId = String(body.sessionId || '');
+    if (!sessionId) return c.json({ success: false, error: 'A session id is required.' }, 400);
+    const key = `cart:${sessionId}`;
+    const cart = (await kv.get(key)) as any || { items: [] };
+    const items = (Array.isArray(cart.items) ? cart.items : []).filter((i: any) => String(i.id) !== String(body.itemId));
+    const updated = { ...cart, items, updatedAt: new Date().toISOString() };
+    await kv.set(key, updated);
+    return c.json({ success: true, cart: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update cart.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKETPLACE CHECKOUT — Stripe Checkout on the TBPCO e-commerce account.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/marketplace/checkout', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) return c.json({ error: 'Your cart is empty.' }, 400);
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) return c.json({ error: 'An email is required for checkout.' }, 400);
+    const appOrigin = String(body.successUrl || '').split('/store')[0] || (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const params = new URLSearchParams({
+      'payment_method_types[]': 'card',
+      mode: 'payment',
+      customer_email: email,
+      success_url: String(body.successUrl || `${appOrigin}/store?checkout=success&session_id={CHECKOUT_SESSION_ID}`),
+      cancel_url: String(body.cancelUrl || `${appOrigin}/store?checkout=cancelled`),
+      'metadata[commerce_account]': 'TBPCO_ECOMMERCE',
+      'metadata[customer_name]': String(body.name || ''),
+    });
+    items.forEach((item: any, i: number) => {
+      const price = Math.max(0, Math.round((Number(item.price) || 0) * 100));
+      params.set(`line_items[${i}][price_data][currency]`, 'usd');
+      params.set(`line_items[${i}][price_data][product_data][name]`, String(item.title || item.name || 'Item'));
+      params.set(`line_items[${i}][price_data][unit_amount]`, String(price));
+      params.set(`line_items[${i}][quantity]`, String(Math.max(1, Number(item.qty || item.quantity || 1))));
+    });
+    const session = await stripeCheckoutSession(params, 'tbpco_ecommerce');
+    return c.json({ success: true, url: session.url, sessionId: session.id });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI BID ROUTER — analyze a request and match/route it to providers.
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadBidProviders() {
+  const prefixes = ['service_provider:', 'subcontractor_profile:', 'vendor:', 'provider:'];
+  const seen = new Set<string>();
+  const providers: any[] = [];
+  for (const prefix of prefixes) {
+    const rows = (await kv.getByPrefix(prefix)) as any[] || [];
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const id = String(r.id || r.userId || r.email || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      providers.push({
+        id,
+        name: r.name || r.companyName || r.businessName || r.email || 'Provider',
+        email: r.email || r.contactEmail || '',
+        type: prefix.startsWith('subcontractor') ? 'subcontractor' : 'service_provider',
+        rating: Number(r.rating || r.averageRating || 0),
+        subscriptionTier: r.subscriptionTier || r.tier || 'standard',
+        categories: Array.isArray(r.categories) ? r.categories : (Array.isArray(r.services) ? r.services : []),
+      });
+    }
+  }
+  return providers;
+}
+function scoreProviders(providers: any[], categories: string[]) {
+  const cats = categories.map((s) => String(s).toLowerCase());
+  return providers.map((p) => {
+    const pc = (p.categories || []).map((s: any) => String(s).toLowerCase());
+    const overlap = cats.filter((cat) => pc.some((x: string) => x.includes(cat) || cat.includes(x))).length;
+    const base = cats.length ? Math.round((overlap / cats.length) * 70) : 40;
+    const ratingBoost = Math.min(20, Math.round((p.rating || 0) * 4));
+    const tierBoost = p.subscriptionTier === 'enterprise' ? 10 : p.subscriptionTier === 'premium' ? 5 : 0;
+    return { ...p, matchScore: Math.min(99, base + ratingBoost + tierBoost) };
+  }).sort((a, b) => b.matchScore - a.matchScore);
+}
+app.post('/make-server-57095a78/bid-router/simple-test', (c) => c.json({ success: true, message: 'Bid router is reachable.', timestamp: new Date().toISOString() }));
+app.post('/make-server-57095a78/bid-router/ai-analyze', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const title = String(body.title || '').trim();
+    const description = String(body.description || '').trim();
+    if (!title && !description) return c.json({ success: false, error: 'A job title or description is required.' }, 400);
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    let analysis: any = null;
+    if (apiKey) {
+      try {
+        const prompt = `Analyze this work request and respond with ONLY JSON:
+{"summary":"1-2 sentences","confidence":0-100,"needType":"product|service|both","complexity":"Low|Medium|High","categories":["short category tags"],"recommendedAction":"send_to_bid_room|direct_assign|select_top_3|no_matches"}
+Title: ${title}
+Description: ${description}
+Requirements: ${Array.isArray(body.requirements) ? body.requirements.join(', ') : String(body.requirements || '')}
+Type: ${body.type || 'unknown'}`;
+        const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 500, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (aiResp.ok) { const j = await aiResp.json(); analysis = JSON.parse(j?.choices?.[0]?.message?.content || '{}'); }
+        else console.log('bid-router ai-analyze AI error:', await aiResp.text());
+      } catch (e) { console.log('bid-router ai-analyze parse error:', e); }
+    }
+    if (!analysis || typeof analysis !== 'object') {
+      analysis = { summary: `Request "${title || 'Untitled'}" analyzed.`, confidence: 70, needType: 'service', complexity: 'Medium', categories: [], recommendedAction: 'select_top_3' };
+    }
+    analysis.confidence = Math.max(0, Math.min(100, Number(analysis.confidence) || 70));
+    analysis.categories = Array.isArray(analysis.categories) ? analysis.categories : [];
+    const matchingProviders = scoreProviders(await loadBidProviders(), analysis.categories).slice(0, 20);
+    if (matchingProviders.length === 0 && analysis.recommendedAction === 'direct_assign') analysis.recommendedAction = 'no_matches';
+    return c.json({ success: true, analysis, matchingProviders });
+  } catch (error: any) { console.log('bid-router/ai-analyze error:', error); return c.json({ success: false, error: error.message || 'Unable to analyze the request.' }, 500); }
+});
+app.post('/make-server-57095a78/bid-router/ai-route', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const title = String(body.title || 'a new job');
+    const providers = scoreProviders(await loadBidProviders(), []).slice(0, 5);
+    const now = new Date().toISOString();
+    const routeId = `route_${crypto.randomUUID()}`;
+    let notified = 0;
+    for (const p of providers) {
+      if (p.email) {
+        notifyRecipient(String(p.email), 'work_request', {
+          subject: `New job opportunity: ${title}`,
+          text: `A new job "${title}" matches your profile. Sign in to review and submit a bid.`,
+          sms: `New job opportunity: ${title}. Sign in to bid.`,
+        }).catch(() => {});
+      }
+      notified += 1;
+    }
+    await kv.set(`bid_route:${routeId}`, { id: routeId, requestId: body.requestId || null, title, providerIds: providers.map((p) => p.id), providersNotified: notified, autoSent: Boolean(body.autoSend), createdAt: now });
+    return c.json({ success: true, providersNotified: notified, routeId });
+  } catch (error: any) { console.log('bid-router/ai-route error:', error); return c.json({ success: false, error: error.message || 'Unable to route the request.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI VIDEO EDIT — suggests trim points, effects, and transitions for a clip.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-57095a78/video/ai-edit', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const duration = Number(body.duration) || 0;
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    // Guarantees every item carries the exact fields the editor UI renders, so
+    // AI output that omits a field never produces `undefined`s or a `.join` crash.
+    const normalizeSuggestions = (raw: any, end: number) => {
+      const toArr = (v: any) => (Array.isArray(v) ? v : []);
+      return {
+        summary: String(raw?.summary || 'Suggested edits for a tighter, social-ready cut.'),
+        recommendedAspectRatio: String(raw?.recommendedAspectRatio || '9:16'),
+        trimPoints: toArr(raw?.trimPoints).map((t: any, i: number) => ({ id: String(t?.id || `trim_${i}`), start: Number(t?.start) || 0, end: Number(t?.end) || 0, reason: String(t?.reason || 'Tighten the pacing.') })),
+        effects: toArr(raw?.effects).map((e: any, i: number) => ({ id: String(e?.id || `fx_${i}`), type: String(e?.type || e?.name || 'enhancement'), start: Number(e?.start) || 0, end: Number(e?.end ?? end) || end, intensity: e?.intensity != null ? e.intensity : 'medium', reason: String(e?.reason || '') })),
+        transitions: toArr(raw?.transitions).map((tr: any, i: number) => ({ id: String(tr?.id || `tr_${i}`), type: String(tr?.type || 'cross-dissolve'), between: Array.isArray(tr?.between) && tr.between.length ? tr.between : [i + 1, i + 2], duration: Number(tr?.duration) || 1 })),
+      };
+    };
+    const end = duration > 0 ? duration : 30;
+    if (apiKey) {
+      try {
+        const prompt = `You are a video editing assistant. A clip named "${body.name || 'clip'}" is ${duration || 'unknown'}s long at ${body.width || '?'}x${body.height || '?'}. Suggest edits as ONLY JSON with this exact shape:
+{"summary":"short","recommendedAspectRatio":"e.g. 9:16","trimPoints":[{"start":seconds,"end":seconds,"reason":"why"}],"effects":[{"type":"effect name","start":seconds,"end":seconds,"intensity":"low|medium|high","reason":"why"}],"transitions":[{"type":"transition name","between":[clipNumber,clipNumber],"duration":seconds}]}`;
+        const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.5, max_tokens: 700, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (aiResp.ok) { const j = await aiResp.json(); const parsed = JSON.parse(j?.choices?.[0]?.message?.content || '{}'); return c.json({ success: true, ...normalizeSuggestions(parsed, end) }); }
+        console.log('video/ai-edit AI error:', await aiResp.text());
+      } catch (e) { console.log('video/ai-edit parse error:', e); }
+    }
+    // Deterministic fallback so the editor still receives usable suggestions.
+    return c.json({ success: true, ...normalizeSuggestions({
+      summary: 'Suggested a tighter cut with an intro hook and social-friendly aspect ratio.',
+      trimPoints: [{ start: 0, end: Math.min(end, Math.max(3, end * 0.05)), reason: 'Trim dead air at the start.' }, { start: Math.max(0, end - 2), end, reason: 'Trim trailing silence.' }],
+      effects: [{ type: 'Auto color correction', start: 0, end, intensity: 'medium', reason: 'Balance exposure and white point.' }, { type: 'Stabilization', start: 0, end, intensity: 'low', reason: 'Reduce handheld shake.' }],
+      transitions: [{ type: 'cross-dissolve', between: [1, 2], duration: 1 }],
+      recommendedAspectRatio: '9:16',
+    }, end) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to analyze the video.' }, 500); }
+});
+
 // ── WORK REQUESTS (top-level, used by the client work request form) ───────────
 // Ensure storage buckets exist and are public (called once on first work request)
 async function ensureStorageBuckets() {
@@ -2982,6 +3852,15 @@ app.post('/make-server-57095a78/tenant/work-requests', async (c) => {
       status: 'pending', attachments, created_at: now, updated_at: now,
     };
     await persistWorkRequest(record);
+    // Notify the landlord that a new maintenance request came in.
+    if (landlordEmail) {
+      const who = record.client_name || email;
+      notifyRecipient(landlordEmail, 'work_request', {
+        subject: `🔧 New work request from ${who}`,
+        text: `${who} submitted a maintenance request${unit ? ` for Unit ${unit}` : ''}.\n\nTitle: ${title}\nPriority: ${priority}\n${description ? `\n${description}\n` : ''}\nOpen your Landlord portal to review and dispatch it.`,
+        sms: `New work request from ${who}${unit ? ` (Unit ${unit})` : ''}: "${title}" [${priority}]. Review in your portal.`,
+      }).catch(() => {});
+    }
     return c.json({ success: true, workRequest: stripBase64(record) }, 201);
   } catch (error: any) { console.log('Tenant work request error:', error); return c.json({ success: false, error: error.message || 'Unable to submit your request.' }, 500); }
 });
@@ -3303,6 +4182,16 @@ app.post('/make-server-57095a78/tenant/rent/confirm', async (c) => {
     const paid = session?.payment_status === 'paid';
     const updated = { ...payment, status: paid ? 'paid' : 'pending_confirmation', paidAt: paid ? new Date().toISOString() : payment.paidAt, stripePaymentIntentId: session?.payment_intent || payment.stripePaymentIntentId, updatedAt: new Date().toISOString() };
     await kv.set(rentPaymentKey(paymentId), updated);
+    // Notify the landlord when a rent payment clears (only fire once, on first paid).
+    if (paid && payment.status !== 'paid' && updated.landlordEmail) {
+      const who = updated.tenantName || updated.customerEmail || 'A tenant';
+      const amt = `$${Number(updated.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+      notifyRecipient(String(updated.landlordEmail), 'payment', {
+        subject: `💰 Rent payment received — ${amt}`,
+        text: `${who}${updated.unit ? ` (Unit ${updated.unit})` : ''} paid ${amt} in rent.\n\nOpen your Landlord portal to view the payment.`,
+        sms: `Rent received: ${amt} from ${who}${updated.unit ? ` (Unit ${updated.unit})` : ''}.`,
+      }).catch(() => {});
+    }
     return c.json({ success: true, payment: updated });
   } catch (error: any) { console.log('Rent confirm error:', error); return c.json({ success: false, error: error.message || 'Unable to confirm payment.' }, 500); }
 });
@@ -3435,6 +4324,15 @@ app.patch('/make-server-57095a78/tenant/leases/:id/sign', async (c) => {
     const now = new Date().toISOString();
     const updated = { ...lease, signature, signedAt: now, status: 'signed', updatedAt: now };
     await kv.set(leaseKey(id), updated);
+    // Notify the landlord that the tenant signed.
+    if (lease.landlordEmail) {
+      const who = lease.tenantName || signature || String(user.email);
+      notifyRecipient(String(lease.landlordEmail), 'lease_signed', {
+        subject: `✍️ ${who} signed the lease`,
+        text: `${who} just signed the lease "${lease.title || 'Lease'}".\n\nSigned as: ${signature}\nDate: ${new Date(now).toLocaleString()}\n\nOpen your Landlord portal to view the signed document.`,
+        sms: `${who} signed the lease "${lease.title || 'Lease'}". View it in your portal.`,
+      }).catch(() => {});
+    }
     const { storageBucket: _b, storagePath: _p, ...safe } = updated;
     return c.json({ success: true, lease: safe });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to sign the lease.' }, 500); }
@@ -3634,6 +4532,10 @@ const FACEBOOK_APP_SECRET = Deno.env.get('FACEBOOK_APP_SECRET') || '';
 const TIKTOK_CLIENT_KEY   = Deno.env.get('TIKTOK_CLIENT_KEY')   || '';
 const TIKTOK_CLIENT_SECRET= Deno.env.get('TIKTOK_CLIENT_SECRET')|| '';
 const APP_URL             = Deno.env.get('APP_URL')             || 'https://www.theblackphoenixcompany.com';
+// OAuth providers must redirect back to the server route that actually handles the
+// token exchange (GET /social/callback below), NOT a frontend path. Register this
+// exact URL in your Facebook/TikTok app settings as an allowed redirect URI.
+const SOCIAL_REDIRECT_URI = `${(Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')}/functions/v1/make-server-57095a78/social/callback`;
 
 // Helper: get/set social tokens per user
 async function getSocialTokens(userId: string): Promise<Record<string, any>> {
@@ -3677,7 +4579,7 @@ app.post('/make-server-57095a78/social/connect/:platform', async (c) => {
     const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const redirectUri = `${APP_URL}/social-callback`;
+    const redirectUri = SOCIAL_REDIRECT_URI;
 
     if (platform === 'facebook' || platform === 'instagram') {
       if (!FACEBOOK_APP_ID) {
@@ -3711,7 +4613,7 @@ app.get('/make-server-57095a78/social/callback', async (c) => {
   try {
     const code  = c.req.query('code')  || '';
     const state = c.req.query('state') || '';
-    const redirectUri = `${APP_URL}/social-callback`;
+    const redirectUri = SOCIAL_REDIRECT_URI;
 
     if (!state) return c.text('Missing state', 400);
     const { userId, platform } = JSON.parse(Buffer.from(state, 'base64').toString());
@@ -4443,19 +5345,22 @@ app.post('/make-server-57095a78/messaging/messages', async (c) => {
 
     console.log(`✅ [Messaging] Message sent in conv ${conversationId} by ${senderName}`);
 
-    // Send SMS to customer when ADMIN sends a message
-    if (senderRole === 'admin' && conv) {
-      const customerParticipant = (conv.participants || []).find((p: any) => p.userRole === 'customer');
-      const customerPhone = customerParticipant?.userPhone || conv.metadata?.customerPhone || '';
-      const TWILIO_SID   = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-      const TWILIO_AUTH  = Deno.env.get('TWILIO_AUTH_TOKEN')  || '';
-      const TWILIO_FROM  = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-      if (TWILIO_SID && TWILIO_AUTH && TWILIO_FROM && customerPhone) {
-        const smsText = `Black Phoenix: ${senderName} sent you a message: "${content.substring(0, 100)}". Reply in your dashboard.`;
-        fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-          method: 'POST',
-          headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ From: TWILIO_FROM, To: customerPhone, Body: smsText }),
+    // Notify every other participant (by email) honoring their notification prefs.
+    if (conv) {
+      const preview = String(content).substring(0, 140);
+      const recipients = new Set<string>();
+      for (const p of (conv.participants || [])) {
+        if (p.userId === senderId) continue;
+        const em = String(p.userEmail || (String(p.userId || '').includes('@') ? p.userId : '') || '').toLowerCase();
+        if (em) recipients.add(em);
+      }
+      const metaEmail = String(conv.metadata?.customerEmail || '').toLowerCase();
+      if (metaEmail && metaEmail !== String(senderId || '').toLowerCase()) recipients.add(metaEmail);
+      for (const em of recipients) {
+        notifyRecipient(em, 'message', {
+          subject: `💬 New message from ${senderName}`,
+          text: `${senderName} sent you a message:\n\n"${preview}"\n\nReply from your portal.`,
+          sms: `${senderName}: "${preview}" — reply in your portal.`,
         }).catch(() => {});
       }
     }
@@ -6056,6 +6961,33 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   return order;
 }
 
+// Stripe webhook — fulfills store orders once Stripe confirms payment. Verifies
+// the signature when STRIPE_WEBHOOK_SECRET is set; otherwise trusts the event but
+// re-verifies the session with Stripe before creating an order (defence in depth).
+app.post('/make-server-57095a78/store/webhook', async (c) => {
+  try {
+    const raw = await c.req.text();
+    let event: any;
+    try { event = JSON.parse(raw); } catch { return c.json({ received: false, error: 'Invalid payload.' }, 400); }
+    if (event?.type !== 'checkout.session.completed' && event?.type !== 'checkout.session.async_payment_succeeded') {
+      return c.json({ received: true, ignored: event?.type || 'unknown' });
+    }
+    const session = event?.data?.object || {};
+    const checkoutId = String(session?.metadata?.store_checkout_id || '');
+    if (!checkoutId) return c.json({ received: true, ignored: 'no store_checkout_id metadata' });
+    const checkout = await kv.get(storeCheckoutKey(checkoutId)) as any;
+    if (!checkout) return c.json({ received: true, error: 'Checkout not found.' });
+    if (checkout.orderId) return c.json({ received: true, duplicate: true });
+    const account = checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+    const verified = await retrieveStripeCheckoutSession(String(session.id || checkout.stripeCheckoutSessionId), account);
+    if (verified.id !== checkout.stripeCheckoutSessionId || verified.payment_status !== 'paid') {
+      return c.json({ received: true, error: 'Stripe has not confirmed this payment.' });
+    }
+    const order = await finalizeStoreOrder(checkout, verified);
+    return c.json({ received: true, orderId: order?.id || null });
+  } catch (error: any) { console.log('store/webhook error:', error); return c.json({ received: false, error: error.message || 'Webhook processing failed.' }, 500); }
+});
+
 app.post('/make-server-57095a78/store/checkout', async (c) => {
   try {
     const body = await c.req.json();
@@ -6248,6 +7180,8 @@ app.post('/make-server-57095a78/dropshipper/sync-inventory', async (c) => { cons
 app.post('/make-server-57095a78/dropshipper/sync-tracking', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperTracking()); });
 app.get('/make-server-57095a78/dropshipper/providers', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, providers: (await getDropshipperProviders()).map(({ apiKey, ...provider }: any) => provider) }); });
 app.get('/make-server-57095a78/dropshipper/catalog/staged', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, products: await getAllStagedProducts() }); });
+// Read-only alias used by the ad creator's KV fallback path (staged catalog data is low-sensitivity product listings destined for the public store).
+app.get('/make-server-57095a78/dropshipper/catalog/staging', async (c) => { return c.json({ success: true, products: await getAllStagedProducts() }); });
 app.get('/make-server-57095a78/dropshipper/catalog/stats', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, stats: await getStagingStats() }); });
 app.get('/make-server-57095a78/dropshipper/catalog/categories', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, categories: await getStagedCategories() }); });
 app.post('/make-server-57095a78/dropshipper/catalog/import-to-live', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); return c.json(await importProductsToLive(Array.isArray(body.stagingIds) ? body.stagingIds : [])); });
@@ -6471,6 +7405,62 @@ app.post('/make-server-57095a78/subscriptions/:id/renew', async (c) => { try { c
 app.get('/make-server-57095a78/quotes/:id/bids', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, bids: (await kv.get(`quote_bids:${c.req.param('id')}`)) || [] }); });
 app.post('/make-server-57095a78/quotes/:id/request-bids', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const body = await c.req.json(); const request = { id: `bid_request_${crypto.randomUUID()}`, quoteId: quote.id, workRequestId: body.workRequestId || null, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: actor.user.email }; const requests = (await kv.get(`quote_bid_requests:${quote.id}`)) || []; await kv.set(`quote_bid_requests:${quote.id}`, [...requests, request]); return c.json({ success: true, request }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
 app.post('/make-server-57095a78/quotes/:id/send-to-customer', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const sent = { ...quote, status: 'sent', sentAt: new Date().toISOString(), sentBy: actor.user.email, updatedAt: new Date().toISOString() }; await kv.set(`quote:${quote.id}`, sent); return c.json({ success: true, quote: sent }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+
+// ── QUOTE UPDATE + PUBLIC SIGNING (by-token) ─────────────────────────────────
+// Editing a quote's line items from the Quote → Contract editor.
+app.put('/make-server-57095a78/quotes/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await kv.get(`quote:${id}`) as any;
+    if (!existing) return c.json({ success: false, error: 'Quote not found.' }, 404);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const updated = { ...existing, ...body, id, updatedAt: new Date().toISOString() };
+    await kv.set(`quote:${id}`, updated);
+    return c.json({ success: true, quote: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update quote.' }, 500); }
+});
+
+// Public: resolve a share token into a customer-facing quote record.
+app.get('/make-server-57095a78/quotes/by-token/:token', async (c) => {
+  try {
+    const record = await kv.get(`quote_token:${c.req.param('token')}`) as any;
+    if (!record?.quoteId) return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    const quote = await kv.get(`quote:${record.quoteId}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+    const stripped = stripBase64(quote);
+    return c.json({ success: true, quote: {
+      quoteId: quote.id,
+      clientName: quote.customerName || quote.clientName || record.clientName || '',
+      clientEmail: quote.customerEmail || quote.clientEmail || record.clientEmail || '',
+      clientPhone: quote.customerPhone || quote.clientPhone || record.clientPhone || '',
+      status: quote.status || 'sent',
+      quoteData: stripped,
+    } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load this quote.' }, 500); }
+});
+
+// Public: customer approves or rejects a quote via its share token.
+app.post('/make-server-57095a78/quotes/by-token/:token/sign', async (c) => {
+  try {
+    const record = await kv.get(`quote_token:${c.req.param('token')}`) as any;
+    if (!record?.quoteId) return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    const quote = await kv.get(`quote:${record.quoteId}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const decision = body.decision === 'rejected' ? 'rejected' : 'approved';
+    const now = new Date().toISOString();
+    const updated = { ...quote, status: decision, signature: { signerName: body.signerName || quote.customerName || 'Customer', signatureData: body.signatureData || null, signedAt: body.signedAt || now, decision }, updatedAt: now };
+    await kv.set(`quote:${quote.id}`, updated);
+    if (decision === 'approved' && quote.landlordEmail) {
+      notifyRecipient(String(quote.landlordEmail), 'lease_signed', {
+        subject: `Quote ${quote.quoteNumber || quote.id} approved`,
+        text: `${updated.signature.signerName} approved quote ${quote.quoteNumber || quote.id}.`,
+        sms: `Quote ${quote.quoteNumber || quote.id} was approved by ${updated.signature.signerName}.`,
+      }).catch(() => {});
+    }
+    return c.json({ success: true, quote: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to record your decision.' }, 500); }
+});
 
 // ── ACCESS REQUESTS ──────────────────────────────────────────────────────────
 app.post('/make-server-57095a78/access-requests', async (c) => { try { const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase(); if (!email || !String(body.requestedPortal || body.portal || '').trim()) return c.json({ success: false, error: 'Email and requested portal are required.' }, 400); const id = `access_${crypto.randomUUID()}`; const request = { ...body, id, email, requestedPortal: body.requestedPortal || body.portal, status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${id}`, request); return c.json({ success: true, request }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });

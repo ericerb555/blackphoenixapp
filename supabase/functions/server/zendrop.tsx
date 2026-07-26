@@ -207,10 +207,46 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
     .map((r) => normalize(r, markupType, markupValue))
     .filter((p) => p.name && p.cost >= 0);
 
-  // Write each product into the SAME inventory keyspace the store reads.
-  const writes = normalized.map((p) =>
-    kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)),
-  );
+  const nowIso = new Date().toISOString();
+  const writes: Promise<void>[] = [];
+  for (const p of normalized) {
+    // 1) Dropshipper inventory record — used by the dropshipper module for
+    //    order-forwarding, sync tracking, and the Zendrop page's own catalog view.
+    writes.push(kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)));
+
+    // 2) Storefront product record — THIS is what the public store actually
+    //    renders (GET /products reads the `store_product:` prefix). Without this
+    //    write, imported Zendrop items would never appear in the live store.
+    const storeId = `zendrop_${p.sku}`;
+    const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
+    const storeProduct = {
+      id: storeId,
+      vendorId: PROVIDER_ID,
+      vendorName: "Zendrop",
+      name: p.name,
+      description: p.description,
+      category: p.category,
+      price: p.price,
+      compare_at_price: p.price ? +(p.price * 1.3).toFixed(2) : undefined,
+      cost_price: p.cost,
+      inventoryQuantity: p.stock,
+      trackInventory: true,
+      images: p.images,
+      primaryImage: p.images[0] || "",
+      isActive: true,
+      isFeatured: false,
+      slug,
+      sku: p.sku,
+      rating: p.rating,
+      viewCount: 0,
+      orderCount: 0,
+      source: "zendrop",
+      providerProductId: p.providerProductId,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    writes.push(kv.set(`store_product:${storeId}`, storeProduct));
+  }
   await Promise.all(writes);
 
   await config.updateLastSync();

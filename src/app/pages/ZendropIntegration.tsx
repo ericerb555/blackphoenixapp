@@ -169,25 +169,28 @@ export default function ZendropIntegration() {
   async function loadLiveProducts() {
     setLoadingLive(true);
     try {
-      const res = await fetch(`${SERVER}/dropshipper/inventory`, {
+      // Read the actual storefront catalog (public route) filtered to Zendrop
+      // products. This is the same data the live public store renders, so what
+      // shows here == what customers see.
+      const res = await fetch(`${SERVER}/products?vendorId=zendrop`, {
         headers: { 'Authorization': `Bearer ${publicAnonKey}` },
       });
       const data = await res.json().catch(() => ({}));
-      const items = (data.inventory || data.products || []) as any[];
+      const items = (data.products || data.inventory || []) as any[];
       const mapped: ZendropProduct[] = items
-        .filter(p => (p.providerId || '').toLowerCase() === 'zendrop')
+        .filter(p => (p.source || p.vendorId || '').toLowerCase() === 'zendrop')
         .map(p => ({
-          id: String(p.providerProductId || p.sku),
+          id: String(p.providerProductId || p.sku || p.id),
           name: p.name || 'Untitled Product',
           category: p.category || 'General',
-          cost: Number(p.cost ?? 0),
-          msrp: Number(p.price ?? p.cost ?? 0),
+          cost: Number(p.cost_price ?? p.cost ?? 0),
+          msrp: Number(p.price ?? p.cost_price ?? 0),
           shipsFrom: 'USA',
           eta: '3–5 days',
           rating: Number(p.rating ?? 0),
           reviews: 0,
-          stock: Number(p.stock ?? 0),
-          img: (p.images && p.images[0]) || '📦',
+          stock: Number(p.inventoryQuantity ?? p.stock ?? 0),
+          img: (p.images && p.images[0]) || p.primaryImage || '📦',
           sku: p.sku || '',
           description: p.description || '',
         }));

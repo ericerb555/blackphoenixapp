@@ -146,6 +146,7 @@ export default function EnterpriseContentCenter() {
     fetchTemplates,
     fetchChannels,
     createContentPiece,
+    updateContentPiece,
   } = useContentManagement();
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
@@ -453,6 +454,29 @@ export default function EnterpriseContentCenter() {
       console.log(`Showing ${uniquePieces.length} unique content pieces`);
       console.log('Content pieces:', uniquePieces.map((p: any) => ({ id: p.id, title: p.title, format: p.content_format })));
       setContentPieces(uniquePieces);
+
+      // Hydrate from the KV-backed server (best effort). Server pieces take
+      // precedence; anything only in localStorage is preserved so offline-created
+      // content is never lost. Requires an active company for the server query.
+      try {
+        const serverPieces = await fetchContentPieces();
+        if (Array.isArray(serverPieces) && serverPieces.length > 0) {
+          const byKey = new Map<string, any>();
+          // Key by title (consistent with the local dedup above) so a piece created
+          // offline and later synced doesn't appear twice under different ids. Seed
+          // with local pieces first, then overwrite with the server versions.
+          for (const p of uniquePieces) byKey.set(p.title || p.id, p);
+          for (const p of serverPieces) byKey.set(p.title || p.id, p);
+          const merged = Array.from(byKey.values()).sort(
+            (a, b) => (b.created_at || '').localeCompare(a.created_at || '')
+          );
+          setContentPieces(merged);
+          saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, merged);
+          console.log(`✅ Hydrated ${serverPieces.length} pieces from server; ${merged.length} total after merge`);
+        }
+      } catch (hydrateErr) {
+        console.error('Server hydration of content pieces failed (using localStorage):', hydrateErr);
+      }
       
       // Use empty arrays for templates and channels to avoid database errors
       const templatesData: ContentTemplate[] = [];
@@ -749,6 +773,20 @@ export default function EnterpriseContentCenter() {
       setIsEditing(false);
       setEditForm(null);
 
+      // Best-effort sync to the KV-backed server so edits persist beyond this browser.
+      try {
+        await updateContentPiece(selectedContent.id, {
+          title: editForm.title,
+          excerpt: editForm.excerpt,
+          content_body: editForm.content_body,
+          featured_image_url: editForm.featured_image_url,
+          status: editForm.status as any,
+          content_format: editForm.content_format,
+        });
+      } catch (syncErr) {
+        console.error('Server sync of content edit failed (saved locally):', syncErr);
+      }
+
       // Reload data
       await loadData();
 
@@ -774,9 +812,9 @@ export default function EnterpriseContentCenter() {
     approved: contentPieces.filter(p => p.status === 'approved').length,
     published: contentPieces.filter(p => p.status === 'published').length,
     reels: contentPieces.filter(p => p.content_format === 'video_reel').length,
-    totalImpressions: contentPieces.reduce((sum, p) => sum + p.total_impressions, 0),
-    totalClicks: contentPieces.reduce((sum, p) => sum + p.total_clicks, 0),
-    totalEngagement: contentPieces.reduce((sum, p) => sum + p.total_engagement, 0),
+    totalImpressions: contentPieces.reduce((sum, p) => sum + (p.total_impressions || 0), 0),
+    totalClicks: contentPieces.reduce((sum, p) => sum + (p.total_clicks || 0), 0),
+    totalEngagement: contentPieces.reduce((sum, p) => sum + (p.total_engagement || 0), 0),
   };
 
   // Content type templates for quick generation
@@ -985,6 +1023,124 @@ export default function EnterpriseContentCenter() {
     }
   };
   
+  // Persist an ad created in Ad Studio into the real Content Library (user-scoped
+  // storage + KV server), so it shows up in the Library tab and syncs across devices.
+  const handleAdSaveToLibrary = (ad: {
+    title: string; content_body: string; html: string; image?: string;
+    source: string; format: string; theme: string; productId: string | null;
+  }) => {
+    try {
+      const piece: any = {
+        id: `ad_${Date.now()}`,
+        title: ad.title || 'Untitled ad',
+        content: ad.content_body,
+        content_body: ad.content_body || '',
+        // 'ad_' prefix so the Library's "Ads" type filter (startsWith('ad_')) matches.
+        content_format: `ad_${ad.source || 'promo'}`,
+        excerpt: (ad.content_body || '').substring(0, 200),
+        status: 'approved',
+        is_ai_generated: true,
+        featured_image_url: ad.image || '',
+        ai_generation_metadata: { html: ad.html, format: ad.format, theme: ad.theme, productId: ad.productId, ad_type: ad.source },
+        created_at: new Date().toISOString(),
+        tags: ['ad', ad.source].filter(Boolean),
+      };
+
+      const existing = loadFromUserStorage<any[]>(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, []);
+      const merged = [piece, ...existing];
+      saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, merged);
+      setContentPieces(prev => [piece, ...prev]);
+
+      // Best-effort server persistence.
+      createContentPiece({
+        title: piece.title,
+        content_body: piece.content_body,
+        content_format: piece.content_format,
+        excerpt: piece.excerpt,
+        status: 'approved',
+        is_ai_generated: true,
+        featured_image_url: piece.featured_image_url,
+        ai_generation_metadata: piece.ai_generation_metadata,
+        current_workflow_stage: 3,
+        total_impressions: 0,
+        total_clicks: 0,
+        total_engagement: 0,
+        total_conversions: 0,
+      }).catch(err => console.error('Server persist of ad failed (saved locally):', err));
+    } catch (err) {
+      console.error('Failed to save ad to library:', err);
+    }
+  };
+
+  // Queue Creator-Studio content into the same store the Social Scheduler reads,
+  // so "Push to Scheduler" actually lands in the scheduler tab.
+  const queueContentToScheduler = (content: any) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('social_scheduled_posts') || '[]');
+      const platformNames: string[] = Array.isArray(content?.platforms)
+        ? content.platforms.map((p: any) => (typeof p === 'string' ? p : p?.platform)).filter(Boolean)
+        : ['facebook', 'instagram'];
+      const firstCaption = Array.isArray(content?.platforms) && typeof content.platforms[0] === 'object'
+        ? content.platforms[0]?.caption
+        : undefined;
+      const hashtags = Array.isArray(content?.script?.hashtags) ? content.script.hashtags.join(' ') : '';
+      const post = {
+        id: `cs_${Date.now()}`,
+        content: [firstCaption || content?.description || content?.title, hashtags].filter(Boolean).join('\n\n'),
+        media_urls: [],
+        media_type: 'text',
+        platforms: platformNames,
+        scheduled_date: '',
+        status: 'draft',
+        created_at: new Date().toISOString(),
+      };
+      localStorage.setItem('social_scheduled_posts', JSON.stringify([post, ...(Array.isArray(saved) ? saved : [])]));
+    } catch (err) {
+      console.error('Failed to queue content to scheduler:', err);
+    }
+  };
+
+  // Persist a photo-to-video slideshow into the Content Library (local + server).
+  const saveSlideshowToLibrary = (slides: any[], totalDuration: number, music?: any) => {
+    try {
+      const firstImage = slides?.find((s: any) => s?.image || s?.url || s?.src);
+      const piece: any = {
+        id: `slideshow_${Date.now()}`,
+        title: `Video Slideshow — ${new Date().toLocaleDateString()}`,
+        content: `Photo-to-video slideshow with ${slides.length} photos (${totalDuration.toFixed(1)}s)${music?.title ? ` set to "${music.title}"` : ''}.`,
+        content_body: `Photo-to-video slideshow with ${slides.length} photos (${totalDuration.toFixed(1)}s)${music?.title ? ` set to "${music.title}"` : ''}.`,
+        content_format: 'video_reel',
+        excerpt: `${slides.length} photos · ${totalDuration.toFixed(1)}s`,
+        status: 'draft',
+        is_ai_generated: true,
+        featured_image_url: firstImage?.image || firstImage?.url || firstImage?.src || '',
+        ai_generation_metadata: { slideCount: slides.length, totalDuration, music: music?.title || null },
+        created_at: new Date().toISOString(),
+        tags: ['video', 'slideshow'],
+      };
+      const existing = loadFromUserStorage<any[]>(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, []);
+      saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, [piece, ...existing]);
+      setContentPieces(prev => [piece, ...prev]);
+      createContentPiece({
+        title: piece.title,
+        content_body: piece.content_body,
+        content_format: 'video_reel',
+        excerpt: piece.excerpt,
+        status: 'draft',
+        is_ai_generated: true,
+        featured_image_url: piece.featured_image_url,
+        ai_generation_metadata: piece.ai_generation_metadata,
+        current_workflow_stage: 1,
+        total_impressions: 0,
+        total_clicks: 0,
+        total_engagement: 0,
+        total_conversions: 0,
+      }).catch(err => console.error('Server persist of slideshow failed (saved locally):', err));
+    } catch (err) {
+      console.error('Failed to save slideshow to library:', err);
+    }
+  };
+
   const handleExportContent = () => {
     // Export all user content
     const userData = exportUserData(userContext);
@@ -1667,7 +1823,7 @@ export default function EnterpriseContentCenter() {
 
           {/* Ad Studio Tab */}
           {activeTab === 'ad-studio' && (
-            <AdStudio onNavigate={hubNavigate} />
+            <AdStudio onNavigate={hubNavigate} onSaveToLibrary={handleAdSaveToLibrary} />
           )}
 
           {/* Library Tab */}
@@ -1856,6 +2012,7 @@ export default function EnterpriseContentCenter() {
                                   const updated = contentPieces.map(p => p.id === content.id ? { ...p, status: 'approved' } : p);
                                   setContentPieces(updated);
                                   saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, updated);
+                                  updateContentPiece(content.id, { status: 'approved' as any }).catch(err => console.error('Status sync failed (saved locally):', err));
                                   toast.success('✅ Moved to Ready to Post!');
                                 }}
                                 className="flex-1 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
@@ -1869,6 +2026,7 @@ export default function EnterpriseContentCenter() {
                                   const updated = contentPieces.map(p => p.id === content.id ? { ...p, status: 'draft' } : p);
                                   setContentPieces(updated);
                                   saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, updated);
+                                  updateContentPiece(content.id, { status: 'draft' as any }).catch(err => console.error('Status sync failed (saved locally):', err));
                                   toast.success('Moved back to Work In Progress');
                                 }}
                                 className="flex-1 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
@@ -2934,8 +3092,8 @@ export default function EnterpriseContentCenter() {
                 music={selectedMusic}
                 onMusicChange={(music) => setSelectedMusic(music)}
                 onExport={(slides, totalDuration, music) => {
-                  toast.success(`Video slideshow created! ${slides.length} photos, ${totalDuration.toFixed(1)}s duration`);
-                  console.log('Exporting video:', { slides, totalDuration, music });
+                  saveSlideshowToLibrary(slides, totalDuration, music);
+                  toast.success(`Video slideshow saved to Library! ${slides.length} photos, ${totalDuration.toFixed(1)}s duration`);
                 }}
               />
             </div>
@@ -2961,7 +3119,7 @@ export default function EnterpriseContentCenter() {
                     <p className="text-gray-400">Schedule and plan your content distribution across all channels</p>
                   </div>
                   <button
-                    onClick={() => window.location.href = '/calendar'}
+                    onClick={() => navigate('unified-calendar')}
                     className="px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-lg hover:from-[#c2410c] hover:to-[#9a3412] transition-all font-medium flex items-center gap-2"
                   >
                     <Calendar className="w-5 h-5" />
@@ -3033,9 +3191,16 @@ export default function EnterpriseContentCenter() {
               <VideoRecreationEngine
                 preloadedProduct={studioPreloadedProduct}
                 onPushToScheduler={(content) => {
+                  queueContentToScheduler(content);
                   toast.success(`Content queued for ${content.platforms?.length || 1} platform(s)! Switch to Social Scheduler to set publish times.`);
                 }}
                 onPushToStore={(productId, content) => {
+                  // Best-effort: persist the generated script/description to the product
+                  // record so it survives; ignored gracefully if the product isn't in the store.
+                  updateContentPiece(productId, {
+                    content_body: content.description,
+                    ai_generation_metadata: { videoScript: content.videoScript, title: content.title },
+                  }).catch(err => console.error('Push-to-store persist failed (script kept in Creator Studio):', err));
                   toast.success(`Product page updated with new script and description!`);
                 }}
               />
@@ -3207,7 +3372,7 @@ export default function EnterpriseContentCenter() {
                         {selectedContent.ai_generation_metadata.platform && (
                           <div>
                             <span className="text-gray-400">Platforms:</span>
-                            <span className="text-white ml-2">{selectedContent.ai_generation_metadata.platform.join(', ')}</span>
+                            <span className="text-white ml-2">{Array.isArray(selectedContent.ai_generation_metadata.platform) ? selectedContent.ai_generation_metadata.platform.join(', ') : selectedContent.ai_generation_metadata.platform}</span>
                           </div>
                         )}
                         {selectedContent.ai_generation_metadata.target_audience && (
@@ -3237,7 +3402,7 @@ export default function EnterpriseContentCenter() {
                     <div className="bg-[#1A1A1A] rounded-lg border border-[#2A2A2A] p-4">
                       <div className="text-gray-400 mb-1">Last Updated</div>
                       <div className="text-white font-medium">
-                        {new Date(selectedContent.updated_at).toLocaleDateString()}
+                        {new Date(selectedContent.updated_at || selectedContent.created_at).toLocaleDateString()}
                       </div>
                     </div>
                   </div>

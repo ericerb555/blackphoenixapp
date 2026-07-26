@@ -182,7 +182,26 @@ function AdPreview({
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
-export default function AdStudio({ onNavigate }: { onNavigate?: (page: string) => void }) {
+export interface AdStudioSavedAd {
+  title: string;
+  content_body: string;
+  html: string;
+  image?: string;
+  source: string;
+  format: string;
+  theme: string;
+  productId: string | null;
+}
+
+export default function AdStudio({
+  onNavigate,
+  onSaveToLibrary,
+}: {
+  onNavigate?: (page: string) => void;
+  // When provided, the parent persists the ad into the real Content Library
+  // (user-scoped storage + KV server) instead of the local-only fallback.
+  onSaveToLibrary?: (ad: AdStudioSavedAd) => void;
+}) {
   const [mode, setMode] = useState<SourceMode>('product');
   const [products, setProducts] = useState<AdProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -309,8 +328,11 @@ export default function AdStudio({ onNavigate }: { onNavigate?: (page: string) =
         headers: AUTH,
         body: JSON.stringify({
           productId: selectedId || undefined,
-          assetType: 'social_ad',
-          prompt: `${draft.headline}. ${draft.tagline}`,
+          productName: draft.headline || selectedProduct?.title || 'Featured offer',
+          productDescription: draft.tagline || '',
+          assetType: 'social-ad',
+          platforms: ['instagram'],
+          customPrompt: `${draft.headline}. ${draft.tagline}`,
         }),
       });
       if (res.ok) {
@@ -351,20 +373,28 @@ export default function AdStudio({ onNavigate }: { onNavigate?: (page: string) =
 
   const saveToLibrary = () => {
     try {
-      const items = JSON.parse(localStorage.getItem('contentCenterItems') || '[]');
-      const item = {
-        id: `ad-${Date.now()}`,
-        type: 'ad',
+      const ad: AdStudioSavedAd = {
         title: draft.headline || 'Untitled ad',
-        status: 'ready',
+        content_body: [draft.headline, draft.tagline, draft.price, draft.cta].filter(Boolean).join('\n'),
+        html: buildHtml(),
+        image,
+        source: mode,
         format: format.id,
         theme: theme.id,
-        source: mode,
         productId: selectedId || null,
-        content: { ...draft, image, html: buildHtml() },
-        createdAt: new Date().toISOString(),
       };
-      localStorage.setItem('contentCenterItems', JSON.stringify([item, ...(Array.isArray(items) ? items : [])]));
+      // Preferred path: persist into the real Content Library via the parent.
+      if (onSaveToLibrary) {
+        onSaveToLibrary(ad);
+        toast.success('Saved to Content Library');
+        return;
+      }
+      // Standalone fallback (no parent): keep a local copy.
+      const items = JSON.parse(localStorage.getItem('contentCenterItems') || '[]');
+      localStorage.setItem(
+        'contentCenterItems',
+        JSON.stringify([{ id: `ad-${Date.now()}`, type: 'ad', status: 'ready', createdAt: new Date().toISOString(), ...ad }, ...(Array.isArray(items) ? items : [])])
+      );
       toast.success('Saved to Content Library');
     } catch (err) {
       console.error('[AdStudio] save error', err);
@@ -373,7 +403,25 @@ export default function AdStudio({ onNavigate }: { onNavigate?: (page: string) =
   };
 
   const sendToScheduler = () => {
+    // Save to the library first, then queue a draft post in the same store the
+    // Social Scheduler reads (`social_scheduled_posts`), so it actually appears there.
     saveToLibrary();
+    try {
+      const saved = JSON.parse(localStorage.getItem('social_scheduled_posts') || '[]');
+      const post = {
+        id: `ad_${Date.now()}`,
+        content: [draft.headline, draft.tagline, draft.cta].filter(Boolean).join(' — '),
+        media_urls: image ? [image] : [],
+        media_type: image ? 'image' : 'text',
+        platforms: ['facebook', 'instagram'],
+        scheduled_date: '',
+        status: 'draft',
+        created_at: new Date().toISOString(),
+      };
+      localStorage.setItem('social_scheduled_posts', JSON.stringify([post, ...(Array.isArray(saved) ? saved : [])]));
+    } catch (err) {
+      console.error('[AdStudio] scheduler queue error', err);
+    }
     toast.success('Ad saved — opening the Social Scheduler…');
     // Deep-link back into the Content Center scheduler tab.
     if (onNavigate) onNavigate('enterprise-content-center?tab=social-scheduler');

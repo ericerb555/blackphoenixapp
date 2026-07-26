@@ -197,8 +197,10 @@ marketingAssetsRouter.delete('/marketing-assets/:assetId', async (c) => {
 // Generate product description using GPT-4
 marketingAssetsRouter.post('/marketing-assets/generate-description', async (c) => {
   try {
-    const { productName, category, features } = await c.req.json();
-    
+    // Accept both the e-commerce shape ({ category, features }) and the Ad Studio
+    // shape ({ productDescription, tone, context }).
+    const { productName, category, features, productDescription, tone, context } = await c.req.json();
+
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiKey) {
       return c.json({
@@ -207,21 +209,31 @@ marketingAssetsRouter.post('/marketing-assets/generate-description', async (c) =
       }, 500);
     }
 
-    const prompt = `Write a compelling, professional product description for an e-commerce store. 
-    
+    const isAd = context === 'service_promo' || context === 'ecommerce_product';
+    const contextLine = [
+      category ? `Category: ${category}` : '',
+      features ? `Features: ${features}` : '',
+      productDescription ? `Details: ${productDescription}` : '',
+      tone ? `Tone: ${tone}` : '',
+    ].filter(Boolean).join('\n');
+
+    // For Ad Studio we want punchy ad copy split into a headline and tagline plus a
+    // longer description. Return JSON so the client can populate each field cleanly.
+    const prompt = isAd
+      ? `Write advertising copy for "${productName}".
+${contextLine}
+
+Respond ONLY with strict JSON of the form:
+{"headline":"<max 6 words, punchy>","tagline":"<one persuasive sentence>","description":"<2 short paragraphs>"}`
+      : `Write a compelling, professional product description for an e-commerce store.
+
 Product Name: ${productName}
-Category: ${category}
-Features: ${features || 'N/A'}
+${contextLine}
 
-The description should:
-- Be 2-3 paragraphs
-- Highlight key benefits
-- Use persuasive language
-- Include technical details where relevant
-- Be SEO-friendly
-- End with a call-to-action
+The description should be 2-3 paragraphs, highlight key benefits, use persuasive language, be SEO-friendly, and end with a call-to-action.
 
-Description:`;
+Respond ONLY with strict JSON of the form:
+{"headline":"<product name or short hook>","tagline":"<one-line summary>","description":"<the full 2-3 paragraph description>"}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -234,7 +246,7 @@ Description:`;
         messages: [
           {
             role: 'system',
-            content: 'You are an expert e-commerce copywriter specializing in product descriptions.'
+            content: 'You are an expert marketing copywriter. Always respond with valid JSON only, no markdown fences.'
           },
           {
             role: 'user',
@@ -242,7 +254,7 @@ Description:`;
           }
         ],
         temperature: 0.7,
-        max_tokens: 500
+        max_tokens: 600
       }),
     });
 
@@ -256,10 +268,28 @@ Description:`;
     }
 
     const data = await response.json();
-    const description = data.choices[0]?.message?.content;
+    const raw = (data.choices[0]?.message?.content || '').trim();
+
+    // Parse the JSON payload, tolerating accidental markdown fences. Fall back to
+    // treating the whole response as the description if parsing fails.
+    let headline = productName;
+    let tagline = '';
+    let description = raw;
+    try {
+      const cleaned = raw.replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();
+      const parsed = JSON.parse(cleaned);
+      headline = parsed.headline || headline;
+      tagline = parsed.tagline || tagline;
+      description = parsed.description || description;
+    } catch {
+      // Not JSON — use the raw text as the description and derive a tagline.
+      tagline = raw.split('\n').find((l: string) => l.trim())?.slice(0, 140) || '';
+    }
 
     return c.json({
       success: true,
+      headline,
+      tagline,
       description
     });
 

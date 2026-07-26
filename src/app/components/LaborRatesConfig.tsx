@@ -96,10 +96,10 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
       if (response.ok) {
         const data = await response.json();
         console.log('[LaborRatesConfig] Data received successfully');
-        if (data.laborRates && data.laborRates.laborRates) {
+        if (Array.isArray(data.laborRates) && data.laborRates.length) {
           // Merge saved rates with defaults (in case new categories were added)
           const mergedRates = laborRates.map(defaultRate => {
-            const savedRate = data.laborRates.laborRates.find((r: any) => r.id === defaultRate.id);
+            const savedRate = data.laborRates.find((r: any) => r.id === defaultRate.id);
             return savedRate ? { ...defaultRate, hourlyRate: savedRate.hourlyRate, visible: savedRate.visible } : defaultRate;
           });
           setLaborRates(mergedRates);

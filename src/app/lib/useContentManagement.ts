@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { useCompany } from '../contexts/CompanyContext';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export interface ContentPiece {
   id: string;
@@ -146,29 +147,46 @@ export function useContentManagement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+
+  const CMS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78/cms`;
+
+  // Shared fetch helper: attaches the user's access token when available, otherwise
+  // falls back to the public anon key. Throws with contextual info on failure.
+  const cmsFetch = async (path: string, init: RequestInit = {}) => {
+    let token = publicAnonKey;
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) token = data.session.access_token;
+    } catch {
+      // No session — fall back to anon key
+    }
+    const res = await fetch(`${CMS_BASE}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(init.headers || {}),
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`CMS request failed (${res.status}) for ${path}: ${text}`);
+    }
+    return res.json();
+  };
+
   // Fetch all content pieces
   const fetchContentPieces = async (status?: string): Promise<ContentPiece[]> => {
     if (!currentCompany?.id) return [];
-    
     setLoading(true);
     setError(null);
-    
     try {
-      let query = supabase
-        .from('content_pieces')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .order('created_at', { ascending: false });
-
-      if (status) {
-        query = query.eq('status', status);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const params = new URLSearchParams({ companyId: currentCompany.id });
+      if (status) params.set('status', status);
+      const data = await cmsFetch(`/content-pieces?${params.toString()}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching content pieces: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -176,24 +194,16 @@ export function useContentManagement() {
     }
   };
 
-  // Fetch single content piece with related data
+  // Fetch single content piece
   const fetchContentPiece = async (id: string) => {
     if (!currentCompany?.id) return null;
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_pieces')
-        .select('*')
-        .eq('id', id)
-        .eq('company_id', currentCompany.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-      return data;
+      const params = new URLSearchParams({ companyId: currentCompany.id });
+      return await cmsFetch(`/content-pieces/${id}?${params.toString()}`);
     } catch (err: any) {
+      console.error(`Error fetching content piece ${id}: ${err.message}`);
       setError(err.message);
       return null;
     } finally {
@@ -204,21 +214,13 @@ export function useContentManagement() {
   // Fetch all templates
   const fetchTemplates = async (): Promise<ContentTemplate[]> => {
     if (!currentCompany?.id) return [];
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_templates')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .eq('is_active', true)
-        .order('usage_count', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/templates?companyId=${encodeURIComponent(currentCompany.id)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching templates: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -229,21 +231,13 @@ export function useContentManagement() {
   // Fetch brand guidelines
   const fetchBrandGuidelines = async (): Promise<BrandGuideline[]> => {
     if (!currentCompany?.id) return [];
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('brand_guidelines')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .eq('is_active', true)
-        .order('priority', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/brand-guidelines?companyId=${encodeURIComponent(currentCompany.id)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching brand guidelines: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -254,21 +248,13 @@ export function useContentManagement() {
   // Fetch workflows
   const fetchWorkflows = async (): Promise<ContentWorkflow[]> => {
     if (!currentCompany?.id) return [];
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_workflows')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .eq('is_active', true)
-        .order('is_default', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/workflows?companyId=${encodeURIComponent(currentCompany.id)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching workflows: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -279,20 +265,13 @@ export function useContentManagement() {
   // Fetch channels
   const fetchChannels = async (): Promise<ContentChannel[]> => {
     if (!currentCompany?.id) return [];
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_channels')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .order('channel_name');
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/channels?companyId=${encodeURIComponent(currentCompany.id)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching channels: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -304,16 +283,11 @@ export function useContentManagement() {
   const fetchDistribution = async (contentPieceId: string): Promise<ContentDistribution[]> => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_distribution')
-        .select('*')
-        .eq('content_piece_id', contentPieceId);
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/distribution?contentPieceId=${encodeURIComponent(contentPieceId)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching distribution: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -325,17 +299,11 @@ export function useContentManagement() {
   const fetchApprovals = async (contentPieceId: string): Promise<ContentApproval[]> => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: fetchError } = await supabase
-        .from('content_approvals')
-        .select('*')
-        .eq('content_piece_id', contentPieceId)
-        .order('workflow_stage');
-
-      if (fetchError) throw fetchError;
-      return data || [];
+      const data = await cmsFetch(`/approvals?contentPieceId=${encodeURIComponent(contentPieceId)}`);
+      return Array.isArray(data) ? data : [];
     } catch (err: any) {
+      console.error(`Error fetching approvals: ${err.message}`);
       setError(err.message);
       return [];
     } finally {
@@ -345,30 +313,23 @@ export function useContentManagement() {
 
   // Create content piece
   const createContentPiece = async (contentData: Partial<ContentPiece>, overrideCompanyId?: string) => {
-    console.log('🔧 createContentPiece called with overrideCompanyId:', overrideCompanyId);
-    console.log('🔧 currentCompany?.id:', currentCompany?.id);
     const companyId = overrideCompanyId || currentCompany?.id || 'default-company';
-    console.log('🔧 Final companyId to use:', companyId);
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data: user } = await supabase.auth.getUser();
-      
-      const { data, error: createError } = await supabase
-        .from('content_pieces')
-        .insert({
-          ...contentData,
-          company_id: companyId,
-          created_by: user?.user?.id,
-        })
-        .select()
-        .single();
-
-      if (createError) throw createError;
-      return data;
+      let createdBy: string | undefined;
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        createdBy = user?.user?.id;
+      } catch {
+        // Anonymous — no created_by
+      }
+      return await cmsFetch(`/content-pieces`, {
+        method: 'POST',
+        body: JSON.stringify({ ...contentData, company_id: companyId, created_by: createdBy }),
+      });
     } catch (err: any) {
+      console.error(`Error creating content piece: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -378,29 +339,22 @@ export function useContentManagement() {
 
   // Update content piece
   const updateContentPiece = async (id: string, updates: Partial<ContentPiece>) => {
-    const _companyId = currentCompany?.id || 'default-company';
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { data: user } = await supabase.auth.getUser();
-      
-      const { data, error: updateError } = await supabase
-        .from('content_pieces')
-        .update({
-          ...updates,
-          updated_by: user?.user?.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .eq('company_id', currentCompany.id)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-      return data;
+      let updatedBy: string | undefined;
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        updatedBy = user?.user?.id;
+      } catch {
+        // Anonymous — no updated_by
+      }
+      return await cmsFetch(`/content-pieces/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...updates, updated_by: updatedBy }),
+      });
     } catch (err: any) {
+      console.error(`Error updating content piece ${id}: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -410,20 +364,12 @@ export function useContentManagement() {
 
   // Delete content piece
   const deleteContentPiece = async (id: string) => {
-    const _companyId = currentCompany?.id || 'default-company';
-    
     setLoading(true);
     setError(null);
-    
     try {
-      const { error: deleteError } = await supabase
-        .from('content_pieces')
-        .delete()
-        .eq('id', id)
-        .eq('company_id', currentCompany.id);
-
-      if (deleteError) throw deleteError;
+      await cmsFetch(`/content-pieces/${id}`, { method: 'DELETE' });
     } catch (err: any) {
+      console.error(`Error deleting content piece ${id}: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -435,17 +381,10 @@ export function useContentManagement() {
   const createApproval = async (approvalData: Partial<ContentApproval>) => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: createError } = await supabase
-        .from('content_approvals')
-        .insert(approvalData)
-        .select()
-        .single();
-
-      if (createError) throw createError;
-      return data;
+      return await cmsFetch(`/approvals`, { method: 'POST', body: JSON.stringify(approvalData) });
     } catch (err: any) {
+      console.error(`Error creating approval: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -457,24 +396,20 @@ export function useContentManagement() {
   const updateApproval = async (id: string, updates: Partial<ContentApproval>) => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data: user } = await supabase.auth.getUser();
-      
-      const { data, error: updateError } = await supabase
-        .from('content_approvals')
-        .update({
-          ...updates,
-          reviewed_by: user?.user?.id,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-      return data;
+      let reviewedBy: string | undefined;
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        reviewedBy = user?.user?.id;
+      } catch {
+        // Anonymous
+      }
+      return await cmsFetch(`/approvals/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...updates, reviewed_by: reviewedBy, reviewed_at: new Date().toISOString() }),
+      });
     } catch (err: any) {
+      console.error(`Error updating approval ${id}: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -486,17 +421,10 @@ export function useContentManagement() {
   const createDistribution = async (distributionData: Partial<ContentDistribution>) => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: createError } = await supabase
-        .from('content_distribution')
-        .insert(distributionData)
-        .select()
-        .single();
-
-      if (createError) throw createError;
-      return data;
+      return await cmsFetch(`/distribution`, { method: 'POST', body: JSON.stringify(distributionData) });
     } catch (err: any) {
+      console.error(`Error creating distribution: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -508,21 +436,13 @@ export function useContentManagement() {
   const updateDistribution = async (id: string, updates: Partial<ContentDistribution>) => {
     setLoading(true);
     setError(null);
-    
     try {
-      const { data, error: updateError } = await supabase
-        .from('content_distribution')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-      return data;
+      return await cmsFetch(`/distribution/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+      });
     } catch (err: any) {
+      console.error(`Error updating distribution ${id}: ${err.message}`);
       setError(err.message);
       throw err;
     } finally {
@@ -533,11 +453,12 @@ export function useContentManagement() {
   // Increment template usage
   const incrementTemplateUsage = async (templateId: string) => {
     try {
-      await supabase.rpc('increment_template_usage', { template_id: templateId });
-    } catch (err) {
-      console.error('Error incrementing template usage:', err);
+      await cmsFetch(`/templates/${templateId}/increment-usage`, { method: 'POST', body: '{}' });
+    } catch (err: any) {
+      console.error(`Error incrementing template usage: ${err.message}`);
     }
   };
+
 
   return {
     loading,

@@ -363,11 +363,23 @@ export default function SocialMediaHub() {
         }),
       });
       const data = await res.json();
-      if (res.ok) {
-        toast.success(`Posted to ${publishTargets.join(', ')}!`);
+      if (res.ok && data.success) {
+        // Per-platform results can be mixed — report which succeeded and which failed.
+        const results = data.results || {};
+        const succeeded = publishTargets.filter((p) => results[p]?.success);
+        const failed = publishTargets.filter((p) => results[p] && !results[p].success);
+        if (succeeded.length) toast.success(`Posted to ${succeeded.join(', ')}!`);
+        failed.forEach((p) => toast.error(`${p}: ${results[p]?.error || 'failed'}`));
         setSelectedPost(null);
         setPublishTargets([]);
         setAiCaption('');
+      } else if (res.ok && !data.success) {
+        // HTTP 200 but every platform failed — surface each platform's reason.
+        const results = data.results || {};
+        const msgs = publishTargets
+          .map((p) => (results[p]?.error ? `${p}: ${results[p].error}` : null))
+          .filter(Boolean);
+        toast.error(msgs.length ? msgs.join(' · ') : 'Publishing failed on all platforms');
       } else {
         toast.error(data.error || 'Publishing failed');
       }
