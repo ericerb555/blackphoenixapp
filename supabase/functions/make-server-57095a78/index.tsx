@@ -931,6 +931,10 @@ app.delete('/make-server-57095a78/companies/:id', async (c) => {
 // in sync here so an accepted browser request is never "successfully" lost.
 // ============================================
 const INTAKE_ADMIN_ROLES = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management']);
+// Platform owner accounts that are ALWAYS treated as admins, even before any
+// company_members / user_permissions rows exist in the database. This mirrors the
+// frontend owner allowlist so the owner can provision portals immediately.
+const PLATFORM_OWNER_EMAILS = new Set(['ericerb555@proton.me']);
 
 async function intakeActor(c: any) {
   const raw = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -941,6 +945,7 @@ async function intakeActor(c: any) {
 
 async function intakeIsAdmin(user: any) {
   if (!user?.id) return false;
+  if (PLATFORM_OWNER_EMAILS.has(String(user.email || '').toLowerCase())) return true;
   const metadataRole = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   if (INTAKE_ADMIN_ROLES.has(metadataRole)) return true;
   try {
