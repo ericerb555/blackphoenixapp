@@ -8,6 +8,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fetchAccountContacts, type CrmContact } from '../utils/crmContactsApi';
 import { materialsHubService, type Material } from '../lib/services/materialsHubService';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
+import { DEFAULT_TECH_TIERS } from '../components/TierPicker';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
@@ -148,12 +149,9 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
   const [buildingPackage, setBuildingPackage] = useState(false);
   const [loadingDeliverables, setLoadingDeliverables] = useState(false);
 
-  const DEFAULT_LABOR_TIERS = [
-    { id: 'A', label: 'Tier A — Elite Master', hourlyRate: 145 },
-    { id: 'B', label: 'Tier B — Senior Journeyman', hourlyRate: 110 },
-    { id: 'C', label: 'Tier C — Journeyman', hourlyRate: 85 },
-    { id: 'D', label: 'Tier D — Apprentice', hourlyRate: 55 },
-  ];
+  // Shared canonical fallback — the live source of truth is the server config,
+  // fetched in openLaborPicker(). This only applies if that request fails.
+  const DEFAULT_LABOR_TIERS = DEFAULT_TECH_TIERS;
 
   // ── Load quotes from the server on mount ────────────────────────────────────
   useEffect(() => {

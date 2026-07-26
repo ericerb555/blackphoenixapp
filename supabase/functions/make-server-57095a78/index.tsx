@@ -7700,7 +7700,19 @@ app.patch('/make-server-57095a78/reviews/:id', async (c) => {
 });
 
 // ── TECH ROSTER ──────────────────────────────────────────────────────────────
-app.get('/make-server-57095a78/tech-tiers/config', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, tiers: (await kv.get('tech_tiers:config')) || [] }); });
+// Canonical default tech tiers. This is the single source of truth used to seed
+// the editable config when an owner has not customized tiers yet. Every consumer
+// (TierPicker, InvoiceBuilder, portals) reads the live config from the GET route
+// below, which returns these defaults until the owner saves their own.
+const DEFAULT_TECH_TIERS = [
+  { id: 'A', label: 'Tier A — Elite Master',      description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
+  { id: 'B', label: 'Tier B — Senior Journeyman', description: 'Journeyman license, 8+ yrs, specialty-certified',          hourlyRate: 110, color: 'silver' },
+  { id: 'C', label: 'Tier C — Journeyman',        description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
+  { id: 'D', label: 'Tier D — Apprentice',        description: 'Entry-level, supervised work only',                        hourlyRate: 55,  color: 'green' },
+];
+// GET is readable by ANY signed-in user (or anon key) so pickers, invoices, and
+// every portal can pull the same live rates. Only the POST (save) is admin-gated.
+app.get('/make-server-57095a78/tech-tiers/config', async (c) => { const stored = await kv.get('tech_tiers:config') as any[]; return c.json({ success: true, tiers: Array.isArray(stored) && stored.length > 0 ? stored : DEFAULT_TECH_TIERS }); });
 app.post('/make-server-57095a78/tech-tiers/config', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); if (!Array.isArray(body.tiers)) return c.json({ error: 'tiers must be an array.' }, 400); await kv.set('tech_tiers:config', body.tiers); return c.json({ success: true, tiers: body.tiers }); });
 app.get('/make-server-57095a78/tech-roster', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, techs: (await kv.getByPrefix('tech_roster:')) || [] }); });
 app.post('/make-server-57095a78/tech-roster', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const tech = body.tech || {}; if (!String(tech.name || '').trim()) return c.json({ error: 'Technician name is required.' }, 400); const id = String(tech.id || crypto.randomUUID()); const current = await kv.get(`tech_roster:${id}`) as any; const saved = { ...current, ...stripBase64(tech), id, name: String(tech.name).trim(), updatedAt: new Date().toISOString(), createdAt: current?.createdAt || new Date().toISOString() }; await kv.set(`tech_roster:${id}`, saved); return c.json({ success: true, tech: saved }, current ? 200 : 201); });

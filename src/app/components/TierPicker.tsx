@@ -9,13 +9,16 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-57095a78`;
 
-// Fallback if server unavailable
-const FALLBACK_TIERS: TechTier[] = [
-  { id: 'A', label: 'Tier A — Elite Master',       description: 'Licensed master tradesperson, 10+ yrs, all certifications', hourlyRate: 125, color: 'gold' },
-  { id: 'B', label: 'Tier B — Senior Journeyman',  description: 'Journeyman license, 5–10 yrs, specialty-certified',        hourlyRate: 95,  color: 'silver' },
-  { id: 'C', label: 'Tier C — Standard Tech',      description: 'Experienced tradesperson, 2–5 yrs',                        hourlyRate: 75,  color: 'blue' },
-  { id: 'D', label: 'Tier D — Apprentice',          description: 'Entry-level, supervised work only',                        hourlyRate: 55,  color: 'green' },
+// Canonical default tiers — must match the server's DEFAULT_TECH_TIERS. Used ONLY
+// as a fallback if the network request fails; the live source of truth is the
+// server GET /tech-tiers/config. Exported so every consumer shares one definition.
+export const DEFAULT_TECH_TIERS: TechTier[] = [
+  { id: 'A', label: 'Tier A — Elite Master',      description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
+  { id: 'B', label: 'Tier B — Senior Journeyman', description: 'Journeyman license, 8+ yrs, specialty-certified',           hourlyRate: 110, color: 'silver' },
+  { id: 'C', label: 'Tier C — Journeyman',        description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
+  { id: 'D', label: 'Tier D — Apprentice',        description: 'Entry-level, supervised work only',                        hourlyRate: 55,  color: 'green' },
 ];
+const FALLBACK_TIERS = DEFAULT_TECH_TIERS;
 
 interface Props {
   value?: string;             // selected tier ID
