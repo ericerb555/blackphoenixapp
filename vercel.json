@@ -5,6 +5,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/design",
+      "destination": "https://REPLACE-WITH-DESIGN-APP.vercel.app/design"
+    },
+    {
+      "source": "/design/:path*",
+      "destination": "https://REPLACE-WITH-DESIGN-APP.vercel.app/design/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

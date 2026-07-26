@@ -1161,6 +1161,16 @@ function AppContent() {
 
   const navigate = (page: string) => {
     console.log("🧭 Navigating to:", page);
+    // The Design Center lives in a SEPARATE Figma Make project, served on this
+    // same domain under /design via a Vercel rewrite. Any "design/..." target is
+    // a real cross-app navigation, so do a full browser load (not SPA routing)
+    // to hit the proxy. Same origin means the Supabase session is shared, so the
+    // user stays logged in when they cross into the Design Center.
+    const normalized = page.startsWith('/') ? page.slice(1) : page;
+    if (normalized === 'design' || normalized.startsWith('design/') || normalized.startsWith('design?')) {
+      window.location.assign(`/${normalized}`);
+      return;
+    }
     // Use startTransition to avoid suspense errors during navigation
     // Update state and URL without full page reload
     const fullPath = page.startsWith('/') ? page.slice(1) : page;

@@ -68,7 +68,7 @@ export const navigationSections: NavSection[] = [
       { name: "Influencer & Ambassadors", path: "influencer-tracker",     badge: "NEW" },
       { name: "Keyword Rank Tracker",     path: "keyword-tracker",        badge: "NEW" },
       { name: "Customer Portal",          path: "customer-portal",        badge: "NEW" },
-      { name: "AI Blueprint Analyzer",    path: "blueprint-analyzer",     badge: "NEW" },
+      { name: "AI Blueprint Analyzer",    path: "design/blueprint",       badge: "NEW" },
     ],
   },
   {
@@ -111,8 +111,8 @@ export const navigationSections: NavSection[] = [
     name: "Design & Content",
     icon: "Palette",
     items: [
-      { name: "Design Studio Pro",       path: "design-studio-pro",       badge: "NEW" },
-      { name: "Structural Design",       path: "structural-design",       badge: "NEW" },
+      { name: "Design Center",           path: "design",                  badge: "NEW" },
+      { name: "Structural Design",       path: "design/structural",       badge: "NEW" },
       { name: "Enterprise Content Center", path: "enterprise-content-center" },
       { name: "Social Media Manager",    path: "social-media" },
       { name: "Module Manager",          path: "module-manager" },
