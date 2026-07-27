@@ -19,7 +19,7 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.110.0
 
       - name: Stage function under its deployed name
         run: |
