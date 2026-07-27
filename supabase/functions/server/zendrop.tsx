@@ -104,19 +104,45 @@ async function zendropFetch(
 
 /**
  * Pull a product array out of whatever shape the Zendrop MCP response uses.
+ * MCP servers commonly wrap the real payload in a JSON-RPC-style envelope
+ * (`result`, or `content: [{ type: "text", text: "<json string>" }]`), so we
+ * unwrap those before looking for the products array.
  */
 function extractProducts(data: any): any[] {
+  if (data == null) return [];
   if (Array.isArray(data)) return data;
-  if (!data || typeof data !== "object") return [];
-  return (
+  if (typeof data === "string") {
+    try { return extractProducts(JSON.parse(data)); } catch { return []; }
+  }
+  if (typeof data !== "object") return [];
+
+  // MCP tool-call envelope: { content: [{ type: "text", text: "<json>" }] }
+  if (Array.isArray(data.content)) {
+    for (const part of data.content) {
+      const txt = typeof part === "string" ? part : part?.text;
+      if (txt) {
+        const inner = extractProducts(txt);
+        if (inner.length) return inner;
+      }
+    }
+  }
+
+  const candidate =
     data.products ||
     data.result?.products ||
+    data.result?.data?.products ||
     data.data?.products ||
+    data.result ||
     data.data ||
     data.items ||
-    data.results ||
-    []
-  );
+    data.results;
+
+  if (Array.isArray(candidate)) return candidate;
+  // If the unwrapped candidate is itself an object with a products array, recurse once.
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    if (Array.isArray(candidate.products)) return candidate.products;
+  }
+  return [];
 }
 
 function extractCount(data: any, fallbackLen: number): number {
@@ -208,7 +234,7 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
   const { markupType, markupValue } = await loadServerConfig();
 
   // Pull trending catalog products from the Zendrop MCP API.
-  const result = await zendropFetch(apiKey, "get_catalog_trending_products", {});
+  const result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
   if (!result.ok) {
     throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
   }
@@ -294,7 +320,7 @@ zendropRouter.post(`${PREFIX}/zendrop/verify`, async (c) => {
     }
 
     // Verify by requesting trending catalog products.
-    const verify = await zendropFetch(apiKey, "get_catalog_trending_products", {});
+    const verify = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
     if (!verify.ok) {
       console.log(`[Zendrop] Verify failed: HTTP ${verify.status} — ${verify.error}`);
       return c.json({
@@ -358,7 +384,7 @@ zendropRouter.post(`${PREFIX}/zendrop/sync`, async (c) => {
  */
 async function fetchTopProducts(apiKey: string, limit: number): Promise<{ products: NormalizedProduct[]; endpoint: string }> {
   const { markupType, markupValue } = await loadServerConfig();
-  const result = await zendropFetch(apiKey, "get_catalog_trending_products", {});
+  const result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
   if (!result.ok) {
     throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
   }
