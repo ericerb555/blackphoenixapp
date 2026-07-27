@@ -6,13 +6,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Building, Shield } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { autoSyncBranding } from '../utils/autoSyncBranding';
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
+import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -25,7 +26,10 @@ export default function Login({ onNavigate }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true); // Default to true
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  // Default to the bundled Black Phoenix logo so it is ALWAYS present on the
+  // sign-in page, even on a fresh device or cleared cache. Custom branding (if
+  // configured) overrides it below.
+  const [companyLogo, setCompanyLogo] = useState<string>(phoenixLogo);
   const [showSignUpModal, setShowSignUpModal] = useState(false);
   const navigationStarted = useRef(false);
 
@@ -290,13 +294,12 @@ export default function Login({ onNavigate }: LoginProps) {
         {/* Logo/Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-5">
-            {companyLogo ? (
-              <img src={companyLogo} alt="Company Logo" className="w-24 h-24 object-contain" />
-            ) : (
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#ea580c] to-orange-700 flex items-center justify-center">
-                <Building className="w-8 h-8 text-white" />
-              </div>
-            )}
+            <img
+              src={companyLogo || phoenixLogo}
+              alt="Black Phoenix Builders"
+              className="w-24 h-24 object-contain"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = phoenixLogo; }}
+            />
           </div>
           <h1 className="text-3xl font-bold text-white mb-1">Welcome Back</h1>
           <p className="text-gray-400 text-sm">Sign in to your account</p>

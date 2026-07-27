@@ -10,6 +10,41 @@ import * as kv from "./kv_store.tsx";
 const authRouter = new Hono();
 
 /**
+ * User profile + permissions persistence.
+ *
+ * NOTE: This project only has the KV table `kv_store_3eae23a6` — there are no
+ * custom Postgres tables like `user_profiles` / `user_permissions` (querying
+ * them causes PGRST205 "Could not find the table"). All profile and role data
+ * is stored in the KV store, keyed by user id.
+ */
+const PROFILE_PREFIX = "auth_profile:";
+const PERMS_PREFIX = "user_permissions:";
+
+async function getProfile(userId: string): Promise<any | null> {
+  if (!userId) return null;
+  return (await kv.get(`${PROFILE_PREFIX}${userId}`)) || null;
+}
+
+async function setProfile(userId: string, patch: Record<string, any>): Promise<any> {
+  const current = (await getProfile(userId)) || {};
+  const next = { ...current, ...patch, user_id: userId };
+  await kv.set(`${PROFILE_PREFIX}${userId}`, next);
+  return next;
+}
+
+async function getPermissions(userId: string): Promise<any | null> {
+  if (!userId) return null;
+  return (await kv.get(`${PERMS_PREFIX}${userId}`)) || null;
+}
+
+async function setPermissions(userId: string, patch: Record<string, any>): Promise<any> {
+  const current = (await getPermissions(userId)) || {};
+  const next = { ...current, ...patch, user_id: userId };
+  await kv.set(`${PERMS_PREFIX}${userId}`, next);
+  return next;
+}
+
+/**
  * Create (or ensure) a CRM customer record + persistent profile for a user.
  * Idempotent: deduplicates by email so repeated calls never create duplicates.
  * Returns the customer record.
@@ -191,33 +226,28 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
 
     const userId = authData.user.id;
 
-    // Create user profile
-    const { error: profileError } = await supabase
-      .from("user_profiles")
-      .insert({
-        user_id: userId,
+    // Create user profile (KV store)
+    try {
+      await setProfile(userId, {
         email,
         full_name: full_name || email.split("@")[0],
         onboarding_completed: false,
         first_login_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       });
-
-    if (profileError) {
+    } catch (profileError) {
       console.error("Profile creation error:", profileError);
     }
 
-    // Assign default role (client by default)
-    const { error: roleError } = await supabase
-      .from("user_permissions")
-      .insert({
-        user_id: userId,
+    // Assign default role (client by default) (KV store)
+    try {
+      await setPermissions(userId, {
         role_name: role,
         display_name: role.charAt(0).toUpperCase() + role.slice(1),
         level: role === "master_admin" ? 1 : role === "admin" ? 2 : role === "manager" ? 3 : 4,
         permissions: role === "master_admin" ? { all: true } : {},
       });
-
-    if (roleError) {
+    } catch (roleError) {
       console.error("Role assignment error:", roleError);
     }
 
@@ -235,28 +265,25 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
       console.error("[CRM] Failed to add signup to CRM (non-blocking):", crmError);
     }
 
-    // 📧 Send admin notification for new customer signup
+    // 📧 Send admin notification for new customer signup.
+    // NOTE: localStorage does not exist server-side (Deno) — always attempt the
+    // notification; the notification endpoint owns its own enable/disable config.
     try {
-      const notificationSettings = JSON.parse(localStorage.getItem('notificationSettings') || '{}');
-      
-      // Only send if customer signup notifications are enabled
-      if (notificationSettings.triggers?.customerSignup !== false) {
-        // Call the notification endpoint (fire and forget)
-        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/notifications/customer-signup`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`
-          },
-          body: JSON.stringify({
-            customerName: full_name || email.split("@")[0],
-            customerEmail: email,
-            customerPhone: null // Add phone if available in signup form
-          })
-        }).catch(err => {
-          console.error('Failed to send signup notification (non-blocking):', err);
-        });
-      }
+      // Call the notification endpoint (fire and forget)
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/notifications/customer-signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`
+        },
+        body: JSON.stringify({
+          customerName: full_name || email.split("@")[0],
+          customerEmail: email,
+          customerPhone: null // Add phone if available in signup form
+        })
+      }).catch(err => {
+        console.error('Failed to send signup notification (non-blocking):', err);
+      });
     } catch (notificationError) {
       console.error('Signup notification error (non-blocking):', notificationError);
       // Don't fail the signup if notifications fail
@@ -295,12 +322,8 @@ authRouter.post("/make-server-3eae23a6/auth/verify", async (c) => {
       return c.json({ error: "Invalid token" }, 401);
     }
 
-    // Get user role and permissions
-    const { data: roleData } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Get user role and permissions (KV store)
+    const roleData = await getPermissions(user.id);
 
     return c.json({
       valid: true,
@@ -335,18 +358,9 @@ authRouter.get("/make-server-3eae23a6/auth/me", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Get full user profile
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    const { data: role } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Get full user profile + role (KV store)
+    const profile = await getProfile(user.id);
+    const role = await getPermissions(user.id);
 
     return c.json({
       user: {
@@ -384,13 +398,10 @@ authRouter.patch("/make-server-3eae23a6/auth/profile", async (c) => {
 
     const updates = await c.req.json();
 
-    // Update user profile
-    const { error: updateError } = await supabase
-      .from("user_profiles")
-      .update(updates)
-      .eq("user_id", user.id);
-
-    if (updateError) {
+    // Update user profile (KV store)
+    try {
+      await setProfile(user.id, updates);
+    } catch (updateError) {
       console.error("Profile update error:", updateError);
       return c.json({ error: "Failed to update profile" }, 500);
     }
@@ -420,13 +431,10 @@ authRouter.post("/make-server-3eae23a6/auth/complete-onboarding", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Mark onboarding as complete
-    const { error: updateError } = await supabase
-      .from("user_profiles")
-      .update({ onboarding_completed: true })
-      .eq("user_id", user.id);
-
-    if (updateError) {
+    // Mark onboarding as complete (KV store)
+    try {
+      await setProfile(user.id, { onboarding_completed: true });
+    } catch (updateError) {
       console.error("Onboarding completion error:", updateError);
       return c.json({ error: "Failed to complete onboarding" }, 500);
     }
@@ -434,6 +442,7 @@ authRouter.post("/make-server-3eae23a6/auth/complete-onboarding", async (c) => {
     // Complete the matching approved-application activation trail, if this
     // account originated from portal intake. Existing users without an
     // application are unaffected.
+    let requirementsComplete = false;
     const portalAccessRecords = await kv.getByPrefix('portal_access:');
     const matchingAccess = portalAccessRecords.find((access: any) => access?.userId === user.id);
     if (matchingAccess?.applicationId) {
@@ -443,7 +452,7 @@ authRouter.post("/make-server-3eae23a6/auth/complete-onboarding", async (c) => {
       await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active_pending_requirements', activatedAt: now, updatedAt: now });
       if (intake) {
         const checklist = (intake.checklist || []).map((item: any) => item.id === 'first_login' ? { ...item, completed: true, completedAt: now } : item);
-        const requirementsComplete = (intake.requiredTasks || []).every((task: any) => !task.required || task.status === 'complete');
+        requirementsComplete = (intake.requiredTasks || []).every((task: any) => !task.required || task.status === 'complete');
         await kv.set(intakeKey, { ...intake, status: requirementsComplete ? 'active' : 'active_pending_requirements', activatedAt: now, checklist, updatedAt: now });
         if (requirementsComplete) await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active', activatedAt: now, updatedAt: now });
       }
@@ -475,14 +484,10 @@ authRouter.get("/make-server-3eae23a6/admin/users", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Check if user has admin permissions
-    const { data: roleData } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Check if user has admin permissions (KV store)
+    const roleData = await getPermissions(user.id);
 
-    const isAdmin = roleData?.role_name === "master_admin" || 
+    const isAdmin = roleData?.role_name === "master_admin" ||
                    roleData?.role_name === "admin" ||
                    roleData?.permissions?.all === true;
 
@@ -490,41 +495,31 @@ authRouter.get("/make-server-3eae23a6/admin/users", async (c) => {
       return c.json({ error: "Admin privileges required" }, 403);
     }
 
-    // Get all users with their profiles and roles
-    const { data: profiles, error: profilesError } = await supabase
-      .from("user_profiles")
-      .select(`
-        user_id,
-        email,
-        full_name,
-        onboarding_completed,
-        first_login_at,
-        created_at
-      `)
-      .order("created_at", { ascending: false });
+    // Get all user profiles from KV, newest first.
+    const profiles = ((await kv.getByPrefix(PROFILE_PREFIX)) || []).sort(
+      (a: any, b: any) =>
+        new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+    );
 
-    if (profilesError) {
-      console.error("Error fetching profiles:", profilesError);
-      return c.json({ error: "Failed to fetch users" }, 500);
-    }
-
-    // Get roles for each user
+    // Get roles + auth status for each user
     const usersWithRoles = await Promise.all(
-      (profiles || []).map(async (profile) => {
-        const { data: roleData } = await supabase
-          .from("user_permissions")
-          .select("role_name")
-          .eq("user_id", profile.user_id)
-          .single();
+      profiles.map(async (profile: any) => {
+        const roleRec = await getPermissions(profile.user_id);
 
         // Get auth user for status
-        const { data: { user: authUser } } = await supabase.auth.admin.getUserById(profile.user_id);
+        let authUser: any = null;
+        try {
+          const res = await supabase.auth.admin.getUserById(profile.user_id);
+          authUser = res.data?.user || null;
+        } catch (e) {
+          console.error(`Failed to load auth user ${profile.user_id}:`, e);
+        }
 
         return {
           id: profile.user_id,
           email: profile.email,
           full_name: profile.full_name,
-          role: roleData?.role_name || "client",
+          role: roleRec?.role_name || "client",
           status: authUser?.banned_until ? "inactive" : "active",
           created_at: profile.created_at,
           last_login: profile.first_login_at,
@@ -558,14 +553,10 @@ authRouter.patch("/make-server-3eae23a6/admin/users/:userId/role", async (c) => 
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Check if user has admin permissions
-    const { data: roleData } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Check if user has admin permissions (KV store)
+    const roleData = await getPermissions(user.id);
 
-    const isAdmin = roleData?.role_name === "master_admin" || 
+    const isAdmin = roleData?.role_name === "master_admin" ||
                    roleData?.role_name === "admin" ||
                    roleData?.permissions?.all === true;
 
@@ -576,16 +567,13 @@ authRouter.patch("/make-server-3eae23a6/admin/users/:userId/role", async (c) => 
     const userId = c.req.param("userId");
     const { role } = await c.req.json();
 
-    // Update user role
-    const { error: updateError } = await supabase
-      .from("user_permissions")
-      .update({ 
+    // Update user role (KV store)
+    try {
+      await setPermissions(userId, {
         role_name: role,
         display_name: role.charAt(0).toUpperCase() + role.slice(1),
-      })
-      .eq("user_id", userId);
-
-    if (updateError) {
+      });
+    } catch (updateError) {
       console.error("Role update error:", updateError);
       return c.json({ error: "Failed to update role" }, 500);
     }
@@ -615,14 +603,10 @@ authRouter.patch("/make-server-3eae23a6/admin/users/:userId/status", async (c) =
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Check if user has admin permissions
-    const { data: roleData } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Check if user has admin permissions (KV store)
+    const roleData = await getPermissions(user.id);
 
-    const isAdmin = roleData?.role_name === "master_admin" || 
+    const isAdmin = roleData?.role_name === "master_admin" ||
                    roleData?.role_name === "admin" ||
                    roleData?.permissions?.all === true;
 
@@ -669,14 +653,10 @@ authRouter.delete("/make-server-3eae23a6/admin/users/:userId", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Check if user has admin permissions
-    const { data: roleData } = await supabase
-      .from("user_permissions")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    // Check if user has admin permissions (KV store)
+    const roleData = await getPermissions(user.id);
 
-    const isAdmin = roleData?.role_name === "master_admin" || 
+    const isAdmin = roleData?.role_name === "master_admin" ||
                    roleData?.role_name === "admin" ||
                    roleData?.permissions?.all === true;
 

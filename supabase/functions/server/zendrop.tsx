@@ -530,5 +530,40 @@ zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {
   }
 });
 
+/**
+ * GET /zendrop/debug
+ * Diagnostic probe: calls the MCP trending-products action and reports the RAW
+ * response shape so we can see exactly why extraction returns 0 products
+ * (wrong envelope key, auth error, HTML body, etc.) without needing to POST.
+ */
+zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
+  try {
+    const apiKey = resolveKey();
+    if (!apiKey) {
+      return c.json({ success: false, error: "No ZENDROP_API_KEY configured" }, 400);
+    }
+    const result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
+    const data = result.data;
+    const extracted = extractProducts(data);
+    const firstProduct = extracted[0] || null;
+    return c.json({
+      success: true,
+      httpStatus: result.status,
+      fetchOk: result.ok,
+      fetchError: result.error || null,
+      parsedAsJson: data != null && typeof data === "object",
+      topLevelKeys: data && typeof data === "object" ? Object.keys(data) : [],
+      extractedProductCount: extracted.length,
+      firstProductKeys: firstProduct && typeof firstProduct === "object" ? Object.keys(firstProduct) : [],
+      textPreview: typeof data === "string"
+        ? data.slice(0, 400)
+        : JSON.stringify(data).slice(0, 400),
+    });
+  } catch (error) {
+    console.log(`[Zendrop] Debug error: ${error}`);
+    return c.json({ success: false, error: `Zendrop debug error: ${error}` }, 500);
+  }
+});
+
 export { zendropRouter };
 export default zendropRouter;
