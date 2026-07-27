@@ -563,10 +563,10 @@ router.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
     // Get admin settings from environment or use defaults
     const adminEmails = Deno.env.get('ADMIN_NOTIFICATION_EMAILS')?.split(',') || [];
     const adminPhones = Deno.env.get('ADMIN_NOTIFICATION_PHONES')?.split(',') || [];
-    const companyName = Deno.env.get('COMPANY_NAME') || 'Your Company';
-    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'notifications@yourdomain.com';
+    const companyName = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
     const fromName = Deno.env.get('NOTIFICATION_FROM_NAME') || companyName;
-    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://yourdomain.com/admin-alerts';
+    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://www.theblackphoenixcompany.com/admin-alerts';
 
     const results = {
       emailSent: false,
@@ -684,6 +684,8 @@ router.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
       }, 400);
     }
 
+    const companyName = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
     const subject = '✅ Email Notification Test - Configuration Successful';
     const html = `
       <div style="font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5;">
@@ -701,9 +703,9 @@ router.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
     `;
 
     if (Deno.env.get('RESEND_API_KEY')) {
-      await sendEmailViaResend([testEmail], subject, html, 'test@notifications.com', 'Test Notification');
+      await sendEmailViaResend([testEmail], subject, html, fromEmail, companyName);
     } else if (Deno.env.get('SENDGRID_API_KEY')) {
-      await sendEmailViaSendGrid([testEmail], subject, html, 'test@notifications.com', 'Test Notification');
+      await sendEmailViaSendGrid([testEmail], subject, html, fromEmail, companyName);
     } else {
       return c.json({
         success: false,
@@ -780,10 +782,10 @@ router.post('/make-server-3eae23a6/notifications/customer-signup', async (c) => 
     // Get admin settings from environment
     const adminEmails = Deno.env.get('ADMIN_NOTIFICATION_EMAILS')?.split(',') || [];
     const adminPhones = Deno.env.get('ADMIN_NOTIFICATION_PHONES')?.split(',') || [];
-    const companyName = Deno.env.get('COMPANY_NAME') || 'Your Company';
-    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'notifications@yourdomain.com';
+    const companyName = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
     const fromName = Deno.env.get('NOTIFICATION_FROM_NAME') || companyName;
-    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://yourdomain.com/admin-alerts';
+    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://www.theblackphoenixcompany.com/admin-alerts';
 
     const results = {
       emailSent: false,
@@ -882,10 +884,10 @@ router.post('/make-server-3eae23a6/notifications/subscription-added', async (c) 
     // Get admin settings from environment
     const adminEmails = Deno.env.get('ADMIN_NOTIFICATION_EMAILS')?.split(',') || [];
     const adminPhones = Deno.env.get('ADMIN_NOTIFICATION_PHONES')?.split(',') || [];
-    const companyName = Deno.env.get('COMPANY_NAME') || 'Your Company';
-    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'notifications@yourdomain.com';
+    const companyName = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const fromEmail = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
     const fromName = Deno.env.get('NOTIFICATION_FROM_NAME') || companyName;
-    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://yourdomain.com/admin-alerts';
+    const dashboardUrl = Deno.env.get('ADMIN_DASHBOARD_URL') || 'https://www.theblackphoenixcompany.com/admin-alerts';
 
     const results = {
       emailSent: false,

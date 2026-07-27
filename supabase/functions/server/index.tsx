@@ -2353,7 +2353,9 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
     const TWILIO_FROM       = Deno.env.get('TWILIO_PHONE_NUMBER')|| '';
     const ADMIN_PHONES      = Deno.env.get('ADMIN_NOTIFICATION_PHONES') || '';
     const COMPANY_NAME      = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
-    const ADMIN_EMAIL       = 'ericerb555@proton.me';
+    // Comma-separated list in ADMIN_NOTIFICATION_EMAILS; falls back to the owner address.
+    const ADMIN_EMAILS      = (Deno.env.get('ADMIN_NOTIFICATION_EMAILS') || 'ericerb555@proton.me')
+      .split(',').map((e: string) => e.trim()).filter(Boolean);
 
     const {
       workRequestId, clientName, clientEmail, clientPhone,
@@ -2373,7 +2375,7 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
-            to: [ADMIN_EMAIL],
+            to: ADMIN_EMAILS,
             subject,
             text: msgBody,
             html: `<div style="font-family:sans-serif;max-width:600px;padding:24px">
@@ -2389,7 +2391,7 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
             </div>`,
           }),
         });
-        if (emailRes.ok) { results.emailSent = true; results.emailRecipients = [ADMIN_EMAIL]; }
+        if (emailRes.ok) { results.emailSent = true; results.emailRecipients = ADMIN_EMAILS; }
         else { const e = await emailRes.json(); console.error('[Notify] Email error:', e); }
       } catch (e) { console.error('[Notify] Email exception:', e); }
     } else {

@@ -247,7 +247,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       name: 'Design & Content',
       icon: Palette,
       modules: [
-        { name: 'Design Studio Pro', path: 'design-studio-pro', icon: Palette },
+        { name: 'Design Center', path: 'design', icon: Palette },
         { name: 'Content Center', path: 'enterprise-content-center', icon: Image },
         { name: 'Social Media', path: 'social-media', icon: Megaphone },
         { name: 'Landing Page Editor', path: 'landing-page-editor', icon: Globe },

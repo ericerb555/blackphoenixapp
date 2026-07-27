@@ -42,17 +42,19 @@ async function hasAdminAccess(user: any) {
 }
 function ownsPlan(plan: any, user: any) { return String(plan?.ownerEmail || '').toLowerCase() === String(user?.email || '').toLowerCase(); }
 
-plansRouter.use('*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}));
-plansRouter.use('*', async (c, next) => {
+// Auth guard for plan routes only. This router is mounted at "/" in index.tsx,
+// so a `use('*')` guard here would run for EVERY request in the whole server
+// (health, products, etc.) and reject them all with "Sign in required." — a
+// Hono root-mount footgun. Scope the guard to this router's own path prefix.
+const requirePlanActor = async (c: any, next: any) => {
   const actor = await authenticatedActor(c);
   if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
   c.set('actor', actor); c.set('admin', await hasAdminAccess(actor));
   await next();
-});
+};
+plansRouter.use('/make-server-3eae23a6/plans', requirePlanActor);
+plansRouter.use('/make-server-3eae23a6/plans/*', requirePlanActor);
+plansRouter.use('/make-server-3eae23a6/plans-stats', requirePlanActor);
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 

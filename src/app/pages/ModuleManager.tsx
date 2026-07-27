@@ -46,7 +46,7 @@ const MODULES: Module[] = [
   { id: 'property-management-hub', name: 'Property Management', description: 'Tenant, lease, and maintenance management', category: 'Property', icon: Globe, color: 'text-teal-400', enabled: true, roles: ['owner', 'admin', 'property_manager'], plans: ['pro', 'enterprise'] },
   { id: 'property-ai-enterprise', name: 'Property AI', description: 'AI-powered property analysis and reporting', category: 'Property', icon: Zap, color: 'text-teal-400', enabled: true, roles: ['owner', 'admin'], plans: ['enterprise'] },
   // Design
-  { id: 'design-studio-pro', name: 'Design Studio Pro', description: 'Client-facing design proposals and 3D visualization', category: 'Design', icon: Palette, color: 'text-rose-400', enabled: true, roles: ['owner', 'admin'], plans: ['enterprise'] },
+  { id: 'design-center', name: 'Design Center', description: 'All design — structural, studio & 3D renderings', category: 'Design', icon: Palette, color: 'text-rose-400', enabled: true, roles: ['owner', 'admin'], plans: ['enterprise'] },
   // Analytics
   { id: 'reports', name: 'Enterprise Reporting', description: 'Advanced analytics and business intelligence', category: 'Analytics', icon: BarChart3, color: 'text-cyan-400', enabled: true, roles: ['owner', 'admin'], plans: ['enterprise'] },
 ];

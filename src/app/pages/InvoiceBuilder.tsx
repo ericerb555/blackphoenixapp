@@ -495,14 +495,14 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
       labor: [],
       floorPlanData: current.floorPlanData || null,
     };
-    // Persist the id so the builder re-opens this quote when Design Studio returns.
-    try { localStorage.setItem('invoice_open_id', current.id); } catch { /* ignore */ }
+    // Persist the id + quote payload so the builder re-opens this quote when the
+    // Design Center returns, and so the Design Center can pick up the project.
+    try {
+      localStorage.setItem('invoice_open_id', current.id);
+      localStorage.setItem('design_center_quote', JSON.stringify(designQuote));
+    } catch { /* ignore */ }
     if (onNavigate) {
-      onNavigate(
-        `design-studio-pro?quoteId=${encodeURIComponent(current.id)}` +
-        `&returnUrl=${encodeURIComponent('/estimates')}` +
-        `&quote=${encodeURIComponent(JSON.stringify(designQuote))}`
-      );
+      onNavigate('design');
     } else {
       toast.error('Navigation is unavailable here.');
     }
@@ -946,7 +946,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
               <button onClick={openInDesignStudio}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition hover:brightness-110"
                 style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)', color: '#60a5fa' }}>
-                <PenTool className="w-3.5 h-3.5" /> Design Studio
+                <PenTool className="w-3.5 h-3.5" /> Design Center
               </button>
               <button onClick={pushToPipeline} disabled={pushingPipeline}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition hover:brightness-110 disabled:opacity-50"

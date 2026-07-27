@@ -31,7 +31,6 @@ const CustomersNew = lazy(() => import("./pages/CustomersNew"));
 const InvoicesNew = lazy(() => import("./pages/InvoicesNew"));
 const PaymentComplete = lazy(() => import("./pages/PaymentComplete"));
 const ProjectsNew = lazy(() => import("./pages/ProjectsNew"));
-const StructuralDesign = lazy(() => import("./pages/StructuralDesign"));
 const VendorsAdminHub = lazy(() => import("./pages/VendorsAdminHub"));
 const VendorApplication = lazy(() => import("./pages/VendorApplication"));
 const InvestorApplication = lazy(() => import("./pages/InvestorApplication"));
@@ -238,7 +237,6 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "materials-estimating-hub":   MaterialsCenter,
   "supplier-management-hub":    SupplierManagementHub,
   "hr-employee-hub":            HREmployeeHub,
-  "design-structural-hub":      StructuralDesign,
   "customer-quote-approval":    CustomerQuoteApproval,
 
   // Vendors & eCommerce
@@ -487,8 +485,6 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "building-codes":        PermitAI,
 
   // Design & Content
-  "design-studio-pro":        StructuralDesign,
-  "structural-design":        StructuralDesign,
   "social-media":             SocialMediaManager,
   "social-media-manager":     SocialMediaManager,
   "module-manager":           ModuleManager,

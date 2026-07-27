@@ -10,7 +10,7 @@ import {
   HeadphonesIcon, TrendingUp, DollarSign, Activity, Bell, UserCheck,
   Mail, Phone, ArrowRight, Filter, Search, MoreVertical, AlertCircle,
   Zap, Wrench, Send, ChevronDown, MapPin, Calendar, Plus, X,
-  HardHat, Briefcase, ClipboardList, Star,
+  HardHat, Briefcase, ClipboardList, Star, Shield, ArrowLeft, LayoutDashboard,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
@@ -242,21 +242,21 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
   const getPriorityBadge = (priority: string) => {
     const colors = {
-      high: 'bg-red-100 text-red-700',
-      medium: 'bg-yellow-100 text-yellow-700',
-      low: 'bg-green-100 text-green-700',
+      high: 'bg-red-500/15 text-red-400 border border-red-500/30',
+      medium: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30',
+      low: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
     };
     return colors[priority as keyof typeof colors] || colors.low;
   };
 
   const getStatusBadge = (status: string) => {
     const colors = {
-      open: 'bg-blue-100 text-blue-700',
-      pending: 'bg-yellow-100 text-yellow-700',
-      in_progress: 'bg-purple-100 text-purple-700',
-      resolved: 'bg-green-100 text-green-700',
-      unread: 'bg-red-100 text-red-700',
-      read: 'bg-gray-100 text-gray-700',
+      open: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
+      pending: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30',
+      in_progress: 'bg-purple-500/15 text-purple-400 border border-purple-500/30',
+      resolved: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
+      unread: 'bg-red-500/15 text-red-400 border border-red-500/30',
+      read: 'bg-white/10 text-gray-400 border border-white/10',
     };
     return colors[status as keyof typeof colors] || colors.open;
   };
@@ -277,71 +277,66 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
   };
 
   return (
-    <div className="w-full min-h-screen bg-gray-50">
+    <div className="w-full min-h-screen bg-[#0A0A0A] text-white">
       <SponsoredMarquee />
       <AdvertisingMarquee placement="portal-header" dismissible />
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-red-700 text-white">
+      <div className="border-b border-[#2A2A2A] bg-[#1A1A1A]">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold">Admin Command Center</h1>
-              <p className="text-red-100 mt-1">Platform Owner Dashboard - Full System Access</p>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-700 flex items-center justify-center flex-shrink-0">
+                <Shield className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-white">Admin Command Center</h1>
+                <p className="text-gray-400 mt-1">Platform Owner Dashboard — Full System Access</p>
+              </div>
             </div>
-            <button
-              onClick={() => onNavigate('unified-dashboard')}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-            >
-              Back to Main Dashboard
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onNavigate('owners-dashboard')}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#2A2A2A] hover:bg-[#333] text-gray-200 rounded-xl transition-colors border border-[#3A3A3A]"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Portal
+              </button>
+              <button
+                onClick={() => onNavigate('unified-dashboard')}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl transition-colors font-semibold"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Command Center
+              </button>
+            </div>
           </div>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-4 gap-4 mt-8">
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm">Active Alerts</p>
-                  <p className="text-3xl font-bold mt-1">{stats.totalAlerts}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+            {[
+              { label: 'Active Alerts', value: stats.totalAlerts, icon: Bell, color: 'text-orange-400' },
+              { label: 'Critical Issues', value: stats.criticalAlerts, icon: AlertTriangle, color: 'text-red-400' },
+              { label: 'Open Tickets', value: stats.openTickets, icon: MessageSquare, color: 'text-blue-400' },
+              { label: 'Employee Requests', value: stats.pendingEmployeeRequests, icon: HeadphonesIcon, color: 'text-purple-400' },
+            ].map(s => (
+              <div key={s.label} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-2xl p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-400 text-sm">{s.label}</p>
+                    <p className="text-3xl font-bold mt-1 text-white">{s.value}</p>
+                  </div>
+                  <s.icon className={`w-8 h-8 ${s.color}`} />
                 </div>
-                <Bell className="w-8 h-8 text-white/80" />
               </div>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm">Critical Issues</p>
-                  <p className="text-3xl font-bold mt-1">{stats.criticalAlerts}</p>
-                </div>
-                <AlertTriangle className="w-8 h-8 text-white/80" />
-              </div>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm">Open Tickets</p>
-                  <p className="text-3xl font-bold mt-1">{stats.openTickets}</p>
-                </div>
-                <MessageSquare className="w-8 h-8 text-white/80" />
-              </div>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm">Employee Requests</p>
-                  <p className="text-3xl font-bold mt-1">{stats.pendingEmployeeRequests}</p>
-                </div>
-                <HeadphonesIcon className="w-8 h-8 text-white/80" />
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="bg-white border-b sticky top-16 z-30">
+      <div className="bg-[#1A1A1A] border-b border-[#2A2A2A] sticky top-16 z-30">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="flex gap-6">
+          <div className="flex gap-6 overflow-x-auto">
             {[
               { id: 'overview', label: 'Overview', icon: Activity },
               { id: 'create-portal', label: 'Create Portal', icon: UserCheck },
@@ -355,16 +350,16 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-4 border-b-2 transition-colors ${
+                className={`flex items-center gap-2 px-4 py-4 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'border-red-600 text-red-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                    ? 'border-orange-500 text-orange-400'
+                    : 'border-transparent text-gray-400 hover:text-white'
                 }`}
               >
                 <tab.icon className="w-5 h-5" />
                 {tab.label}
                 {(tab as any).badge > 0 && (
-                  <span className="px-1.5 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
+                  <span className="px-1.5 py-0.5 bg-orange-500 text-white text-xs font-bold rounded-full">
                     {(tab as any).badge}
                   </span>
                 )}
@@ -387,31 +382,31 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recent Critical Alerts */}
-              <div className="bg-white rounded-lg border p-6">
+              <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-red-500" />
+                  <h2 className="text-lg font-semibold flex items-center gap-2 text-white">
+                    <Zap className="w-5 h-5 text-red-400" />
                     Critical Alerts
                   </h2>
                   <button
                     onClick={() => setActiveTab('alerts')}
-                    className="text-sm text-red-600 hover:text-red-700 flex items-center gap-1"
+                    className="text-sm text-orange-400 hover:text-orange-300 flex items-center gap-1"
                   >
                     View All <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
                 <div className="space-y-3">
                   {alerts.filter(a => a.type === 'critical' && a.status !== 'resolved').slice(0, 3).map(alert => (
-                    <div key={alert.id} className="border-l-4 border-red-500 bg-red-50 p-3 rounded">
+                    <div key={alert.id} className="border-l-4 border-red-500 bg-red-500/10 p-3 rounded-lg">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="font-medium text-gray-900">{alert.title}</p>
-                          <p className="text-sm text-gray-600 mt-1">{alert.message}</p>
+                          <p className="font-medium text-white">{alert.title}</p>
+                          <p className="text-sm text-gray-400 mt-1">{alert.message}</p>
                           <p className="text-xs text-gray-500 mt-2">{alert.timestamp}</p>
                         </div>
-                        <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                        <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
                       </div>
                     </div>
                   ))}
@@ -419,28 +414,28 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               </div>
 
               {/* Recent Customer Tickets */}
-              <div className="bg-white rounded-lg border p-6">
+              <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-blue-500" />
+                  <h2 className="text-lg font-semibold flex items-center gap-2 text-white">
+                    <MessageSquare className="w-5 h-5 text-blue-400" />
                     Recent Tickets
                   </h2>
                   <button
                     onClick={() => setActiveTab('customer-service')}
-                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                    className="text-sm text-orange-400 hover:text-orange-300 flex items-center gap-1"
                   >
                     View All <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
                 <div className="space-y-3">
                   {tickets.slice(0, 3).map(ticket => (
-                    <div key={ticket.id} className="border rounded-lg p-3 hover:bg-gray-50 cursor-pointer">
+                    <div key={ticket.id} className="border border-[#2A2A2A] rounded-xl p-3 hover:bg-white/5 cursor-pointer transition-colors">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="font-medium text-gray-900">{ticket.customer}</p>
-                          <p className="text-sm text-gray-600 mt-1">{ticket.subject}</p>
+                          <p className="font-medium text-white">{ticket.customer}</p>
+                          <p className="text-sm text-gray-400 mt-1">{ticket.subject}</p>
                           <div className="flex items-center gap-2 mt-2">
-                            <span className={`text-xs px-2 py-1 rounded ${getPriorityBadge(ticket.priority)}`}>
+                            <span className={`text-xs px-2 py-1 rounded-full ${getPriorityBadge(ticket.priority)}`}>
                               {ticket.priority}
                             </span>
                             <span className="text-xs text-gray-500">{ticket.lastUpdate}</span>
@@ -454,26 +449,26 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
             </div>
 
             {/* Employee Support Requests */}
-            <div className="bg-white rounded-lg border p-6">
+            <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <HeadphonesIcon className="w-5 h-5 text-purple-500" />
+                <h2 className="text-lg font-semibold flex items-center gap-2 text-white">
+                  <HeadphonesIcon className="w-5 h-5 text-purple-400" />
                   Pending Employee Support
                 </h2>
                 <button
                   onClick={() => setActiveTab('employee-support')}
-                  className="text-sm text-purple-600 hover:text-purple-700 flex items-center gap-1"
+                  className="text-sm text-orange-400 hover:text-orange-300 flex items-center gap-1"
                 >
                   View All <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {employeeRequests.filter(r => r.status === 'pending').map(request => (
-                  <div key={request.id} className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer">
-                    <p className="font-medium text-gray-900">{request.employee}</p>
-                    <p className="text-sm text-gray-600 mt-1">{request.subject}</p>
+                  <div key={request.id} className="border border-[#2A2A2A] rounded-xl p-4 hover:bg-white/5 cursor-pointer transition-colors">
+                    <p className="font-medium text-white">{request.employee}</p>
+                    <p className="text-sm text-gray-400 mt-1">{request.subject}</p>
                     <div className="flex items-center gap-2 mt-3">
-                      <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
+                      <span className="text-xs px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
                         {request.category}
                       </span>
                       <span className="text-xs text-gray-500">{request.createdAt}</span>
@@ -484,30 +479,30 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
             </div>
 
             {/* Quick Access */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <button
                 onClick={() => onNavigate('unified-dashboard')}
-                className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg p-6 hover:from-blue-600 hover:to-blue-700 transition-all"
+                className="bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 text-left text-white rounded-2xl p-6 transition-all"
               >
-                <Users className="w-8 h-8 mb-2" />
+                <Users className="w-8 h-8 mb-2 text-blue-400" />
                 <p className="font-semibold">User Management</p>
-                <p className="text-sm text-blue-100 mt-1">Manage all platform users</p>
+                <p className="text-sm text-gray-400 mt-1">Manage all platform users</p>
               </button>
               <button
                 onClick={() => onNavigate('unified-dashboard')}
-                className="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-lg p-6 hover:from-green-600 hover:to-green-700 transition-all"
+                className="bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 text-left text-white rounded-2xl p-6 transition-all"
               >
-                <DollarSign className="w-8 h-8 mb-2" />
+                <DollarSign className="w-8 h-8 mb-2 text-emerald-400" />
                 <p className="font-semibold">Revenue Analytics</p>
-                <p className="text-sm text-green-100 mt-1">View platform revenue</p>
+                <p className="text-sm text-gray-400 mt-1">View platform revenue</p>
               </button>
               <button
                 onClick={() => onNavigate('unified-dashboard')}
-                className="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-lg p-6 hover:from-purple-600 hover:to-purple-700 transition-all"
+                className="bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 text-left text-white rounded-2xl p-6 transition-all"
               >
-                <TrendingUp className="w-8 h-8 mb-2" />
+                <TrendingUp className="w-8 h-8 mb-2 text-purple-400" />
                 <p className="font-semibold">System Analytics</p>
-                <p className="text-sm text-purple-100 mt-1">Performance & usage stats</p>
+                <p className="text-sm text-gray-400 mt-1">Performance & usage stats</p>
               </button>
             </div>
           </div>
@@ -520,14 +515,14 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
             {/* Summary stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { label: 'Unassigned', value: workOrders.filter(w => w.status === 'unassigned').length, color: 'text-red-500', bg: 'bg-red-50 border-red-200' },
-                { label: 'Assigned', value: workOrders.filter(w => w.status === 'assigned').length, color: 'text-blue-500', bg: 'bg-blue-50 border-blue-200' },
-                { label: 'In Progress', value: workOrders.filter(w => w.status === 'in-progress').length, color: 'text-yellow-500', bg: 'bg-yellow-50 border-yellow-200' },
-                { label: 'Completed Today', value: workOrders.filter(w => w.status === 'completed').length, color: 'text-green-500', bg: 'bg-green-50 border-green-200' },
+                { label: 'Unassigned', value: workOrders.filter(w => w.status === 'unassigned').length, color: 'text-red-400' },
+                { label: 'Assigned', value: workOrders.filter(w => w.status === 'assigned').length, color: 'text-blue-400' },
+                { label: 'In Progress', value: workOrders.filter(w => w.status === 'in-progress').length, color: 'text-yellow-400' },
+                { label: 'Completed Today', value: workOrders.filter(w => w.status === 'completed').length, color: 'text-emerald-400' },
               ].map((s, i) => (
-                <div key={i} className={`rounded-xl border p-4 ${s.bg}`}>
+                <div key={i} className="rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
                   <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-                  <p className="text-sm text-gray-600 mt-1">{s.label}</p>
+                  <p className="text-sm text-gray-400 mt-1">{s.label}</p>
                 </div>
               ))}
             </div>
@@ -537,13 +532,13 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               {/* Work Orders list */}
               <div className="lg:col-span-2 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5 text-red-600" /> Work Orders
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5 text-orange-400" /> Work Orders
                   </h3>
                   <div className="flex gap-2 flex-wrap">
                     {(['all','unassigned','assigned','in-progress','completed'] as const).map(f => (
                       <button key={f} onClick={() => setDispatchFilter(f)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${dispatchFilter === f ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${dispatchFilter === f ? 'bg-orange-500 text-white' : 'bg-[#2A2A2A] text-gray-400 hover:bg-[#333]'}`}>
                         {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1).replace('-',' ')}
                       </button>
                     ))}
@@ -552,47 +547,47 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
                 <div className="space-y-3">
                   {workOrders.filter(wo => dispatchFilter === 'all' || wo.status === dispatchFilter).map(wo => {
-                    const priorityColor = wo.priority === 'urgent' ? 'border-l-red-500 bg-red-50' : wo.priority === 'high' ? 'border-l-orange-500 bg-orange-50' : wo.priority === 'medium' ? 'border-l-yellow-500 bg-yellow-50' : 'border-l-gray-400 bg-gray-50';
-                    const statusBadge = wo.status === 'unassigned' ? 'bg-red-100 text-red-700' : wo.status === 'assigned' ? 'bg-blue-100 text-blue-700' : wo.status === 'in-progress' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700';
+                    const priorityColor = wo.priority === 'urgent' ? 'border-l-red-500' : wo.priority === 'high' ? 'border-l-orange-500' : wo.priority === 'medium' ? 'border-l-yellow-500' : 'border-l-gray-500';
+                    const statusBadge = wo.status === 'unassigned' ? 'bg-red-500/15 text-red-400' : wo.status === 'assigned' ? 'bg-blue-500/15 text-blue-400' : wo.status === 'in-progress' ? 'bg-yellow-500/15 text-yellow-400' : 'bg-emerald-500/15 text-emerald-400';
                     return (
-                      <div key={wo.id} className={`border-l-4 ${priorityColor} border border-gray-200 rounded-xl p-4 cursor-pointer hover:shadow-md transition`}
+                      <div key={wo.id} className={`border-l-4 ${priorityColor} bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 cursor-pointer hover:border-orange-500/40 transition`}
                         onClick={() => setSelectedWO(wo.id === selectedWO?.id ? null : wo)}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="font-bold text-gray-900 text-sm">{wo.id}</span>
+                              <span className="font-bold text-white text-sm">{wo.id}</span>
                               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusBadge}`}>{wo.status.replace('-',' ').toUpperCase()}</span>
-                              <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-semibold">{wo.trade}</span>
+                              <span className="px-2 py-0.5 bg-white/10 text-gray-300 rounded-full text-xs font-semibold">{wo.trade}</span>
                             </div>
-                            <p className="font-semibold text-gray-800">{wo.title}</p>
+                            <p className="font-semibold text-gray-200">{wo.title}</p>
                             <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5"><MapPin className="w-3.5 h-3.5" />{wo.customer} · {wo.address}</p>
-                            {wo.assignedTo && <p className="text-sm text-blue-600 font-medium mt-1 flex items-center gap-1"><HardHat className="w-3.5 h-3.5" />{wo.assignedTo}</p>}
+                            {wo.assignedTo && <p className="text-sm text-blue-400 font-medium mt-1 flex items-center gap-1"><HardHat className="w-3.5 h-3.5" />{wo.assignedTo}</p>}
                           </div>
                           <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                            <p className="text-xs text-gray-400">{wo.submitted}</p>
+                            <p className="text-xs text-gray-500">{wo.submitted}</p>
                             {/* Assign dropdown */}
                             <div className="relative">
                               <button
                                 onClick={e => { e.stopPropagation(); setAssignDropdown(assignDropdown === wo.id ? null : wo.id); }}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition">
+                                className="flex items-center gap-1 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold transition">
                                 <Send className="w-3 h-3" />
                                 {wo.assignedTo ? 'Reassign' : 'Dispatch'}
                                 <ChevronDown className="w-3 h-3" />
                               </button>
                               {assignDropdown === wo.id && (
-                                <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden">
-                                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
+                                <div className="absolute right-0 top-full mt-1 w-52 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl shadow-xl z-20 overflow-hidden">
+                                  <div className="px-3 py-2 bg-[#0A0A0A] border-b border-[#2A2A2A]">
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign to Employee</p>
                                   </div>
                                   {employees.filter(e => e.status !== 'off').map(emp => (
                                     <button key={emp.id} onClick={e => { e.stopPropagation(); assignEmployee(wo.id, emp.name); }}
-                                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-red-50 transition text-left">
-                                      <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <span className="text-xs font-bold text-red-600">{emp.name.charAt(0)}</span>
+                                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition text-left">
+                                      <div className="w-8 h-8 bg-orange-500/15 rounded-full flex items-center justify-center flex-shrink-0">
+                                        <span className="text-xs font-bold text-orange-400">{emp.name.charAt(0)}</span>
                                       </div>
                                       <div>
-                                        <p className="text-sm font-semibold text-gray-800">{emp.name}</p>
-                                        <p className="text-xs text-gray-500">{emp.trade} · <span className={emp.status === 'available' ? 'text-green-600 font-medium' : 'text-yellow-600 font-medium'}>{emp.status}</span></p>
+                                        <p className="text-sm font-semibold text-gray-200">{emp.name}</p>
+                                        <p className="text-xs text-gray-500">{emp.trade} · <span className={emp.status === 'available' ? 'text-emerald-400 font-medium' : 'text-yellow-400 font-medium'}>{emp.status}</span></p>
                                       </div>
                                     </button>
                                   ))}
@@ -604,7 +599,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
                               <select value={wo.status}
                                 onChange={e => { e.stopPropagation(); updateStatus(wo.id, e.target.value); }}
                                 onClick={e => e.stopPropagation()}
-                                className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700 focus:outline-none focus:border-red-500">
+                                className="text-xs border border-[#2A2A2A] rounded-lg px-2 py-1 bg-[#0A0A0A] text-gray-300 focus:outline-none focus:border-orange-500">
                                 <option value="unassigned">Unassigned</option>
                                 <option value="assigned">Assigned</option>
                                 <option value="in-progress">In Progress</option>
@@ -615,19 +610,19 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
                         </div>
                         {/* Expanded detail */}
                         {selectedWO?.id === wo.id && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <p className="text-sm text-gray-600 mb-2"><span className="font-semibold">Notes:</span> {wo.notes}</p>
+                          <div className="mt-3 pt-3 border-t border-[#2A2A2A]">
+                            <p className="text-sm text-gray-400 mb-2"><span className="font-semibold text-gray-300">Notes:</span> {wo.notes}</p>
                             <div className="flex gap-2 flex-wrap">
                               <button onClick={e => { e.stopPropagation(); toast.success(`Calling ${wo.customer}...`); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-200 transition">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold hover:bg-emerald-500/25 transition">
                                 <Phone className="w-3.5 h-3.5" /> Call Customer
                               </button>
                               <button onClick={e => { e.stopPropagation(); toast.success('Message sent to tech'); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-semibold hover:bg-blue-500/25 transition">
                                 <MessageSquare className="w-3.5 h-3.5" /> Message Tech
                               </button>
                               <button onClick={e => { e.stopPropagation(); toast.success('Work order marked urgent'); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 transition">
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded-lg text-xs font-semibold hover:bg-red-500/25 transition">
                                 <AlertTriangle className="w-3.5 h-3.5" /> Flag Urgent
                               </button>
                             </div>
@@ -641,36 +636,36 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
               {/* Employee Availability */}
               <div className="space-y-4">
-                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <HardHat className="w-5 h-5 text-red-600" /> Field Team
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <HardHat className="w-5 h-5 text-orange-400" /> Field Team
                 </h3>
                 <div className="space-y-3">
                   {employees.map(emp => (
-                    <div key={emp.id} className="bg-white border border-gray-200 rounded-xl p-4 hover:border-red-300 transition">
+                    <div key={emp.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4 hover:border-orange-500/40 transition">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <span className="font-bold text-red-600">{emp.name.charAt(0)}</span>
+                        <div className="w-10 h-10 bg-orange-500/15 rounded-full flex items-center justify-center flex-shrink-0">
+                          <span className="font-bold text-orange-400">{emp.name.charAt(0)}</span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 text-sm">{emp.name}</p>
+                          <p className="font-semibold text-white text-sm">{emp.name}</p>
                           <p className="text-xs text-gray-500">{emp.trade}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                            emp.status === 'available' ? 'bg-green-100 text-green-700' :
-                            emp.status === 'on-job' ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-gray-100 text-gray-500'
+                            emp.status === 'available' ? 'bg-emerald-500/15 text-emerald-400' :
+                            emp.status === 'on-job' ? 'bg-yellow-500/15 text-yellow-400' :
+                            'bg-white/10 text-gray-500'
                           }`}>{emp.status}</span>
                           <div className="flex items-center gap-1">
                             <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                            <span className="text-xs text-gray-600">{emp.rating}</span>
+                            <span className="text-xs text-gray-400">{emp.rating}</span>
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#2A2A2A]">
                         <span className="text-xs text-gray-500">{emp.jobs} jobs completed</span>
                         <button onClick={() => { navigator.clipboard.writeText(emp.phone).catch(()=>{}); toast.success(`Copied ${emp.phone}`); }}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+                          className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
                           <Phone className="w-3 h-3" /> {emp.phone}
                         </button>
                       </div>
@@ -686,7 +681,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'alerts' && (
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">System Alerts</h2>
+              <h2 className="text-2xl font-bold text-white">System Alerts</h2>
               <div className="flex items-center gap-3">
                 <div className="flex gap-2">
                   {['all', 'critical', 'warning', 'unread'].map(filter => (
@@ -695,8 +690,8 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
                       onClick={() => setFilterAlerts(filter as any)}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         filterAlerts === filter
-                          ? 'bg-red-600 text-white'
-                          : 'bg-white border hover:bg-gray-50'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-[#2A2A2A] text-gray-400 hover:bg-[#333]'
                       }`}
                     >
                       {filter.charAt(0).toUpperCase() + filter.slice(1)}
@@ -706,17 +701,17 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border">
-              <div className="divide-y">
+            <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A]">
+              <div className="divide-y divide-[#2A2A2A]">
                 {filteredAlerts.map(alert => (
-                  <div key={alert.id} className="p-4 hover:bg-gray-50">
+                  <div key={alert.id} className="p-4 hover:bg-white/5 transition-colors">
                     <div className="flex items-start gap-4">
                       {getAlertIcon(alert.type)}
                       <div className="flex-1">
                         <div className="flex items-start justify-between">
                           <div>
-                            <h3 className="font-semibold text-gray-900">{alert.title}</h3>
-                            <p className="text-gray-600 mt-1">{alert.message}</p>
+                            <h3 className="font-semibold text-white">{alert.title}</h3>
+                            <p className="text-gray-400 mt-1">{alert.message}</p>
                             <div className="flex items-center gap-3 mt-2">
                               <span className="text-sm text-gray-500">{alert.source}</span>
                               <span className="text-sm text-gray-500">•</span>
@@ -729,12 +724,12 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
                               )}
                             </div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded ${getStatusBadge(alert.status)}`}>
+                          <span className={`text-xs px-2 py-1 rounded-full ${getStatusBadge(alert.status)}`}>
                             {alert.status}
                           </span>
                         </div>
                       </div>
-                      <button className="text-gray-400 hover:text-gray-600">
+                      <button className="text-gray-500 hover:text-gray-300">
                         <MoreVertical className="w-5 h-5" />
                       </button>
                     </div>
@@ -749,61 +744,61 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'customer-service' && (
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Customer Service Tickets</h2>
+              <h2 className="text-2xl font-bold text-white">Customer Service Tickets</h2>
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                   <input
                     type="text"
                     placeholder="Search tickets..."
-                    className="pl-10 pr-4 py-2 border rounded-lg w-64"
+                    className="pl-10 pr-4 py-2 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg w-64 text-white placeholder:text-gray-500 focus:outline-none focus:border-orange-500"
                   />
                 </div>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <button className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
                   New Ticket
                 </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border">
+            <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] overflow-hidden">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-[#0A0A0A] border-b border-[#2A2A2A]">
                   <tr>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Customer</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Subject</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Priority</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Status</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Assigned To</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Last Update</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900"></th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Customer</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Subject</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Priority</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Status</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Assigned To</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Last Update</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[#2A2A2A]">
                   {tickets.map(ticket => (
-                    <tr key={ticket.id} className="hover:bg-gray-50">
+                    <tr key={ticket.id} className="hover:bg-white/5 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Users className="w-4 h-4 text-blue-600" />
+                          <div className="w-8 h-8 bg-blue-500/15 rounded-full flex items-center justify-center">
+                            <Users className="w-4 h-4 text-blue-400" />
                           </div>
-                          <span className="font-medium">{ticket.customer}</span>
+                          <span className="font-medium text-white">{ticket.customer}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-900">{ticket.subject}</td>
+                      <td className="px-6 py-4 text-gray-300">{ticket.subject}</td>
                       <td className="px-6 py-4">
-                        <span className={`text-xs px-2 py-1 rounded font-medium ${getPriorityBadge(ticket.priority)}`}>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${getPriorityBadge(ticket.priority)}`}>
                           {ticket.priority}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`text-xs px-2 py-1 rounded font-medium ${getStatusBadge(ticket.status)}`}>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusBadge(ticket.status)}`}>
                           {ticket.status.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{ticket.assignedAgent || 'Unassigned'}</td>
+                      <td className="px-6 py-4 text-gray-400">{ticket.assignedAgent || 'Unassigned'}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{ticket.lastUpdate}</td>
                       <td className="px-6 py-4">
-                        <button className="text-gray-400 hover:text-gray-600">
+                        <button className="text-gray-500 hover:text-gray-300">
                           <MoreVertical className="w-5 h-5" />
                         </button>
                       </td>
@@ -819,61 +814,61 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'employee-support' && (
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Employee Support Requests</h2>
+              <h2 className="text-2xl font-bold text-white">Employee Support Requests</h2>
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                   <input
                     type="text"
                     placeholder="Search requests..."
-                    className="pl-10 pr-4 py-2 border rounded-lg w-64"
+                    className="pl-10 pr-4 py-2 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg w-64 text-white placeholder:text-gray-500 focus:outline-none focus:border-orange-500"
                   />
                 </div>
-                <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                <button className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
                   New Request
                 </button>
               </div>
             </div>
 
-            <div className="bg-white rounded-lg border">
+            <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] overflow-hidden">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-[#0A0A0A] border-b border-[#2A2A2A]">
                   <tr>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Employee</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Department</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Category</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Subject</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Status</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900">Created</th>
-                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-900"></th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Employee</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Department</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Category</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Subject</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Status</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300">Created</th>
+                    <th className="text-left px-6 py-3 text-sm font-semibold text-gray-300"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[#2A2A2A]">
                   {employeeRequests.map(request => (
-                    <tr key={request.id} className="hover:bg-gray-50">
+                    <tr key={request.id} className="hover:bg-white/5 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                            <UserCheck className="w-4 h-4 text-purple-600" />
+                          <div className="w-8 h-8 bg-purple-500/15 rounded-full flex items-center justify-center">
+                            <UserCheck className="w-4 h-4 text-purple-400" />
                           </div>
-                          <span className="font-medium">{request.employee}</span>
+                          <span className="font-medium text-white">{request.employee}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{request.department}</td>
+                      <td className="px-6 py-4 text-gray-400">{request.department}</td>
                       <td className="px-6 py-4">
-                        <span className="text-xs px-2 py-1 rounded font-medium bg-blue-100 text-blue-700">
+                        <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30">
                           {request.category}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-gray-900">{request.subject}</td>
+                      <td className="px-6 py-4 text-gray-300">{request.subject}</td>
                       <td className="px-6 py-4">
-                        <span className={`text-xs px-2 py-1 rounded font-medium ${getStatusBadge(request.status)}`}>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusBadge(request.status)}`}>
                           {request.status.replace('_', ' ')}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">{request.createdAt}</td>
                       <td className="px-6 py-4">
-                        <button className="text-gray-400 hover:text-gray-600">
+                        <button className="text-gray-500 hover:text-gray-300">
                           <MoreVertical className="w-5 h-5" />
                         </button>
                       </td>
