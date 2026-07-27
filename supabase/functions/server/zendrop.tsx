@@ -21,12 +21,12 @@ const PROVIDER_ID = "zendrop";
 const INVENTORY_KEY_PREFIX = "dropshipper_inventory";
 const CONFIG_KEY = "bp_zendrop_config"; // server-side mirror of settings
 
-// Zendrop API candidate endpoints (Zendrop has versioned its API over time).
-// We try each until one responds successfully.
-const PRODUCT_ENDPOINTS = [
-  "https://api.zendrop.com/v1/products",
-  "https://api.zendrop.com/api/v1/products",
-];
+// Zendrop's developer API is an MCP-style JSON endpoint: a single POST URL that
+// takes an { action, ...params } body and returns JSON. The old REST paths under
+// api.zendrop.com/v1/products do NOT exist — that host serves the marketing site
+// and returns HTML 200, which is why earlier syncs always imported 0 products.
+// Docs: https://support.zendrop.com/en/articles/14461568-zendrop-mcp-developer-documentation
+const MCP_ENDPOINT = "https://app.zendrop.com/mcp/v1";
 
 interface NormalizedProduct {
   providerId: string;
@@ -62,49 +62,61 @@ function applyMarkup(cost: number, markupType: string, markupValue: number): num
 }
 
 /**
- * Call Zendrop, trying each candidate endpoint. Returns { ok, status, data, url, error }.
+ * Call the Zendrop MCP endpoint with an { action, ...params } body.
+ * Returns { ok, status, data, url, error }. The response body is parsed as JSON;
+ * a non-JSON body (e.g. an HTML error page) is surfaced as an error rather than
+ * being silently treated as "no products".
  */
 async function zendropFetch(
   apiKey: string,
-  query: string,
+  action: string,
+  params: Record<string, unknown> = {},
 ): Promise<{ ok: boolean; status: number; data: any; url: string; error?: string }> {
-  let lastStatus = 0;
-  let lastError = "";
-  for (const base of PRODUCT_ENDPOINTS) {
-    const url = `${base}${query}`;
-    try {
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-      });
-      lastStatus = res.status;
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return { ok: true, status: res.status, data, url };
-      }
-      // 401/403 means the key is the problem — stop trying other paths.
-      if (res.status === 401 || res.status === 403) {
-        const body = await res.text().catch(() => "");
-        return { ok: false, status: res.status, data: null, url, error: body || `HTTP ${res.status}` };
-      }
-      lastError = await res.text().catch(() => `HTTP ${res.status}`);
-    } catch (e) {
-      lastError = String(e);
+  const url = MCP_ENDPOINT;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ action, ...params }),
+    });
+    const text = await res.text().catch(() => "");
+    let data: any = {};
+    let parsed = true;
+    try { data = text ? JSON.parse(text) : {}; } catch { parsed = false; }
+
+    if (!res.ok) {
+      const msg = (parsed && (data.error || data.message)) || text.slice(0, 300) || `HTTP ${res.status}`;
+      return { ok: false, status: res.status, data: null, url, error: msg };
     }
+    if (!parsed) {
+      // A 200 with a non-JSON body means we did not reach the JSON API.
+      return { ok: false, status: res.status, data: null, url, error: `Zendrop returned a non-JSON response (got ${text.slice(0, 80)}…). Confirm the API token is a Zendrop MCP access token.` };
+    }
+    return { ok: true, status: res.status, data, url };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, url, error: String(e) };
   }
-  return { ok: false, status: lastStatus, data: null, url: PRODUCT_ENDPOINTS[0], error: lastError };
 }
 
 /**
- * Pull a product array out of whatever shape Zendrop returns.
+ * Pull a product array out of whatever shape the Zendrop MCP response uses.
  */
 function extractProducts(data: any): any[] {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== "object") return [];
-  return data.data || data.products || data.items || data.results || [];
+  return (
+    data.products ||
+    data.result?.products ||
+    data.data?.products ||
+    data.data ||
+    data.items ||
+    data.results ||
+    []
+  );
 }
 
 function extractCount(data: any, fallbackLen: number): number {
@@ -195,17 +207,16 @@ async function registerProvider(apiKey: string, markupType: string, markupValue:
 async function importTopProducts(apiKey: string, limit: number): Promise<{ imported: number; sample: NormalizedProduct[]; endpoint: string }> {
   const { markupType, markupValue } = await loadServerConfig();
 
-  // Try to request best-sellers first; fall back to a plain limited list.
-  let result = await zendropFetch(apiKey, `?limit=${limit}&sort=best_selling`);
-  if (!result.ok) result = await zendropFetch(apiKey, `?limit=${limit}`);
+  // Pull trending catalog products from the Zendrop MCP API.
+  const result = await zendropFetch(apiKey, "get_catalog_trending_products", {});
   if (!result.ok) {
     throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
   }
 
-  const raw = extractProducts(result.data);
+  const raw = extractProducts(result.data).slice(0, limit);
   const normalized = raw
     .map((r) => normalize(r, markupType, markupValue))
-    .filter((p) => p.name && p.cost >= 0);
+    .filter((p) => p.name);
 
   const nowIso = new Date().toISOString();
   const writes: Promise<void>[] = [];
@@ -282,8 +293,8 @@ zendropRouter.post(`${PREFIX}/zendrop/verify`, async (c) => {
       });
     }
 
-    // Verify by requesting a single product.
-    const verify = await zendropFetch(apiKey, `?limit=1`);
+    // Verify by requesting trending catalog products.
+    const verify = await zendropFetch(apiKey, "get_catalog_trending_products", {});
     if (!verify.ok) {
       console.log(`[Zendrop] Verify failed: HTTP ${verify.status} — ${verify.error}`);
       return c.json({
@@ -347,15 +358,14 @@ zendropRouter.post(`${PREFIX}/zendrop/sync`, async (c) => {
  */
 async function fetchTopProducts(apiKey: string, limit: number): Promise<{ products: NormalizedProduct[]; endpoint: string }> {
   const { markupType, markupValue } = await loadServerConfig();
-  let result = await zendropFetch(apiKey, `?limit=${limit}&sort=best_selling`);
-  if (!result.ok) result = await zendropFetch(apiKey, `?limit=${limit}`);
+  const result = await zendropFetch(apiKey, "get_catalog_trending_products", {});
   if (!result.ok) {
     throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
   }
-  const raw = extractProducts(result.data);
+  const raw = extractProducts(result.data).slice(0, limit);
   const products = raw
     .map((r) => normalize(r, markupType, markupValue))
-    .filter((p) => p.name && p.cost >= 0);
+    .filter((p) => p.name);
   return { products, endpoint: result.url };
 }
 

@@ -11,6 +11,7 @@ import { logger } from "npm:hono/logger";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import plansRouter from "./plans.tsx";
+import authRouter from "./auth.tsx";
 import { entitlementsRouter, recordEntitlementEvent } from "./entitlements.tsx";
 import paymentProcessingRouter from "./payment-processing.tsx";
 import hourTransfersRouter from "./hour-transfers.tsx";
@@ -120,6 +121,7 @@ app.use('/make-server-3eae23a6/entitlements-summary', async (c, next) => {
 // modular entrypoint so the deployed make-server function exposes the same
 // paths the React clients call.
 app.route("/", plansRouter);
+app.route("/", authRouter);
 app.route("/", entitlementsRouter);
 app.route("/make-server-3eae23a6/payment", paymentProcessingRouter);
 app.route("/make-server-3eae23a6/hour-transfers", hourTransfersRouter);
