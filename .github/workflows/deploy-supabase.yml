@@ -27,6 +27,10 @@ jobs:
         run: |
           rm -rf supabase/functions/make-server-3eae23a6
           cp -r supabase/functions/server supabase/functions/make-server-3eae23a6
+          if [ -f supabase/functions/make-server-3eae23a6/index.tsx ]; then
+            mv supabase/functions/make-server-3eae23a6/index.tsx \
+               supabase/functions/make-server-3eae23a6/index.ts
+          fi
 
       - name: Deploy Edge Function
         run: |
@@ -47,5 +51,4 @@ jobs:
             echo "Health check failed"; exit 1;
           }
           echo ""
-          echo "✅ Deployed and healthy."_ANON_KEY }}" \
-            "https://${PROJECT_REF}.supabase.co/functions/v1/make-server-3eae23a6/health" && echo " ✅ healthy"
+          echo "✅ Deployed and healthy."
