@@ -58,6 +58,9 @@ import DraggableVideoLibrary from '../components/DraggableVideoLibrary';
 import PhotoToVideoConverter from '../components/PhotoToVideoConverter';
 import SocialMediaSchedulerTab from '../components/SocialMediaSchedulerTab';
 import SocialMediaHub from '../components/SocialMediaHub';
+import StoreBoostersManager from '../components/StoreBoostersManager';
+import PromotionsEngineManager from '../components/PromotionsEngineManager';
+import FulfillmentManager from '../components/FulfillmentManager';
 import {
   useContentManagement,
   ContentPiece,
@@ -151,7 +154,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment'>('command');
 
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
@@ -1792,6 +1795,9 @@ export default function EnterpriseContentCenter() {
             { id: 'social-scheduler', label: 'Social Scheduler', icon: Share2 },
             { id: 'calendar', label: 'Calendar', icon: Calendar },
             { id: 'shop-intelligence', label: '📊 Shop Intelligence', icon: TrendingUp },
+            { id: 'store-boosters', label: '🚀 Store Boosters', icon: Zap },
+            { id: 'promotions-engine', label: '🏷️ Promotions Engine', icon: Tag },
+            { id: 'fulfillment', label: '🚚 Fulfillment', icon: PackageIcon },
             { id: 'creator-studio', label: '🎬 Creator Studio', icon: Film },
             { id: 'creator-vetting', label: '🛒 Store Analytics', icon: BarChart3 },
             { id: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -1824,6 +1830,21 @@ export default function EnterpriseContentCenter() {
           {/* Ad Studio Tab */}
           {activeTab === 'ad-studio' && (
             <AdStudio onNavigate={hubNavigate} onSaveToLibrary={handleAdSaveToLibrary} />
+          )}
+
+          {/* Store Boosters Tab — AOV-boosting merchandising config */}
+          {activeTab === 'store-boosters' && (
+            <StoreBoostersManager />
+          )}
+
+          {/* Promotions Engine Tab — scheduled discounts + volume pricing */}
+          {activeTab === 'promotions-engine' && (
+            <PromotionsEngineManager />
+          )}
+
+          {/* Fulfillment Tab — order tracking, notifications, stock */}
+          {activeTab === 'fulfillment' && (
+            <FulfillmentManager />
           )}
 
           {/* Library Tab */}

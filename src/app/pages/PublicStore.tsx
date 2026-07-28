@@ -35,6 +35,7 @@ interface Product {
   reviews: number;
   image: string;
   inStock: boolean;
+  stock?: number;
   featured?: boolean;
   badge?: string;
   colors?: string[];
@@ -68,6 +69,21 @@ export default function PublicStore() {
   const [leadSubmitted, setLeadSubmitted] = useState(false);
   const [dropshipProducts, setDropshipProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  // AOV boosters config (admin-managed in the Content Center). Sensible
+  // defaults so the store still works before the config route responds.
+  const [boosters, setBoosters] = useState({
+    freeShipping: { enabled: true, threshold: 500, message: 'Add {remaining} more for FREE shipping!', unlockedMessage: "🎉 You've unlocked FREE shipping!" },
+    urgency: { enabled: false, minutes: 15, message: '⚡ Flash deal ends soon — prices go back up when the timer hits zero!' },
+    cartUpsell: { enabled: true, heading: 'Frequently bought together', maxItems: 4 },
+    stockScarcity: { enabled: true, threshold: 8, message: 'Only {count} left in stock' },
+    freeGift: { enabled: false, threshold: 750, productName: '', message: 'Spend {remaining} more to get a FREE gift!' },
+  });
+  const [urgencySecondsLeft, setUrgencySecondsLeft] = useState(0);
+  // Promotions engine: active scheduled discounts + volume/tiered pricing.
+  const [promoEngine, setPromoEngine] = useState<{
+    activeDiscounts: Array<{ id: string; name: string; scope: 'all' | 'category'; category?: string; discountType: 'percent' | 'fixed'; value: number }>;
+    volumePricing: { enabled: boolean; tiers: Array<{ minQty: number; discountPercent: number }> };
+  }>({ activeDiscounts: [], volumePricing: { enabled: false, tiers: [] } });
   const [showReviewRequest, setShowReviewRequest] = useState(false);
   const [reviewStep, setReviewStep] = useState<'rate' | 'thanks'>('rate');
 
@@ -106,6 +122,27 @@ export default function PublicStore() {
 
   // ── AI Chat ──────────────────────────────────────────────────────────────
   const [showChat, setShowChat] = useState(false);
+  // Customer order tracking
+  const [showTrackOrder, setShowTrackOrder] = useState(false);
+  const [trackForm, setTrackForm] = useState({ order: '', email: '' });
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackError, setTrackError] = useState('');
+  const [trackResult, setTrackResult] = useState<any>(null);
+
+  const lookupOrder = async () => {
+    if (!trackForm.order.trim() || !trackForm.email.trim()) { setTrackError('Enter your order number and email.'); return; }
+    setTrackLoading(true); setTrackError(''); setTrackResult(null);
+    try {
+      const res = await fetch(`${SERVER}/fulfillment/track?order=${encodeURIComponent(trackForm.order.trim())}&email=${encodeURIComponent(trackForm.email.trim())}`, {
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'No matching order found.');
+      setTrackResult(data);
+    } catch (err: any) {
+      setTrackError(err.message || 'Could not look up your order.');
+    } finally { setTrackLoading(false); }
+  };
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'bot'; text: string }[]>([
     { role: 'bot', text: "Hey! 👋 I'm Phoenix, your Black Phoenix shopping assistant. Ask me anything — products, shipping, deals, or help finding the right item!" },
   ]);
@@ -141,6 +178,7 @@ export default function PublicStore() {
             // names too so both shapes render.
             image: p.primaryImage || p.images?.[0] || p.image || p.imageUrl || '/placeholder-product.jpg',
             inStock: p.inStock !== false && ((p.inventoryQuantity ?? p.stock ?? 1) > 0),
+            stock: p.inventoryQuantity ?? p.stock ?? undefined,
             badge: p.badge || (p.isFeatured ? 'TOP SELLER' : p.isNew ? 'NEW' : undefined),
             featured: !!p.isFeatured,
             supplier: p.provider || p.supplier || p.vendorName,
@@ -155,6 +193,67 @@ export default function PublicStore() {
     }
     loadDropshipProducts();
   }, []);
+
+  // Load AOV booster config from the server (public read).
+  useEffect(() => {
+    async function loadBoosters() {
+      try {
+        const res = await fetch(`${SERVER}/store-boosters`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success && data.config) setBoosters((prev) => ({ ...prev, ...data.config }));
+        }
+      } catch {
+        // silent — keep defaults
+      }
+    }
+    loadBoosters();
+  }, []);
+
+  // Load promotions engine (active scheduled discounts + volume pricing).
+  useEffect(() => {
+    async function loadPromos() {
+      try {
+        const res = await fetch(`${SERVER}/promotions-engine`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success) {
+            setPromoEngine({
+              activeDiscounts: Array.isArray(data.activeDiscounts) ? data.activeDiscounts : [],
+              volumePricing: {
+                enabled: !!data.config?.volumePricing?.enabled,
+                tiers: Array.isArray(data.config?.volumePricing?.tiers) ? data.config.volumePricing.tiers : [],
+              },
+            });
+          }
+        }
+      } catch {
+        // silent — no promotions applied
+      }
+    }
+    loadPromos();
+  }, []);
+
+  // Urgency countdown: start a rolling timer when enabled.
+  useEffect(() => {
+    if (!boosters.urgency?.enabled) { setUrgencySecondsLeft(0); return; }
+    const total = Math.max(1, Number(boosters.urgency.minutes) || 15) * 60;
+    // Persist the deadline for the session so it doesn't reset on every render.
+    const key = 'bp_urgency_deadline';
+    let deadline = Number(sessionStorage.getItem(key) || 0);
+    if (!deadline || deadline < Date.now()) {
+      deadline = Date.now() + total * 1000;
+      sessionStorage.setItem(key, String(deadline));
+    }
+    const tick = () => setUrgencySecondsLeft(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [boosters.urgency?.enabled, boosters.urgency?.minutes]);
 
   // Lead capture — show popup after 30s if not already submitted
   useEffect(() => {
@@ -346,10 +445,31 @@ export default function PublicStore() {
     } catch { return []; }
   })();
 
+  // Apply the best active scheduled discount to a product's price. The pre-discount
+  // price becomes originalPrice so the storefront renders a strikethrough.
+  const applyScheduledDiscount = (p: Product): Product => {
+    const matches = promoEngine.activeDiscounts.filter(d =>
+      d.scope === 'all' || (d.scope === 'category' && (p.category || '').toLowerCase() === (d.category || '').toLowerCase())
+    );
+    if (matches.length === 0) return p;
+    // Choose the discount that yields the lowest price for the shopper.
+    let best = p.price;
+    for (const d of matches) {
+      const discounted = d.discountType === 'percent'
+        ? p.price * (1 - (Number(d.value) || 0) / 100)
+        : p.price - (Number(d.value) || 0);
+      if (discounted < best) best = discounted;
+    }
+    best = Math.max(0, Number(best.toFixed(2)));
+    if (best >= p.price) return p;
+    return { ...p, price: best, originalPrice: p.originalPrice && p.originalPrice > p.price ? p.originalPrice : p.price, badge: p.badge || 'SALE' };
+  };
+
   // Merge: live dropship products first, then auto-pilot, then hardcoded as fallback
-  const allProducts = dropshipProducts.length > 0
+  const allProductsRaw = dropshipProducts.length > 0
     ? [...dropshipProducts, ...autoImported.filter(a => !dropshipProducts.find(d => d.name === a.name)), ...products.filter(p => !dropshipProducts.find(d => d.name === p.name))]
     : [...autoImported, ...products.filter(p => !autoImported.find(a => a.name === p.name))];
+  const allProducts = promoEngine.activeDiscounts.length > 0 ? allProductsRaw.map(applyScheduledDiscount) : allProductsRaw;
 
   const filteredProducts = allProducts.filter(product => {
     const matchesCategory = selectedCategory === 'all' ||
@@ -456,9 +576,29 @@ export default function PublicStore() {
     }
   }
 
+  // Volume/tiered pricing: the per-unit price drops once a line's quantity
+  // crosses a configured tier. Returns the discounted unit price for a line.
+  const volumeUnitPrice = (basePrice: number, quantity: number) => {
+    if (!promoEngine.volumePricing.enabled) return basePrice;
+    const tier = [...promoEngine.volumePricing.tiers]
+      .filter(t => quantity >= (Number(t.minQty) || 0))
+      .sort((a, b) => (Number(b.discountPercent) || 0) - (Number(a.discountPercent) || 0))[0];
+    if (!tier) return basePrice;
+    return Number((basePrice * (1 - (Number(tier.discountPercent) || 0) / 100)).toFixed(2));
+  };
+
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const checkoutShipping = cartTotal >= 500 ? 0 : 25;
+  const cartTotal = cart.reduce((sum, item) => sum + (volumeUnitPrice(item.price, item.quantity) * item.quantity), 0);
+  const cartVolumeSavings = cart.reduce((sum, item) => sum + ((item.price - volumeUnitPrice(item.price, item.quantity)) * item.quantity), 0);
+  // Free-shipping threshold is admin-configurable via the booster config.
+  const freeShipEnabled = boosters.freeShipping?.enabled !== false;
+  const freeShipThreshold = Number(boosters.freeShipping?.threshold) || 500;
+  const qualifiesFreeShip = freeShipEnabled && cartTotal >= freeShipThreshold;
+  const freeShipRemaining = Math.max(0, freeShipThreshold - cartTotal);
+  const checkoutShipping = qualifiesFreeShip ? 0 : 25;
+  const urgencyLabel = urgencySecondsLeft > 0
+    ? `${String(Math.floor(urgencySecondsLeft / 60)).padStart(2, '0')}:${String(urgencySecondsLeft % 60).padStart(2, '0')}`
+    : '';
   const checkoutTax = Number((cartTotal * taxRate).toFixed(2));
   const checkoutTotal = Number((cartTotal + checkoutShipping + checkoutTax).toFixed(2));
   const giftCardCredit = Math.min(giftCardBalance || 0, checkoutTotal);
@@ -607,6 +747,11 @@ export default function PublicStore() {
               {product.badge}
             </span>
           )}
+          {boosters.stockScarcity?.enabled && product.inStock && typeof product.stock === 'number' && product.stock > 0 && product.stock <= (Number(boosters.stockScarcity.threshold) || 8) && (
+            <span className="absolute bottom-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-black shadow-lg" style={{ background: 'rgba(220,38,38,0.92)', color: '#fff' }}>
+              {(boosters.stockScarcity.message || 'Only {count} left in stock').replace('{count}', String(product.stock))}
+            </span>
+          )}
           {/* Wishlist button */}
           <button
             onClick={() => toggleWishlist(product.id)}
@@ -675,7 +820,8 @@ export default function PublicStore() {
     } else if (q.match(/family|owner|who are you|about/)) {
       reply = "Black Phoenix Company is a family-owned and operated business. We're real people who stand behind every product we sell. When you shop with us, you're supporting a family — not a warehouse. 🧡";
     } else if (q.match(/track|order status|where.*order/)) {
-      reply = "To track your order, check the confirmation email we sent you — it has a tracking link. Questions? Email hello@theblackphoenixcompany.com with your order number!";
+      reply = "You can track your order right here — I'll open the tracker for you. Just enter your order number and the email you used at checkout.";
+      setTimeout(() => { setShowTrackOrder(true); setTrackResult(null); setTrackError(''); }, 400);
     } else {
       reply = "Great question! I want to make sure I give you the right answer. For anything specific, you can also email us at hello@theblackphoenixcompany.com — we reply fast! Is there anything else I can help with? 😊";
     }
@@ -1124,6 +1270,11 @@ export default function PublicStore() {
                   ))}
                 </div>
               </div>
+              <div className="flex justify-center mt-6">
+                <button onClick={() => { setShowTrackOrder(true); setTrackResult(null); setTrackError(''); }} className="text-xs font-bold text-gray-400 hover:text-orange-400 transition flex items-center gap-1.5">
+                  <Truck className="w-3.5 h-3.5" /> Track my order
+                </button>
+              </div>
               <p className="text-center text-[10px] text-gray-800 mt-6">© 2026 {companyName}. All rights reserved.</p>
             </div>
           </footer>
@@ -1192,12 +1343,23 @@ export default function PublicStore() {
                 </div>
                 <button onClick={() => setShowCart(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition"><X className="w-5 h-5" /></button>
               </div>
-              {cartTotal > 0 && cartTotal < 500 && (
+              {freeShipEnabled && cartTotal > 0 && !qualifiesFreeShip && (
                 <div className="mt-3 rounded-xl p-3" style={{ background: 'rgba(234,88,12,0.1)', border: '1px solid rgba(234,88,12,0.2)' }}>
-                  <p className="text-xs text-orange-400">Add <span className="font-bold">${(500 - cartTotal).toFixed(2)}</span> more for free shipping!</p>
+                  <p className="text-xs text-orange-400">{(boosters.freeShipping?.message || 'Add {remaining} more for FREE shipping!').replace('{remaining}', `$${freeShipRemaining.toFixed(2)}`)}</p>
                   <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-white/10">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (cartTotal / 500) * 100)}%`, background: '#ea580c' }} />
+                    <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (cartTotal / freeShipThreshold) * 100)}%`, background: '#ea580c' }} />
                   </div>
+                </div>
+              )}
+              {freeShipEnabled && qualifiesFreeShip && cartTotal > 0 && (
+                <div className="mt-3 rounded-xl p-3" style={{ background: 'rgba(22,163,74,0.12)', border: '1px solid rgba(22,163,74,0.25)' }}>
+                  <p className="text-xs text-green-400 font-semibold">{boosters.freeShipping?.unlockedMessage || "🎉 You've unlocked FREE shipping!"}</p>
+                </div>
+              )}
+              {boosters.urgency?.enabled && urgencyLabel && (
+                <div className="mt-3 rounded-xl p-3 flex items-center justify-between" style={{ background: 'rgba(220,38,38,0.12)', border: '1px solid rgba(220,38,38,0.28)' }}>
+                  <p className="text-xs text-red-300 pr-3">{boosters.urgency.message}</p>
+                  <span className="text-sm font-black text-red-400 tabular-nums whitespace-nowrap">{urgencyLabel}</span>
                 </div>
               )}
             </div>
@@ -1308,10 +1470,16 @@ export default function PublicStore() {
                     <span>Subtotal</span>
                     <span className="text-white font-semibold">${cartTotal.toFixed(2)}</span>
                   </div>
+                  {cartVolumeSavings > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-green-400">Volume savings</span>
+                      <span className="text-green-400 font-semibold">−${cartVolumeSavings.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm text-gray-500">
                     <span>Shipping</span>
-                    <span className={cartTotal >= 500 ? 'text-green-400 font-semibold' : 'text-white font-semibold'}>
-                      {cartTotal >= 500 ? '✓ FREE' : '$25.00'}
+                    <span className={qualifiesFreeShip ? 'text-green-400 font-semibold' : 'text-white font-semibold'}>
+                      {qualifiesFreeShip ? '✓ FREE' : '$25.00'}
                     </span>
                   </div>
                   {taxRate > 0 && (
@@ -1323,7 +1491,7 @@ export default function PublicStore() {
                   <div className="flex justify-between text-base font-black text-white pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                     <span>Total</span>
                     <span style={{ color: '#ea580c' }}>
-                      ${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}
+                      ${((qualifiesFreeShip ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}
                     </span>
                   </div>
                   {taxRate > 0 && (
@@ -1417,7 +1585,7 @@ export default function PublicStore() {
             <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(234,88,12,0.05)' }}>
               <div>
                 <p className="font-black text-white">Secure Checkout</p>
-                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((cartTotal >= 500 ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)} total</p>
+                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((qualifiesFreeShip ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)} total</p>
               </div>
               <button onClick={() => setShowCheckout(false)} className="p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
                 <X className="w-4 h-4" />
@@ -1665,6 +1833,54 @@ export default function PublicStore() {
 
       {/* ── SOCIAL PROOF WIDGET ──────────────────────────────────────────── */}
       <SocialProofWidget />
+
+      {/* ── ORDER TRACKING MODAL ──────────────────────────────────────────── */}
+      {showTrackOrder && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={() => setShowTrackOrder(false)}>
+          <div className="w-full max-w-md rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(234,88,12,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}>
+              <div className="flex items-center gap-2 text-white font-black"><Truck className="w-5 h-5" /> Track Your Order</div>
+              <button onClick={() => setShowTrackOrder(false)} className="text-white/80 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <input className="w-full px-3 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Order number (e.g. ORD-2603-0001)" value={trackForm.order} onChange={e => setTrackForm(f => ({ ...f, order: e.target.value }))} />
+              <input className="w-full px-3 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Email used at checkout" value={trackForm.email} onChange={e => setTrackForm(f => ({ ...f, email: e.target.value }))} />
+              {trackError && <p className="text-xs text-red-400">{trackError}</p>}
+              <button onClick={lookupOrder} disabled={trackLoading} className="w-full py-2.5 rounded-xl text-sm font-black text-white transition" style={{ background: '#ea580c' }}>
+                {trackLoading ? 'Looking up…' : 'Track Order'}
+              </button>
+
+              {trackResult?.order && (
+                <div className="mt-2 rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-bold text-sm">{trackResult.order.orderNumber}</span>
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase" style={{ background: 'rgba(234,88,12,0.15)', color: '#ea580c' }}>{trackResult.order.status}</span>
+                  </div>
+                  {trackResult.order.trackingNumber && (
+                    <p className="text-xs text-gray-400">Tracking: <span className="text-white font-semibold">{trackResult.order.trackingNumber}</span>{trackResult.order.carrier ? ` · ${trackResult.order.carrier}` : ''}</p>
+                  )}
+                  {Array.isArray(trackResult.timeline) && trackResult.timeline.length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      {trackResult.timeline.map((ev: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: '#ea580c' }} />
+                          <div>
+                            <p className="text-xs text-white capitalize">{ev.status}</p>
+                            <p className="text-[10px] text-gray-500">{new Date(ev.at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(trackResult.order.items || []).length > 0 && (
+                    <p className="text-[11px] text-gray-500 pt-1">{trackResult.order.items.map((i: any) => `${i.quantity}× ${i.name}`).join(', ')}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── AI CHAT WIDGET ────────────────────────────────────────────────── */}
       <div className="fixed bottom-6 right-5 z-50 flex flex-col items-end gap-3">
