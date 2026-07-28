@@ -31,6 +31,7 @@ import storeBoostersRouter from "./store-boosters.tsx";
 import promotionsEngineRouter from "./promotions-engine.tsx";
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
+import { buildPortalInviteEmail, PORTAL_LABELS } from "./portal-invite-email.tsx";
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
 import crmContentRouter from "./crm-content.tsx";
@@ -6841,14 +6842,74 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       const trialStart = now; const trialEnd = new Date(Date.now() + trialMonths * 30 * 24 * 60 * 60 * 1000).toISOString();
       await kv.set(`feature_grant:${email}`, { email, portalType, level: 'full', trialMonths, trialStart, trialEnd, status: 'active', grantedBy: actor.user.email, applicationId, createdAt: now, updatedAt: now });
     }
-    let invitationSent = false; let inviteNotice = '';
+    let invitationSent = false; let inviteNotice = ''; let emailProvider = '';
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
+
+    // Preferred path: create the account + a secure sign-in link WITHOUT sending
+    // Supabase's default email, then deliver our own branded email via Resend so
+    // it matches the preview the admin saw. Falls back to Supabase's built-in
+    // invite email if link generation or Resend is unavailable — no regression.
     try {
-      const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name, phone, role: portalType, accountType: portalType } });
-      if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; }
-    } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
-    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, updatedAt: new Date().toISOString() });
-    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, freeProvisioned: true } }, 201);
+      if (RESEND_API_KEY) {
+        const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+          type: 'invite', email, options: { data: metadata },
+        });
+        const actionLink = linkData?.properties?.action_link || linkData?.action_link;
+        if (linkError || !actionLink) throw new Error(linkError?.message || 'Could not generate the sign-in link.');
+
+        const { subject, html, text } = buildPortalInviteEmail({
+          name, portalType, signInUrl: actionLink, companyName: COMPANY_NAME,
+          logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
+        });
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }),
+        });
+        if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
+        invitationSent = true; emailProvider = 'resend';
+      } else {
+        throw new Error('RESEND_API_KEY not configured — using Supabase invite.');
+      }
+    } catch (brandedError: any) {
+      console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${brandedError?.message || brandedError}`);
+      try {
+        const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
+        if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; }
+      } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+    }
+    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, emailProvider, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, freeProvisioned: true } }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
+});
+
+/**
+ * Live preview of the exact invitation email a recipient will receive. Uses the
+ * SAME buildPortalInviteEmail() as the send path, with a sample sign-in link, so
+ * "what you see is what they get". Returns rendered HTML for an <iframe>.
+ */
+app.get('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const name = String(c.req.query('name') || '').trim() || 'Jordan Smith';
+    const portalType = String(c.req.query('portalType') || 'customer').trim().toLowerCase();
+    const fullAccess = c.req.query('fullAccess') !== 'false';
+    const trialMonths = Math.min(24, Math.max(1, Number(c.req.query('trialMonths')) || 6));
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const { subject, html } = buildPortalInviteEmail({
+      name, portalType,
+      signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
+      companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess, trialMonths,
+    });
+    const label = PORTAL_LABELS[portalType] || 'Portal';
+    return c.json({ success: true, subject, html, portalLabel: label });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to render invite preview.' }, 500); }
 });
 
 // Entitlements: does this user have full-access via a trial grant, is it still

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner@2.0.3';
 import {
   UserPlus, Mail, Phone, User, Building2, Send, LoaderCircle, CheckCircle,
-  ShieldCheck, Clock, Copy,
+  ShieldCheck, Clock, Copy, Eye, X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
@@ -34,8 +34,34 @@ export default function CreatePortalPanel() {
   const [trialMonths, setTrialMonths] = useState(6);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<InviteResult | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewSubject, setPreviewSubject] = useState('');
+  const [previewing, setPreviewing] = useState(false);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const openPreview = async () => {
+    if (!session?.access_token) { toast.error('Sign in again to preview the email.'); return; }
+    setPreviewing(true);
+    try {
+      const params = new URLSearchParams({
+        name: form.name.trim() || 'Jordan Smith',
+        portalType: form.portalType,
+        fullAccess: String(fullAccess),
+        trialMonths: String(trialMonths),
+      });
+      const response = await fetch(`${SERVER}/owner-provisioning/invite-preview?${params}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Could not load the preview.');
+      setPreviewSubject(payload.subject || '');
+      setPreviewHtml(payload.html || '');
+    } catch (error: any) {
+      console.error('[CreatePortalPanel] Preview error:', error);
+      toast.error(error?.message || 'Could not load the email preview.');
+    } finally { setPreviewing(false); }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,10 +134,30 @@ export default function CreatePortalPanel() {
           )}
         </div>
 
-        <button type="submit" disabled={submitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-60">
-          {submitting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Creating portal & sending link…</> : <><Send className="h-4 w-4" /> Create portal & send sign-in link</>}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button type="button" onClick={openPreview} disabled={previewing} className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60 sm:w-auto">
+            {previewing ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</> : <><Eye className="h-4 w-4" /> Preview email</>}
+          </button>
+          <button type="submit" disabled={submitting} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-700 disabled:opacity-60">
+            {submitting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Creating portal & sending link…</> : <><Send className="h-4 w-4" /> Create portal & send sign-in link</>}
+          </button>
+        </div>
       </form>
+
+      {previewHtml !== null && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" onClick={() => setPreviewHtml(null)}>
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Email preview — exactly what they'll receive</p>
+                <p className="truncate text-sm font-bold text-gray-900">Subject: {previewSubject}</p>
+              </div>
+              <button onClick={() => setPreviewHtml(null)} className="ml-3 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><X className="h-5 w-5" /></button>
+            </div>
+            <iframe title="Invitation email preview" srcDoc={previewHtml} className="h-[70vh] w-full flex-1 border-0 bg-gray-100" sandbox="" />
+          </div>
+        </div>
+      )}
 
       {result && (
         <div className="rounded-xl border border-green-200 bg-green-50 p-5">
