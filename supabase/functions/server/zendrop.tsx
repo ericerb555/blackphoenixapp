@@ -493,7 +493,7 @@ zendropRouter.get(`${PREFIX}/zendrop/top-products`, async (c) => {
  * POST /zendrop/publish-to-store
  * Takes a Zendrop product (full object, or { sku } to look up from imported
  * inventory), optionally generates AI-enhanced marketing copy, and writes it
- * into the LIVE store catalog (`store_product:` — what the public store reads).
+ * into the LIVE store catalog (`product_` — what the public store reads).
  * Body: { product?, sku?, generateInfo?: boolean }
  */
 zendropRouter.post(`${PREFIX}/zendrop/publish-to-store`, async (c) => {
@@ -570,7 +570,10 @@ zendropRouter.post(`${PREFIX}/zendrop/publish-to-store`, async (c) => {
       updatedAt: now,
     };
 
-    await kv.set(`store_product:${id}`, product);
+    // Write under the `product_` prefix — that's what the public store's
+    // GET /products actually reads. (`store_product:` was a dead prefix nothing
+    // renders, which is why the "Send to store" button appeared to do nothing.)
+    await kv.set(`product_${id}`, product);
     return c.json({ success: true, product });
   } catch (error) {
     console.log(`[Zendrop] publish-to-store error: ${error}`);

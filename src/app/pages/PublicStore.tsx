@@ -122,7 +122,7 @@ export default function PublicStore() {
     async function loadDropshipProducts() {
       setLoadingProducts(true);
       try {
-        const res = await fetch(`${SERVER}/products?isActive=true`, {
+        const res = await fetch(`${SERVER}/products?isActive=true&limit=100`, {
           headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
         });
         if (res.ok) {
@@ -132,14 +132,18 @@ export default function PublicStore() {
             name: p.name || p.title,
             description: p.description || '',
             price: Number(p.price) || Number(p.retailPrice) || 0,
-            originalPrice: p.originalPrice || p.msrp || undefined,
+            originalPrice: p.originalPrice || p.compare_at_price || p.msrp || undefined,
             category: p.category || 'General',
             rating: p.rating || 4.5,
-            reviews: p.reviews || 0,
-            image: p.image || p.imageUrl || '/placeholder-product.jpg',
-            inStock: p.inStock !== false && (p.stock ?? 1) > 0,
-            badge: p.badge || (p.isNew ? 'NEW' : undefined),
-            supplier: p.provider || p.supplier,
+            reviews: p.reviews || p.reviewCount || 0,
+            // Storefront products store the image as `primaryImage` / `images[]`
+            // (that's what the import writes). Fall back through the older field
+            // names too so both shapes render.
+            image: p.primaryImage || p.images?.[0] || p.image || p.imageUrl || '/placeholder-product.jpg',
+            inStock: p.inStock !== false && ((p.inventoryQuantity ?? p.stock ?? 1) > 0),
+            badge: p.badge || (p.isFeatured ? 'TOP SELLER' : p.isNew ? 'NEW' : undefined),
+            featured: !!p.isFeatured,
+            supplier: p.provider || p.supplier || p.vendorName,
           }));
           if (items.length > 0) setDropshipProducts(items);
         }

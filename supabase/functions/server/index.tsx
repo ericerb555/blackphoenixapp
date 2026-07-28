@@ -26,6 +26,7 @@ import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
 import { productsRouter } from "./ecommerce-products.tsx";
+import flashSalesRouter from "./flash-sales.tsx";
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
 import crmContentRouter from "./crm-content.tsx";
@@ -138,6 +139,7 @@ app.route("/", zendropRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
+app.route("/", flashSalesRouter);
 app.route("/make-server-3eae23a6", cartRouter);
 app.route("/make-server-3eae23a6", ordersRouter);
 app.route("/", crmContentRouter);
