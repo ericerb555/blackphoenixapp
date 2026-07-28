@@ -75,7 +75,9 @@ export default function DropshipperAdminPanel() {
       
       const data = await response.json();
       if (data.success) {
-        setConfig(data.config);
+        // Guard against a config payload missing the providers array — a
+        // non-array here would crash every .filter/.some/.map in render.
+        setConfig({ ...data.config, providers: Array.isArray(data.config?.providers) ? data.config.providers : [] });
       }
     } catch (error) {
       console.error('Failed to load config:', error);
@@ -97,7 +99,7 @@ export default function DropshipperAdminPanel() {
       if (response.ok) {
         const data = await response.json();
         console.log('[DropshipperAdmin] Initialized:', data.message);
-        setConfig(data.config);
+        setConfig({ ...data.config, providers: Array.isArray(data.config?.providers) ? data.config.providers : [] });
       }
     } catch (error) {
       console.error('[DropshipperAdmin] Failed to initialize:', error);
@@ -298,7 +300,7 @@ export default function DropshipperAdminPanel() {
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <Link2 className="w-8 h-8 text-green-500" />
-            <span className="text-2xl font-bold text-white">{config?.providers.filter(p => p.enabled).length || 0}</span>
+            <span className="text-2xl font-bold text-white">{(config?.providers ?? []).filter(p => p.enabled).length || 0}</span>
           </div>
           <p className="text-gray-400">Active Providers</p>
         </div>
@@ -371,14 +373,14 @@ function OverviewTab({ config, stats }: { config: DropshipperConfig | null; stat
           <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg p-4">
             <p className="text-gray-400 text-sm mb-2">Active Providers</p>
             <p className="text-white font-semibold">
-              {config?.providers.filter(p => p.enabled).length} / {config?.providers.length || 0}
+              {(config?.providers ?? []).filter(p => p.enabled).length} / {(config?.providers ?? []).length}
             </p>
           </div>
 
           <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg p-4">
             <p className="text-gray-400 text-sm mb-2">Auto Order Forward</p>
             <p className="text-white font-semibold">
-              {config?.providers.some(p => p.autoForwardOrders) ? '✅ Enabled' : '❌ Disabled'}
+              {(config?.providers ?? []).some(p => p.autoForwardOrders) ? '✅ Enabled' : '❌ Disabled'}
             </p>
           </div>
 
@@ -545,7 +547,7 @@ function InventoryTab() {
       });
       const data = await response.json();
       if (data.success) {
-        setInventory(data.inventory);
+        setInventory(Array.isArray(data.inventory) ? data.inventory : []);
       }
     } catch (error) {
       console.error('Failed to load inventory:', error);
@@ -584,7 +586,7 @@ function InventoryTab() {
                   <td className="py-3 font-mono text-sm">{item.sku}</td>
                   <td className="py-3">{item.name}</td>
                   <td className="py-3 text-gray-400">{item.providerId}</td>
-                  <td className="py-3">${item.price.toFixed(2)}</td>
+                  <td className="py-3">${Number(item.price ?? 0).toFixed(2)}</td>
                   <td className="py-3">
                     <span className={`px-2 py-1 rounded text-xs font-semibold ${
                       item.stock > 50 ? 'bg-green-500/20 text-green-500' :
@@ -622,7 +624,7 @@ function OrdersTab() {
       });
       const data = await response.json();
       if (data.success) {
-        setOrders(data.orders);
+        setOrders(Array.isArray(data.orders) ? data.orders : []);
       }
     } catch (error) {
       console.error('Failed to load orders:', error);
@@ -668,7 +670,7 @@ function OrdersTab() {
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
                   <p className="text-gray-500">Items</p>
-                  <p className="text-white">{order.items.length}</p>
+                  <p className="text-white">{(order.items ?? []).length}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Forwarded</p>
@@ -704,7 +706,7 @@ function ErrorsTab() {
       });
       const data = await response.json();
       if (data.success) {
-        setErrors(data.errors);
+        setErrors(Array.isArray(data.errors) ? data.errors : []);
       }
     } catch (error) {
       console.error('Failed to load errors:', error);
