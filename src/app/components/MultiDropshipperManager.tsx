@@ -338,7 +338,7 @@ export default function MultiDropshipperManager() {
           markupType: 'percent',
           markupValue: 75,
           autoImport: true,
-          limit: 25,
+          limit: 100,
         }),
       });
       const data = await res.json().catch(() => ({}));

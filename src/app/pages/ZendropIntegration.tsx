@@ -128,7 +128,7 @@ export default function ZendropIntegration() {
           markupType,
           markupValue,
           autoImport: true,
-          limit: 25,
+          limit: 100,
         }),
       });
 
@@ -257,7 +257,7 @@ export default function ZendropIntegration() {
       const res = await fetch(`${SERVER}/zendrop/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ apiKey, limit: 25 }),
+        body: JSON.stringify({ apiKey, limit: 100 }),
       });
       const data = await res.json().catch(() => ({}));
       const now = new Date().toLocaleString();

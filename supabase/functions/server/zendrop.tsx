@@ -271,10 +271,26 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
   //  • get_catalog_products          → the broad catalog (supports a limit), so
   //    the store has real inventory volume, not just the 5 trending items.
   const trendingRes = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
-  const catalogRes = await zendropFetch(apiKey, "get_catalog_products", { limit });
 
-  if (!trendingRes.ok && !catalogRes.ok) {
-    const err = catalogRes.error || trendingRes.error || "no response";
+  // Zendrop caps a single get_catalog_products call at ~60, so page through
+  // until we've collected `limit` products (or run out / hit a safety cap).
+  const catalogRaw: any[] = [];
+  const PAGE_SIZE = 50;
+  let lastCatalogErr: string | undefined;
+  let lastCatalogUrl = "";
+  let catalogOk = false;
+  for (let page = 1; catalogRaw.length < limit && page <= 20; page++) {
+    const res = await zendropFetch(apiKey, "get_catalog_products", { limit: PAGE_SIZE, page });
+    lastCatalogUrl = res.url;
+    if (!res.ok) { lastCatalogErr = res.error; break; }
+    catalogOk = true;
+    const pageProducts = extractProducts(res.data);
+    if (pageProducts.length === 0) break; // no more pages
+    catalogRaw.push(...pageProducts);
+  }
+
+  if (!trendingRes.ok && !catalogOk) {
+    const err = lastCatalogErr || trendingRes.error || "no response";
     throw new Error(`Zendrop product fetch failed: ${err}`);
   }
 
@@ -283,7 +299,6 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
   const trendingIds = new Set(trendingRaw.map((r: any) => String(r?.id)));
 
   // Merge trending + catalog, dedupe by product id, cap at `limit`.
-  const catalogRaw = catalogRes.ok ? extractProducts(catalogRes.data) : [];
   const mergedMap = new Map<string, any>();
   for (const r of [...trendingRaw, ...catalogRaw]) {
     const id = String(r?.id ?? "");
@@ -342,7 +357,7 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
   await config.updateLastSync();
   await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: normalized.length });
 
-  const endpoint = catalogRes.url || trendingRes.url;
+  const endpoint = lastCatalogUrl || trendingRes.url;
   return { imported: normalized.length, sample: normalized.slice(0, 3), endpoint };
 }
 
@@ -391,7 +406,7 @@ zendropRouter.post(`${PREFIX}/zendrop/verify`, async (c) => {
     const autoImport = body.autoImport !== false;
     if (autoImport) {
       try {
-        importResult = await importTopProducts(apiKey, num(body.limit, 25));
+        importResult = await importTopProducts(apiKey, num(body.limit, 100));
       } catch (e) {
         console.log(`[Zendrop] Auto-import after verify failed: ${e}`);
       }
@@ -425,7 +440,7 @@ zendropRouter.post(`${PREFIX}/zendrop/sync`, async (c) => {
     if (!apiKey) {
       return c.json({ success: false, error: "No Zendrop API key available." }, 400);
     }
-    const result = await importTopProducts(apiKey, num(body.limit, 25));
+    const result = await importTopProducts(apiKey, num(body.limit, 100));
     return c.json({ success: true, imported: result.imported, sample: result.sample, endpoint: result.endpoint });
   } catch (error) {
     console.log(`[Zendrop] Sync error: ${error}`);
