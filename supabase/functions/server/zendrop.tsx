@@ -265,13 +265,32 @@ async function registerProvider(apiKey: string, markupType: string, markupValue:
 async function importTopProducts(apiKey: string, limit: number): Promise<{ imported: number; sample: NormalizedProduct[]; endpoint: string }> {
   const { markupType, markupValue } = await loadServerConfig();
 
-  // Pull trending catalog products from the Zendrop MCP API.
-  const result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
-  if (!result.ok) {
-    throw new Error(`Zendrop product fetch failed (HTTP ${result.status}): ${result.error || "no response"}`);
+  // Pull TWO Zendrop feeds and merge them:
+  //  • get_catalog_trending_products → the best sellers (small set, ~5). These
+  //    get flagged isFeatured so they surface as "Top Sellers" in the store.
+  //  • get_catalog_products          → the broad catalog (supports a limit), so
+  //    the store has real inventory volume, not just the 5 trending items.
+  const trendingRes = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
+  const catalogRes = await zendropFetch(apiKey, "get_catalog_products", { limit });
+
+  if (!trendingRes.ok && !catalogRes.ok) {
+    const err = catalogRes.error || trendingRes.error || "no response";
+    throw new Error(`Zendrop product fetch failed: ${err}`);
   }
 
-  const raw = extractProducts(result.data).slice(0, limit);
+  // Best-selling ids (for featured flagging).
+  const trendingRaw = trendingRes.ok ? extractProducts(trendingRes.data) : [];
+  const trendingIds = new Set(trendingRaw.map((r: any) => String(r?.id)));
+
+  // Merge trending + catalog, dedupe by product id, cap at `limit`.
+  const catalogRaw = catalogRes.ok ? extractProducts(catalogRes.data) : [];
+  const mergedMap = new Map<string, any>();
+  for (const r of [...trendingRaw, ...catalogRaw]) {
+    const id = String(r?.id ?? "");
+    if (id && !mergedMap.has(id)) mergedMap.set(id, r);
+  }
+  const raw = [...mergedMap.values()].slice(0, limit);
+
   const normalized = raw
     .map((r) => normalize(r, markupType, markupValue))
     .filter((p) => p.name);
@@ -279,13 +298,15 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
   const nowIso = new Date().toISOString();
   const writes: Promise<void>[] = [];
   for (const p of normalized) {
+    const isFeatured = trendingIds.has(String(p.providerProductId));
+
     // 1) Dropshipper inventory record — used by the dropshipper module for
     //    order-forwarding, sync tracking, and the Zendrop page's own catalog view.
     writes.push(kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)));
 
-    // 2) Storefront product record — THIS is what the public store actually
-    //    renders (GET /products reads the `store_product:` prefix). Without this
-    //    write, imported Zendrop items would never appear in the live store.
+    // 2) Storefront product record. The public store's GET /products reads the
+    //    `product_` prefix (same as canonical vendor products), so imported
+    //    Zendrop items MUST be written there to appear in the live store.
     const storeId = `zendrop_${p.sku}`;
     const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
     const storeProduct = {
@@ -303,7 +324,7 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
       images: p.images,
       primaryImage: p.images[0] || "",
       isActive: true,
-      isFeatured: false,
+      isFeatured,
       slug,
       sku: p.sku,
       rating: p.rating,
@@ -314,14 +335,15 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    writes.push(kv.set(`store_product:${storeId}`, storeProduct));
+    writes.push(kv.set(`product_${storeId}`, storeProduct));
   }
   await Promise.all(writes);
 
   await config.updateLastSync();
-  await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: extractCount(result.data, normalized.length) });
+  await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: normalized.length });
 
-  return { imported: normalized.length, sample: normalized.slice(0, 3), endpoint: result.url };
+  const endpoint = catalogRes.url || trendingRes.url;
+  return { imported: normalized.length, sample: normalized.slice(0, 3), endpoint };
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
