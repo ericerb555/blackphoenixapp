@@ -65,10 +65,33 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   // `useUser` supports the view-only RoleSwitcher preview. Never let that
   // browser-only preview override the authenticated Supabase owner identity.
   const { user } = useUser();
-  const { user: authUser, isOwner: authIsOwner } = useAuth();
+  const { user: authUser, isOwner: authIsOwner, loading: authLoading } = useAuth();
   const authRole = String(authUser?.app_metadata?.role || authUser?.user_metadata?.role || authUser?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   const isAuthenticatedOwner = authIsOwner || ['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management'].includes(authRole) || String(authUser?.email || '').toLowerCase() === 'ericerb555@proton.me';
-  const currentRole = isAuthenticatedOwner ? UserRole.PLATFORM_OWNER : (user?.role || UserRole.CUSTOMER);
+
+  // Sticky owner flag. The Supabase session can momentarily be null while it
+  // rehydrates on load or after switching tabs. Without this, `currentRole`
+  // flips to CUSTOMER for a beat, which used to (1) hide every owner-only
+  // sidebar button (e.g. "Owner Dashboard" vanishing) and (2) fire the
+  // full-screen black "Redirecting to your portal…" guard + a hard
+  // window.location.replace — the "command center goes black" symptom.
+  // Once we've confirmed the owner, we remember it and keep treating them as
+  // owner until a *resolved* non-owner session proves otherwise.
+  const rememberedOwner = typeof window !== 'undefined' && window.localStorage.getItem('bpc_is_owner') === '1';
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isAuthenticatedOwner) {
+      window.localStorage.setItem('bpc_is_owner', '1');
+    } else if (authUser && !authLoading) {
+      // A real, fully-resolved session that is NOT an owner → clear the flag.
+      window.localStorage.removeItem('bpc_is_owner');
+    }
+  }, [isAuthenticatedOwner, authUser, authLoading]);
+
+  // Treat as owner if confirmed, or if we previously confirmed and the session
+  // simply hasn't finished rehydrating yet (loading, or no authUser yet).
+  const treatAsOwner = isAuthenticatedOwner || ((authLoading || !authUser) && rememberedOwner);
+  const currentRole = treatAsOwner ? UserRole.PLATFORM_OWNER : (user?.role || UserRole.CUSTOMER);
 
   // ALL state hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState('');
@@ -222,7 +245,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   // Redirect non-owners only after their real session is available. An owner
   // always stays in the Command Center even when a stale local preview role exists.
   useEffect(() => {
-    if (isAuthenticatedOwner) return;
+    // Never redirect while the session is still resolving, or if we still
+    // consider them an owner — otherwise a transient session gap kicks the
+    // owner out of the Command Center with a hard reload (the "black screen").
+    if (authLoading) return;
+    if (treatAsOwner) return;
     if (!authUser && !user) return;
 
     // Define portal routes for each role
@@ -250,7 +277,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       // Use replace to avoid back button issues
       window.location.replace(targetRoute);
     }
-  }, [authUser, currentRole, isAuthenticatedOwner, user]);
+  }, [authUser, currentRole, treatAsOwner, authLoading, user]);
 
   // Generate mock revenue data
   const generateMockRevenueData = () => {
@@ -261,7 +288,22 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     }));
   };
 
-  // Show loading while redirecting (MUST be after all hooks)
+  // While the Supabase session is still rehydrating, show a neutral loader
+  // instead of the "Redirecting…" screen — we don't yet know if this is an
+  // owner, and bailing out here is exactly what made the Command Center go
+  // black on owners whose session hadn't finished loading.
+  if (authLoading && !treatAsOwner) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-[#2A2A2A] border-t-orange-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white">Loading your Command Center…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Only redirect once auth has fully resolved and they are genuinely not an owner.
   if (currentRole !== UserRole.PLATFORM_OWNER) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
