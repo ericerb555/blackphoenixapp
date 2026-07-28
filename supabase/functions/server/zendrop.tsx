@@ -62,14 +62,17 @@ function applyMarkup(cost: number, markupType: string, markupValue: number): num
 }
 
 /**
- * Call the Zendrop MCP endpoint with an { action, ...params } body.
- * Returns { ok, status, data, url, error }. The response body is parsed as JSON;
- * a non-JSON body (e.g. an HTML error page) is surfaced as an error rather than
- * being silently treated as "no products".
+ * Low-level JSON-RPC 2.0 call to the Zendrop MCP endpoint.
+ *
+ * Zendrop's MCP endpoint is a STRICT JSON-RPC 2.0 server. It rejects any body
+ * that isn't shaped like { jsonrpc: "2.0", id, method, params } — sending
+ * { action, ... } gets `-32600 Invalid Request: Invalid JSON-RPC version`.
+ * Standard MCP methods: "tools/list" (discover tools) and "tools/call"
+ * (invoke a tool with { name, arguments }).
  */
-async function zendropFetch(
+async function mcpCall(
   apiKey: string,
-  action: string,
+  method: string,
   params: Record<string, unknown> = {},
 ): Promise<{ ok: boolean; status: number; data: any; url: string; error?: string }> {
   const url = MCP_ENDPOINT;
@@ -79,27 +82,50 @@ async function zendropFetch(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        Accept: "application/json",
+        // MCP servers frequently require accepting the SSE stream content type.
+        Accept: "application/json, text/event-stream",
       },
-      body: JSON.stringify({ action, ...params }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
     });
     const text = await res.text().catch(() => "");
+    // Some MCP servers reply as an SSE stream ("data: {json}\n\n"); unwrap it.
+    const jsonText = text.includes("data:")
+      ? text.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("")
+      : text;
     let data: any = {};
     let parsed = true;
-    try { data = text ? JSON.parse(text) : {}; } catch { parsed = false; }
+    try { data = jsonText ? JSON.parse(jsonText) : {}; } catch { parsed = false; }
 
     if (!res.ok) {
-      const msg = (parsed && (data.error || data.message)) || text.slice(0, 300) || `HTTP ${res.status}`;
-      return { ok: false, status: res.status, data: null, url, error: msg };
+      const msg = (parsed && (data.error?.message || data.error || data.message)) || text.slice(0, 300) || `HTTP ${res.status}`;
+      return { ok: false, status: res.status, data: null, url, error: typeof msg === "string" ? msg : JSON.stringify(msg) };
     }
     if (!parsed) {
-      // A 200 with a non-JSON body means we did not reach the JSON API.
-      return { ok: false, status: res.status, data: null, url, error: `Zendrop returned a non-JSON response (got ${text.slice(0, 80)}…). Confirm the API token is a Zendrop MCP access token.` };
+      return { ok: false, status: res.status, data: null, url, error: `Zendrop returned a non-JSON response (got ${text.slice(0, 120)}…). Confirm the API token is a Zendrop MCP access token.` };
+    }
+    // JSON-RPC error object in a 200 response.
+    if (data && data.error) {
+      const em = data.error?.message || JSON.stringify(data.error);
+      return { ok: false, status: res.status, data, url, error: `Zendrop MCP error: ${em}` };
     }
     return { ok: true, status: res.status, data, url };
   } catch (e) {
     return { ok: false, status: 0, data: null, url, error: String(e) };
   }
+}
+
+/**
+ * Invoke a Zendrop MCP tool by name via tools/call.
+ * `action` is the MCP tool name; `params` becomes the tool's `arguments`.
+ * Kept as a thin wrapper so existing call sites (verify/sync/top-products)
+ * don't need to change.
+ */
+async function zendropFetch(
+  apiKey: string,
+  action: string,
+  params: Record<string, unknown> = {},
+): Promise<{ ok: boolean; status: number; data: any; url: string; error?: string }> {
+  return mcpCall(apiKey, "tools/call", { name: action, arguments: params });
 }
 
 /**
@@ -115,6 +141,12 @@ function extractProducts(data: any): any[] {
     try { return extractProducts(JSON.parse(data)); } catch { return []; }
   }
   if (typeof data !== "object") return [];
+
+  // JSON-RPC 2.0 wrapper: { jsonrpc, id, result: {...} } → unwrap result first.
+  if (data.result !== undefined && data.result !== null) {
+    const fromResult = extractProducts(data.result);
+    if (fromResult.length) return fromResult;
+  }
 
   // MCP tool-call envelope: { content: [{ type: "text", text: "<json>" }] }
   if (Array.isArray(data.content)) {
@@ -532,9 +564,12 @@ zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {
 
 /**
  * GET /zendrop/debug
- * Diagnostic probe: calls the MCP trending-products action and reports the RAW
- * response shape so we can see exactly why extraction returns 0 products
- * (wrong envelope key, auth error, HTML body, etc.) without needing to POST.
+ * Flexible diagnostic probe (all via GET so it works without POST access):
+ *   ?probe=list              → MCP tools/list, returns available tool names
+ *   ?tool=<name>&args=<json> → tools/call with the given tool + JSON arguments
+ *   (default)                → get_catalog_trending_products with { filters: {} }
+ * Reports the RAW response shape so we can see exactly why extraction returns
+ * 0 products (wrong tool name, envelope key, auth error, etc.).
  */
 zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
   try {
@@ -542,22 +577,46 @@ zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
     if (!apiKey) {
       return c.json({ success: false, error: "No ZENDROP_API_KEY configured" }, 400);
     }
-    const result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
+
+    const probe = c.req.query("probe");
+    const tool = c.req.query("tool");
+    let argsObj: Record<string, unknown> = {};
+    const argsRaw = c.req.query("args");
+    if (argsRaw) { try { argsObj = JSON.parse(argsRaw); } catch { /* ignore */ } }
+
+    let result;
+    if (probe === "list") {
+      result = await mcpCall(apiKey, "tools/list", {});
+    } else if (tool) {
+      result = await zendropFetch(apiKey, tool, argsObj);
+    } else {
+      result = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
+    }
+
     const data = result.data;
     const extracted = extractProducts(data);
     const firstProduct = extracted[0] || null;
+
+    // Surface MCP tool names when listing.
+    const toolNames = Array.isArray(data?.result?.tools)
+      ? data.result.tools.map((t: any) => t?.name)
+      : undefined;
+
     return c.json({
       success: true,
+      mode: probe === "list" ? "tools/list" : tool ? `tools/call:${tool}` : "tools/call:get_catalog_trending_products",
       httpStatus: result.status,
       fetchOk: result.ok,
       fetchError: result.error || null,
       parsedAsJson: data != null && typeof data === "object",
       topLevelKeys: data && typeof data === "object" ? Object.keys(data) : [],
+      toolNames,
       extractedProductCount: extracted.length,
       firstProductKeys: firstProduct && typeof firstProduct === "object" ? Object.keys(firstProduct) : [],
+      firstProduct,
       textPreview: typeof data === "string"
-        ? data.slice(0, 400)
-        : JSON.stringify(data).slice(0, 400),
+        ? data.slice(0, 800)
+        : JSON.stringify(data).slice(0, 800),
     });
   } catch (error) {
     console.log(`[Zendrop] Debug error: ${error}`);
