@@ -40,6 +40,8 @@ interface Product {
   badge?: string;
   colors?: string[];
   sizes?: string[];
+  trendingScore?: number;
+  isNew?: boolean;
 }
 
 interface CartItem extends Product {
@@ -182,6 +184,8 @@ export default function PublicStore() {
             badge: p.badge || (p.isFeatured ? 'TOP SELLER' : p.isNew ? 'NEW' : undefined),
             featured: !!p.isFeatured,
             supplier: p.provider || p.supplier || p.vendorName,
+            trendingScore: typeof p.trendingScore === 'number' ? p.trendingScore : undefined,
+            isNew: !!p.isNew,
           }));
           if (items.length > 0) setDropshipProducts(items);
         }
@@ -694,7 +698,13 @@ export default function PublicStore() {
     const q = searchQuery.toLowerCase();
     let base: typeof allProducts = [];
     if (shopView === 'hot') {
-      base = [...allProducts].filter(p => p.badge || p.featured).sort((a, b) => b.rating - a.rating);
+      // Rank by the Kalodata-style trending score when present, then fall back
+      // to badge/featured membership and rating so it degrades gracefully.
+      const hot = allProducts.filter(p => p.trendingScore != null || p.badge || p.featured);
+      base = (hot.length ? hot : allProducts).sort((a, b) =>
+        (b.trendingScore ?? (b.featured ? 50 : 0)) - (a.trendingScore ?? (a.featured ? 50 : 0)) ||
+        b.rating - a.rating,
+      );
     } else if (shopView === 'top-sellers') {
       base = [...allProducts].sort((a, b) => b.reviews - a.reviews);
     } else if (shopView === 'sports') {

@@ -45,12 +45,12 @@ interface NormalizedProduct {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function resolveKey(bodyKey?: string): string | null {
+export function resolveKey(bodyKey?: string): string | null {
   const key = (bodyKey && bodyKey.trim()) || Deno.env.get("ZENDROP_API_KEY") || "";
   return key.trim() || null;
 }
 
-function num(v: any, fallback = 0): number {
+export function num(v: any, fallback = 0): number {
   const n = typeof v === "string" ? parseFloat(v) : Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -120,7 +120,7 @@ async function mcpCall(
  * Kept as a thin wrapper so existing call sites (verify/sync/top-products)
  * don't need to change.
  */
-async function zendropFetch(
+export async function zendropFetch(
   apiKey: string,
   action: string,
   params: Record<string, unknown> = {},
@@ -134,7 +134,7 @@ async function zendropFetch(
  * (`result`, or `content: [{ type: "text", text: "<json string>" }]`), so we
  * unwrap those before looking for the products array.
  */
-function extractProducts(data: any): any[] {
+export function extractProducts(data: any): any[] {
   if (data == null) return [];
   if (Array.isArray(data)) return data;
   if (typeof data === "string") {
@@ -185,7 +185,7 @@ function extractCount(data: any, fallbackLen: number): number {
 /**
  * Map a raw Zendrop product to our inventory shape, applying markup.
  */
-function normalize(raw: any, markupType: string, markupValue: number): NormalizedProduct {
+export function normalize(raw: any, markupType: string, markupValue: number): NormalizedProduct {
   const cost = num(raw.cost ?? raw.price ?? raw.wholesale_price ?? raw.variants?.[0]?.cost ?? raw.variants?.[0]?.price);
   const images: string[] = [];
   if (Array.isArray(raw.images)) {
@@ -214,7 +214,7 @@ function normalize(raw: any, markupType: string, markupValue: number): Normalize
   };
 }
 
-async function loadServerConfig(): Promise<{ markupType: string; markupValue: number; storeId?: string; lastSync?: string; productCount?: number }> {
+export async function loadServerConfig(): Promise<{ markupType: string; markupValue: number; storeId?: string; lastSync?: string; productCount?: number }> {
   try {
     const raw = await kv.get(CONFIG_KEY);
     const parsed = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
