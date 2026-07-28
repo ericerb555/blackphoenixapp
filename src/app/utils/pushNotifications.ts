@@ -8,9 +8,31 @@ import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
+/**
+ * Detect the Figma Make preview environment. The preview serves the app inside
+ * an iframe on a *.figma.site / figmaiframepreview host and runs its OWN service
+ * worker (preview_service_worker.js) at the root scope. Registering our push SW
+ * at that same scope makes the two workers fight over asset/chunk fetches, which
+ * surfaces as "Failed to fetch" and blanks pages. Skip our SW in the preview.
+ */
+function isFigmaMakePreview(): boolean {
+  try {
+    const host = window.location.hostname || '';
+    const inIframe = window.self !== window.top;
+    return inIframe || host.includes('figma.site') || host.includes('figmaiframepreview');
+  } catch {
+    // Cross-origin access to window.top throws → we're in an iframe.
+    return true;
+  }
+}
+
 /** Register the service worker */
 async function registerSW(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
+  if (isFigmaMakePreview()) {
+    console.log('[Push] Skipping SW registration inside Figma Make preview (avoids preview_service_worker conflict)');
+    return null;
+  }
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
     await reg.update();

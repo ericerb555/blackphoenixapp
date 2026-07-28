@@ -1161,14 +1161,15 @@ function AppContent() {
 
   const navigate = (page: string) => {
     console.log("🧭 Navigating to:", page);
-    // The Design Center lives in a SEPARATE Figma Make project, served on this
-    // same domain under /design via a Vercel rewrite. Any "design/..." target is
-    // a real cross-app navigation, so do a full browser load (not SPA routing)
-    // to hit the proxy. Same origin means the Supabase session is shared, so the
-    // user stays logged in when they cross into the Design Center.
+    // The Design Center lives in a SEPARATE Figma Make project, published at its
+    // own domain. Any "design/..." target is a real cross-app navigation, so do
+    // a full browser load straight to the published site. We open the published
+    // URL directly (rather than the /design proxy) because a Figma-published SPA
+    // uses root-absolute asset paths that break when served under a subpath.
+    const DESIGN_CENTER_URL = "https://author-canon-65421010.figma.site";
     const normalized = page.startsWith('/') ? page.slice(1) : page;
     if (normalized === 'design' || normalized.startsWith('design/') || normalized.startsWith('design?')) {
-      window.location.assign(`/${normalized}`);
+      window.location.assign(DESIGN_CENTER_URL);
       return;
     }
     // Use startTransition to avoid suspense errors during navigation
