@@ -293,10 +293,24 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
       console.log('✅ Executing navigation to:', url);
 
-      // Force navigation
-      window.location.href = url;
+      // Prefer in-app SPA navigation. A full `window.location.href` reload
+      // re-downloads the bundle and lazy-loads the target chunk fresh; if that
+      // chunk's hash is stale (right after a deploy) or the Supabase session is
+      // still rehydrating, the app gets stuck on the dark loading/blank screen —
+      // which is the "goes black on any button" symptom. SPA navigation reuses
+      // the already-running build (no hash mismatch) and renders inside the
+      // existing ErrorBoundary/Suspense, so any page error is visible instead.
+      const spaNavigate = (window as any).__navigateApp;
+      if (typeof spaNavigate === 'function') {
+        // navigate() strips a leading slash and handles the ?tab= query itself.
+        spaNavigate(url.startsWith('/') ? url.slice(1) : url);
+        console.log('✅ SPA navigation dispatched');
+        return;
+      }
 
-      console.log('✅ Navigation command executed');
+      // Fallback: hard navigation if the SPA navigator isn't available.
+      window.location.href = url;
+      console.log('✅ Navigation command executed (hard nav fallback)');
     } catch (error) {
       console.error('❌ Navigation error:', error);
       toast.error(`Navigation error: ${error}`);
@@ -785,7 +799,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           {/* Investment Management Button - Owner Only */}
           {currentRole === UserRole.PLATFORM_OWNER && (
             <button
-              onClick={() => window.location.href = '/investment-management'}
+              onClick={() => handleNavigation('/investment-management')}
               className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
             >
               {sidebarCollapsed ? (
@@ -1722,7 +1736,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             
             {/* Embedded Admin Alerts Panel */}
             <div className="bg-[#0F0F0F] rounded-2xl border border-[#2A2A2A] overflow-hidden">
-              <AdminAlertsPanel onNavigate={(route) => window.location.href = route} />
+              <AdminAlertsPanel onNavigate={(route) => handleNavigation(route)} />
             </div>
           </div>
         )}
