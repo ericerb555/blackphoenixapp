@@ -61,7 +61,7 @@ console.log("========================================");
 // CORS
 app.use("/*", cors({
   origin: "*",
-  allowHeaders: ["Content-Type", "Authorization", "X-Payment-Confirmation-Secret", "X-Loyalty-Event-Secret", "X-Affiliate-Event-Secret"],
+  allowHeaders: ["Content-Type", "Authorization", "apikey", "X-Payment-Confirmation-Secret", "X-Loyalty-Event-Secret", "X-Affiliate-Event-Secret"],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   exposeHeaders: ["Content-Length"],
   maxAge: 600,

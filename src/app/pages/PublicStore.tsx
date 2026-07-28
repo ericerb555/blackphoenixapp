@@ -161,11 +161,14 @@ export default function PublicStore() {
     async function loadDropshipProducts() {
       setLoadingProducts(true);
       try {
+        console.log('[PublicStore] Fetching live products from', `${SERVER}/products?isActive=true&limit=100`);
         const res = await fetch(`${SERVER}/products?isActive=true&limit=100`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
         });
+        console.log('[PublicStore] /products response status:', res.status);
         if (res.ok) {
           const data = await res.json();
+          console.log('[PublicStore] live products received:', (data.products || data.inventory || []).length);
           const items = (data.products || data.inventory || []).map((p: any) => ({
             id: p.id || p.sku || `ds-${Math.random()}`,
             name: p.name || p.title,
@@ -187,10 +190,17 @@ export default function PublicStore() {
             trendingScore: typeof p.trendingScore === 'number' ? p.trendingScore : undefined,
             isNew: !!p.isNew,
           }));
-          if (items.length > 0) setDropshipProducts(items);
+          if (items.length > 0) {
+            console.log('[PublicStore] ✅ Rendering', items.length, 'live products');
+            setDropshipProducts(items);
+          } else {
+            console.warn('[PublicStore] ⚠️ 0 live products returned — falling back to demo items');
+          }
+        } else {
+          console.error('[PublicStore] ❌ /products fetch failed with status', res.status, '— falling back to demo items');
         }
-      } catch {
-        // silent — falls back to hardcoded products
+      } catch (err) {
+        console.error('[PublicStore] ❌ /products fetch threw — falling back to demo items:', err);
       } finally {
         setLoadingProducts(false);
       }

@@ -31,6 +31,7 @@ import DealPublisher from '../components/DealPublisher';
 import MaintenancePlanCreator from '../components/MaintenancePlanCreator';
 import TechRosterManager from '../components/TechRosterManager';
 import MultiDropshipperManager from '../components/MultiDropshipperManager';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import MasterScheduling from './MasterScheduling';
 import UnifiedDashboardMobile from './UnifiedDashboardMobile';
 import ServerDeploymentGuide from '../components/ServerDeploymentGuide';
@@ -1811,9 +1812,13 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             <TechRosterManager />
           )}
 
-          {/* Multi-Dropshipper Manager — full-width panel */}
+          {/* Multi-Dropshipper Manager — full-width panel.
+              Wrapped in an ErrorBoundary so a render error surfaces the real
+              message on screen instead of blanking the whole dashboard. */}
           {activeTab === 'dropshippers' && !searchQuery && (
-            <MultiDropshipperManager />
+            <ErrorBoundary>
+              <MultiDropshipperManager />
+            </ErrorBoundary>
           )}
 
           {activeTab !== 'deals' && activeTab !== 'plan-creator' && activeTab !== 'tech-roster' && activeTab !== 'dropshippers' && searchQuery && filteredModules.length === 0 ? (
