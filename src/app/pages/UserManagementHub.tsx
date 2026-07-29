@@ -18,11 +18,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from '../hooks/useNavigate';
 import {
   Users, Shield, Briefcase, UserCog, ChevronRight, Settings,
-  Plus, Search, Filter, Edit2, Trash2, MoreVertical, Star
+  Plus, Search, Filter, Edit2, Trash2, MoreVertical, Star, Mail
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { EmailCenter } from '../components/EmailCenter';
 
-type TabType = 'users' | 'admin-users' | 'roles' | 'employees';
+type TabType = 'users' | 'admin-users' | 'roles' | 'employees' | 'emails';
 
 interface TabConfig {
   id: TabType;
@@ -68,6 +69,12 @@ export default function UserManagementHub() {
       label: 'Employees',
       icon: Briefcase,
       description: 'Employee directory and management'
+    },
+    {
+      id: 'emails',
+      label: 'Emails',
+      icon: Mail,
+      description: 'View sent emails and edit templates'
     }
   ];
 
@@ -89,6 +96,9 @@ export default function UserManagementHub() {
 
   // Render placeholder content for each tab
   const renderTabContent = () => {
+    if (activeTab === 'emails') {
+      return <EmailCenter />;
+    }
     return (
       <div className="p-8 text-center">
         <div className="max-w-md mx-auto">
@@ -172,7 +182,7 @@ export default function UserManagementHub() {
 
         {/* Tab Navigation */}
         <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-2">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;

@@ -1695,10 +1695,21 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                  type="text"
+                  type="search"
+                  name="command-center-module-search"
                   placeholder="Search modules..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  // Stop Opera/Chrome password managers from autofilling the saved
+                  // email into this box — autofill was setting searchQuery, which
+                  // hid the tab panels and made the command-center buttons go black.
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full pl-10 pr-4 py-2 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-orange-500/50"
                 />
               </div>
