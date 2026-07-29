@@ -630,6 +630,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     const adminRoutes = [
       'unified-dashboard',
       'owners-dashboard',
+      'product-catalog',
+      'catalog-pricing',
       'master-admin-dashboard',
       'admin-dashboard',
       'admin-advanced-dashboard',

@@ -897,6 +897,33 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             </button>
           )}
 
+          {/* Catalog Pricing - Owner Only */}
+          {currentRole === UserRole.PLATFORM_OWNER && (
+            <button
+              onClick={() => onNavigate?.('product-catalog')}
+              className="relative w-full p-4 rounded-xl border transition-all duration-300 bg-[#1A1A1A] border-[#2A2A2A] hover:border-orange-500/50 hover:bg-orange-600/10"
+            >
+              {sidebarCollapsed ? (
+                <div className="flex flex-col items-center">
+                  <Tag className="w-6 h-6 text-orange-400" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                      <Tag className="w-5 h-5 text-orange-400" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-white">Catalog Pricing</p>
+                      <p className="text-sm text-gray-400">Edit prices & markup on any product</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-orange-400" />
+                </div>
+              )}
+            </button>
+          )}
+
           {/* Master Schedule Button */}
           <button
             onClick={() => setShowMasterSchedule(!showMasterSchedule)}

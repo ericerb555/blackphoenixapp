@@ -230,7 +230,15 @@ productsRouter.put('/products/:id', async (c) => {
     const id = c.req.param('id');
     const updates = await c.req.json();
 
-    const product = await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`);
+    // Resolve which KV prefix this product actually lives under. Imported
+    // dropship products use `live_product_`; canonical ones use `product_`.
+    // We must write the update back to the SAME key — GET merges both prefixes
+    // and the live_product_ copy wins on a key collision, so saving a live
+    // product to `product_` would let the stale copy shadow the edit.
+    const canonical = await kv.get(`product_${id}`);
+    const live = canonical ? null : await kv.get(`live_product_${id}`);
+    const product = canonical || live;
+    const productKey = canonical ? `product_${id}` : `live_product_${id}`;
     if (!product) {
       return c.json({ error: 'Product not found' }, 404);
     }
@@ -265,7 +273,7 @@ productsRouter.put('/products/:id', async (c) => {
       await kv.set(newCategoryKey, newCategoryProducts);
     }
 
-    await kv.set(`product_${id}`, updatedProduct);
+    await kv.set(productKey, updatedProduct);
 
     return c.json({ success: true, product: updatedProduct });
   } catch (error) {

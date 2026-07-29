@@ -16,6 +16,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
 import { StandardButton } from './ui/button';
 import ProductCatalogBrowser from './ProductCatalogBrowser';
+import ProductCatalogAdmin from '../pages/ProductCatalogAdmin';
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -51,7 +52,7 @@ export default function DropshipperAdminPanel() {
   const [config, setConfig] = useState<DropshipperConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'catalog' | 'inventory' | 'orders' | 'errors'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'catalog' | 'pricing' | 'inventory' | 'orders' | 'errors'>('overview');
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [stats, setStats] = useState({ inventory: 0, orders: 0, errors: 0 });
 
@@ -320,6 +321,7 @@ export default function DropshipperAdminPanel() {
           { id: 'overview', label: 'Overview', icon: Activity },
           { id: 'providers', label: 'Providers', icon: Link2 },
           { id: 'catalog', label: 'Catalog', icon: Box },
+          { id: 'pricing', label: 'Pricing', icon: DollarSign },
           { id: 'inventory', label: 'Inventory', icon: Package },
           { id: 'orders', label: 'Orders', icon: ShoppingCart },
           { id: 'errors', label: 'Error Logs', icon: AlertCircle },
@@ -347,6 +349,7 @@ export default function DropshipperAdminPanel() {
         {activeTab === 'overview' && <OverviewTab config={config} stats={stats} />}
         {activeTab === 'providers' && <ProvidersTab config={config} onRefresh={loadConfig} />}
         {activeTab === 'catalog' && <CatalogTab />}
+        {activeTab === 'pricing' && <ProductCatalogAdmin />}
         {activeTab === 'inventory' && <InventoryTab />}
         {activeTab === 'orders' && <OrdersTab />}
         {activeTab === 'errors' && <ErrorsTab />}

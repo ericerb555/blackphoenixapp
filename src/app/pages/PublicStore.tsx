@@ -20,6 +20,7 @@ import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
 import { ActiveFlashBanner } from './FlashSaleManager';
 import { ProductReels } from '../components/ProductReels';
+import { StoreAmbientBackground } from '../components/StoreAmbientBackground';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
 
@@ -59,10 +60,23 @@ export default function PublicStore() {
   const [showCart, setShowCart] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [wishlist, setWishlist] = useState<string[]>([]);
+  // Cart & wishlist persist in localStorage so a page refresh — or the round
+  // trip out to Stripe and back — never drops what the shopper picked.
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(window.localStorage.getItem('bpc_store_cart') || '[]'); }
+    catch { return []; }
+  });
+  const [wishlist, setWishlist] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(window.localStorage.getItem('bpc_store_wishlist') || '[]'); }
+    catch { return []; }
+  });
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showQuickView, setShowQuickView] = useState<Product | null>(null);
+  // Variant selection for the product detail view (clothing sizes, colors).
+  const [qvSize, setQvSize] = useState('');
+  const [qvColor, setQvColor] = useState('');
   const [sortBy, setSortBy] = useState('featured');
   const [priceRange, setPriceRange] = useState([0, 10000]);
   const [showFilters, setShowFilters] = useState(false);
@@ -122,6 +136,15 @@ export default function PublicStore() {
     void complete();
     return () => { cancelled = true; };
   }, []);
+
+  // Keep the persisted cart/wishlist in sync with state so a refresh or the
+  // Stripe redirect round-trip restores exactly what the shopper had.
+  useEffect(() => {
+    try { window.localStorage.setItem('bpc_store_cart', JSON.stringify(cart)); } catch { /* storage full/blocked — non-fatal */ }
+  }, [cart]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bpc_store_wishlist', JSON.stringify(wishlist)); } catch { /* non-fatal */ }
+  }, [wishlist]);
 
   // ── AI Chat ──────────────────────────────────────────────────────────────
   const [showChat, setShowChat] = useState(false);
@@ -190,6 +213,15 @@ export default function PublicStore() {
             supplier: p.provider || p.supplier || p.vendorName,
             trendingScore: typeof p.trendingScore === 'number' ? p.trendingScore : undefined,
             isNew: !!p.isNew,
+            colors: Array.isArray(p.colors) && p.colors.length ? p.colors : undefined,
+            // Clothing needs size options. Honor sizes saved on the product; if a
+            // clothing/apparel item has none, fall back to standard apparel sizes
+            // so shoppers can still pick a size at checkout.
+            sizes: Array.isArray(p.sizes) && p.sizes.length
+              ? p.sizes
+              : /apparel|clothing|shirt|tee|hoodie|sweat|jacket|pants|dress|shorts|leggings|jersey/i.test(`${p.category || ''} ${p.name || ''}`)
+                ? ['S', 'M', 'L', 'XL', 'XXL']
+                : undefined,
           }));
           if (items.length > 0) {
             console.log('[PublicStore] ✅ Rendering', items.length, 'live products');
@@ -557,14 +589,26 @@ export default function PublicStore() {
     } finally { setCheckingGiftCard(false); }
   };
 
-  const addToCart = (product: Product) => {
-    const existing = cart.find(item => item.id === product.id);
+  // Open the product detail / quick-view, resetting any prior variant choice.
+  const openQuickView = (product: Product) => {
+    setQvSize('');
+    setQvColor('');
+    setShowQuickView(product);
+  };
+
+  const addToCart = (product: Product, opts?: { size?: string; color?: string }) => {
+    const selectedSize = opts?.size;
+    const selectedColor = opts?.color;
+    // A size/color pick makes an otherwise-identical product a distinct line.
+    const existing = cart.find(item =>
+      item.id === product.id && item.selectedSize === selectedSize && item.selectedColor === selectedColor,
+    );
     if (existing) {
       setCart(cart.map(item =>
-        item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        item === existing ? { ...item, quantity: item.quantity + 1 } : item
       ));
     } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
+      setCart([...cart, { ...product, quantity: 1, selectedSize, selectedColor }]);
     }
     toast.success('Added to cart!');
   };
@@ -679,8 +723,9 @@ export default function PublicStore() {
     const isWishlisted = wishlist.includes(product.id);
     return (
       <div
-        className="group relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1"
+        className="group relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 cursor-pointer"
         style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}
+        onClick={() => openQuickView(product)}
         onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(234,88,12,0.35)')}
         onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}
       >
@@ -702,7 +747,7 @@ export default function PublicStore() {
           )}
           {/* Wishlist button */}
           <button
-            onClick={() => toggleWishlist(product.id)}
+            onClick={e => { e.stopPropagation(); toggleWishlist(product.id); }}
             className="absolute top-3 right-3 w-9 h-9 rounded-xl flex items-center justify-center shadow-lg transition opacity-0 group-hover:opacity-100"
             style={{ background: 'rgba(0,0,0,0.7)' }}
           >
@@ -724,12 +769,17 @@ export default function PublicStore() {
               {product.originalPrice && <span className="text-xs text-gray-600 line-through ml-1">${product.originalPrice.toFixed(2)}</span>}
             </div>
             <button
-              onClick={() => addToCart(product)}
+              onClick={e => {
+                e.stopPropagation();
+                // Clothing needs a size choice — send them to the detail view.
+                if (product.sizes && product.sizes.length > 0) openQuickView(product);
+                else addToCart(product);
+              }}
               disabled={!product.inStock}
               className="px-3 py-1.5 rounded-xl text-xs font-bold transition hover:scale-105 disabled:opacity-40"
               style={{ background: '#ea580c', minHeight: 32 }}
             >
-              Add
+              {product.sizes && product.sizes.length > 0 ? 'Select' : 'Add'}
             </button>
           </div>
         </div>
@@ -780,7 +830,10 @@ export default function PublicStore() {
   }
 
   return (
-    <div className="min-h-screen text-white" style={{ background: '#080808' }}>
+    <div className="min-h-screen text-white relative" style={{ background: 'transparent' }}>
+      {/* Animated "light sweeping up & down" backdrop (matches the landing page),
+          pinned at z-index -10 behind every product, card, and control. */}
+      <StoreAmbientBackground />
 
       {/* ── STICKY HEADER ──────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 border-b" style={{ background: 'rgba(8,8,8,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.06)' }}>
@@ -873,7 +926,7 @@ export default function PublicStore() {
       {shopView === 'home' && (
         <>
           {/* ── HERO — BOLD STATEMENT ─────────────────────────────────────────── */}
-          <section className="relative overflow-hidden" style={{ background: '#080808', minHeight: 'min(72vw, 520px)' }}>
+          <section className="relative overflow-hidden" style={{ background: 'transparent', minHeight: 'min(72vw, 520px)' }}>
             {/* Diagonal grid */}
             <div className="absolute inset-0 pointer-events-none" style={{
               backgroundImage: 'linear-gradient(rgba(234,88,12,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(234,88,12,0.05) 1px, transparent 1px)',
@@ -1011,6 +1064,7 @@ export default function PublicStore() {
                   : 0;
                 return (
                   <div key={product.id}
+                    onClick={() => openQuickView(product)}
                     className="group relative rounded-2xl overflow-hidden flex flex-col cursor-pointer transition-all duration-200"
                     style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}
                     onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(234,88,12,0.5)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
@@ -1063,10 +1117,14 @@ export default function PublicStore() {
                             <div className="text-[10px] text-gray-600 line-through">${product.originalPrice.toFixed(2)}</div>
                           )}
                         </div>
-                        <button onClick={() => addToCart(product)} disabled={!product.inStock}
+                        <button onClick={e => {
+                            e.stopPropagation();
+                            if (product.sizes && product.sizes.length > 0) openQuickView(product);
+                            else addToCart(product);
+                          }} disabled={!product.inStock}
                           className="flex-shrink-0 font-black text-[11px] px-3 py-2 rounded-xl transition-all hover:brightness-110 active:scale-95 disabled:opacity-30"
                           style={{ background: '#ea580c', minHeight: 34, whiteSpace: 'nowrap' }}>
-                          + Cart
+                          {product.sizes && product.sizes.length > 0 ? 'Select' : '+ Cart'}
                         </button>
                       </div>
                     </div>
@@ -1278,9 +1336,36 @@ export default function PublicStore() {
               <p className="text-gray-400 text-sm">Loading products…</p>
             </div>
           ) : viewProducts.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {viewProducts.map(product => <ProductCard key={product.id} product={product} />)}
-            </div>
+            // The "All" catalog splits products into their category shelves so the
+            // store reads like a set of catalogs; other views stay a flat grid.
+            shopView === 'all' && !searchQuery ? (
+              <div className="space-y-10">
+                {Object.entries(
+                  viewProducts.reduce((acc: Record<string, typeof viewProducts>, p) => {
+                    const key = p.category || 'Other';
+                    (acc[key] = acc[key] || []).push(p);
+                    return acc;
+                  }, {})
+                )
+                  .sort((a, b) => a[0].localeCompare(b[0]))
+                  .map(([cat, items]) => (
+                    <div key={cat}>
+                      <div className="flex items-center gap-2.5 mb-4">
+                        <div className="w-1 h-6 rounded-full" style={{ background: 'linear-gradient(180deg, #ea580c, #f97316)' }} />
+                        <h2 className="text-lg font-black text-white">{cat}</h2>
+                        <span className="text-xs text-gray-600">({items.length})</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {items.map(product => <ProductCard key={product.id} product={product} />)}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                {viewProducts.map(product => <ProductCard key={product.id} product={product} />)}
+              </div>
+            )
           ) : allProductsRaw.length === 0 ? (
             <div className="text-center py-24">
               <Package className="w-16 h-16 mx-auto mb-4 text-gray-700" />
@@ -1339,8 +1424,14 @@ export default function PublicStore() {
                   <p className="text-gray-500 font-medium">Your cart is empty</p>
                   <button onClick={() => setShowCart(false)} className="mt-4 px-6 py-2.5 rounded-xl text-sm font-bold" style={{ background: '#ea580c' }}>Continue Shopping</button>
                 </div>
-              ) : cart.map(item => (
-                <div key={item.id} className="flex gap-4 p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              ) : cart.map(item => {
+                // A cart line is identified by product + chosen variant, so two
+                // sizes of the same shirt stay separate lines.
+                const lineKey = `${item.id}|${item.selectedSize || ''}|${item.selectedColor || ''}`;
+                const sameLine = (i: CartItem) => i.id === item.id && i.selectedSize === item.selectedSize && i.selectedColor === item.selectedColor;
+                const variant = [item.selectedSize, item.selectedColor].filter(Boolean).join(' · ');
+                return (
+                <div key={lineKey} className="flex gap-4 p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                     {item.image && item.image !== '/placeholder-product.jpg'
                       ? <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -1348,14 +1439,15 @@ export default function PublicStore() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white line-clamp-1">{item.name}</p>
+                    {variant && <p className="text-[11px] font-semibold text-orange-400 mb-0.5">{variant}</p>}
                     <p className="text-xs text-gray-500 mb-2">${item.price.toFixed(2)}</p>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setCart(item.quantity > 1 ? cart.map(i => i.id === item.id ? { ...i, quantity: i.quantity - 1 } : i) : cart.filter(i => i.id !== item.id))}
+                      <button onClick={() => setCart(item.quantity > 1 ? cart.map(i => sameLine(i) ? { ...i, quantity: i.quantity - 1 } : i) : cart.filter(i => !sameLine(i)))}
                         className="w-7 h-7 rounded-lg flex items-center justify-center transition hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.06)' }}>
                         <Minus className="w-3.5 h-3.5" />
                       </button>
                       <span className="text-sm font-bold text-white w-5 text-center">{item.quantity}</span>
-                      <button onClick={() => setCart(cart.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i))}
+                      <button onClick={() => setCart(cart.map(i => sameLine(i) ? { ...i, quantity: i.quantity + 1 } : i))}
                         className="w-7 h-7 rounded-lg flex items-center justify-center transition hover:bg-white/10" style={{ background: 'rgba(255,255,255,0.06)' }}>
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1363,10 +1455,11 @@ export default function PublicStore() {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="font-black text-white text-sm">${(item.price * item.quantity).toFixed(2)}</p>
-                    <button onClick={() => setCart(cart.filter(i => i.id !== item.id))} className="text-xs text-gray-600 hover:text-red-400 transition mt-2">Remove</button>
+                    <button onClick={() => setCart(cart.filter(i => !sameLine(i)))} className="text-xs text-gray-600 hover:text-red-400 transition mt-2">Remove</button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ── UPSELL STRIP ─────────────────────────────────────────────── */}
@@ -1522,18 +1615,37 @@ export default function PublicStore() {
                 {showQuickView.colors && showQuickView.colors.length > 0 && (
                   <div className="mb-4">
                     <p className="text-xs font-semibold text-gray-400 mb-2">Color</p>
-                    <div className="flex flex-wrap gap-2">{showQuickView.colors.map(c => <button key={c} className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>{c}</button>)}</div>
+                    <div className="flex flex-wrap gap-2">{showQuickView.colors.map(c => (
+                      <button key={c} onClick={() => setQvColor(c)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                        style={qvColor === c
+                          ? { background: '#ea580c', color: '#fff', border: '1px solid #ea580c' }
+                          : { background: 'rgba(255,255,255,0.07)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)' }}>{c}</button>
+                    ))}</div>
                   </div>
                 )}
                 {showQuickView.sizes && showQuickView.sizes.length > 0 && (
                   <div className="mb-6">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Size</p>
-                    <div className="flex flex-wrap gap-2">{showQuickView.sizes.map(s => <button key={s} className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>{s}</button>)}</div>
+                    <p className="text-xs font-semibold text-gray-400 mb-2">
+                      Size {qvSize ? <span className="text-orange-400">· {qvSize}</span> : <span className="text-gray-600">· select one</span>}
+                    </p>
+                    <div className="flex flex-wrap gap-2">{showQuickView.sizes.map(s => (
+                      <button key={s} onClick={() => setQvSize(s)}
+                        className="min-w-[44px] px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        style={qvSize === s
+                          ? { background: '#ea580c', color: '#fff', border: '1px solid #ea580c' }
+                          : { background: 'rgba(255,255,255,0.07)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)' }}>{s}</button>
+                    ))}</div>
                   </div>
                 )}
-                <button onClick={() => { addToCart(showQuickView); setShowQuickView(null); }}
-                  className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105" style={{ background: '#ea580c' }}>
-                  <ShoppingCart className="w-5 h-5" /> Add to Cart
+                <button onClick={() => {
+                    if (showQuickView.sizes && showQuickView.sizes.length > 0 && !qvSize) { toast.error('Please select a size first.'); return; }
+                    addToCart(showQuickView, { size: qvSize || undefined, color: qvColor || undefined });
+                    setShowQuickView(null);
+                  }}
+                  disabled={!showQuickView.inStock}
+                  className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105 disabled:opacity-40" style={{ background: '#ea580c' }}>
+                  <ShoppingCart className="w-5 h-5" /> {showQuickView.inStock ? 'Add to Cart' : 'Out of Stock'}
                 </button>
                 <div className="pt-4 border-t mt-4" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                   <h3 className="text-sm font-black text-white mb-3">Customer Reviews</h3>
@@ -1565,12 +1677,15 @@ export default function PublicStore() {
                 {/* Order summary */}
                 <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
                   <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Order Summary</p>
-                  {cart.map(item => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                      <span className="text-gray-400 truncate mr-2">{item.name} × {item.qty}</span>
-                      <span className="text-white font-bold flex-shrink-0">${(item.price * item.qty).toFixed(2)}</span>
+                  {cart.map(item => {
+                    const variant = [item.selectedSize, item.selectedColor].filter(Boolean).join(' · ');
+                    return (
+                    <div key={`${item.id}|${item.selectedSize || ''}|${item.selectedColor || ''}`} className="flex justify-between text-sm">
+                      <span className="text-gray-400 truncate mr-2">{item.name}{variant ? ` (${variant})` : ''} × {item.quantity}</span>
+                      <span className="text-white font-bold flex-shrink-0">${(item.price * item.quantity).toFixed(2)}</span>
                     </div>
-                  ))}
+                    );
+                  })}
                   <div className="border-t pt-2 mt-2 flex justify-between text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                     <span className="text-gray-500">Shipping</span>
                     <span className="text-white">{checkoutShipping === 0 ? 'FREE' : `$${checkoutShipping.toFixed(2)}`}</span>
@@ -1650,7 +1765,7 @@ export default function PublicStore() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
                         body: JSON.stringify({
-                          items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.qty, image: item.image })),
+                          items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity, quantity: item.quantity, image: item.image, size: item.selectedSize || undefined, color: item.selectedColor || undefined })),
                           customer: { name: checkoutForm.name, email: checkoutForm.email, phone: checkoutForm.phone, address: `${checkoutForm.address}, ${checkoutForm.city} ${checkoutForm.zip}` },
                           shipping: checkoutShipping,
                           tax: checkoutTax,

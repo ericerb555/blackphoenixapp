@@ -90,6 +90,7 @@ const ApplicationSubmissions = lazy(() => import("./pages/ApplicationSubmissions
 const PortalOnboarding = lazy(() => import("./pages/PortalOnboarding"));
 const BusinessProfilesHub = lazy(() => import("./components/BusinessProfilesHub"));
 const OwnersDashboard = lazy(() => import("./pages/OwnersDashboard"));
+const ProductCatalogAdmin = lazy(() => import("./pages/ProductCatalogAdmin"));
 const PortalsHub = lazy(() => import("./pages/PortalsHub"));
 const SubcontractorPortal = lazy(() => import("./components/portals/SubcontractorPortal"));
 const VendorPortalView = lazy(() => import("./components/portals/VendorPortalView"));
@@ -213,6 +214,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "admin-dashboard":            OwnersDashboard,
   "admin-advanced-dashboard":   OwnersDashboard,
   "owners-dashboard":           OwnersDashboard,
+  "product-catalog":            ProductCatalogAdmin,
+  "catalog-pricing":            ProductCatalogAdmin,
   "company-data-restoration":   CompanyDataRestoration,
   "company-recovery":           CompanyRecovery,
   "company-setup":              CompanySetup,
