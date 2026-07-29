@@ -454,6 +454,11 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'loyalty',
     'rewards',
 
+    // Shopper account portal (page itself gates content on sign-in)
+    'my-account',
+    'account',
+    'my-orders',
+
     // Affiliate program (public — anyone can join and share)
     'affiliate',
     'referral',

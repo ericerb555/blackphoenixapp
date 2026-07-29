@@ -2,15 +2,17 @@
  * StoreAmbientBackground — the animated "light sweeping up & down" backdrop
  * borrowed from the landing page CTA buttons, scaled up to sit behind the
  * whole storefront. It's a fixed, non-interactive layer (pointer-events: none)
- * pinned at the lowest z-index so every product, card, and control renders on
- * top of it. Colors match the brand orange (#fb923c / #ea580c).
+ * pinned behind the storefront. It uses z-index:0 (not a negative value) so it
+ * paints on top of the app's opaque page wrapper; the store's own content is
+ * lifted above it with a positioned wrapper (relative z-10) in PublicStore.
+ * Colors match the brand orange (#fb923c / #ea580c).
  */
 export function StoreAmbientBackground() {
   return (
     <div
       aria-hidden="true"
       className="fixed inset-0 pointer-events-none overflow-hidden"
-      style={{ zIndex: -10, background: '#080808' }}
+      style={{ zIndex: 0, background: '#080808' }}
     >
       {/* Scoped keyframes so this effect is self-contained. */}
       <style>{`

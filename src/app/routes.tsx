@@ -49,6 +49,7 @@ const SocialMediaHub = lazy(() => import("./pages/SocialMediaHub"));
 const EmailLeadGen = lazy(() => import("./pages/EmailLeadGen"));
 const LocalLeadsLanding = lazy(() => import("./pages/LocalLeadsLanding"));
 const LoyaltyProgram = lazy(() => import("./pages/LoyaltyProgram"));
+const ShopperAccountPortal = lazy(() => import("./pages/ShopperAccountPortal"));
 const QRCodeGenerator = lazy(() => import("./pages/QRCodeGenerator"));
 const RevenueAnalytics = lazy(() => import("./pages/RevenueAnalytics"));
 const SMSMarketing = lazy(() => import("./pages/SMSMarketing"));
@@ -284,6 +285,11 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Loyalty & Rewards
   "loyalty":  LoyaltyProgram,
   "rewards":  LoyaltyProgram,
+
+  // Shopper account portal (orders, returns, points)
+  "my-account": ShopperAccountPortal,
+  "account":    ShopperAccountPortal,
+  "my-orders":  ShopperAccountPortal,
 
   // QR Code
   "qr-codes":     QRCodeGenerator,

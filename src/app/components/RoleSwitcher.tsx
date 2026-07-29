@@ -4,7 +4,7 @@
  */
 
 import { useState, useContext, useEffect } from 'react';
-import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound } from 'lucide-react';
+import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { useAuth } from '../contexts/AuthContext';
@@ -333,6 +333,28 @@ export function RoleSwitcher() {
               })}
             </div>
             
+            {/* Shopper storefront portals — public pages, not role-gated */}
+            <div className="p-3 border-t border-zinc-800 bg-[#0A0A0A] space-y-2">
+              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Storefront (Shopper View)</p>
+              <button
+                onClick={() => { setIsOpen(false); navigate('my-account'); }}
+                className="w-full px-3 py-2.5 flex items-center gap-3 rounded-lg bg-orange-600/15 border border-orange-500/30 hover:bg-orange-600/25 transition-all"
+              >
+                <ShoppingBag className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-white">Shopper Account Portal</p>
+                  <p className="text-xs text-zinc-400">Order history, returns & reward points</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setIsOpen(false); navigate('store'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <Store className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Open storefront</p>
+              </button>
+            </div>
+
             <div className="p-3 border-t border-zinc-800 bg-[#0A0A0A]">
               <p className="text-xs text-zinc-500 text-center">
                 Current: <span className="font-semibold text-white">{getRoleDisplayName(user.role)}</span>

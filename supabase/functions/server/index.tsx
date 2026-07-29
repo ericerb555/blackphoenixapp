@@ -7655,6 +7655,86 @@ app.patch('/make-server-3eae23a6/store/orders/:id', async (c) => {
   catch (error: any) { return c.json({ error: error.message || 'Unable to update order.' }, 500); }
 });
 
+// ── STORE RETURNS / RMA ──────────────────────────────────────────────────────
+// Shoppers request a return against one of their paid orders. The request is
+// stored as a review record the owner approves/denies from the dashboard; no
+// money moves automatically. Each return is scoped to the customer's email so a
+// signed-in shopper only ever sees their own RMAs.
+function storeReturnKey(id: string) { return `store:return:${id}`; }
+const RETURN_REASONS = new Set(['defective', 'wrong_item', 'not_as_described', 'no_longer_needed', 'arrived_late', 'other']);
+
+app.post('/make-server-3eae23a6/store/returns', async (c) => {
+  try {
+    const { user } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required to request a return.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '').trim();
+    if (!orderId) return c.json({ error: 'An order is required to start a return.' }, 400);
+    const order = await kv.get(storeOrderKey(orderId)) as any;
+    if (!order) return c.json({ error: 'Order not found.' }, 404);
+    if (String(order.customer_email || '').toLowerCase() !== email) return c.json({ error: 'You can only request returns for your own orders.' }, 403);
+    const reason = String(body.reason || '').trim();
+    if (!RETURN_REASONS.has(reason)) return c.json({ error: 'A valid return reason is required.' }, 400);
+    // Only accept items that actually belong to this order.
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+    const requested = (Array.isArray(body.items) ? body.items : [])
+      .map((it: any) => {
+        const match = orderItems.find((oi: any) => String(oi.id) === String(it.id));
+        if (!match) return null;
+        return { id: String(match.id), name: String(match.name), price: money(match.price), qty: Math.max(1, Math.min(Number(it.qty || 1), Number(match.qty || 1))) };
+      })
+      .filter(Boolean);
+    if (requested.length === 0) return c.json({ error: 'Select at least one item from the order to return.' }, 400);
+    // One open return per order keeps the flow simple for shopper and owner.
+    const existing = (await kv.getByPrefix('store:return:')) || [];
+    const openForOrder = existing.find((r: any) => r.orderId === orderId && !['rejected', 'refunded', 'closed'].includes(r.status));
+    if (openForOrder) return c.json({ error: 'There is already an open return request for this order.' }, 409);
+    const now = new Date().toISOString();
+    const record = {
+      id: `RMA-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+      orderId,
+      customer_email: email,
+      customer_name: order.customer_name || '',
+      items: requested,
+      reason,
+      comment: String(body.comment || '').slice(0, 1000),
+      refund_estimate: money(requested.reduce((sum: number, it: any) => sum + it.price * it.qty, 0)),
+      status: 'requested',
+      created_at: now,
+      updated_at: now,
+    };
+    await kv.set(storeReturnKey(record.id), record);
+    return c.json({ success: true, return: record }, 201);
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to submit return request.' }, 500); }
+});
+
+app.get('/make-server-3eae23a6/store/returns', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const all = (await kv.getByPrefix('store:return:')) || [];
+    const visible = admin ? all : all.filter((r: any) => String(r.customer_email || '').toLowerCase() === String(user.email).toLowerCase());
+    return c.json({ success: true, returns: visible.sort((a: any, b: any) => Date.parse(b.created_at) - Date.parse(a.created_at)) });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to load returns.' }, 500); }
+});
+
+app.patch('/make-server-3eae23a6/store/returns/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const existing = await kv.get(storeReturnKey(c.req.param('id'))) as any;
+    if (!existing) return c.json({ error: 'Return not found.' }, 404);
+    const body = await c.req.json();
+    const allowed = new Set(['requested', 'approved', 'rejected', 'received', 'refunded', 'closed']);
+    const status = String(body.status || '').trim();
+    if (!allowed.has(status)) return c.json({ error: 'A valid return status is required.' }, 400);
+    const record = { ...existing, status, admin_note: body.admin_note ? String(body.admin_note).slice(0, 1000) : existing.admin_note, updated_at: new Date().toISOString(), status_updated_by: String(user.email).toLowerCase() };
+    await kv.set(storeReturnKey(record.id), record);
+    return c.json({ success: true, return: record });
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to update return.' }, 500); }
+});
+
 
 // Blueprint analyzer compatibility. The client sends an Anthropic-style message
 // payload, while the server uses the configured OpenAI Vision key and returns the

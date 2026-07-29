@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import {
   ShoppingCart, Search, Menu, X, User, Heart, Star, Filter,
   ChevronDown, Package, Truck, Shield, CreditCard, ArrowLeft,
-  Plus, Minus, Check, Eye, TrendingUp, Zap, Award, ChevronRight,
+  Plus, Minus, Check, Eye, TrendingUp, Zap, Award, ChevronRight, ChevronLeft,
   Grid, List, SlidersHorizontal, RefreshCw, ShoppingBag, Lock,
   Flame, Tag, ArrowRight, MessageSquare, Mail, Instagram,
   Facebook, Youtube, MapPin, Phone,
@@ -36,6 +36,7 @@ interface Product {
   rating: number;
   reviews: number;
   image: string;
+  images?: string[];
   inStock: boolean;
   stock?: number;
   featured?: boolean;
@@ -77,6 +78,8 @@ export default function PublicStore() {
   // Variant selection for the product detail view (clothing sizes, colors).
   const [qvSize, setQvSize] = useState('');
   const [qvColor, setQvColor] = useState('');
+  // Which gallery image is showing in the product detail view.
+  const [qvImage, setQvImage] = useState(0);
   const [sortBy, setSortBy] = useState('featured');
   const [priceRange, setPriceRange] = useState([0, 10000]);
   const [showFilters, setShowFilters] = useState(false);
@@ -206,6 +209,17 @@ export default function PublicStore() {
             // (that's what the import writes). Fall back through the older field
             // names too so both shapes render.
             image: p.primaryImage || p.images?.[0] || p.image || p.imageUrl || '/placeholder-product.jpg',
+            // Full image gallery — dedupe and drop blanks. Falls back to the
+            // single image so older single-image products still render one photo.
+            images: (() => {
+              const list = [
+                p.primaryImage,
+                ...(Array.isArray(p.images) ? p.images : []),
+                p.image, p.imageUrl,
+              ].filter((u: any): u is string => typeof u === 'string' && u.trim() !== '');
+              const unique = Array.from(new Set(list));
+              return unique.length ? unique : undefined;
+            })(),
             inStock: p.inStock !== false && ((p.inventoryQuantity ?? p.stock ?? 1) > 0),
             stock: p.inventoryQuantity ?? p.stock ?? undefined,
             badge: p.badge || (p.isFeatured ? 'TOP SELLER' : p.isNew ? 'NEW' : undefined),
@@ -593,6 +607,7 @@ export default function PublicStore() {
   const openQuickView = (product: Product) => {
     setQvSize('');
     setQvColor('');
+    setQvImage(0);
     setShowQuickView(product);
   };
 
@@ -848,9 +863,13 @@ export default function PublicStore() {
 
   return (
     <div className="min-h-screen text-white relative" style={{ background: 'transparent' }}>
-      {/* Animated "light sweeping up & down" backdrop (matches the landing page),
-          pinned at z-index -10 behind every product, card, and control. */}
+      {/* Animated "light sweeping up & down" backdrop (matches the landing page).
+          Rendered at z-index:0 so it paints over the app's opaque page wrapper;
+          all store content below sits in a relative z-10 layer on top of it. */}
       <StoreAmbientBackground />
+
+      {/* Content layer — lifted above the ambient backdrop. */}
+      <div className="relative z-10">
 
       {/* ── STICKY HEADER ──────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 border-b" style={{ background: 'rgba(8,8,8,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.06)' }}>
@@ -886,6 +905,14 @@ export default function PublicStore() {
               <button className="md:hidden p-2 rounded-xl hover:bg-white/5 transition text-gray-400" onClick={() => setShopView(shopView === 'home' ? 'all' : shopView)}>
                 <Search className="w-5 h-5" />
               </button>
+              {/* My Account — orders, returns & points */}
+              {user?.email && (
+                <a href="/my-account" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition hover:bg-white/5 text-gray-300"
+                  style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <User className="w-4 h-4" />
+                  <span className="text-xs font-bold">Account</span>
+                </a>
+              )}
               {/* Loyalty points badge */}
               {user?.email && (() => {
                 const acct = getLoyaltyAccount(user.email!);
@@ -1617,11 +1644,55 @@ export default function PublicStore() {
               <X className="w-5 h-5" />
             </button>
             <div className="flex flex-col md:flex-row">
-              <div className="md:w-80 aspect-square md:aspect-auto flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                {showQuickView.image && showQuickView.image !== '/placeholder-product.jpg'
-                  ? <img src={showQuickView.image} alt={showQuickView.name} className="w-full h-full object-cover" />
-                  : <Package className="w-28 h-28 text-gray-700" />}
-              </div>
+              {(() => {
+                // Build the gallery: use the images[] array, fall back to the
+                // single image. Filter blanks/placeholder so we never show one.
+                const gallery = (showQuickView.images && showQuickView.images.length
+                  ? showQuickView.images
+                  : [showQuickView.image]).filter(u => u && u !== '/placeholder-product.jpg');
+                const idx = Math.min(qvImage, Math.max(0, gallery.length - 1));
+                const active = gallery[idx];
+                const hasMany = gallery.length > 1;
+                return (
+                  <div className="md:w-80 flex-shrink-0 flex flex-col">
+                    <div className="relative aspect-square flex items-center justify-center overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                      {active
+                        ? <img src={active} alt={showQuickView.name} className="w-full h-full object-cover" />
+                        : <Package className="w-28 h-28 text-gray-700" />}
+                      {hasMany && (
+                        <>
+                          <button
+                            onClick={() => setQvImage((idx - 1 + gallery.length) % gallery.length)}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-white transition hover:scale-110"
+                            style={{ background: 'rgba(0,0,0,0.55)' }} aria-label="Previous image">
+                            <ChevronLeft className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => setQvImage((idx + 1) % gallery.length)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-white transition hover:scale-110"
+                            style={{ background: 'rgba(0,0,0,0.55)' }} aria-label="Next image">
+                            <ChevronRight className="w-5 h-5" />
+                          </button>
+                          <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                            {idx + 1} / {gallery.length}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {hasMany && (
+                      <div className="flex gap-2 p-2 overflow-x-auto">
+                        {gallery.map((src, i) => (
+                          <button key={`${src}-${i}`} onClick={() => setQvImage(i)}
+                            className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 transition"
+                            style={{ border: i === idx ? '2px solid #ea580c' : '2px solid rgba(255,255,255,0.1)', opacity: i === idx ? 1 : 0.6 }}>
+                            <img src={src} alt={`${showQuickView.name} ${i + 1}`} className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex-1 p-8">
                 <div className="flex items-center gap-2 mb-2">
                   {showQuickView.badge && <span className="px-3 py-1 rounded-full text-xs font-black" style={{ background: '#ea580c' }}>{showQuickView.badge}</span>}
@@ -2098,6 +2169,8 @@ export default function PublicStore() {
           )}
         </button>
       </div>
+
+      </div>{/* end content layer */}
     </div>
   );
 }

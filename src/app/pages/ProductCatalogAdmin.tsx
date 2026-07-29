@@ -13,7 +13,7 @@
  * `price` and `cost_price`.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2 } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -24,6 +24,7 @@ interface CatalogProduct {
   id: string;
   name: string;
   image: string;
+  images: string[];
   price: number;
   cost: number;
   category: string;
@@ -31,7 +32,7 @@ interface CatalogProduct {
 }
 
 // Draft edits per product id — only what the owner has touched.
-interface Draft { price: number; cost: number; }
+interface Draft { price: number; cost: number; images: string[]; }
 
 async function adminToken(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -52,6 +53,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [savingAll, setSavingAll] = useState(false);
   const [query, setQuery] = useState('');
   const [globalMarkup, setGlobalMarkup] = useState('');
+  const [imagesOpen, setImagesOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,15 +63,23 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to load products (${res.status})`);
-      const mapped: CatalogProduct[] = (data.products || []).map((p: any) => ({
-        id: p.id,
-        name: p.name || p.title || 'Untitled',
-        image: p.primaryImage || p.images?.[0] || p.image || '',
-        price: money(Number(p.price)),
-        cost: money(Number(p.cost_price)),
-        category: p.category || 'General',
-        isActive: p.isActive !== false,
-      }));
+      const mapped: CatalogProduct[] = (data.products || []).map((p: any) => {
+        const images: string[] = Array.from(new Set([
+          p.primaryImage,
+          ...(Array.isArray(p.images) ? p.images : []),
+          p.image, p.imageUrl,
+        ].filter((u: any): u is string => typeof u === 'string' && u.trim() !== '')));
+        return {
+          id: p.id,
+          name: p.name || p.title || 'Untitled',
+          image: images[0] || '',
+          images,
+          price: money(Number(p.price)),
+          cost: money(Number(p.cost_price)),
+          category: p.category || 'General',
+          isActive: p.isActive !== false,
+        };
+      });
       mapped.sort((a, b) => a.name.localeCompare(b.name));
       setProducts(mapped);
       setDrafts({});
@@ -82,17 +92,37 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   useEffect(() => { load(); }, [load]);
 
   // Current (possibly-edited) value for a product.
-  const valOf = useCallback((p: CatalogProduct): Draft => drafts[p.id] ?? { price: p.price, cost: p.cost }, [drafts]);
+  const valOf = useCallback((p: CatalogProduct): Draft => drafts[p.id] ?? { price: p.price, cost: p.cost, images: p.images }, [drafts]);
   const isDirty = useCallback((p: CatalogProduct) => {
     const d = drafts[p.id];
-    return !!d && (d.price !== p.price || d.cost !== p.cost);
+    return !!d && (d.price !== p.price || d.cost !== p.cost || JSON.stringify(d.images) !== JSON.stringify(p.images));
   }, [drafts]);
 
   const setDraft = (id: string, patch: Partial<Draft>) => {
     setDrafts(prev => {
-      const base = prev[id] ?? { price: products.find(p => p.id === id)?.price ?? 0, cost: products.find(p => p.id === id)?.cost ?? 0 };
+      const p = products.find(x => x.id === id);
+      const base = prev[id] ?? { price: p?.price ?? 0, cost: p?.cost ?? 0, images: p?.images ?? [] };
       return { ...prev, [id]: { ...base, ...patch } };
     });
+  };
+
+  // Image gallery helpers (operate on the product's draft images list).
+  const addImage = (p: CatalogProduct, url: string) => {
+    const clean = url.trim();
+    if (!clean) return;
+    const cur = valOf(p).images;
+    if (cur.includes(clean)) { toast('That image is already added.'); return; }
+    setDraft(p.id, { images: [...cur, clean] });
+  };
+  const removeImage = (p: CatalogProduct, i: number) => {
+    const cur = valOf(p).images;
+    setDraft(p.id, { images: cur.filter((_, idx) => idx !== i) });
+  };
+  const makePrimary = (p: CatalogProduct, i: number) => {
+    const cur = valOf(p).images;
+    if (i <= 0) return;
+    const next = [cur[i], ...cur.filter((_, idx) => idx !== i)];
+    setDraft(p.id, { images: next });
   };
 
   const filtered = useMemo(() => {
@@ -111,7 +141,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       const next = { ...prev };
       for (const p of filtered) {
         if (p.cost > 0) {
-          next[p.id] = { cost: (prev[p.id]?.cost ?? p.cost), price: priceFromMarkup(prev[p.id]?.cost ?? p.cost, m) };
+          next[p.id] = { cost: (prev[p.id]?.cost ?? p.cost), price: priceFromMarkup(prev[p.id]?.cost ?? p.cost, m), images: prev[p.id]?.images ?? p.images };
           applied += 1;
         }
       }
@@ -129,12 +159,12 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       const res = await fetch(`${SERVER}/products/${encodeURIComponent(p.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
-        body: JSON.stringify({ price: Number(d.price), cost_price: Number(d.cost) }),
+        body: JSON.stringify({ price: Number(d.price), cost_price: Number(d.cost), images: d.images, primaryImage: d.images[0] || '' }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.error || `Save failed (${res.status})`);
       // Commit locally so the row shows saved values and clears dirty state.
-      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: Number(d.price), cost: Number(d.cost) } : x));
+      setProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: Number(d.price), cost: Number(d.cost), images: d.images, image: d.images[0] || '' } : x));
       setDrafts(prev => { const n = { ...prev }; delete n[p.id]; return n; });
       toast.success(`Saved "${p.name}".`);
     } catch (err: any) {
@@ -155,11 +185,11 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
         const res = await fetch(`${SERVER}/products/${encodeURIComponent(p.id)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
-          body: JSON.stringify({ price: Number(d.price), cost_price: Number(d.cost) }),
+          body: JSON.stringify({ price: Number(d.price), cost_price: Number(d.cost), images: d.images, primaryImage: d.images[0] || '' }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data?.success) throw new Error(data?.error);
-        setProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: Number(d.price), cost: Number(d.cost) } : x));
+        setProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: Number(d.price), cost: Number(d.cost), images: d.images, image: d.images[0] || '' } : x));
         setDrafts(prev => { const n = { ...prev }; delete n[p.id]; return n; });
         ok += 1;
       } catch { fail += 1; }
@@ -225,18 +255,32 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           const d = valOf(p);
           const mk = markupOf(d.price, d.cost);
           const dirty = isDirty(p);
+          const gallery = d.images;
+          const galleryOpen = imagesOpen === p.id;
           return (
-            <div key={p.id}
-              className="grid grid-cols-2 md:grid-cols-[1fr_110px_110px_110px_100px] gap-3 items-center rounded-2xl p-3"
+            <div key={p.id} className="rounded-2xl overflow-hidden"
               style={{ background: dirty ? 'rgba(234,88,12,0.08)' : 'rgba(255,255,255,0.035)', border: `1px solid ${dirty ? 'rgba(234,88,12,0.35)' : 'rgba(255,255,255,0.08)'}` }}>
+            <div className="grid grid-cols-2 md:grid-cols-[1fr_110px_110px_110px_100px] gap-3 items-center p-3">
               {/* Product */}
               <div className="col-span-2 md:col-span-1 flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                  {p.image ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-600 m-3" />}
-                </div>
+                <button onClick={() => setImagesOpen(galleryOpen ? null : p.id)}
+                  className="relative w-11 h-11 rounded-lg overflow-hidden bg-white/5 shrink-0 group" title="Manage images">
+                  {gallery[0] ? <img src={gallery[0]} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-600 m-3" />}
+                  <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/50">
+                    <Images className="w-4 h-4 text-white" />
+                  </span>
+                  {gallery.length > 1 && (
+                    <span className="absolute bottom-0.5 right-0.5 px-1 rounded text-[9px] font-bold text-white" style={{ background: 'rgba(0,0,0,0.7)' }}>{gallery.length}</span>
+                  )}
+                </button>
                 <div className="min-w-0">
                   <div className="text-sm text-white truncate">{p.name}</div>
-                  <div className="text-[11px] text-gray-500">{p.category}{!p.isActive && ' · hidden'}</div>
+                  <div className="text-[11px] text-gray-500 flex items-center gap-2">
+                    <span>{p.category}{!p.isActive && ' · hidden'}</span>
+                    <button onClick={() => setImagesOpen(galleryOpen ? null : p.id)} className="text-orange-400/80 hover:text-orange-400 inline-flex items-center gap-1">
+                      <Images className="w-3 h-3" /> {gallery.length} image{gallery.length !== 1 ? 's' : ''}
+                    </button>
+                  </div>
                 </div>
               </div>
               {/* Cost */}
@@ -268,6 +312,55 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
                   {savingId === p.id ? 'Saving' : dirty ? 'Save' : 'Saved'}
                 </button>
               </div>
+            </div>
+
+            {/* Image gallery editor */}
+            {galleryOpen && (
+              <div className="px-3 pb-3 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
+                    <Images className="w-3.5 h-3.5 text-orange-400" /> Product images — first is the main photo
+                  </p>
+                  <button onClick={() => setImagesOpen(null)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+                </div>
+
+                {gallery.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {gallery.map((src, i) => (
+                      <div key={`${src}-${i}`} className="relative w-20 h-20 rounded-lg overflow-hidden group"
+                        style={{ border: i === 0 ? '2px solid #ea580c' : '1px solid rgba(255,255,255,0.12)' }}>
+                        <img src={src} alt={`${p.name} ${i + 1}`} className="w-full h-full object-cover" />
+                        {i === 0 && <span className="absolute top-0 left-0 px-1 py-0.5 text-[9px] font-black text-white" style={{ background: '#ea580c' }}>MAIN</span>}
+                        <div className="absolute inset-0 hidden group-hover:flex items-center justify-center gap-1.5 bg-black/60">
+                          {i !== 0 && (
+                            <button onClick={() => makePrimary(p, i)} title="Make main image"
+                              className="w-7 h-7 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white"><Star className="w-3.5 h-3.5" /></button>
+                          )}
+                          <button onClick={() => removeImage(p, i)} title="Remove"
+                            className="w-7 h-7 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center text-white"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mb-3">No images yet — paste an image URL below.</p>
+                )}
+
+                <form className="flex gap-2" onSubmit={e => {
+                  e.preventDefault();
+                  const input = e.currentTarget.elements.namedItem('imgurl') as HTMLInputElement;
+                  addImage(p, input.value);
+                  input.value = '';
+                }}>
+                  <input name="imgurl" placeholder="Paste image URL (https://…)"
+                    className="flex-1 px-3 py-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-[#ea580c]" />
+                  <button type="submit" className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold text-white" style={{ background: '#ea580c' }}>
+                    <Plus className="w-4 h-4" /> Add
+                  </button>
+                </form>
+                <p className="text-[11px] text-gray-500 mt-2">Add as many photos as you like, then hit <b className="text-gray-300">Save</b> on this row. Hover a photo to remove it or set it as the main image.</p>
+              </div>
+            )}
             </div>
           );
         })}
