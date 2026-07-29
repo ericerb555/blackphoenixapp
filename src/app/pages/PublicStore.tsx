@@ -19,6 +19,7 @@ import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
 import { ActiveFlashBanner } from './FlashSaleManager';
+import { ProductReels } from '../components/ProductReels';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
 
@@ -620,7 +621,14 @@ export default function PublicStore() {
     { name: 'Jamie R.', role: 'Verified Buyer', rating: 5, text: "The headphones I ordered exceeded my expectations. Packaging was great and arrived two days early.", avatar: 'J' },
   ];
 
-  const featuredProducts = allProducts.filter(p => p.featured || p.badge).slice(0, 4);
+  // Featured rail: honor the products the owner explicitly featured (via the
+  // Hot Products Radar). Only if none are featured do we fall back to badged
+  // items so the rail is never empty.
+  const explicitlyFeatured = allProducts.filter(p => p.featured);
+  const featuredProducts = (explicitlyFeatured.length > 0
+    ? explicitlyFeatured
+    : allProducts.filter(p => p.badge)
+  ).slice(0, 4);
   const [shopView, setShopView] = useState<'home' | 'hot' | 'top-sellers' | 'sports' | 'clothing' | 'beauty' | 'construction' | 'electronics' | 'all'>('home');
 
   // Derive products for the current shopView
@@ -967,6 +975,15 @@ export default function PublicStore() {
               ))}
             </div>
           </section>
+
+          {/* ── PRODUCT REELS — WATCH & SHOP ──────────────────────────────────── */}
+          <ProductReels
+            onShopProduct={(pid) => {
+              const match = allProducts.find(p => p.id === pid);
+              if (match) { setSearchQuery(match.name); setShopView('all'); }
+              else { setShopView('all'); }
+            }}
+          />
 
           {/* ── HOT PRODUCTS GRID — TOP 12 ────────────────────────────────────── */}
           <section className="max-w-screen-xl mx-auto px-4 pt-8 pb-4">

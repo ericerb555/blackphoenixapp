@@ -44,6 +44,7 @@ import vendorPricingRouter from "./vendorPricing.tsx";
 import brandsRouter from "./brands.tsx";
 import { companyConfigRouter } from "./company-config.tsx";
 import { emailCenterRouter } from "./email-center.tsx";
+import { storeContentRouter } from "./store-content.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "./dropshipper-config.tsx";
 import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
@@ -146,6 +147,7 @@ app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/make-server-3eae23a6/email-center", emailCenterRouter);
+app.route("/make-server-3eae23a6/store-content", storeContentRouter);
 app.route("/", flashSalesRouter);
 app.route("/", storeBoostersRouter);
 app.route("/", promotionsEngineRouter);

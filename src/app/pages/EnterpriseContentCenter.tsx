@@ -26,7 +26,7 @@ import {
   FileAudio, File, Crown, Zap as ZapIcon, AlertTriangle, 
   TrendingUp as TrendingUpIcon, Package as PackageIcon, Shield,
   AlertCircle, Briefcase, Link as LinkIcon, Unlink, ExternalLink,
-  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame
+  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame, Link2
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
@@ -62,6 +62,7 @@ import StoreBoostersManager from '../components/StoreBoostersManager';
 import PromotionsEngineManager from '../components/PromotionsEngineManager';
 import FulfillmentManager from '../components/FulfillmentManager';
 import HotProductsRadar from '../components/HotProductsRadar';
+import StoreContentStudio from '../components/StoreContentStudio';
 import {
   useContentManagement,
   ContentPiece,
@@ -155,7 +156,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content'>('command');
 
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
@@ -1797,6 +1798,7 @@ export default function EnterpriseContentCenter() {
             { id: 'calendar', label: 'Calendar', icon: Calendar },
             { id: 'shop-intelligence', label: '📊 Shop Intelligence', icon: TrendingUp },
             { id: 'hot-products', label: '🔥 Hot Products', icon: Flame },
+            { id: 'store-content', label: '🔗 Store Content', icon: Link2 },
             { id: 'store-boosters', label: '🚀 Store Boosters', icon: Zap },
             { id: 'promotions-engine', label: '🏷️ Promotions Engine', icon: Tag },
             { id: 'fulfillment', label: '🚚 Fulfillment', icon: PackageIcon },
@@ -1852,6 +1854,10 @@ export default function EnterpriseContentCenter() {
           {/* Hot Products Tab — Kalodata-style trending discovery + fast import */}
           {activeTab === 'hot-products' && (
             <HotProductsRadar />
+          )}
+
+          {activeTab === 'store-content' && (
+            <StoreContentStudio />
           )}
 
           {/* Library Tab */}

@@ -88,9 +88,13 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     }
   }, [isAuthenticatedOwner, authUser, authLoading]);
 
-  // Treat as owner if confirmed, or if we previously confirmed and the session
-  // simply hasn't finished rehydrating yet (loading, or no authUser yet).
-  const treatAsOwner = isAuthenticatedOwner || ((authLoading || !authUser) && rememberedOwner);
+  // Treat as owner if confirmed now, or if we previously confirmed it. The
+  // sticky flag is only cleared once a *fully-resolved* non-owner session
+  // proves otherwise (see the effect above), so trusting it directly closes
+  // the gap where authUser has loaded but its role field hasn't yet — the
+  // window where the "Owner Dashboard" button would vanish or a click on it
+  // would land on nothing.
+  const treatAsOwner = isAuthenticatedOwner || rememberedOwner;
   const currentRole = treatAsOwner ? UserRole.PLATFORM_OWNER : (user?.role || UserRole.CUSTOMER);
 
   // ALL state hooks must be called before any conditional returns
