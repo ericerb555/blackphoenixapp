@@ -1,0 +1,225 @@
+🔒 [ProtectedRoutes] Rendering children
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 App component initializing...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 Current URL: https://0199a296-7eb9-4689-b3d3-3b2b7066790f-v3-figmaiframepreview.figma.site/
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 Current pathname: /
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔄 Rendering App component...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔄 isPageReady: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎬 AppContent component starting...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 📊 AppContent state initialized successfully
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 📄 Current page: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🌐 Online status: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 About to render AppContent JSX...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Current page before render: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Rendering page: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 PageMap keys: 139
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Page exists in map? false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] INITIALIZING
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] demo_mode from localStorage: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] initialDemoMode: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: true currentPath: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔒 [ProtectedRoutes] Rendering children
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ✅ All service workers and caches cleared
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 App component initializing...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 Current URL: https://0199a296-7eb9-4689-b3d3-3b2b7066790f-v3-figmaiframepreview.figma.site/
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🚀 Current pathname: /
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔄 Rendering App component...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔄 isPageReady: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎬 AppContent component starting...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 📊 AppContent state initialized successfully
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 📄 Current page: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🌐 Online status: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 About to render AppContent JSX...
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Current page before render: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Rendering page: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 PageMap keys: 139
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Page exists in map? false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] INITIALIZING
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] demo_mode from localStorage: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] initialDemoMode: true
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: true currentPath: landing
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔒 [ProtectedRoutes] Rendering children
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 No user ID - using anonymous mode
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 [CompanyContext] User: {hasUser: false, email: undefined}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 [CompanyContext] No user, setting loading=false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 [CompanyContext] ✅ Restore complete, setting loading=false
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 [CompanyContext] Auth state changed: INITIAL_SESSION
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106  GET https://images.unsplash.com/photo-1588783948922-0c6e1c6a7c9c?w=200&h=80&fit=crop 404 (Not Found)
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:106
+$ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+L @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+I @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in I
+b @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in b
+U @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+TO @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T8 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T7 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T6 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T4 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+S1 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+SQ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:65
+V @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+B @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+eo @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+photo-1588783948922-0c6e1c6a7c9c?w=200&h=80&fit=crop:1  Failed to load resource: the server responded with a status of 404 ()
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ✅ Loaded from database: work_requests_anonymous
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106  GET https://cors-image-proxy.figma.com/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1588783948922-0c6e1c6a7c9c%3Fw%3D200%26h%3D80%26fit%3Dcrop 403 (Forbidden)
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:106
+$ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in $
+L @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+I @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in I
+b @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in b
+U @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+TO @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T8 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T7 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T6 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T4 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+S1 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+SQ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:65
+V @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+B @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+eo @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+cors-image-proxy.figma.com/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1588783948922-0c6e1c6a7c9c%3Fw%3D200%26h%3D80%26fit%3Dcrop:1  Failed to load resource: the server responded with a status of 403 ()
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106  GET https://images.unsplash.com/photo-1588783948922-0c6e1c6a7c9c?w=200&h=80&fit=crop 404 (Not Found)
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:106
+$ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+L @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+I @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in I
+b @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in b
+U @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+TO @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T8 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T7 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T6 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T4 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+S1 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+SQ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:65
+V @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+B @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+eo @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+photo-1588783948922-0c6e1c6a7c9c?w=200&h=80&fit=crop:1  Failed to load resource: the server responded with a status of 404 ()
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106  GET https://cors-image-proxy.figma.com/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1588783948922-0c6e1c6a7c9c%3Fw%3D200%26h%3D80%26fit%3Dcrop 403 (Forbidden)
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:106
+$ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in $
+L @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+A @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in A
+I @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in I
+b @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:151
+await in b
+U @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:133
+TO @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T8 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T7 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T6 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+T4 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+S1 @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+SQ @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:37
+(anonymous) @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:65
+V @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+B @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+eo @ code_components_preview_iframe-a59e887ff2b29247.min.js.br:61
+cors-image-proxy.figma.com/?url=https%3A%2F%2Fimages.unsplash.com%2Fphoto-1588783948922-0c6e1c6a7c9c%3Fw%3D200%26h%3D80%26fit%3Dcrop:1  Failed to load resource: the server responded with a status of 403 ()
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ⚠️ Emergency timeout - forcing page ready
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 ⚠️ No branding profile found anywhere
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🎨 Landing Page Brand Data: {companyName: 'Black Phoenix Builds', companyTagline: 'Excellence in Construction & Remodeling', logoUrl: 'No logo ✗', brandingData: null}
+code_components_preview_iframe-a59e887ff2b29247.min.js.br:106 🔍 SignUpOptionsModal - isOpen: false v4
+dataPersistence.ts:194  POST https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/data/backup 404 (Not Found)
+backupToDatabase @ dataPersistence.ts:194
+(anonymous) @ dataPersistence.ts:249

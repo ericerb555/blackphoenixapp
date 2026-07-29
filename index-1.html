@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    
+    <!-- Primary Meta Tags -->
+    <title>Enterprise Business Platform - PWA</title>
+    <meta name="title" content="Enterprise Business Platform - PWA" />
+    <meta name="description" content="Comprehensive enterprise business management platform with eCommerce, CRM, analytics, and offline capabilities" />
+    
+    <!-- Theme Colors -->
+    <meta name="theme-color" content="#ea580c" />
+    <meta name="msapplication-TileColor" content="#ea580c" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/pwa-icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/pwa-icon-512.png" />
+    
+    <!-- Apple Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="EBP" />
+    
+    <!-- Splash Screens (optional) -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://yourdomain.com/" />
+    <meta property="og:title" content="Enterprise Business Platform - PWA" />
+    <meta property="og:description" content="Comprehensive enterprise business management platform with eCommerce, CRM, and analytics" />
+    <meta property="og:image" content="/pwa-icon-512.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://yourdomain.com/" />
+    <meta property="twitter:title" content="Enterprise Business Platform - PWA" />
+    <meta property="twitter:description" content="Comprehensive enterprise business management platform" />
+    <meta property="twitter:image" content="/pwa-icon-512.png" />
+    
+    <!-- Preconnect to improve performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://images.unsplash.com" />
+    
+    <!-- DNS Prefetch -->
+    <link rel="dns-prefetch" href="https://plzsvzwwcdopnawtiwzm.supabase.co" />
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" as="script" href="/src/main.tsx" />
+    
+    <!-- Prevent caching during development -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+  </head>
+  <body>
+    <div id="root"></div>
+    
+    <!-- Suppress known Recharts library warnings BEFORE React loads -->
+    <script>
+      // Store original console methods
+      const originalError = console.error;
+      const originalWarn = console.warn;
+      
+      // Override console.error to filter Recharts duplicate key warnings
+      console.error = function(...args) {
+        const errorString = args.join(' ');
+        
+        // Filter out known Recharts duplicate key warning (library bug, not our code)
+        if (errorString.includes('Encountered two children with the same key') && 
+            (errorString.includes('recharts') || errorString.includes('Surface'))) {
+          return; // Suppress this specific warning
+        }
+        
+        // Pass all other errors through
+        originalError.apply(console, args);
+      };
+      
+      // Override console.warn to filter Recharts warnings
+      console.warn = function(...args) {
+        const warnString = args.join(' ');
+        
+        // Filter out Recharts warnings
+        if (warnString.includes('recharts') && warnString.includes('duplicate key')) {
+          return; // Suppress
+        }
+        
+        // Pass all other warnings through
+        originalWarn.apply(console, args);
+      };
+      
+      console.log('✅ Console filter active - Recharts warnings suppressed');
+    </script>
+    
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Service Worker Registration DISABLED - Causes caching issues -->
+    <script>
+      // FORCE UNREGISTER ALL SERVICE WORKERS
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+            console.log('🗑️ Service Worker unregistered from index.html');
+          }
+        });
+      }
+      
+      // FORCE CLEAR ALL CACHES
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (let name of names) {
+            caches.delete(name);
+            console.log('🗑️ Cache cleared from index.html:', name);
+          }
+        });
+      }
+      
+      console.log('✅ Cache cleanup complete - reloading fresh code');
+    </script>
+  </body>
+</html>

@@ -1,0 +1,58 @@
+🎭 [AuthProvider] demo_mode from localStorage: null
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: false
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: false user: true loading: true
+App.tsx:621 🔒 [ProtectedRoutes] Rendering - loading: true user: true isDemoMode: false currentPath: owners-dashboard
+App.tsx:919 🔒 [ProtectedRoutes] Showing loading state
+App.tsx:625 🔒 [ProtectedRoutes] useEffect running
+App.tsx:626 🔒 [ProtectedRoutes] redirecting: false
+App.tsx:627 🔒 [ProtectedRoutes] loading: true
+App.tsx:628 🔒 [ProtectedRoutes] user: true
+App.tsx:629 🔒 [ProtectedRoutes] isDemoMode: false
+App.tsx:630 🔒 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:640 🔐 [ProtectedRoutes] Auth check - Real user: true Demo mode: false Authenticated: Object
+App.tsx:641 📍 [ProtectedRoutes] Current path: owners-dashboard Is public: false
+App.tsx:809 👑 [ProtectedRoutes] Elevated permissions: false
+App.tsx:815 🔍 [ProtectedRoutes] isPlatformOwner: true userEmail: ericerb555@proton.me
+App.tsx:816 🔍 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:817 🔍 [ProtectedRoutes] accountType: customer
+App.tsx:866 👑 [ProtectedRoutes] Platform owner - full access to all routes
+App.tsx:1078 ✅ Page is now ready!
+App.tsx:1084 ⚠️ Emergency timeout - forcing page ready
+owners-dashboard:97 [DataPersistence] Initialization skipped: Initialization timeout
+console.warn @ owners-dashboard:97
+AuthContext.tsx:299 [AuthContext] Session timeout - continuing without session
+AuthContext.tsx:119 🎭 [AuthProvider] INITIALIZING
+AuthContext.tsx:120 🎭 [AuthProvider] demo_mode from localStorage: null
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: false
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: false user: true loading: false
+App.tsx:621 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: false currentPath: owners-dashboard
+App.tsx:950 🔒 [ProtectedRoutes] Rendering children
+App.tsx:443 SignOutButton render - user: true isDemoMode: false hasProfile: false
+DataInitializer.tsx:28 ✅ Data already initialized (skipping). Clear localStorage to re-initialize.
+OwnersDashboard.tsx:78 [OwnersDashboard] userCompanies from context: Array(0)
+OwnersDashboard.tsx:79 [OwnersDashboard] activeCompany: null
+OwnersDashboard.tsx:98 [OwnersDashboard] 🔍 All companies in localStorage: Array(0)
+OwnersDashboard.tsx:99 [OwnersDashboard] 🔍 Total company_ keys found: 0
+OwnersDashboard.tsx:100 [OwnersDashboard] 📋 ALL localStorage keys: Array(0)
+CompanyContext.tsx:674 [CompanyContext] useEffect triggered, calling restoreSession
+CompanyContext.tsx:436 [CompanyContext] restoreSession called
+App.tsx:625 🔒 [ProtectedRoutes] useEffect running
+App.tsx:626 🔒 [ProtectedRoutes] redirecting: false
+App.tsx:627 🔒 [ProtectedRoutes] loading: false
+App.tsx:628 🔒 [ProtectedRoutes] user: true
+App.tsx:629 🔒 [ProtectedRoutes] isDemoMode: false
+App.tsx:630 🔒 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:640 🔐 [ProtectedRoutes] Auth check - Real user: true Demo mode: false Authenticated: Object
+App.tsx:641 📍 [ProtectedRoutes] Current path: owners-dashboard Is public: false
+App.tsx:809 👑 [ProtectedRoutes] Elevated permissions: false
+App.tsx:815 🔍 [ProtectedRoutes] isPlatformOwner: true userEmail: ericerb555@proton.me
+App.tsx:816 🔍 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:817 🔍 [ProtectedRoutes] accountType: customer
+App.tsx:866 👑 [ProtectedRoutes] Platform owner - full access to all routes
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+manifest.json:1  Failed to load resource: the server responded with a status of 401 ()
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.

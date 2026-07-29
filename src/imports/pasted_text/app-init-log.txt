@@ -1,0 +1,253 @@
+VM63 unified-dashboard:33 ✅ Console filter active - Recharts warnings suppressed
+VM65 unified-dashboard:22 ✅ Cache cleanup complete - reloading fresh code
+cleanupLocalStorage.ts:62 ℹ️ [Cleanup] Run window.cleanupLocalStorage() to remove old localStorage keys
+dataPersistence.ts:48 🔒 [DataPersistence] Initializing data persistence system...
+dataPersistence.ts:80 ✅ [DataPersistence] Critical data exists in localStorage
+autoBackup.ts:118 🚀 [AutoBackup] Starting automatic backup system (every 30 seconds)
+autoBackup.ts:13 🔄 [AutoBackup #1] Running automatic backup...
+autoBackup.ts:72 ✅ [AutoBackup #1] Backed up 1 companies to 3 locations
+debugLogoData.ts:59 🔧 Debug utility available: Run window.debugLogoData() to check logo data
+seedReconciliationData.ts:224 🌱 [Seed] Reconciliation data seeder available: run seedReconciliationData() in console
+generateCompletionReport.ts:303 ✅ Completion report utilities loaded:
+generateCompletionReport.ts:304   - generateCompletionReportData(workOrderId)
+generateCompletionReport.ts:305   - createSampleCompletionData(workOrderId)
+generateCompletionReport.ts:306   - addReceiptToWorkOrder(workOrderId, receipt)
+generateCompletionReport.ts:307   - addLaborEntryToWorkOrder(workOrderId, labor)
+generateCompletionReport.ts:308   - addChangeOrderToWorkOrder(workOrderId, changeOrder)
+verifyCompanyData.ts:96 🔍 [CompanyData] Verification utility loaded. Run verifyCompanyData() in console to check data.
+VM63 unified-dashboard:30 GoTrueClient@sb-plzsvzwwcdopnawtiwzm-auth-token:1 (2.105.4) 2026-05-17T22:45:33.600Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+console.warn @ VM63 unified-dashboard:30
+propertyManagementService.ts:4 🔧 Property Management Service Initialized
+propertyManagementService.ts:5   - Project ID: plzsvzwwcdopnawtiwzm
+propertyManagementService.ts:6   - Public Key: ✓ Loaded
+propertyManagementService.ts:10   - BASE_URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/property-management
+initializeOwnerProfile.ts:48 ✅ Owner profile updated: Object
+initializeOwnerProfile.ts:82 🔧 Owner profile initialized successfully
+syncToSupabase.ts:84 📥 [Sync] Loading company data from Supabase...
+App.tsx:63 ✅ [App] Company data verification available: run verifyCompanyData() in console
+dataPersistence.ts:163 💾 [DataPersistence] Starting backup to database...
+App.tsx:1137 🚀 App component initializing...
+App.tsx:1138 🚀 Current URL: https://blackphoenixapp-puw7r5vfl-black-phoenix-builds.vercel.app/unified-dashboard
+App.tsx:1139 🚀 Current pathname: /unified-dashboard
+App.tsx:1294 🔄 Rendering App component...
+App.tsx:1295 🔄 isPageReady: true
+App.tsx:1378 🎬 AppContent component starting...
+App.tsx:1383 🚀 Initial page state: unified-dashboard
+App.tsx:1388 📊 AppContent state initialized successfully
+App.tsx:1463 📄 Current page: unified-dashboard
+App.tsx:1464 🌐 Online status: true
+App.tsx:1917 🎨 About to render AppContent JSX...
+App.tsx:1918 🎨 Current page before render: unified-dashboard
+App.tsx:1709 🎨 Rendering page: unified-dashboard
+App.tsx:1710 🎨 pageToRender === 'directory-landing-page'? false
+App.tsx:1711 🎨 pageToRender === 'directory'? false
+App.tsx:1763 🔍 Looking for: unified-dashboard
+App.tsx:1764 🔍 Route exists in pageMap? true
+App.tsx:1765 🔍 Component type: function
+App.tsx:1766 🔍 DirectoryLandingPage import: function
+App.tsx:1767 🔍 pageMap['directory-landing-page']: function
+App.tsx:1851 ✅ Page component found: unified-dashboard function
+AuthContext.tsx:119 🎭 [AuthProvider] INITIALIZING
+AuthContext.tsx:120 🎭 [AuthProvider] demo_mode from localStorage: true
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: true
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+App.tsx:800 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: true currentPath: unified-dashboard
+App.tsx:1132 🔒 [ProtectedRoutes] Rendering children
+App.tsx:510 SignOutButton render - user: true isDemoMode: true hasProfile: true
+chrome-extension://j…ntent_reporter.js:1 Uncaught SyntaxError: Cannot use import statement outside a module
+DataInitializer.tsx:19 🎭 Demo mode detected - skipping server data initialization
+App.tsx:540 🔍 [CompanySelector] Logo variants raw: null
+usePendingApprovals.ts:25 🔍 Fetching pending approval counts...
+propertyManagementService.ts:334 🌐 [Property Management Service] Fetching pending counts...
+propertyManagementService.ts:335   - URL: https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/property-management/pending-counts
+UnifiedDashboard.tsx:218 ⚠️ Server check disabled, working in offline mode
+CompanyDataRestorer.tsx:61 ✅ Company data already exists
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+CompanyContext.tsx:837 [CompanyContext] useEffect triggered, calling restoreSession
+CompanyContext.tsx:628 [CompanyContext] restoreSession called
+App.tsx:804 🔒 [ProtectedRoutes] useEffect running
+App.tsx:805 🔒 [ProtectedRoutes] redirecting: false
+App.tsx:806 🔒 [ProtectedRoutes] loading: false
+App.tsx:807 🔒 [ProtectedRoutes] user: true
+App.tsx:808 🔒 [ProtectedRoutes] isDemoMode: true
+App.tsx:809 🔒 [ProtectedRoutes] currentPath: unified-dashboard
+App.tsx:841 🔐 [ProtectedRoutes] Auth check - Real user: true Demo mode: true Authenticated: Object
+App.tsx:842 📍 [ProtectedRoutes] Current path: unified-dashboard Is public: true
+App.tsx:871 👤 [ProtectedRoutes] RAW profile from localStorage: Object
+App.tsx:872 👤 [ProtectedRoutes] Extracted - accountType: owner userEmail: ericerb555@proton.me
+App.tsx:877 👑 [ProtectedRoutes] OWNER EMAIL DETECTED!
+App.tsx:890 👤 [ProtectedRoutes] FINAL - accountType: owner userEmail: ericerb555@proton.me
+App.tsx:1029 👑 [ProtectedRoutes] Elevated permissions: true
+App.tsx:1035 🔍 [ProtectedRoutes] isPlatformOwner: true userEmail: ericerb555@proton.me
+App.tsx:1036 🔍 [ProtectedRoutes] currentPath: unified-dashboard
+App.tsx:1037 🔍 [ProtectedRoutes] accountType: owner
+App.tsx:1080 🔒 [ProtectedRoutes] Public route, no restrictions
+App.tsx:1186 👑 [APP INIT] Owner email detected: ericerb555@proton.me
+App.tsx:1187 👑 [APP INIT] Current accountType: owner
+App.tsx:1188 👑 [APP INIT] Current path: /unified-dashboard
+App.tsx:1274 📍 Setting page ready
+App.tsx:510 SignOutButton render - user: true isDemoMode: true hasProfile: true
+App.tsx:1278 ✅ Page is now ready!
+App.tsx:1416 ✅ All service workers and caches cleared
+companyDatabaseService.ts:109 No user ID - using anonymous mode
+companyDatabaseService.ts:336 ⚠️ Loaded 1 companies from localStorage (companies_offline)
+ActiveCompanyContext.tsx:44 ✅ Active company: undefined
+CompanyContext.tsx:661 [CompanyContext] User: Object
+CompanyContext.tsx:663 [CompanyContext] No user, setting loading=false
+CompanyContext.tsx:722 [CompanyContext] ✅ Restore complete, setting loading=false
+CompanyContext.tsx:841 [CompanyContext] Auth state changed: INITIAL_SESSION
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/data/backup:1  Failed to load resource: the server responded with a status of 404 ()
+dataPersistence.ts:215 ℹ️ [DataPersistence] Backup server not yet deployed (data safe in localStorage)
+dataPersistence.ts:252 ⏰ [DataPersistence] Auto-backup started (every 30 seconds)
+dataPersistence.ts:275 👁️ [DataPersistence] Storage monitoring active
+dataPersistence.ts:287 💾 [DataPersistence] Before-unload backup registered
+dataPersistence.ts:65 ✅ [DataPersistence] System initialized
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/metrics/revenue:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/customers:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/jobs/active-count:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/kv/test_key:1  Failed to load resource: the server responded with a status of 404 ()
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/customers/count:1  Failed to load resource: the server responded with a status of 404 ()
+propertyManagementService.ts:347 📡 Response status: 200 
+syncToSupabase.ts:100 ℹ️ [Sync] No profiles found in Supabase
+syncToSupabase.ts:15 🔄 [Sync] Starting company data sync to Supabase...
+syncToSupabase.ts:22 ℹ️ [Sync] No company data found in localStorage
+syncToSupabase.ts:154 ✅ [Sync] Data sync initialized - will auto-sync every 30 seconds
+propertyManagementService.ts:361 ✅ Response data: Object
+usePendingApprovals.ts:27 📊 Pending approval counts response: Object
+plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/employees/count:1  Failed to load resource: the server responded with a status of 404 ()
+App.tsx:1682 🧭 Navigating to: owners-dashboard
+App.tsx:1686 🧭 Normalized path: owners-dashboard
+App.tsx:1687 🧭 Route exists in pageMap? true
+App.tsx:1688 🧭 About to set currentPage to: owners-dashboard
+App.tsx:1689 🧭 Current currentPage value: unified-dashboard
+App.tsx:1691 🧭 Inside startTransition - setting state
+App.tsx:1695 🧭 State set complete
+App.tsx:1697 🧭 Navigate function complete
+App.tsx:1378 🎬 AppContent component starting...
+App.tsx:1388 📊 AppContent state initialized successfully
+App.tsx:1463 📄 Current page: unified-dashboard
+App.tsx:1464 🌐 Online status: true
+App.tsx:1917 🎨 About to render AppContent JSX...
+App.tsx:1918 🎨 Current page before render: unified-dashboard
+App.tsx:1709 🎨 Rendering page: unified-dashboard
+App.tsx:1710 🎨 pageToRender === 'directory-landing-page'? false
+App.tsx:1711 🎨 pageToRender === 'directory'? false
+App.tsx:1763 🔍 Looking for: unified-dashboard
+App.tsx:1764 🔍 Route exists in pageMap? true
+App.tsx:1765 🔍 Component type: function
+App.tsx:1766 🔍 DirectoryLandingPage import: function
+App.tsx:1767 🔍 pageMap['directory-landing-page']: function
+App.tsx:1851 ✅ Page component found: unified-dashboard function
+AuthContext.tsx:119 🎭 [AuthProvider] INITIALIZING
+AuthContext.tsx:120 🎭 [AuthProvider] demo_mode from localStorage: true
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: true
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+App.tsx:800 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: true currentPath: owners-dashboard
+App.tsx:1132 🔒 [ProtectedRoutes] Rendering children
+App.tsx:510 SignOutButton render - user: true isDemoMode: true hasProfile: true
+App.tsx:804 🔒 [ProtectedRoutes] useEffect running
+App.tsx:805 🔒 [ProtectedRoutes] redirecting: false
+App.tsx:806 🔒 [ProtectedRoutes] loading: false
+App.tsx:807 🔒 [ProtectedRoutes] user: true
+App.tsx:808 🔒 [ProtectedRoutes] isDemoMode: true
+App.tsx:809 🔒 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:841 🔐 [ProtectedRoutes] Auth check - Real user: true Demo mode: true Authenticated: Object
+App.tsx:842 📍 [ProtectedRoutes] Current path: owners-dashboard Is public: false
+App.tsx:871 👤 [ProtectedRoutes] RAW profile from localStorage: Object
+App.tsx:872 👤 [ProtectedRoutes] Extracted - accountType: owner userEmail: ericerb555@proton.me
+App.tsx:877 👑 [ProtectedRoutes] OWNER EMAIL DETECTED!
+App.tsx:890 👤 [ProtectedRoutes] FINAL - accountType: owner userEmail: ericerb555@proton.me
+App.tsx:1029 👑 [ProtectedRoutes] Elevated permissions: true
+App.tsx:1035 🔍 [ProtectedRoutes] isPlatformOwner: true userEmail: ericerb555@proton.me
+App.tsx:1036 🔍 [ProtectedRoutes] currentPath: owners-dashboard
+App.tsx:1037 🔍 [ProtectedRoutes] accountType: owner
+App.tsx:1070 👑 [ProtectedRoutes] Platform owner - full access to all routes
+AuthContext.tsx:119 🎭 [AuthProvider] INITIALIZING
+AuthContext.tsx:120 🎭 [AuthProvider] demo_mode from localStorage: true
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: true
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+App.tsx:1378 🎬 AppContent component starting...
+App.tsx:1388 📊 AppContent state initialized successfully
+App.tsx:1463 📄 Current page: owners-dashboard
+App.tsx:1464 🌐 Online status: true
+App.tsx:1917 🎨 About to render AppContent JSX...
+App.tsx:1918 🎨 Current page before render: owners-dashboard
+App.tsx:1709 🎨 Rendering page: owners-dashboard
+App.tsx:1710 🎨 pageToRender === 'directory-landing-page'? false
+App.tsx:1711 🎨 pageToRender === 'directory'? false
+App.tsx:1763 🔍 Looking for: owners-dashboard
+App.tsx:1764 🔍 Route exists in pageMap? true
+App.tsx:1765 🔍 Component type: function
+App.tsx:1766 🔍 DirectoryLandingPage import: function
+App.tsx:1767 🔍 pageMap['directory-landing-page']: function
+App.tsx:1851 ✅ Page component found: owners-dashboard function
+AuthContext.tsx:119 🎭 [AuthProvider] INITIALIZING
+AuthContext.tsx:120 🎭 [AuthProvider] demo_mode from localStorage: true
+AuthContext.tsx:121 🎭 [AuthProvider] initialDemoMode: true
+AuthContext.tsx:134 🎭 [AuthProvider] Initial state set - isDemoMode: true user: true loading: false
+App.tsx:800 🔒 [ProtectedRoutes] Rendering - loading: false user: true isDemoMode: true currentPath: owners-dashboard
+App.tsx:1132 🔒 [ProtectedRoutes] Rendering children
+App.tsx:510 SignOutButton render - user: true isDemoMode: true hasProfile: true
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+App.tsx:1284 ⚠️ Emergency timeout - forcing page ready
+simpleCompanyStore.ts:64 [CompanyStore] No companies found
+simpleCompanyStore.ts:64 [CompanyStore] No companies found
+OwnersDashboard.tsx:90 [OwnersDashboard] Loaded: 0 companies
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 0 companies
+SimpleCompanyManager.tsx:163 [SimpleCompanyManager] 🔄 Loading companies for user: demo-user-123
+companyDatabaseService.ts:109 No user ID - using anonymous mode
+companyDatabaseService.ts:336 ⚠️ Loaded 1 companies from localStorage (companies_offline)
+SimpleCompanyManager.tsx:168 [SimpleCompanyManager] 📊 Database result: Object
+SimpleCompanyManager.tsx:235 ✅ Loaded companies from database: 1
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+EnhancedCompanyForm.tsx:286 [EnhancedCompanyForm] 🔵 handleSubmit called
+EnhancedCompanyForm.tsx:287 [EnhancedCompanyForm] formData.name: Black Phoenix Builds
+EnhancedCompanyForm.tsx:288 [EnhancedCompanyForm] Full formData: Object
+EnhancedCompanyForm.tsx:296 [EnhancedCompanyForm] ✅ Validation passed, starting save...
+EnhancedCompanyForm.tsx:306 [EnhancedCompanyForm] 💾 Calling onSave with: Object
+companyDatabaseService.ts:369 ⚠️ Company saved to localStorage (offline mode)
+SimpleCompanyManager.tsx:530 ✅ Saved extended company data to localStorage
+SimpleCompanyManager.tsx:163 [SimpleCompanyManager] 🔄 Loading companies for user: demo-user-123
+companyDatabaseService.ts:109 No user ID - using anonymous mode
+companyDatabaseService.ts:336 ⚠️ Loaded 0 companies from localStorage (companies_cache)
+SimpleCompanyManager.tsx:168 [SimpleCompanyManager] 📊 Database result: Object
+brandingService.ts:61 🔍 Loading branding profile from database...
+companyDatabaseService.ts:109 No user ID - using anonymous mode
+companyDatabaseService.ts:336 ⚠️ Loaded 0 companies from localStorage (companies_cache)
+database.ts:102 ✅ Loaded from database: company_branding_profile_anonymous
+brandingService.ts:96 ✅ Loaded branding profile from fallback storage
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+companyDatabaseService.ts:369 ⚠️ Company saved to localStorage (offline mode)
+brandingService.ts:252 ✅ Background migration to database complete
+companyDatabaseService.ts:369 ⚠️ Company saved to localStorage (offline mode)
+SimpleCompanyManager.tsx:267 ✅ Created company from branding profile and saved to database
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+companyDatabaseService.ts:109 No user ID - using anonymous mode
+companyDatabaseService.ts:336 ⚠️ Loaded 1 companies from localStorage (companies_cache)
+ActiveCompanyContext.tsx:44 ✅ Active company: Black Phoenix Custom Builds LLC 
+EnhancedCompanyForm.tsx:308 [EnhancedCompanyForm] ✅ onSave completed successfully
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+autoBackup.ts:13 🔄 [AutoBackup #2] Running automatic backup...
+autoBackup.ts:72 ✅ [AutoBackup #2] Backed up 1 companies to 3 locations
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+syncToSupabase.ts:15 🔄 [Sync] Starting company data sync to Supabase...
+syncToSupabase.ts:22 ℹ️ [Sync] No company data found in localStorage
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+dataPersistence.ts:227 ℹ️ [DataPersistence] Backup request timeout - will retry later
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+SimpleCompanyManager.tsx:730 [SimpleCompanyManager] 📋 Rendering with 1 companies
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+manifest.json:1  Failed to load resource: the server responded with a status of 401 ()
+autoBackup.ts:13 🔄 [AutoBackup #3] Running automatic backup...
+autoBackup.ts:72 ✅ [AutoBackup #3] Backed up 1 companies to 3 locations
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+dataPersistenceManager.ts:190 🔍 [DataPersistenceManager] Verifying data integrity...
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+syncToSupabase.ts:15 🔄 [Sync] Starting company data sync to Supabase...
+syncToSupabase.ts:22 ℹ️ [Sync] No company data found in localStorage
+dataPersistence.ts:227 ℹ️ [DataPersistence] Backup request timeout - will retry later
+owners-dashboard:1 The resource data:application/octet-stream;base64,aW1wb3J0IFJlYWN0IGZyb20gJ3JlYWN0JwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCcKaW1wb3J0IEFwcCBmcm9tICcuL2FwcC9BcHAnCmltcG9ydCAnLi9zdHlsZXMvaW5kZXguY3NzJwoKUmVhY3RET00uY3JlYXRlUm9vdChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9vdCcpISkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEFwcCAvPgogIDwvUmVhY3QuU3RyaWN0TW9kZT4sCikK was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
