@@ -194,13 +194,13 @@ export default function PublicStore() {
             console.log('[PublicStore] ✅ Rendering', items.length, 'live products');
             setDropshipProducts(items);
           } else {
-            console.warn('[PublicStore] ⚠️ 0 live products returned — falling back to demo items');
+            console.warn('[PublicStore] ⚠️ 0 live products returned from server');
           }
         } else {
-          console.error('[PublicStore] ❌ /products fetch failed with status', res.status, '— falling back to demo items');
+          console.error('[PublicStore] ❌ /products fetch failed with status', res.status);
         }
       } catch (err) {
-        console.error('[PublicStore] ❌ /products fetch threw — falling back to demo items:', err);
+        console.error('[PublicStore] ❌ /products fetch threw:', err);
       } finally {
         setLoadingProducts(false);
       }
@@ -349,93 +349,11 @@ export default function PublicStore() {
 
   const categories = ['All', 'Home & Garden', 'Tools & Hardware', 'Electronics', 'Apparel', 'Health & Beauty', 'Sports & Outdoors', 'Kitchen', 'Office', 'Toys & Games', 'Automotive', 'Pet Supplies'];
 
-  const products: Product[] = [
-    {
-      id: 'p1', name: 'Wireless Noise-Cancelling Headphones',
-      description: 'Premium over-ear headphones with 30hr battery, active noise cancellation, and foldable design.',
-      price: 79.99, originalPrice: 129.99, category: 'Electronics', rating: 4.9, reviews: 2841,
-      image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400&q=80',
-      inStock: true, featured: true, badge: 'BESTSELLER',
-    },
-    {
-      id: 'p2', name: 'Stainless Steel Water Bottle (32oz)',
-      description: 'Double-wall vacuum insulated. Keeps drinks cold 24hrs, hot 12hrs. Leak-proof lid.',
-      price: 24.99, originalPrice: 39.99, category: 'Sports & Outdoors', rating: 4.8, reviews: 5102,
-      image: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=400&q=80',
-      inStock: true, featured: true, badge: 'TOP RATED',
-    },
-    {
-      id: 'p3', name: 'Smart LED Strip Lights (16ft)',
-      description: 'RGB color-changing LED strips, app & voice control, works with Alexa & Google Home.',
-      price: 19.99, originalPrice: 34.99, category: 'Electronics', rating: 4.7, reviews: 3920,
-      image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80',
-      inStock: true, featured: true, badge: 'HOT',
-    },
-    {
-      id: 'p4', name: 'Cordless Drill & Driver Set',
-      description: '20V MAX cordless drill with 2 batteries, charger, and 50-piece accessory set.',
-      price: 89.99, originalPrice: 129.99, category: 'Tools & Hardware', rating: 4.8, reviews: 1456,
-      image: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=400&q=80',
-      inStock: true, featured: true,
-    },
-    {
-      id: 'p5', name: 'Yoga Mat — Non-Slip (6mm)',
-      description: 'Extra thick non-slip yoga mat with carrying strap. Eco-friendly TPE material.',
-      price: 29.99, originalPrice: 49.99, category: 'Sports & Outdoors', rating: 4.8, reviews: 2234,
-      image: 'https://images.unsplash.com/photo-1601925228010-7c09e48f2be3?w=400&q=80',
-      inStock: true,
-    },
-    {
-      id: 'p6', name: 'Air Fryer (5.8Qt)',
-      description: 'Large capacity digital air fryer with 8 presets. 1700W, dishwasher-safe basket.',
-      price: 69.99, originalPrice: 99.99, category: 'Kitchen', rating: 4.9, reviews: 7821,
-      image: 'https://images.unsplash.com/photo-1585515320310-259814833e62?w=400&q=80',
-      inStock: true, badge: 'BESTSELLER',
-    },
-    {
-      id: 'p7', name: 'Graphic Hoodie — Unisex',
-      description: 'Soft fleece pullover hoodie with kangaroo pocket. Available in 6 colors.',
-      price: 39.99, originalPrice: 59.99, category: 'Apparel', rating: 4.6, reviews: 934,
-      image: 'https://images.unsplash.com/photo-1556821840-3a63f15732ce?w=400&q=80',
-      inStock: true, colors: ['Black', 'Gray', 'Navy', 'White', 'Olive', 'Burgundy'],
-      sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
-    },
-    {
-      id: 'p8', name: 'Portable Bluetooth Speaker',
-      description: '360° surround sound, waterproof IPX7, 20hr battery. Perfect for outdoors.',
-      price: 49.99, originalPrice: 79.99, category: 'Electronics', rating: 4.7, reviews: 3102,
-      image: 'https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=400&q=80',
-      inStock: true,
-    },
-    {
-      id: 'p9', name: 'Vitamin C + Zinc Gummies (90ct)',
-      description: 'Immune support gummies, natural orange flavor, no artificial colors or sweeteners.',
-      price: 18.99, originalPrice: 27.99, category: 'Health & Beauty', rating: 4.8, reviews: 4521,
-      image: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80',
-      inStock: true, badge: 'POPULAR',
-    },
-    {
-      id: 'p10', name: 'Mechanical Keyboard (TKL)',
-      description: 'Tenkeyless mechanical keyboard, blue switches, RGB backlit, USB-C.',
-      price: 59.99, originalPrice: 89.99, category: 'Electronics', rating: 4.7, reviews: 1867,
-      image: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&q=80',
-      inStock: true,
-    },
-    {
-      id: 'p11', name: 'Dog Harness — No-Pull (M)',
-      description: 'Adjustable no-pull dog harness with reflective strips. Easy on/off clip.',
-      price: 22.99, originalPrice: 34.99, category: 'Pet Supplies', rating: 4.9, reviews: 6234,
-      image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=400&q=80',
-      inStock: true,
-    },
-    {
-      id: 'p12', name: 'Car Phone Mount — Dashboard',
-      description: 'Universal magnetic dashboard phone mount, 360° rotation, strong suction.',
-      price: 14.99, originalPrice: 24.99, category: 'Automotive', rating: 4.6, reviews: 2891,
-      image: 'https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?w=400&q=80',
-      inStock: true, badge: 'SALE',
-    },
-  ];
+  // NOTE: The storefront shows ONLY real products — live catalog items fetched
+  // from the server (`dropshipProducts`) plus the owner's real Auto-Pilot imports
+  // (`autoImported`). The former hardcoded demo catalog has been removed so no
+  // placeholder/mock items can ever appear.
+  const products: Product[] = [];
 
   // Auto-Pilot products from localStorage
   const autoImported: Product[] = (() => {
@@ -479,10 +397,12 @@ export default function PublicStore() {
     return { ...p, price: best, originalPrice: p.originalPrice && p.originalPrice > p.price ? p.originalPrice : p.price, badge: p.badge || 'SALE' };
   };
 
-  // Merge: live dropship products first, then auto-pilot, then hardcoded as fallback
-  const allProductsRaw = dropshipProducts.length > 0
-    ? [...dropshipProducts, ...autoImported.filter(a => !dropshipProducts.find(d => d.name === a.name)), ...products.filter(p => !dropshipProducts.find(d => d.name === p.name))]
-    : [...autoImported, ...products.filter(p => !autoImported.find(a => a.name === p.name))];
+  // Merge REAL products only: live catalog first, then the owner's Auto-Pilot
+  // imports (deduped by name). No hardcoded/demo fallback.
+  const allProductsRaw = [
+    ...dropshipProducts,
+    ...autoImported.filter(a => !dropshipProducts.find(d => d.name === a.name)),
+  ];
   const allProducts = promoEngine.activeDiscounts.length > 0 ? allProductsRaw.map(applyScheduledDiscount) : allProductsRaw;
 
   const filteredProducts = allProducts.filter(product => {
@@ -1335,9 +1255,20 @@ export default function PublicStore() {
           <p className="text-sm text-gray-600 mb-5">{viewProducts.length} product{viewProducts.length !== 1 ? 's' : ''}</p>
 
           {/* Grid */}
-          {viewProducts.length > 0 ? (
+          {loadingProducts && allProductsRaw.length === 0 ? (
+            <div className="text-center py-24">
+              <div className="w-10 h-10 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-gray-400 text-sm">Loading products…</p>
+            </div>
+          ) : viewProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {viewProducts.map(product => <ProductCard key={product.id} product={product} />)}
+            </div>
+          ) : allProductsRaw.length === 0 ? (
+            <div className="text-center py-24">
+              <Package className="w-16 h-16 mx-auto mb-4 text-gray-700" />
+              <h3 className="text-xl font-bold mb-2">No products available yet</h3>
+              <p className="text-gray-500 text-sm">Check back soon — new products are on the way.</p>
             </div>
           ) : (
             <div className="text-center py-24">
