@@ -68,6 +68,9 @@ export default function UnifiedDashboardMobile({
   teamCount
 }: UnifiedDashboardMobileProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  // Read-only until focus blocks password-manager autofill of the sign-in email
+  // into the module search (which hid the grid until manually cleared).
+  const [searchReadOnly, setSearchReadOnly] = useState(true);
   const [activeTab, setActiveTab] = useState('operations');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
   const [alertCount, setAlertCount] = useState(8);
@@ -168,6 +171,10 @@ export default function UnifiedDashboardMobile({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             // Prevent password managers from autofilling the saved email here.
+            // Read-only until focus is the reliable stopper (Chromium ignores
+            // autoComplete="off"); it flips editable the instant the user taps in.
+            readOnly={searchReadOnly}
+            onFocus={() => setSearchReadOnly(false)}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"

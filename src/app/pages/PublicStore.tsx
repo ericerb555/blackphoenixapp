@@ -675,35 +675,52 @@ export default function PublicStore() {
   ).slice(0, 4);
   const [shopView, setShopView] = useState<'home' | 'hot' | 'top-sellers' | 'sports' | 'clothing' | 'beauty' | 'construction' | 'electronics' | 'all'>('home');
 
+  // Match a product to a category shelf by keyword, checking BOTH its category
+  // and its name. Real catalog categories almost never equal our tab labels
+  // (they're often "General", a supplier category, etc.), so exact-string
+  // matching left every shelf empty. Keyword+name matching fixes that.
+  const inBucket = (p: Product, keywords: string[]) => {
+    const hay = `${p.category || ''} ${p.name || ''} ${p.description || ''}`.toLowerCase();
+    return keywords.some(k => hay.includes(k));
+  };
+  const CATEGORY_KEYWORDS: Record<string, string[]> = {
+    sports: ['sport', 'fitness', 'outdoor', 'gym', 'athletic', 'exercise', 'yoga', 'bike', 'bicycle', 'camp', 'hiking', 'ball', 'workout'],
+    clothing: ['apparel', 'cloth', 'shirt', 'tee', 't-shirt', 'hoodie', 'sweat', 'jacket', 'coat', 'pants', 'jeans', 'dress', 'hat', 'cap', 'shoe', 'sneaker', 'boot', 'wear', 'sock', 'legging', 'jersey', 'shorts', 'glove'],
+    beauty: ['beauty', 'cosmetic', 'skin', 'hair', 'makeup', 'make-up', 'personal care', 'nail', 'fragrance', 'perfume', 'lotion', 'serum', 'lip', 'facial', 'shampoo'],
+    construction: ['tool', 'hardware', 'construction', 'build', 'automotive', 'drill', 'saw', 'wrench', 'hammer', 'paint', 'ladder', 'screw', 'bolt', 'garden', 'home improvement', 'plumb'],
+    electronics: ['electronic', 'tech', 'gadget', 'audio', 'phone', 'computer', 'laptop', 'charger', 'headphone', 'earbud', 'speaker', 'camera', 'watch', 'led', 'usb', 'bluetooth', 'wireless', 'battery'],
+  };
+
   // Derive products for the current shopView
   const getViewProducts = () => {
-    const q = searchQuery.toLowerCase();
-    let base: typeof allProducts = [];
+    const q = searchQuery.trim().toLowerCase();
+    // A search always queries the WHOLE catalog, regardless of the active
+    // category shelf, so shoppers can find anything from any view.
+    if (q) {
+      return allProducts.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q),
+      );
+    }
+
     if (shopView === 'hot') {
       // Rank by the Kalodata-style trending score when present, then fall back
       // to badge/featured membership and rating so it degrades gracefully.
       const hot = allProducts.filter(p => p.trendingScore != null || p.badge || p.featured);
-      base = (hot.length ? hot : allProducts).sort((a, b) =>
+      return (hot.length ? hot : allProducts).slice().sort((a, b) =>
         (b.trendingScore ?? (b.featured ? 50 : 0)) - (a.trendingScore ?? (a.featured ? 50 : 0)) ||
         b.rating - a.rating,
       );
-    } else if (shopView === 'top-sellers') {
-      base = [...allProducts].sort((a, b) => b.reviews - a.reviews);
-    } else if (shopView === 'sports') {
-      base = allProducts.filter(p => ['sports', 'sports & outdoors', 'fitness'].includes((p.category || '').toLowerCase()));
-    } else if (shopView === 'clothing') {
-      base = allProducts.filter(p => ['apparel', 'clothing', 'hats'].includes((p.category || '').toLowerCase()));
-    } else if (shopView === 'beauty') {
-      base = allProducts.filter(p => ['health & beauty', 'beauty', 'personal care'].includes((p.category || '').toLowerCase()));
-    } else if (shopView === 'construction') {
-      base = allProducts.filter(p => ['tools & hardware', 'construction', 'automotive'].includes((p.category || '').toLowerCase()));
-    } else if (shopView === 'electronics') {
-      base = allProducts.filter(p => (p.category || '').toLowerCase() === 'electronics');
-    } else {
-      base = [...allProducts].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
     }
-    if (q) base = base.filter(p => p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q));
-    return base;
+    if (shopView === 'top-sellers') return [...allProducts].sort((a, b) => b.reviews - a.reviews);
+    if (shopView === 'sports') return allProducts.filter(p => inBucket(p, CATEGORY_KEYWORDS.sports));
+    if (shopView === 'clothing') return allProducts.filter(p => inBucket(p, CATEGORY_KEYWORDS.clothing));
+    if (shopView === 'beauty') return allProducts.filter(p => inBucket(p, CATEGORY_KEYWORDS.beauty));
+    if (shopView === 'construction') return allProducts.filter(p => inBucket(p, CATEGORY_KEYWORDS.construction));
+    if (shopView === 'electronics') return allProducts.filter(p => inBucket(p, CATEGORY_KEYWORDS.electronics));
+    // 'all'
+    return [...allProducts].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
   };
   const viewProducts = getViewProducts();
 
@@ -1372,12 +1389,20 @@ export default function PublicStore() {
               <h3 className="text-xl font-bold mb-2">No products available yet</h3>
               <p className="text-gray-500 text-sm">Check back soon — new products are on the way.</p>
             </div>
-          ) : (
+          ) : searchQuery ? (
             <div className="text-center py-24">
               <Package className="w-16 h-16 mx-auto mb-4 text-gray-700" />
               <h3 className="text-xl font-bold mb-2">No products found</h3>
               <p className="text-gray-500 text-sm mb-5">Try a different search term</p>
               <button onClick={() => setSearchQuery('')} className="px-6 py-2.5 rounded-xl text-sm font-bold" style={{ background: '#ea580c' }}>Clear Search</button>
+            </div>
+          ) : (
+            // An empty category shelf (no search) — offer the full catalog.
+            <div className="text-center py-24">
+              <Package className="w-16 h-16 mx-auto mb-4 text-gray-700" />
+              <h3 className="text-xl font-bold mb-2">Nothing in {viewTitles[shopView]} yet</h3>
+              <p className="text-gray-500 text-sm mb-5">We don't have products in this category right now.</p>
+              <button onClick={() => setShopView('all')} className="px-6 py-2.5 rounded-xl text-sm font-bold" style={{ background: '#ea580c' }}>Browse All Products</button>
             </div>
           )}
         </div>

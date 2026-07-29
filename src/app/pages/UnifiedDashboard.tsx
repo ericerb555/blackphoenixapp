@@ -99,6 +99,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
   // ALL state hooks must be called before any conditional returns
   const [searchQuery, setSearchQuery] = useState('');
+  // The search box starts read-only so Chrome/Opera password managers can't
+  // autofill the saved sign-in email into it on load (which was filtering the
+  // module grid to empty and hiding the Command Center). It becomes editable
+  // the moment the user actually focuses it.
+  const [searchReadOnly, setSearchReadOnly] = useState(true);
   const [activeTab, setActiveTab] = useState('operations');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -1731,9 +1736,14 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
                   placeholder="Search modules..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  // Stop Opera/Chrome password managers from autofilling the saved
-                  // email into this box — autofill was setting searchQuery, which
-                  // hid the tab panels and made the command-center buttons go black.
+                  // Read-only until focus is the reliable cross-browser way to stop
+                  // Opera/Chrome password managers from autofilling the saved sign-in
+                  // email here on load. Autofill was setting searchQuery, which hid
+                  // the module grid and made the Command Center appear to "go black"
+                  // until the user manually cleared the box. autoComplete="off" alone
+                  // is ignored by Chromium browsers, so we combine both.
+                  readOnly={searchReadOnly}
+                  onFocus={() => setSearchReadOnly(false)}
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"

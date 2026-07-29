@@ -343,6 +343,79 @@ function formatNum(n: number): string {
   return String(n);
 }
 
+// ── Sourcing — where a dropshipper can buy each product ──────────────────────────
+// Each supplier estimates a source (wholesale) cost as a fraction of the retail
+// price, plus typical shipping time, and gives a one-click search deep-link so the
+// owner can jump straight to that product on the supplier's site.
+interface Supplier {
+  name: string;
+  factor: number;        // source cost ≈ retail price × factor
+  ship: string;
+  note: string;
+  accent: string;        // tailwind text color class
+  best?: boolean;        // recommended for dropshipping
+  url: (name: string) => string;
+}
+
+const SUPPLIERS: Supplier[] = [
+  { name: 'Zendrop', factor: 0.40, ship: '5–8 days (US)', note: 'Fastest US shipping · auto-fulfill', accent: 'text-orange-400', best: true,
+    url: n => `https://app.zendrop.com/search?query=${encodeURIComponent(n)}` },
+  { name: 'CJ Dropshipping', factor: 0.36, ship: '7–12 days', note: 'US warehouses · custom branding', accent: 'text-blue-400',
+    url: n => `https://cjdropshipping.com/list/search?searchText=${encodeURIComponent(n)}` },
+  { name: 'AliExpress', factor: 0.30, ship: '10–20 days', note: 'Lowest per-unit cost · huge selection', accent: 'text-red-400',
+    url: n => `https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(n)}` },
+  { name: 'Alibaba (bulk)', factor: 0.20, ship: '15–30 days', note: 'Best for bulk/private label', accent: 'text-yellow-400',
+    url: n => `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(n)}` },
+  { name: 'Amazon', factor: 0.70, ship: '1–2 days', note: 'Instant restock · higher cost', accent: 'text-gray-300',
+    url: n => `https://www.amazon.com/s?k=${encodeURIComponent(n)}` },
+];
+
+function sourceOptions(productName: string, retailPrice: number) {
+  return SUPPLIERS.map(s => {
+    const cost = Math.max(1, Math.round(retailPrice * s.factor));
+    const profit = retailPrice - cost;
+    const margin = retailPrice > 0 ? Math.round((profit / retailPrice) * 100) : 0;
+    return { ...s, cost, profit, margin, link: s.url(productName) };
+  });
+}
+
+// Where-to-source panel used in both Trending Products and Market Alerts.
+function SourcingPanel({ name, price, compact }: { name: string; price: number; compact?: boolean }) {
+  const options = sourceOptions(name, price);
+  return (
+    <div className="rounded-2xl border overflow-hidden" style={{ background: 'rgba(234,88,12,0.04)', borderColor: 'rgba(234,88,12,0.2)' }}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b" style={{ borderColor: 'rgba(234,88,12,0.15)' }}>
+        <ShoppingBag className="w-4 h-4 text-orange-400" />
+        <p className="text-xs font-black text-white uppercase tracking-wider">Where to source it</p>
+        <span className="ml-auto text-xs text-gray-500">Sell price ${price} · profit per unit shown</span>
+      </div>
+      <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        {options.map(o => (
+          <a key={o.name} href={o.link} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition group">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-sm font-bold ${o.accent}`}>{o.name}</span>
+                {o.best && <span className="px-1.5 py-0.5 rounded-full text-xs font-black bg-orange-500/20 text-orange-400 border border-orange-500/30">✅ Recommended</span>}
+                {!compact && <span className="text-xs text-gray-600 flex items-center gap-1"><Clock className="w-3 h-3" /> {o.ship}</span>}
+              </div>
+              {!compact && <p className="text-xs text-gray-500 mt-0.5">{o.note}</p>}
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-xs text-gray-400">Cost <span className="text-white font-bold">${o.cost}</span></p>
+              <p className="text-xs text-green-400 font-bold">+${o.profit} <span className="text-gray-500 font-normal">({o.margin}%)</span></p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-gray-600 group-hover:text-orange-400 transition flex-shrink-0" />
+          </a>
+        ))}
+      </div>
+      <p className="px-4 py-2 text-xs text-gray-600 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        💡 Costs are estimates. Zendrop syncs directly to your store — import it, then set your price in the <span className="text-orange-400">Dropshippers → Pricing</span> tab.
+      </p>
+    </div>
+  );
+}
+
 function trendIcon(trend: string, pct: number) {
   if (trend === 'rising') return <span className="flex items-center gap-1 text-green-400 text-xs font-bold"><TrendingUp className="w-3.5 h-3.5" />+{pct}%</span>;
   if (trend === 'falling') return <span className="flex items-center gap-1 text-red-400 text-xs font-bold"><TrendingDown className="w-3.5 h-3.5" />{pct}%</span>;
@@ -402,6 +475,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [sendingAlert, setSendingAlert] = useState<string | null>(null);
   const [showAlertSettings, setShowAlertSettings] = useState(false);
+  const [sourcingOpen, setSourcingOpen] = useState<string[]>([]);
 
   const activeAlerts = US_ALERTS.filter(a => !dismissedAlerts.includes(a.id));
   const criticalAlerts = activeAlerts.filter(a => a.urgency === 'critical');
@@ -629,12 +703,14 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                 <button onClick={() => setActiveTab('products')} className="text-xs text-orange-400 hover:text-orange-300 transition flex items-center gap-1">All <ChevronRight className="w-3 h-3" /></button>
               </div>
               {TRENDING_PRODUCTS.filter(p => p.trend === 'rising').slice(0, 3).map(p => (
-                <div key={p.id} className="flex items-center gap-3 px-5 py-3 border-b border-[#0A0A0A] hover:bg-[#0A0A0A]/50 transition">
+                <div key={p.id} onClick={() => { setSelectedProduct(p); setActiveTab('products'); }}
+                  className="flex items-center gap-3 px-5 py-3 border-b border-[#0A0A0A] hover:bg-[#0A0A0A]/50 transition cursor-pointer">
                   <img src={p.image} alt={p.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{p.name}</p>
                     <p className="text-xs text-gray-500">{formatNum(p.salesVelocity)} sales/day · {p.category}</p>
                   </div>
+                  <span className="flex items-center gap-1 text-xs text-blue-400 font-bold flex-shrink-0"><ShoppingBag className="w-3 h-3" /> Source</span>
                   {trendIcon(p.trend, p.trendPct)}
                 </div>
               ))}
@@ -843,10 +919,22 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                       </div>
 
                       <p className="text-sm text-gray-300 leading-relaxed">{alert.reason}</p>
+
+                      {/* Where to source it */}
+                      {sourcingOpen.includes(alert.id) && (
+                        <div className="mt-3">
+                          <SourcingPanel name={alert.product} price={alert.price} />
+                        </div>
+                      )}
                     </div>
 
                     {/* Actions */}
                     <div className="flex flex-col gap-2 flex-shrink-0">
+                      <button onClick={() => setSourcingOpen(prev => prev.includes(alert.id) ? prev.filter(x => x !== alert.id) : [...prev, alert.id])}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition hover:scale-105"
+                        style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.35)', color: '#60a5fa' }}>
+                        <ShoppingBag className="w-4 h-4" /> {sourcingOpen.includes(alert.id) ? 'Hide Suppliers' : 'Where to Source'}
+                      </button>
                       {!added ? (
                         <button onClick={() => addToMyStore(alert)}
                           className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition hover:scale-105"
@@ -1041,6 +1129,9 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
+                    {/* Where to source it (dropshipper sourcing) */}
+                    <SourcingPanel name={product.name} price={product.price} />
+
                     {/* Tags + actions */}
                     <div className="flex items-center justify-between flex-wrap gap-3">
                       <div className="flex flex-wrap gap-1.5">
