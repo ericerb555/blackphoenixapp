@@ -31,7 +31,7 @@ import storeBoostersRouter from "./store-boosters.tsx";
 import promotionsEngineRouter from "./promotions-engine.tsx";
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
-import { buildPortalInviteEmail, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
+import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
 const INVITE_TEMPLATE_KEY = (portalType: string) => `portal_invite_template:${portalType}`;
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
@@ -2939,6 +2939,49 @@ Respond with ONLY a JSON object (no markdown) of the form:
     if (!plan.planName) plan.planName = 'Recommended Plan';
     return c.json({ success: true, plan });
   } catch (error: any) { console.log('Plan builder error:', error); return c.json({ success: false, error: error.message || 'Unable to build the plan.' }, 500); }
+});
+
+// PLAN BUILDER — price out a custom service the customer requests that we don't
+// list yet. Returns a mid-to-high Southern NH / Northern MA monthly base price.
+app.post('/make-server-3eae23a6/plan-builder/price-custom', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const request = String(body.request || '').trim();
+    const entityType = String(body.entityType || 'general');
+    const portalRole = String(body.portalRole || 'service');
+    if (!request) return c.json({ success: false, error: 'Describe the service you want priced.' }, 400);
+    const catalog = Array.isArray(body.catalog) ? body.catalog : [];
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ success: false, error: 'AI pricing is not configured.' }, 500);
+    const prompt = `You price services for a ${portalRole} portal (entity type: ${entityType}) at MID-TO-HIGH market rates for Southern New Hampshire and Northern Massachusetts.
+The customer is requesting a custom service we don't list yet: "${request}".
+For pricing reference, here are existing catalog items and their monthly base prices:
+${catalog.slice(0, 40).map((s: any) => `- ${s.name} [${s.category}]: $${s.baseMonthlyPrice}/${s.unit}`).join('\n') || '- (no reference items)'}
+
+Estimate a fair monthly base price consistent with the reference items. Respond with ONLY a JSON object (no markdown) of the form:
+{"name":"short service name","category":"best-fit category","baseMonthlyPrice":<integer dollars>,"unit":"per month|per visit|per unit","rationale":"1 sentence explaining the price"}`;
+    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 400, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!aiResp.ok) { const t = await aiResp.text(); console.log('price-custom AI error:', t); return c.json({ success: false, error: 'The AI pricing tool is unavailable right now. Please try again.' }, 502); }
+    const aiJson = await aiResp.json();
+    let item: any = {};
+    try { item = JSON.parse(aiJson?.choices?.[0]?.message?.content || '{}'); } catch { item = {}; }
+    const price = Math.max(0, Math.round(Number(item.baseMonthlyPrice) || 0));
+    if (!price) return c.json({ success: false, error: 'Could not estimate a price. Add more detail and try again.' }, 422);
+    return c.json({
+      success: true,
+      item: {
+        name: String(item.name || request).slice(0, 80),
+        category: String(item.category || 'Custom Request').slice(0, 40),
+        baseMonthlyPrice: price,
+        unit: String(item.unit || 'per month').slice(0, 30),
+        rationale: String(item.rationale || '').slice(0, 240),
+      },
+    });
+  } catch (error: any) { console.log('price-custom error:', error); return c.json({ success: false, error: error.message || 'Unable to price the request.' }, 500); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6836,6 +6879,10 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     // Optional trial grant: full control of all features for N months (default 6), after which a plan is required.
     const grantFullAccess = body.fullAccess !== false; // default on
     const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
+    // Delivery channels. Email defaults on; SMS + QR are opt-in per invite.
+    const sendEmail = body.sendEmail !== false;
+    const sendSms = body.sendSms === true;
+    const wantQr = body.generateQr === true;
     const existingId = await kv.get(`intake:email:${email}`) as string | null;
     if (existingId) return c.json({ success: false, error: 'This email already has an onboarding or portal record. Use access control to change their access.' }, 409);
     const now = new Date().toISOString(); const applicationId = `OWNER-INVITE-${crypto.randomUUID()}`;
@@ -6848,49 +6895,85 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       await kv.set(`feature_grant:${email}`, { email, portalType, level: 'full', trialMonths, trialStart, trialEnd, status: 'active', grantedBy: actor.user.email, applicationId, createdAt: now, updatedAt: now });
     }
     let invitationSent = false; let inviteNotice = ''; let emailProvider = '';
+    let smsSent = false; let smsNotice = ''; let qrDataUrl: string | null = null;
+    let inviteLink: string | null = null;
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
     const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
+    const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
 
-    // Preferred path: create the account + a secure sign-in link WITHOUT sending
-    // Supabase's default email, then deliver our own branded email via Resend so
-    // it matches the preview the admin saw. Falls back to Supabase's built-in
-    // invite email if link generation or Resend is unavailable — no regression.
+    // Generate the secure sign-in link ONCE, up front, so every channel (email,
+    // SMS, QR) points at the exact same account-setup link.
     try {
-      if (RESEND_API_KEY) {
-        const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-          type: 'invite', email, options: { data: metadata },
-        });
-        const actionLink = linkData?.properties?.action_link || linkData?.action_link;
-        if (linkError || !actionLink) throw new Error(linkError?.message || 'Could not generate the sign-in link.');
+      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { data: metadata } });
+      const actionLink = linkData?.properties?.action_link || linkData?.action_link;
+      if (!linkError && actionLink) inviteLink = actionLink;
+    } catch (e: any) { console.log(`ℹ️ [PortalInvite] Link generation failed: ${e?.message || e}`); }
 
-        const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
-        const { subject, html, text } = buildPortalInviteEmail({
-          name, portalType, signInUrl: actionLink, companyName: COMPANY_NAME,
-          logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
-          overrides: inviteOverrides || undefined,
-        });
-        const res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }),
-        });
-        if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
-        invitationSent = true; emailProvider = 'resend';
-      } else {
-        throw new Error('RESEND_API_KEY not configured — using Supabase invite.');
-      }
-    } catch (brandedError: any) {
-      console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${brandedError?.message || brandedError}`);
+    // EMAIL: branded Resend using the shared template; falls back to Supabase's
+    // built-in invite email if link generation or Resend is unavailable.
+    if (sendEmail) {
       try {
-        const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
-        if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; }
-      } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+        if (RESEND_API_KEY && inviteLink) {
+          const { subject, html, text } = buildPortalInviteEmail({
+            name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME,
+            logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
+            overrides: inviteOverrides || undefined,
+          });
+          const res = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }),
+          });
+          if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
+          invitationSent = true; emailProvider = 'resend';
+        } else {
+          throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.');
+        }
+      } catch (brandedError: any) {
+        console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${brandedError?.message || brandedError}`);
+        try {
+          const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
+          if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; }
+        } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+      }
     }
-    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, emailProvider, updatedAt: new Date().toISOString() });
-    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, freeProvisioned: true } }, 201);
+
+    // SMS: same template, delivered via Twilio to the invitee's phone.
+    if (sendSms) {
+      const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+      const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+      const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+      if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) {
+        smsNotice = 'SMS is not configured (Twilio env vars missing).';
+      } else if (!phone) {
+        smsNotice = 'No phone number provided for SMS.';
+      } else {
+        try {
+          const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || 'https://www.theblackphoenixcompany.com/portal-onboarding', companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+          const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+            method: 'POST',
+            headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: smsBody }),
+          });
+          if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = `Twilio rejected the message: ${err}`; } else { smsSent = true; }
+        } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
+      }
+    }
+
+    // QR: a scannable code for the same secure link, returned to the admin so
+    // they can print or show it for in-person onboarding.
+    if (wantQr && inviteLink) {
+      try {
+        const QRCode = (await import('npm:qrcode')).default;
+        qrDataUrl = await QRCode.toDataURL(inviteLink, { width: 512, margin: 2 });
+      } catch (e: any) { console.log(`ℹ️ [PortalInvite] QR generation failed: ${e?.message || e}`); }
+    }
+
+    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, emailProvider, smsSent, smsNotice, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink, freeProvisioned: true } }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
 });
 
@@ -6960,12 +7043,13 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) =>
     const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const sampleLink = 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link';
     const { subject, html } = buildPortalInviteEmail({
-      name, portalType,
-      signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
+      name, portalType, signInUrl: sampleLink,
       companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess, trialMonths, overrides,
     });
-    return c.json({ success: true, subject, html, portalLabel: PORTAL_LABELS[portalType] || 'Portal' });
+    const sms = buildPortalInviteSms({ name, portalType, signInUrl: sampleLink, companyName: COMPANY_NAME, fullAccess, trialMonths, overrides });
+    return c.json({ success: true, subject, html, sms, portalLabel: PORTAL_LABELS[portalType] || 'Portal' });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to render invite preview.' }, 500); }
 });
 
@@ -7029,6 +7113,42 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test', async (c) => {
     if (!res.ok) { const errBody = await res.text().catch(() => ''); return c.json({ success: false, error: `Resend send failed (${res.status}): ${errBody}` }, 502); }
     return c.json({ success: true, to });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test invite.' }, 500); }
+});
+
+// Send a test SMS invite (from the SAME template) to the admin's phone (or a
+// number they enter) via Twilio, so they can proof the text before inviting.
+app.post('/make-server-3eae23a6/owner-provisioning/invite-test-sms', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const portalType = String(body.portalType || 'customer').trim().toLowerCase();
+    if (!PORTAL_LABELS[portalType]) return c.json({ success: false, error: 'Unknown portal type.' }, 400);
+    const to = String(body.to || '').trim();
+    if (!to) return c.json({ success: false, error: 'Enter a phone number to send the test to.' }, 400);
+    const fullAccess = body.fullAccess !== false;
+    const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
+    const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
+
+    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
+
+    const sms = buildPortalInviteSms({
+      name: 'there', portalType,
+      signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
+      companyName: COMPANY_NAME, fullAccess, trialMonths, overrides,
+    });
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ From: TWILIO_FROM, To: to, Body: `[TEST] ${sms}` }),
+    });
+    if (!res.ok) { const err = await res.text().catch(() => ''); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
+    return c.json({ success: true, to });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
 });
 
 // Entitlements: does this user have full-access via a trial grant, is it still

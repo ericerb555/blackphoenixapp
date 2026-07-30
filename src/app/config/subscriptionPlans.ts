@@ -20,15 +20,51 @@
  * - 5 total advertisers
  */
 
+export type PlanCategory =
+  | 'customer'
+  | 'construction'
+  | 'demolition'
+  | 'property-management'
+  | 'vendor'
+  | 'subcontractor'
+  | 'advertiser'
+  | 'investor'
+  | 'territory-owner';
+
+/** Maps a plan category to the portal type it provisions (used by invites/onboarding). */
+export const CATEGORY_TO_PORTAL: Record<PlanCategory, string> = {
+  customer: 'customer',
+  construction: 'customer',
+  demolition: 'customer',
+  'property-management': 'property_manager',
+  vendor: 'vendor',
+  subcontractor: 'subcontractor',
+  advertiser: 'advertiser',
+  investor: 'investor',
+  'territory-owner': 'territory_owner',
+};
+
 export interface SubscriptionPlan {
   id: string;
-  category: 'customer' | 'construction' | 'demolition' | 'property-management' | 'vendor' | 'subcontractor' | 'advertiser';
+  category: PlanCategory;
+  /** The portal this plan unlocks. Defaults from CATEGORY_TO_PORTAL when omitted. */
+  portalType?: string;
   tier: 'starter' | 'professional' | 'enterprise';
   name: string;
   tagline: string;
   regularPrice: number;
   foundingPrice: number; // 30% off regular price
   features: string[];
+  /**
+   * Portal-specific add-on options a subscriber can toggle onto this plan —
+   * the things that portal actually uses. Populated per category by default.
+   */
+  portalOptions?: string[];
+  /**
+   * When true (default for every plan), the subscriber can request any custom
+   * service or feature we don't offer yet and we'll build it into their plan.
+   */
+  allowCustomRequest?: boolean;
   limits: {
     projects?: number;
     quotes?: number;
@@ -356,6 +392,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
   {
     id: 'condo-manager',
     category: 'property-management',
+    portalType: 'condo_manager',
     tier: 'professional',
     name: 'Condo Manager Plan',
     tagline: 'For condo associations',
@@ -388,6 +425,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
   {
     id: 'landlord',
     category: 'property-management',
+    portalType: 'landlord',
     tier: 'starter',
     name: 'Landlord Plan',
     tagline: 'For individual landlords',
@@ -420,6 +458,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
   {
     id: 'property-manager',
     category: 'property-management',
+    portalType: 'property_manager',
     tier: 'enterprise',
     name: 'Property Manager Plan',
     tagline: 'For professional property managers',
@@ -708,22 +747,265 @@ export const ADVERTISER_PLANS: SubscriptionPlan[] = [
   },
 ];
 
-// ALL PLANS COMBINED
-export const ALL_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+// INVESTOR PLANS
+export const INVESTOR_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'investor-observer',
+    category: 'investor',
+    tier: 'starter',
+    name: 'Investor Observer',
+    tagline: 'Browse opportunities',
+    regularPrice: 0,
+    foundingPrice: 0,
+    features: [
+      'Public deal & opportunity feed',
+      'Quarterly performance snapshots',
+      'Company update newsletter',
+      'Document library (public)',
+      'Express interest in deals',
+    ],
+    limits: {
+      storage: '2 GB',
+      support: 'Email (72hr response)',
+    },
+  },
+  {
+    id: 'investor-partner',
+    category: 'investor',
+    tier: 'professional',
+    name: 'Investor Partner',
+    tagline: 'For active investors',
+    regularPrice: 199,
+    foundingPrice: 139, // 30% off
+    popular: true,
+    features: [
+      'Everything in Observer, plus:',
+      'Full deal room & due-diligence docs',
+      'Monthly portfolio performance reports',
+      'Early access to new opportunities',
+      'Distribution & return tracking',
+      'Direct line to investor relations',
+      'Tax document center (K-1s, 1099s)',
+    ],
+    limits: {
+      storage: '25 GB',
+      support: 'Email & Phone (24hr response)',
+    },
+  },
+  {
+    id: 'investor-principal',
+    category: 'investor',
+    tier: 'enterprise',
+    name: 'Investor Principal',
+    tagline: 'For principal & institutional capital',
+    regularPrice: 499,
+    foundingPrice: 349, // 30% off
+    highlighted: true,
+    features: [
+      'Everything in Partner, plus:',
+      'Priority allocation on new deals',
+      'Custom portfolio analytics & modeling',
+      'Quarterly strategy calls with leadership',
+      'Co-investment & syndication access',
+      'Dedicated investor relations manager',
+      'Real-time portfolio dashboard',
+      '24/7 priority support',
+    ],
+    limits: {
+      storage: 'Unlimited',
+      support: '24/7 Phone & Priority',
+    },
+  },
+];
+
+// TERRITORY OWNER PLANS (franchise / regional operator licenses)
+export const TERRITORY_OWNER_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'territory-starter',
+    category: 'territory-owner',
+    tier: 'starter',
+    name: 'Territory Starter',
+    tagline: 'Launch a single local territory',
+    regularPrice: 499,
+    foundingPrice: 349, // 30% off
+    features: [
+      'One exclusive local territory (up to 5 ZIP codes)',
+      'Full white-label platform access',
+      'Customer, vendor & subcontractor portals',
+      'Local marketing starter kit',
+      'Territory revenue & booking dashboard',
+      'Standard onboarding & training',
+      'Email & phone support',
+    ],
+    limits: {
+      storage: '50 GB',
+      support: 'Email & Phone (24hr response)',
+      teamMembers: 5,
+    },
+  },
+  {
+    id: 'territory-growth',
+    category: 'territory-owner',
+    tier: 'professional',
+    name: 'Territory Growth',
+    tagline: 'Scale across a metro area',
+    regularPrice: 999,
+    foundingPrice: 699, // 30% off
+    popular: true,
+    features: [
+      'Everything in Starter, plus:',
+      'Expanded territory (up to 15 ZIP codes)',
+      'Co-branded storefront & campaigns',
+      'Priority lead routing in your region',
+      'Advanced territory analytics',
+      'Dedicated launch & growth manager',
+      'Recruiting tools for subs & vendors',
+      'Quarterly business reviews',
+    ],
+    limits: {
+      storage: '250 GB',
+      support: 'Email & Phone (12hr response)',
+      teamMembers: 25,
+    },
+  },
+  {
+    id: 'territory-regional',
+    category: 'territory-owner',
+    tier: 'enterprise',
+    name: 'Regional Operator',
+    tagline: 'Own an entire region',
+    regularPrice: 1999,
+    foundingPrice: 1399, // 30% off
+    highlighted: true,
+    features: [
+      'Everything in Growth, plus:',
+      'Multi-territory / regional exclusivity',
+      'Full white-label & custom domain',
+      'Master franchise sub-licensing rights',
+      'Custom integrations & API access',
+      'Dedicated regional success team',
+      'Priority platform roadmap input',
+      '24/7 priority support',
+    ],
+    limits: {
+      storage: 'Unlimited',
+      support: '24/7 Phone & Priority',
+      teamMembers: 999999,
+    },
+  },
+];
+
+// ─── PORTAL-SPECIFIC OPTIONS + UNIVERSAL CUSTOM REQUEST ────────────────────────
+// Every plan is auto-equipped with options that portal actually uses, plus the
+// universal ability to request anything we don't offer yet.
+
+export const CUSTOM_REQUEST_FEATURE =
+  '➕ Request any custom service or feature we don\'t offer yet — we\'ll build it into your plan';
+
+export const PORTAL_OPTIONS_BY_CATEGORY: Record<PlanCategory, string[]> = {
+  customer: [
+    'Add extra monthly service hours',
+    'Seasonal deep-clean / pressure-washing add-on',
+    'Smart-home device install & setup',
+    'Additional property coverage',
+    'Priority emergency call-out upgrade',
+  ],
+  construction: [
+    'Extra build hours',
+    'Architectural & design package',
+    'Expedited permit handling',
+    '3D rendering / walkthrough package',
+    'Dedicated project manager upgrade',
+  ],
+  demolition: [
+    'Extra removal trips',
+    'Roll-off dumpster rental add-on',
+    'Hazardous material handling',
+    'Weekend / after-hours service',
+    'Full-site demolition add-on',
+  ],
+  'property-management': [
+    'Additional tenant sub-portals',
+    'After-hours emergency dispatch',
+    'Annual reserve-study assessment',
+    'Extra managed property slots',
+    'White-label tenant portal upgrade',
+  ],
+  vendor: [
+    'Featured storefront placement',
+    'Additional product listings',
+    'Extra store locations',
+    'Dedicated onboarding specialist',
+    'Marketing & promotion package',
+  ],
+  subcontractor: [
+    'Extra lead package',
+    'Additional crew seats',
+    'GPS fleet tracking',
+    'Priority dispatch upgrade',
+    'Insurance & compliance management',
+  ],
+  advertiser: [
+    'Extra impression pack',
+    'Premium homepage placement',
+    'Video ad production',
+    'Additional active campaigns',
+    'Dedicated campaign strategist',
+  ],
+  investor: [
+    'Quarterly strategy call',
+    'Custom reporting package',
+    'Early / priority deal access',
+    'Portfolio analytics add-on',
+    'Co-investment access',
+  ],
+  'territory-owner': [
+    'Additional ZIP codes / territory expansion',
+    'Local marketing campaign package',
+    'Extra staff & operator seats',
+    'Co-branded storefront',
+    'Sub-licensing rights',
+  ],
+};
+
+/**
+ * Ensures every plan carries its portal type, portal-specific options, the
+ * custom-request flag, and the universal custom-request feature line.
+ */
+function equipPortalOptions(plans: SubscriptionPlan[]): SubscriptionPlan[] {
+  return plans.map((plan) => {
+    const features = plan.features.includes(CUSTOM_REQUEST_FEATURE)
+      ? plan.features
+      : [...plan.features, CUSTOM_REQUEST_FEATURE];
+    return {
+      ...plan,
+      portalType: plan.portalType ?? CATEGORY_TO_PORTAL[plan.category],
+      portalOptions: plan.portalOptions ?? PORTAL_OPTIONS_BY_CATEGORY[plan.category] ?? [],
+      allowCustomRequest: plan.allowCustomRequest ?? true,
+      features,
+    };
+  });
+}
+
+// ALL PLANS COMBINED (every portal, every tier — enriched with portal options)
+export const ALL_SUBSCRIPTION_PLANS: SubscriptionPlan[] = equipPortalOptions([
   ...CUSTOMER_PLANS,
   ...CONSTRUCTION_PLANS,
+  ...DEMOLITION_PLANS,
   ...PROPERTY_MANAGEMENT_PLANS,
   ...VENDOR_PLANS,
   ...SUBCONTRACTOR_PLANS,
   ...ADVERTISER_PLANS,
-];
+  ...INVESTOR_PLANS,
+  ...TERRITORY_OWNER_PLANS,
+]);
 
 // HELPER FUNCTIONS
 export const getPlanById = (planId: string): SubscriptionPlan | undefined => {
   return ALL_SUBSCRIPTION_PLANS.find(plan => plan.id === planId);
 };
 
-export const getPlansByCategory = (category: 'customer' | 'construction' | 'property-management' | 'vendor' | 'subcontractor' | 'advertiser'): SubscriptionPlan[] => {
+export const getPlansByCategory = (category: PlanCategory): SubscriptionPlan[] => {
   return ALL_SUBSCRIPTION_PLANS.filter(plan => plan.category === category);
 };
 

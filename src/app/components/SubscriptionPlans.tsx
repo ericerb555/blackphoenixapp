@@ -13,21 +13,34 @@ import {
   Crown, Zap, Rocket, Building2, Wrench, Megaphone, Star,
   Check, X, Sparkles, TrendingUp, Shield, Award, Target,
   Users, DollarSign, Calendar, Gift, Tag, ChevronRight, Flame, Home, Building, HardHat, Edit2,
-  Bot, BookOpen, ShoppingBag, ExternalLink,
+  Bot, BookOpen, ShoppingBag, ExternalLink, Trash2, LineChart, MapPin, PlusCircle,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
   ALL_SUBSCRIPTION_PLANS,
   FOUNDING_SUBSCRIBER_CONFIG,
   getPlansByCategory,
-  type SubscriptionPlan
+  type SubscriptionPlan,
+  type PlanCategory,
 } from '../config/subscriptionPlans';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
 import { saveCustomerMembership, planTierLabel } from '../lib/subscriptionDiscount';
 import { useAuth } from '../contexts/AuthContext';
 
-type PlanCategory = 'customer' | 'construction' | 'property-management' | 'vendor' | 'subcontractor' | 'advertiser';
 type PricingDisplay = 'regular' | 'first12';
+
+// Category tab config — one entry per portal type.
+const CATEGORY_TABS: { id: PlanCategory; label: string; icon: any; color: string }[] = [
+  { id: 'customer', label: 'Customer', icon: Home, color: 'green' },
+  { id: 'construction', label: 'Construction', icon: HardHat, color: 'red' },
+  { id: 'demolition', label: 'Demolition', icon: Trash2, color: 'amber' },
+  { id: 'property-management', label: 'Property', icon: Building, color: 'indigo' },
+  { id: 'vendor', label: 'Vendor', icon: Building2, color: 'blue' },
+  { id: 'subcontractor', label: 'Contractor', icon: Wrench, color: 'orange' },
+  { id: 'advertiser', label: 'Advertiser', icon: Megaphone, color: 'pink' },
+  { id: 'investor', label: 'Investor', icon: LineChart, color: 'purple' },
+  { id: 'territory-owner', label: 'Territory', icon: MapPin, color: 'cyan' },
+];
 
 const subscriptionPlans: SubscriptionPlan[] = ALL_SUBSCRIPTION_PLANS;
 
@@ -42,7 +55,6 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any | null>(null);
-
   const filteredPlans = getPlansByCategory(activeCategory);
 
   const getColorClasses = (color: string, variant: 'bg' | 'text' | 'border' | 'shadow') => {
@@ -83,8 +95,26 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
         border: 'border-indigo-500/30',
         shadow: 'shadow-indigo-500/20',
       },
+      amber: {
+        bg: 'bg-amber-600/20',
+        text: 'text-amber-400',
+        border: 'border-amber-500/30',
+        shadow: 'shadow-amber-500/20',
+      },
+      purple: {
+        bg: 'bg-purple-600/20',
+        text: 'text-purple-400',
+        border: 'border-purple-500/30',
+        shadow: 'shadow-purple-500/20',
+      },
+      cyan: {
+        bg: 'bg-cyan-600/20',
+        text: 'text-cyan-400',
+        border: 'border-cyan-500/30',
+        shadow: 'shadow-cyan-500/20',
+      },
     };
-    return colors[color][variant];
+    return colors[color]?.[variant] ?? colors.green[variant];
   };
 
   const handleSelectPlan = (planId: string) => {
@@ -236,74 +266,29 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
         </div>
       </div>
 
+      {/* Custom plans are built in each portal's Plan Builder (service catalog +
+          presets + AI + custom pricing), keeping a single, consistent system. */}
+
       {/* Category Tabs */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 bg-[#1A1A1A] border border-zinc-800 p-2 rounded-xl">
-        <button
-          onClick={() => setActiveCategory('customer')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'customer'
-              ? 'bg-green-600/20 text-green-400 border border-green-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <Home className="w-5 h-5" />
-          <span className="hidden lg:inline">Customer</span>
-        </button>
-        <button
-          onClick={() => setActiveCategory('construction')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'construction'
-              ? 'bg-red-600/20 text-red-400 border border-red-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <HardHat className="w-5 h-5" />
-          <span className="hidden lg:inline">Construction</span>
-        </button>
-        <button
-          onClick={() => setActiveCategory('property-management')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'property-management'
-              ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <Building className="w-5 h-5" />
-          <span className="hidden lg:inline">Property</span>
-        </button>
-        <button
-          onClick={() => setActiveCategory('vendor')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'vendor'
-              ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <Building2 className="w-5 h-5" />
-          <span className="hidden lg:inline">Vendor</span>
-        </button>
-        <button
-          onClick={() => setActiveCategory('subcontractor')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'subcontractor'
-              ? 'bg-orange-600/20 text-orange-400 border border-orange-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <Wrench className="w-5 h-5" />
-          <span className="hidden lg:inline">Contractor</span>
-        </button>
-        <button
-          onClick={() => setActiveCategory('advertiser')}
-          className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-            activeCategory === 'advertiser'
-              ? 'bg-pink-600/20 text-pink-400 border border-pink-500/30'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-          }`}
-        >
-          <Megaphone className="w-5 h-5" />
-          <span className="hidden lg:inline">Advertiser</span>
-        </button>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 bg-[#1A1A1A] border border-zinc-800 p-2 rounded-xl">
+        {CATEGORY_TABS.map((tab) => {
+          const TabIcon = tab.icon;
+          const isActive = activeCategory === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveCategory(tab.id)}
+              className={`py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                isActive
+                  ? `${getColorClasses(tab.color, 'bg')} ${getColorClasses(tab.color, 'text')} border ${getColorClasses(tab.color, 'border')}`
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              <TabIcon className="w-5 h-5" />
+              <span className="hidden lg:inline">{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* PropertyAI Digital Tools Banner — customer homeowner plans */}
@@ -381,33 +366,10 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
       {/* Plans Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {filteredPlans.map((plan) => {
-          // Dynamically select icon based on category
-          const getIcon = () => {
-            switch (plan.category) {
-              case 'customer': return Home;
-              case 'construction': return HardHat;
-              case 'property-management': return Building;
-              case 'vendor': return Building2;
-              case 'subcontractor': return Wrench;
-              case 'advertiser': return Megaphone;
-              default: return Home;
-            }
-          };
-
-          const getColor = () => {
-            switch (plan.category) {
-              case 'customer': return 'green';
-              case 'construction': return 'red';
-              case 'property-management': return 'indigo';
-              case 'vendor': return 'blue';
-              case 'subcontractor': return 'orange';
-              case 'advertiser': return 'pink';
-              default: return 'green';
-            }
-          };
-
-          const Icon = getIcon();
-          const color = getColor();
+          // Dynamically select icon + color from the shared category config.
+          const tabCfg = CATEGORY_TABS.find((t) => t.id === plan.category);
+          const Icon = tabCfg?.icon ?? Home;
+          const color = tabCfg?.color ?? 'green';
           const isSelected = selectedPlan === plan.id;
           const displayPrice = plan.regularPrice;
           const isPremium = plan.id === 'customer-premium' || plan.id === 'construction-enterprise' || plan.id === 'property-manager';
@@ -459,8 +421,14 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
                 {/* Pricing */}
                 <div>
                   <div className="flex items-baseline gap-2 mb-2">
-                    <span className="text-4xl font-bold text-white">${displayPrice}</span>
-                    <span className="text-zinc-400">/month</span>
+                    {displayPrice === 0 ? (
+                      <span className="text-4xl font-bold text-white">Free</span>
+                    ) : (
+                      <>
+                        <span className="text-4xl font-bold text-white">${displayPrice.toLocaleString()}</span>
+                        <span className="text-zinc-400">/month</span>
+                      </>
+                    )}
                   </div>
 
                   {showFirst12Benefits && (
@@ -557,6 +525,34 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
                     </div>
                   )}
                 </div>
+
+                {/* Portal-specific add-on options + universal custom request */}
+                {(plan.portalOptions && plan.portalOptions.length > 0) && (
+                  <div className="pt-4 border-t border-zinc-800">
+                    <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-zinc-400 mb-3">
+                      <Sparkles className={`w-3.5 h-3.5 ${getColorClasses(color, 'text')}`} />
+                      Add-on options for this portal
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {plan.portalOptions.map((opt, i) => (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 rounded-full border ${getColorClasses(color, 'border')} ${getColorClasses(color, 'bg')} px-2.5 py-1 text-xs ${getColorClasses(color, 'text')}`}
+                        >
+                          <PlusCircle className="w-3 h-3" /> {opt}
+                        </span>
+                      ))}
+                    </div>
+                    {plan.allowCustomRequest && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toast.success("Custom request started — tell us what you need and we'll build it into your plan."); onSelectPlan?.(plan.id); }}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-600 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-zinc-400 hover:text-white"
+                      >
+                        <PlusCircle className="w-4 h-4" /> Request something we don&apos;t offer yet
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* CTA Button */}
                 <button

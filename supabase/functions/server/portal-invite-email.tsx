@@ -175,3 +175,33 @@ export function buildPortalInviteEmail(input: PortalInviteEmailInput): { subject
 
   return { subject, html: htmlOut, text };
 }
+
+/**
+ * Concise SMS invitation built from the SAME editable template fields (intro,
+ * blurb, trial note) so the text message stays in sync with the email. Kept
+ * short and link-first for deliverability.
+ */
+export function buildPortalInviteSms(input: PortalInviteEmailInput): string {
+  const company = input.companyName || "Black Phoenix";
+  const months = input.trialMonths || 6;
+  const trialPeriod = `${months} month${months === 1 ? "" : "s"}`;
+  const label = PORTAL_LABELS[input.portalType] || "Portal";
+  const firstName = (input.name || "there").split(" ")[0];
+  const tokens: Record<string, string> = { firstName, company, label, trialPeriod, trialMonths: String(months) };
+  const fields = effectiveInviteFields(input.portalType, input.overrides);
+  const fill = (s: string) => fillTokens(s, tokens);
+
+  const url = input.signInUrl || "#";
+  const parts = [
+    `${company}:`,
+    fill(fields.intro),
+    fill(fields.blurb),
+  ];
+  if (input.fullAccess) parts.push(fill(fields.trialLine));
+  parts.push(`Get started: ${url}`);
+  // Collapse whitespace and cap length so it lands as a clean SMS.
+  let msg = parts.join(" ").replace(/\s+/g, " ").trim();
+  const MAX = 480; // ~3 segments; Twilio concatenates automatically
+  if (msg.length > MAX) msg = msg.slice(0, MAX - 1) + "…";
+  return msg;
+}

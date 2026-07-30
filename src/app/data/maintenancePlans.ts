@@ -6,7 +6,15 @@
 
 // ─── Entity Types ─────────────────────────────────────────────────────────────
 
-export type EntityType = 'homeowner' | 'condo' | 'landlord' | 'commercial';
+export type EntityType =
+  | 'homeowner'
+  | 'condo'
+  | 'landlord'
+  | 'commercial'
+  | 'vendor'
+  | 'subcontractor'
+  | 'advertiser'
+  | 'investor';
 
 export interface EntityConfig {
   id: EntityType;
@@ -44,6 +52,34 @@ export const ENTITY_TYPES: EntityConfig[] = [
     description: 'Office, retail, or mixed-use building',
     icon: '🏗️',
     accentColor: '#10b981',
+  },
+  {
+    id: 'vendor',
+    label: 'Vendor / Supplier',
+    description: 'Marketplace seller or product supplier',
+    icon: '🏪',
+    accentColor: '#0ea5e9',
+  },
+  {
+    id: 'subcontractor',
+    label: 'Subcontractor',
+    description: 'Trade pro taking jobs from the platform',
+    icon: '🔧',
+    accentColor: '#f97316',
+  },
+  {
+    id: 'advertiser',
+    label: 'Advertiser',
+    description: 'Brand running campaigns on the network',
+    icon: '📣',
+    accentColor: '#ec4899',
+  },
+  {
+    id: 'investor',
+    label: 'Investor',
+    description: 'Partner tracking deals and portfolio returns',
+    icon: '📈',
+    accentColor: '#a855f7',
   },
 ];
 
@@ -284,6 +320,67 @@ export const SERVICE_CATALOG: Record<EntityType, ServiceItem[]> = {
     { id: 'cm-struct-inspect', category: 'Structural',    name: 'Structural Integrity Inspection',  description: 'Engineer walk-through: foundation, columns, beams, roof.',     baseMonthlyPrice: 490, unit: 'per visit',   recommended: true },
     { id: 'cm-struct-acs',     category: 'Structural',    name: 'ADA Compliance Assessment',        description: 'Review ramps, door widths, restrooms vs. ADA standards.',      baseMonthlyPrice: 320, unit: 'per visit' },
   ],
+
+  // ── VENDOR / SUPPLIER ─────────────────────────────────────────────────────────
+  vendor: [
+    // Storefront & Catalog
+    { id: 'vn-storefront-featured', category: 'Storefront',  name: 'Featured Storefront Placement',   description: 'Priority placement of your store on marketplace browse and search.', baseMonthlyPrice: 149, unit: 'per month',   recommended: true },
+    { id: 'vn-listings-extra',      category: 'Catalog',     name: 'Extra Product Listings (+500)',   description: 'Raise your catalog cap by 500 active SKUs.',                          baseMonthlyPrice: 79,  unit: 'per month' },
+    { id: 'vn-multi-location',      category: 'Operations',  name: 'Additional Store Location',       description: 'Manage another storefront / warehouse under one account.',            baseMonthlyPrice: 89,  unit: 'per location/mo' },
+    // Operations
+    { id: 'vn-inventory-sync',      category: 'Operations',  name: 'Real-Time Inventory Sync',        description: 'Live stock sync across channels to prevent oversells.',               baseMonthlyPrice: 99,  unit: 'per month',   recommended: true },
+    { id: 'vn-api',                 category: 'Operations',  name: 'API & Integrations Access',       description: 'REST/webhook access for ERP, POS, and 3PL integrations.',             baseMonthlyPrice: 110, unit: 'per month' },
+    // Marketing & Growth
+    { id: 'vn-promo-tools',         category: 'Marketing',   name: 'Marketing & Promotion Suite',     description: 'Coupons, bundles, flash sales, and email blasts.',                    baseMonthlyPrice: 120, unit: 'per month',   recommended: true },
+    { id: 'vn-analytics',           category: 'Analytics',   name: 'Advanced Sales Analytics',        description: 'Cohorts, conversion funnels, and SKU-level margin reporting.',        baseMonthlyPrice: 70,  unit: 'per month' },
+    // Support
+    { id: 'vn-priority-support',    category: 'Support',     name: 'Priority Vendor Support',         description: 'Dedicated queue with same-business-day response.',                    baseMonthlyPrice: 60,  unit: 'per month' },
+  ],
+
+  // ── SUBCONTRACTOR ─────────────────────────────────────────────────────────────
+  subcontractor: [
+    // Leads & Dispatch
+    { id: 'sc-lead-pack',       category: 'Leads',        name: 'Extra Lead Package (+25/mo)',     description: 'Add 25 qualified job leads in your trade and service area.',          baseMonthlyPrice: 129, unit: 'per month',   recommended: true },
+    { id: 'sc-priority-dispatch', category: 'Operations', name: 'Priority Dispatch',               description: 'First-look on new jobs before they hit the open board.',              baseMonthlyPrice: 89,  unit: 'per month',   recommended: true },
+    { id: 'sc-gps',             category: 'Operations',   name: 'GPS Fleet Tracking',              description: 'Live crew/vehicle tracking with route history.',                      baseMonthlyPrice: 59,  unit: 'per month' },
+    // Team & Compliance
+    { id: 'sc-crew-seat',       category: 'Team',         name: 'Additional Crew Seat',            description: 'Add a technician login with scheduling and job access.',              baseMonthlyPrice: 39,  unit: 'per seat/mo' },
+    { id: 'sc-insurance',       category: 'Compliance',   name: 'Insurance & Compliance Manager',  description: 'Track COIs, licenses, and NH trade-license renewals.',                baseMonthlyPrice: 45,  unit: 'per month',   nhSpecific: true },
+    // Finance & Reputation
+    { id: 'sc-invoicing',       category: 'Finance',      name: 'Invoice & Payment Processing',    description: 'Send invoices, collect card/ACH, and auto-reconcile payouts.',        baseMonthlyPrice: 49,  unit: 'per month',   recommended: true },
+    { id: 'sc-reviews',         category: 'Marketing',    name: 'Review & Reputation Boost',       description: 'Automated review requests and a public reputation profile.',          baseMonthlyPrice: 55,  unit: 'per month' },
+    { id: 'sc-portfolio',       category: 'Marketing',    name: 'Featured Portfolio Placement',    description: 'Showcase completed work at the top of your trade category.',          baseMonthlyPrice: 75,  unit: 'per month' },
+  ],
+
+  // ── ADVERTISER ────────────────────────────────────────────────────────────────
+  advertiser: [
+    // Reach & Placement
+    { id: 'ad-impressions',   category: 'Reach',        name: 'Extra Impression Pack (+50k)',    description: 'Add 50,000 guaranteed impressions across the network.',               baseMonthlyPrice: 199, unit: 'per month',   recommended: true },
+    { id: 'ad-homepage',      category: 'Placement',    name: 'Premium Homepage Placement',      description: 'Hero/banner slot on high-traffic homepage and category pages.',       baseMonthlyPrice: 349, unit: 'per month' },
+    { id: 'ad-campaign',      category: 'Campaigns',    name: 'Additional Active Campaign',      description: 'Run another concurrent campaign with its own budget and creative.',   baseMonthlyPrice: 129, unit: 'per campaign/mo' },
+    // Creative & Targeting
+    { id: 'ad-video',         category: 'Creative',     name: 'Video Ad Production',             description: 'Produced short-form video ad, revisions included.',                   baseMonthlyPrice: 450, unit: 'per month' },
+    { id: 'ad-targeting',     category: 'Targeting',    name: 'Advanced Targeting Suite',        description: 'Geo, demographic, behavioral, and lookalike audience targeting.',     baseMonthlyPrice: 149, unit: 'per month',   recommended: true },
+    { id: 'ad-abtest',        category: 'Optimization', name: 'A/B Testing & Optimization',      description: 'Automated creative/audience testing to lift ROAS.',                   baseMonthlyPrice: 99,  unit: 'per month' },
+    // Support & Reporting
+    { id: 'ad-strategist',    category: 'Support',      name: 'Dedicated Campaign Strategist',   description: 'A named strategist managing pacing, bids, and optimization.',         baseMonthlyPrice: 299, unit: 'per month' },
+    { id: 'ad-reporting',     category: 'Analytics',    name: 'White-Label Reporting',           description: 'Branded, scheduled performance reports for your clients.',            baseMonthlyPrice: 89,  unit: 'per month' },
+  ],
+
+  // ── INVESTOR ──────────────────────────────────────────────────────────────────
+  investor: [
+    // Access & Deals
+    { id: 'in-dealroom',   category: 'Access',      name: 'Full Deal Room Access',           description: 'Documents, financials, and diligence materials for open deals.',      baseMonthlyPrice: 99,  unit: 'per month',   recommended: true },
+    { id: 'in-early',      category: 'Access',      name: 'Early / Priority Deal Access',    description: 'See and reserve allocations before deals open to the network.',       baseMonthlyPrice: 149, unit: 'per month',   recommended: true },
+    { id: 'in-coinvest',   category: 'Access',      name: 'Co-Investment Access',            description: 'Join syndicated co-investment opportunities alongside the fund.',     baseMonthlyPrice: 175, unit: 'per month' },
+    // Reporting & Analytics
+    { id: 'in-reports',    category: 'Reporting',   name: 'Monthly Portfolio Reports',       description: 'Statements, distributions, and performance summaries each month.',    baseMonthlyPrice: 79,  unit: 'per month',   recommended: true },
+    { id: 'in-analytics',  category: 'Analytics',   name: 'Custom Portfolio Analytics',      description: 'Configurable dashboards for IRR, equity multiple, and cash flow.',    baseMonthlyPrice: 129, unit: 'per month' },
+    { id: 'in-tax',        category: 'Compliance',  name: 'Tax Document Center',             description: 'K-1s, 1099s, and downloadable tax packages by entity.',               baseMonthlyPrice: 45,  unit: 'per month' },
+    // Advisory
+    { id: 'in-strategy',   category: 'Advisory',    name: 'Quarterly Strategy Call',         description: 'Portfolio review and strategy session with the investment team.',     baseMonthlyPrice: 199, unit: 'per quarter' },
+    { id: 'in-relations',  category: 'Advisory',    name: 'Dedicated Investor Relations',    description: 'A named IR manager for questions, requests, and reporting.',          baseMonthlyPrice: 250, unit: 'per month' },
+  ],
 };
 
 // ─── Helper: compute price ─────────────────────────────────────────────────────
@@ -301,4 +398,73 @@ export function computePrice(
 
 export function getCategories(entity: EntityType): string[] {
   return Array.from(new Set(SERVICE_CATALOG[entity].map(s => s.category)));
+}
+
+// ─── Preset Plans (the "three set options") ───────────────────────────────────
+// Each preset is a curated bundle of service IDs from the SAME catalog above, so
+// every preset price is computed with computePrice() and stays consistent with
+// the à-la-carte builder. Customers can start from a preset and then add/remove.
+
+export interface PlanPreset {
+  id: string;
+  name: string;
+  tagline: string;
+  serviceIds: string[];
+  recommended?: boolean;
+}
+
+export const PLAN_PRESETS: Record<EntityType, PlanPreset[]> = {
+  homeowner: [
+    { id: 'ho-essential', name: 'Essential Care',   tagline: 'Core safety & seasonal basics',            serviceIds: ['ho-hvac-filter', 'ho-safe-smoke', 'ho-plumb-inspect'] },
+    { id: 'ho-preferred', name: 'Preferred Home',   tagline: 'Our most popular whole-home coverage',      serviceIds: ['ho-hvac-tune', 'ho-plumb-inspect', 'ho-roof-inspect', 'ho-safe-smoke', 'ho-gutter-clean'], recommended: true },
+    { id: 'ho-premium',   name: 'Total Home',       tagline: 'Comprehensive year-round protection',       serviceIds: ['ho-hvac-tune', 'ho-plumb-inspect', 'ho-roof-inspect', 'ho-elec-panel', 'ho-safe-smoke', 'ho-safe-radon', 'ho-snow-plow', 'ho-lawn-mow'] },
+  ],
+  condo: [
+    { id: 'ca-essential', name: 'Association Essential', tagline: 'Life-safety & code fundamentals',        serviceIds: ['ca-hvac-common', 'ca-fire-exting', 'ca-elec-emerg'] },
+    { id: 'ca-preferred', name: 'Association Preferred', tagline: 'Balanced building-wide coverage',         serviceIds: ['ca-hvac-common', 'ca-fire-system', 'ca-plumb-pump', 'ca-grounds-full', 'ca-elec-emerg'], recommended: true },
+    { id: 'ca-premium',   name: 'Association Complete',  tagline: 'Full-service association management',     serviceIds: ['ca-hvac-common', 'ca-hvac-units', 'ca-fire-system', 'ca-elev-monthly', 'ca-grounds-full', 'ca-grounds-snow', 'ca-struct-reserve', 'ca-plumb-pump'] },
+  ],
+  landlord: [
+    { id: 'll-essential', name: 'Landlord Essential', tagline: 'Compliance & core upkeep',                 serviceIds: ['ll-hvac-program', 'll-elec-gfci', 'll-turn-inspect'] },
+    { id: 'll-preferred', name: 'Landlord Preferred', tagline: 'Rent-ready & liability protection',         serviceIds: ['ll-hvac-program', 'll-elec-gfci', 'll-turn-clean', 'll-ext-snow', 'll-comp-habitab'], recommended: true },
+    { id: 'll-premium',   name: 'Portfolio Complete', tagline: 'Turn-key portfolio management',             serviceIds: ['ll-hvac-program', 'll-elec-gfci', 'll-turn-clean', 'll-turn-quick-paint', 'll-ext-snow', 'll-ext-lawn', 'll-comp-habitab', 'll-appl-dryer'] },
+  ],
+  commercial: [
+    { id: 'cm-essential', name: 'Commercial Essential', tagline: 'Critical systems & egress',              serviceIds: ['cm-hvac-rtu', 'cm-fire-exit', 'cm-roof-drain'] },
+    { id: 'cm-preferred', name: 'Commercial Preferred', tagline: 'Balanced facility maintenance',          serviceIds: ['cm-hvac-rtu', 'cm-fire-annual', 'cm-roof-flat', 'cm-ext-snow', 'cm-elec-thermo'], recommended: true },
+    { id: 'cm-premium',   name: 'Facility Complete',    tagline: 'Full building PM program',               serviceIds: ['cm-hvac-rtu', 'cm-hvac-ahu', 'cm-fire-annual', 'cm-roof-flat', 'cm-ext-snow', 'cm-ext-parking', 'cm-struct-inspect', 'cm-elec-thermo'] },
+  ],
+  vendor: [
+    { id: 'vn-essential', name: 'Vendor Starter',     tagline: 'Get discovered & sell reliably',           serviceIds: ['vn-storefront-featured', 'vn-inventory-sync'] },
+    { id: 'vn-preferred', name: 'Vendor Growth',      tagline: 'Grow sales with marketing & insight',      serviceIds: ['vn-storefront-featured', 'vn-inventory-sync', 'vn-analytics', 'vn-promo-tools'], recommended: true },
+    { id: 'vn-premium',   name: 'Vendor Scale',       tagline: 'Multi-location, integrated & supported',   serviceIds: ['vn-storefront-featured', 'vn-inventory-sync', 'vn-analytics', 'vn-promo-tools', 'vn-multi-location', 'vn-api', 'vn-priority-support'] },
+  ],
+  subcontractor: [
+    { id: 'sc-essential', name: 'Pro Starter',        tagline: 'Steady leads & simple invoicing',          serviceIds: ['sc-lead-pack', 'sc-invoicing'] },
+    { id: 'sc-preferred', name: 'Pro Growth',         tagline: 'More jobs & a stronger reputation',        serviceIds: ['sc-lead-pack', 'sc-priority-dispatch', 'sc-reviews', 'sc-invoicing'], recommended: true },
+    { id: 'sc-premium',   name: 'Crew Complete',      tagline: 'Run a full crew with compliance covered',  serviceIds: ['sc-lead-pack', 'sc-priority-dispatch', 'sc-gps', 'sc-crew-seat', 'sc-insurance', 'sc-reviews', 'sc-invoicing'] },
+  ],
+  advertiser: [
+    { id: 'ad-essential', name: 'Campaign Starter',   tagline: 'Reach the right audience',                 serviceIds: ['ad-impressions', 'ad-targeting'] },
+    { id: 'ad-preferred', name: 'Campaign Growth',    tagline: 'Optimize and report with confidence',      serviceIds: ['ad-impressions', 'ad-targeting', 'ad-abtest', 'ad-reporting'], recommended: true },
+    { id: 'ad-premium',   name: 'Brand Complete',     tagline: 'Premium placement, creative & strategy',   serviceIds: ['ad-impressions', 'ad-homepage', 'ad-targeting', 'ad-abtest', 'ad-video', 'ad-strategist', 'ad-reporting'] },
+  ],
+  investor: [
+    { id: 'in-essential', name: 'Observer',           tagline: 'Track deals & monthly performance',        serviceIds: ['in-dealroom', 'in-reports'] },
+    { id: 'in-preferred', name: 'Partner',            tagline: 'Priority access & deeper analytics',       serviceIds: ['in-dealroom', 'in-reports', 'in-early', 'in-analytics'], recommended: true },
+    { id: 'in-premium',   name: 'Principal',          tagline: 'Full access, co-investment & advisory',    serviceIds: ['in-dealroom', 'in-reports', 'in-early', 'in-analytics', 'in-strategy', 'in-coinvest', 'in-relations', 'in-tax'] },
+  ],
+};
+
+export function getPresets(entity: EntityType): PlanPreset[] {
+  return PLAN_PRESETS[entity] ?? [];
+}
+
+// Convenience: base monthly total for a preset (at Journeyman + Monthly).
+export function presetBaseMonthly(entity: EntityType, preset: PlanPreset): number {
+  const catalog = SERVICE_CATALOG[entity] ?? [];
+  return preset.serviceIds.reduce((sum, id) => {
+    const svc = catalog.find(s => s.id === id);
+    return sum + (svc ? svc.baseMonthlyPrice : 0);
+  }, 0);
 }

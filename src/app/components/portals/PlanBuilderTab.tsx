@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity } from 'lucide-react';
+import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity, Layers, PlusCircle, X } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
   ENTITY_TYPES,
@@ -19,7 +19,10 @@ import {
   FREQUENCY_TIERS,
   SERVICE_CATALOG,
   computePrice,
+  getPresets,
+  presetBaseMonthly,
   type EntityType,
+  type PlanPreset,
 } from '../../data/maintenancePlans';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { createPlan, listPlans, bridgePlanGiftCards, type PlanRecord } from '../../utils/plansApi';
@@ -52,18 +55,31 @@ interface PlanBuilderTabProps {
   onPlanDraftChange?: (draft: ApplicationPlanDraft | null) => void;
 }
 
-// Map a portal to the most natural property/entity type for its plan catalog.
-const DEFAULT_ENTITY: Record<PortalType, EntityType> = {
-  customer: 'homeowner',
-  landlord: 'landlord',
-  condo_manager: 'condo',
-  property_manager: 'commercial',
-  vendor: 'commercial',
-  advertiser: 'commercial',
-  investor: 'commercial',
-  subcontractor: 'homeowner',
-  employee: 'homeowner',
+// Which entity catalogs each portal may build a plan from. The first entry is
+// the default. Portals with a single entity hide the selector entirely.
+const PORTAL_ENTITIES: Record<PortalType, EntityType[]> = {
+  customer: ['homeowner', 'condo', 'landlord', 'commercial'],
+  landlord: ['landlord'],
+  condo_manager: ['condo'],
+  property_manager: ['commercial', 'condo', 'landlord'],
+  vendor: ['vendor'],
+  advertiser: ['advertiser'],
+  investor: ['investor'],
+  subcontractor: ['subcontractor'],
+  employee: ['homeowner'],
 };
+
+const DEFAULT_ENTITY: Record<PortalType, EntityType> = Object.fromEntries(
+  Object.entries(PORTAL_ENTITIES).map(([portal, entities]) => [portal, entities[0]]),
+) as Record<PortalType, EntityType>;
+
+interface CustomItem {
+  id: string;
+  name: string;
+  category: string;
+  baseMonthlyPrice: number;
+  unit: string;
+}
 
 export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'basic', onPlanDraftChange }: PlanBuilderTabProps) {
   const { user } = useAuth();
@@ -78,6 +94,16 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
   const [frequencyId, setFrequencyId] = useState('monthly');
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+
+  // Custom "price out your own" requests, added as line items alongside catalog picks.
+  const [customItems, setCustomItems] = useState<CustomItem[]>([]);
+  const [customRequest, setCustomRequest] = useState('');
+  const [pricingCustom, setPricingCustom] = useState(false);
+
+  const availableEntities = (PORTAL_ENTITIES[portalType] || ['homeowner']);
+  const entityConfigs = ENTITY_TYPES.filter(e => availableEntities.includes(e.id));
+  const presets = getPresets(entity);
 
   // Live-tracked active plans for this owner/portal (polled every 15s).
   const [activePlans, setActivePlans] = useState<PlanRecord[]>([]);
@@ -92,28 +118,90 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
   );
 
   const monthlyTotal = useMemo(
-    () => selectedServices.reduce(
+    () => [...selectedServices, ...customItems].reduce(
       (sum, s) => sum + computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier),
       0,
     ),
-    [selectedServices, skill, frequency],
+    [selectedServices, customItems, skill, frequency],
+  );
+
+  const allSelectedNames = useMemo(
+    () => [...selectedServices.map(s => s.name), ...customItems.map(c => c.name)],
+    [selectedServices, customItems],
+  );
+  const allSelectedIds = useMemo(
+    () => [...Array.from(selectedIds), ...customItems.map(c => c.id)],
+    [selectedIds, customItems],
   );
 
   // Application flows receive a live draft. They never activate a subscription
   // or issue entitlements before the application is reviewed and approved.
   useEffect(() => {
     if (!onPlanDraftChange) return;
-    if (!selectedServices.length) { onPlanDraftChange(null); return; }
-    onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: Array.from(selectedIds), serviceNames: selectedServices.map(service => service.name), monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
-  }, [onPlanDraftChange, planName, portalType, entity, skillId, frequencyId, selectedIds, selectedServices, monthlyTotal, needs, aiRationale]);
+    if (!selectedServices.length && !customItems.length) { onPlanDraftChange(null); return; }
+    onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: allSelectedIds, serviceNames: allSelectedNames, monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
+  }, [onPlanDraftChange, planName, portalType, entity, skillId, frequencyId, allSelectedIds, allSelectedNames, selectedServices, customItems, monthlyTotal, needs, aiRationale]);
 
   const toggleService = (id: string) => {
+    setActivePresetId(null);
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
+
+  const applyPreset = (preset: PlanPreset) => {
+    setSelectedIds(new Set(preset.serviceIds));
+    setActivePresetId(preset.id);
+    setPlanName(preset.name);
+    setAiRationale('');
+    setFollowUp('');
+    toast.success(`${preset.name} loaded — add or remove anything you like.`);
+  };
+
+  const priceCustom = async () => {
+    if (!customRequest.trim()) {
+      toast.error('Describe the service you want us to price out.');
+      return;
+    }
+    setPricingCustom(true);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/price-custom`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({
+            entityType: entity,
+            portalRole: portalType,
+            request: customRequest.trim(),
+            catalog: catalog.map(s => ({ name: s.name, category: s.category, baseMonthlyPrice: s.baseMonthlyPrice, unit: s.unit })),
+          }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data?.error || `Pricing failed (${res.status})`);
+      const item: CustomItem = {
+        id: `custom-${Date.now()}`,
+        name: data.item.name,
+        category: data.item.category || 'Custom Request',
+        baseMonthlyPrice: data.item.baseMonthlyPrice,
+        unit: data.item.unit || 'per month',
+      };
+      setCustomItems(prev => [...prev, item]);
+      setActivePresetId(null);
+      setCustomRequest('');
+      toast.success(`Added “${item.name}” at $${item.baseMonthlyPrice}/${item.unit}.`);
+    } catch (err: any) {
+      console.error('[PlanBuilderTab] Custom pricing error:', err);
+      toast.error(err?.message || 'Could not price that request. Add more detail and try again.');
+    } finally {
+      setPricingCustom(false);
+    }
+  };
+
+  const removeCustom = (id: string) => setCustomItems(prev => prev.filter(c => c.id !== id));
 
   // Poll the server so newly-created plans (and their hours/gift/promo links)
   // show up and update in real time within the portal.
@@ -166,6 +254,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
         throw new Error(data?.error || `Plan builder failed (${res.status})`);
       }
       const plan = data.plan;
+      setActivePresetId(null);
       setSelectedIds(new Set<string>(plan.serviceIds || []));
       if (plan.skillLevel) setSkillId(plan.skillLevel);
       if (plan.frequency) setFrequencyId(plan.frequency);
@@ -182,13 +271,13 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
   };
 
   const savePlan = async () => {
-    if (selectedServices.length === 0) {
+    if (selectedServices.length === 0 && customItems.length === 0) {
       toast.error('Add at least one service to save your plan.');
       return;
     }
     if (!user?.email) {
       if (onPlanDraftChange) {
-        onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: Array.from(selectedIds), serviceNames: selectedServices.map(service => service.name), monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
+        onPlanDraftChange({ planName, portalType, entity, skillId, frequencyId, serviceIds: allSelectedIds, serviceNames: allSelectedNames, monthlyTotal, annualTotal: monthlyTotal * 12, needs: needs.trim(), aiRationale: aiRationale || undefined });
         toast.success('Your plan preference will be included with this application for review.');
         return;
       }
@@ -202,8 +291,8 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
       entity,
       skillId,
       frequencyId,
-      serviceIds: Array.from(selectedIds),
-      serviceNames: selectedServices.map(s => s.name),
+      serviceIds: allSelectedIds,
+      serviceNames: allSelectedNames,
       monthlyTotal,
       annualTotal: monthlyTotal * 12,
       owner: ownerName || user.user_metadata?.full_name || user.email,
@@ -305,22 +394,24 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
           maintenance plan from our service catalog — then you fine-tune it below.
         </p>
 
-        {/* Property type selector */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {ENTITY_TYPES.map(e => (
-            <button
-              key={e.id}
-              onClick={() => { setEntity(e.id); setSelectedIds(new Set()); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
-                entity === e.id
-                  ? 'bg-orange-600 text-white border-orange-500'
-                  : 'bg-[#0d0d0d] text-gray-400 border-[#1f1f1f] hover:text-gray-200'
-              }`}
-            >
-              <span className="mr-1">{e.icon}</span>{e.label}
-            </button>
-          ))}
-        </div>
+        {/* Property / account type selector (hidden when a portal has only one) */}
+        {entityConfigs.length > 1 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {entityConfigs.map(e => (
+              <button
+                key={e.id}
+                onClick={() => { setEntity(e.id); setSelectedIds(new Set()); setCustomItems([]); setActivePresetId(null); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
+                  entity === e.id
+                    ? 'bg-orange-600 text-white border-orange-500'
+                    : 'bg-[#0d0d0d] text-gray-400 border-[#1f1f1f] hover:text-gray-200'
+                }`}
+              >
+                <span className="mr-1">{e.icon}</span>{e.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-2">
           <textarea
@@ -347,6 +438,46 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
           </div>
         )}
       </div>
+
+      {/* Three set options (presets built from the same catalog) */}
+      {presets.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-semibold text-white">Start with a set plan</h3>
+            <span className="text-xs text-gray-500">— then add anything you like</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {presets.map(preset => {
+              const base = presetBaseMonthly(entity, preset);
+              const price = computePrice(base, skill.multiplier, frequency.multiplier);
+              const active = activePresetId === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => applyPreset(preset)}
+                  className={`relative text-left rounded-xl border p-4 transition ${
+                    active
+                      ? 'border-orange-500 bg-orange-600/10 ring-1 ring-orange-500/40'
+                      : 'border-[#1f1f1f] bg-[#0d0d0d] hover:border-orange-500/40'
+                  }`}
+                >
+                  {preset.recommended && (
+                    <span className="absolute top-3 right-3 text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Most popular</span>
+                  )}
+                  <p className="text-white font-semibold">{preset.name}</p>
+                  <p className="text-xs text-gray-500 mb-3 pr-16">{preset.tagline}</p>
+                  <p className="text-2xl font-bold text-white">${price.toLocaleString()}<span className="text-sm text-gray-500 font-normal">/mo</span></p>
+                  <p className="text-[11px] text-gray-600 mb-3">{preset.serviceIds.length} services included</p>
+                  <span className={`inline-flex items-center gap-1 text-xs font-medium ${active ? 'text-orange-400' : 'text-gray-400'}`}>
+                    {active ? <><Check className="w-3.5 h-3.5" /> Selected</> : <><Plus className="w-3.5 h-3.5" /> Use this plan</>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Plan config + summary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
@@ -425,6 +556,34 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
               })}
             </div>
           </div>
+
+          {/* Price out your own custom request */}
+          <div className="rounded-xl border border-dashed border-orange-500/30 bg-[#0d0d0d] p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <PlusCircle className="w-4 h-4 text-orange-400" />
+              <p className="text-sm font-semibold text-white">Need something we don't list?</p>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Describe any service you want and we'll price it out at fair local rates, then add it to your plan.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                value={customRequest}
+                onChange={e => setCustomRequest(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') priceCustom(); }}
+                placeholder="e.g. Weekly pool servicing, or dedicated account manager…"
+                className="flex-1 rounded-lg bg-[#0a0a0a] border border-[#1f1f1f] px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-orange-500/50 focus:outline-none"
+              />
+              <button
+                onClick={priceCustom}
+                disabled={pricingCustom}
+                className="shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-[#161616] border border-orange-500/40 text-orange-300 hover:bg-orange-600/10 disabled:opacity-60 transition"
+              >
+                {pricingCustom ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                {pricingCustom ? 'Pricing…' : 'Price it out'}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Right: summary */}
@@ -435,22 +594,43 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
             className="w-full bg-transparent text-lg font-bold text-white border-b border-[#1f1f1f] pb-2 focus:border-orange-500/50 focus:outline-none"
           />
           <div className="space-y-1.5 max-h-56 overflow-y-auto">
-            {selectedServices.length === 0 ? (
-              <p className="text-sm text-gray-500">No services yet. Use the AI builder or pick from the list.</p>
-            ) : selectedServices.map(s => {
-              const price = computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
-              return (
-                <div key={s.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="text-gray-300 truncate">{s.name}</span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-white">${price}</span>
-                    <button onClick={() => toggleService(s.id)} className="text-gray-600 hover:text-red-400">
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                </div>
-              );
-            })}
+            {selectedServices.length === 0 && customItems.length === 0 ? (
+              <p className="text-sm text-gray-500">No services yet. Pick a set plan, use the AI builder, or choose from the list.</p>
+            ) : (
+              <>
+                {selectedServices.map(s => {
+                  const price = computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
+                  return (
+                    <div key={s.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-gray-300 truncate">{s.name}</span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="text-white">${price}</span>
+                        <button onClick={() => toggleService(s.id)} className="text-gray-600 hover:text-red-400">
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {customItems.map(c => {
+                  const price = computePrice(c.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
+                  return (
+                    <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-1.5 text-gray-300 truncate">
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-orange-500/15 text-orange-400 shrink-0">CUSTOM</span>
+                        <span className="truncate">{c.name}</span>
+                      </span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="text-white">${price}</span>
+                        <button onClick={() => removeCustom(c.id)} className="text-gray-600 hover:text-red-400">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
 
           <div className="border-t border-[#1f1f1f] pt-3 space-y-1">
@@ -473,7 +653,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
             {saving ? 'Activating…' : 'Save My Plan'}
           </button>
           <button
-            onClick={() => { setSelectedIds(new Set()); setAiRationale(''); setFollowUp(''); }}
+            onClick={() => { setSelectedIds(new Set()); setCustomItems([]); setActivePresetId(null); setAiRationale(''); setFollowUp(''); }}
             className="w-full inline-flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-gray-400 hover:text-white transition"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Start over

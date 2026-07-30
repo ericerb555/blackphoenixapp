@@ -94,6 +94,8 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const [showFreePortalInvite, setShowFreePortalInvite] = useState(false);
   const [sendingFreePortalInvite, setSendingFreePortalInvite] = useState(false);
   const [freePortalInvite, setFreePortalInvite] = useState({ name: '', email: '', phone: '', portalType: 'customer' });
+  const [inviteChannels, setInviteChannels] = useState({ email: true, sms: false, qr: false });
+  const [lastInviteQr, setLastInviteQr] = useState<string | null>(null);
   const [commandSummary, setCommandSummary] = useState<any>({ totalRevenue: 0, openInvoiceTotal: 0, customersCount: 0, activeJobsCount: 0, teamCount: 0, pendingApplications: 0, pendingWorkRequests: 0, chartData: [] });
 
   // SIMPLE STORE: Get companies directly from localStorage
@@ -357,21 +359,28 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       toast.error('Name, email, and phone number are required.');
       return;
     }
+    if (inviteChannels.sms && !freePortalInvite.phone.trim()) { toast.error('A phone number is required to send an SMS invite.'); return; }
     setSendingFreePortalInvite(true);
+    setLastInviteQr(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in again before creating a portal invite.');
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/owner-provisioning/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify(freePortalInvite),
+        body: JSON.stringify({ ...freePortalInvite, sendEmail: inviteChannels.email, sendSms: inviteChannels.sms, generateQr: inviteChannels.qr }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not create the free portal invite.');
-      const delivery = payload.invite?.invitationSent ? 'Their secure account-setup email has been sent.' : 'Their portal record is ready; they can sign in with their existing account to finish setup.';
-      toast.success(`Free ${String(freePortalInvite.portalType).replace(/_/g, ' ')} access created. ${delivery}`);
+      const inv = payload.invite || {};
+      const bits: string[] = [];
+      if (inviteChannels.email) bits.push(inv.invitationSent ? 'email sent' : 'email pending (existing account)');
+      if (inviteChannels.sms) bits.push(inv.smsSent ? 'SMS sent' : `SMS not sent${inv.smsNotice ? ` (${inv.smsNotice})` : ''}`);
+      if (inviteChannels.qr) bits.push(inv.qrDataUrl ? 'QR generated' : 'QR unavailable');
+      toast.success(`Free ${String(freePortalInvite.portalType).replace(/_/g, ' ')} access created — ${bits.join(', ')}.`);
+      if (inv.qrDataUrl) setLastInviteQr(inv.qrDataUrl);
       setFreePortalInvite({ name: '', email: '', phone: '', portalType: 'customer' });
-      setShowFreePortalInvite(false);
+      if (!inv.qrDataUrl) setShowFreePortalInvite(false);
     } catch (error: any) { toast.error(error.message || 'Could not create the portal invite.'); }
     finally { setSendingFreePortalInvite(false); }
   };
@@ -691,7 +700,29 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                   {[['name', 'Full name', 'Jane Smith'], ['email', 'Email address', 'jane@example.com'], ['phone', 'Phone number', '(214) 555-0100']].map(([field, label, placeholder]) => <label key={field} className="block text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">{label}<input required type={field === 'email' ? 'email' : 'text'} value={(freePortalInvite as any)[field]} onChange={(event) => setFreePortalInvite((current) => ({ ...current, [field]: event.target.value }))} placeholder={placeholder} className="mt-2 w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-sm normal-case tracking-normal text-white outline-none transition focus:border-orange-400" /></label>)}
                   <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">Portal access<select value={freePortalInvite.portalType} onChange={(event) => setFreePortalInvite((current) => ({ ...current, portalType: event.target.value }))} className="mt-2 w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-sm normal-case tracking-normal text-white outline-none transition focus:border-orange-400"><option value="customer">Customer</option><option value="vendor">Vendor</option><option value="subcontractor">Subcontractor</option><option value="employee">Employee</option><option value="advertiser">Advertiser</option><option value="investor">Investor</option><option value="property_manager">Property Manager</option><option value="condo_manager">Condo Manager</option><option value="landlord">Landlord</option><option value="territory_owner">Territory Owner</option></select></label>
                 </div>
-                <div className="mt-5 flex flex-wrap items-center gap-3"><button disabled={sendingFreePortalInvite} type="submit" className="rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{sendingFreePortalInvite ? 'Creating access…' : 'Create free access & send invite'}</button><span className="text-xs text-gray-500">No subscription, maintenance plan, invoice, or payment is created here.</span></div>
+                <div className="mt-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-400">Send invite via</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {([['email', 'Email'], ['sms', 'SMS'], ['qr', 'QR code']] as const).map(([key, label]) => {
+                      const on = (inviteChannels as any)[key];
+                      return (
+                        <button key={key} type="button" onClick={() => setInviteChannels((c) => ({ ...c, [key]: !c[key] }))} className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${on ? 'border-orange-400 bg-orange-500/15 text-orange-200' : 'border-white/10 bg-[#101010] text-gray-400 hover:text-white'}`}>{on ? '✓ ' : ''}{label}</button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">All channels use the same editable template below. SMS requires a phone number.</p>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center gap-3"><button disabled={sendingFreePortalInvite || (!inviteChannels.email && !inviteChannels.sms && !inviteChannels.qr)} type="submit" className="rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{sendingFreePortalInvite ? 'Creating access…' : 'Create free access & send invite'}</button><span className="text-xs text-gray-500">No subscription, maintenance plan, invoice, or payment is created here.</span></div>
+                {lastInviteQr && (
+                  <div className="mt-5 flex flex-col items-start gap-3 rounded-lg border border-white/10 bg-[#101010] p-4 sm:flex-row sm:items-center">
+                    <img src={lastInviteQr} alt="Portal invite QR code" className="h-32 w-32 rounded-lg bg-white p-1" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Invite QR code</p>
+                      <p className="mt-1 max-w-sm text-xs text-gray-400">Scanning this opens the invitee's unique secure setup link. Print it, text it, or drop it on a flyer.</p>
+                      <a href={lastInviteQr} download="portal-invite-qr.png" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-orange-400/40 px-3 py-1.5 text-xs font-semibold text-orange-200 transition hover:bg-orange-500/10">Download PNG</a>
+                    </div>
+                  </div>
+                )}
               </form>
             )}
 
