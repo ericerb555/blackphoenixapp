@@ -31,7 +31,8 @@ import storeBoostersRouter from "./store-boosters.tsx";
 import promotionsEngineRouter from "./promotions-engine.tsx";
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
-import { buildPortalInviteEmail, PORTAL_LABELS } from "./portal-invite-email.tsx";
+import { buildPortalInviteEmail, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
+const INVITE_TEMPLATE_KEY = (portalType: string) => `portal_invite_template:${portalType}`;
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
 import crmContentRouter from "./crm-content.tsx";
@@ -6865,9 +6866,11 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
         const actionLink = linkData?.properties?.action_link || linkData?.action_link;
         if (linkError || !actionLink) throw new Error(linkError?.message || 'Could not generate the sign-in link.');
 
+        const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
         const { subject, html, text } = buildPortalInviteEmail({
           name, portalType, signInUrl: actionLink, companyName: COMPANY_NAME,
           logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
+          overrides: inviteOverrides || undefined,
         });
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -6906,14 +6909,126 @@ app.get('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) => 
     const trialMonths = Math.min(24, Math.max(1, Number(c.req.query('trialMonths')) || 6));
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
     const { subject, html } = buildPortalInviteEmail({
       name, portalType,
       signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
       companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess, trialMonths,
+      overrides: inviteOverrides || undefined,
     });
     const label = PORTAL_LABELS[portalType] || 'Portal';
     return c.json({ success: true, subject, html, portalLabel: label });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to render invite preview.' }, 500); }
+});
+
+// List all portal invite email templates — the editable copy fields with their
+// built-in defaults and any saved overrides, so the Owner's Dashboard editor can
+// render a form per portal type.
+app.get('/make-server-3eae23a6/owner-provisioning/invite-templates', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const templates = [];
+    for (const portalType of Object.keys(PORTAL_LABELS)) {
+      const overrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as (InviteFields & { _updatedBy?: string; _updatedAt?: string }) | null;
+      templates.push({
+        portalType,
+        label: PORTAL_LABELS[portalType],
+        defaults: defaultInviteFields(portalType),
+        overrides: overrides || {},
+        effective: effectiveInviteFields(portalType, overrides || undefined),
+        customized: Boolean(overrides && Object.keys(overrides).some((k) => !k.startsWith('_') && typeof (overrides as any)[k] === 'string' && (overrides as any)[k].trim())),
+        updatedBy: overrides?._updatedBy || null,
+        updatedAt: overrides?._updatedAt || null,
+      });
+    }
+    return c.json({ success: true, fields: INVITE_FIELD_DEFS, templates });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load invite templates.' }, 500); }
+});
+
+// Live preview that renders UNSAVED edits (overrides passed in the body), so the
+// admin sees exactly what the email will look like before saving.
+app.post('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const name = String(body.name || 'Jordan Smith').trim() || 'Jordan Smith';
+    const portalType = String(body.portalType || 'customer').trim().toLowerCase();
+    const fullAccess = body.fullAccess !== false;
+    const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
+    const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const { subject, html } = buildPortalInviteEmail({
+      name, portalType,
+      signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
+      companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess, trialMonths, overrides,
+    });
+    return c.json({ success: true, subject, html, portalLabel: PORTAL_LABELS[portalType] || 'Portal' });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to render invite preview.' }, 500); }
+});
+
+// Save (or reset) the editable copy for a portal type. Empty/blank fields fall
+// back to the built-in default. Sending an empty object resets to defaults.
+app.put('/make-server-3eae23a6/owner-provisioning/invite-templates/:portalType', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin || !actor.user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const portalType = String(c.req.param('portalType') || '').trim().toLowerCase();
+    if (!PORTAL_LABELS[portalType]) return c.json({ success: false, error: 'Unknown portal type.' }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = (body.overrides && typeof body.overrides === 'object') ? body.overrides : body;
+    const clean: InviteFields = {};
+    for (const def of INVITE_FIELD_DEFS) {
+      const v = incoming?.[def.key];
+      if (typeof v === 'string' && v.trim().length > 0) (clean as any)[def.key] = v.slice(0, 4000);
+    }
+    if (Object.keys(clean).length === 0) {
+      await kv.del(INVITE_TEMPLATE_KEY(portalType));
+    } else {
+      await kv.set(INVITE_TEMPLATE_KEY(portalType), { ...clean, _updatedBy: actor.user.email, _updatedAt: new Date().toISOString() });
+    }
+    const saved = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as (InviteFields & { _updatedBy?: string; _updatedAt?: string }) | null;
+    return c.json({ success: true, portalType, overrides: saved || {}, effective: effectiveInviteFields(portalType, saved || undefined), updatedBy: saved?._updatedBy || null, updatedAt: saved?._updatedAt || null });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save invite template.' }, 500); }
+});
+
+// Send a test copy of the (possibly UNSAVED) invitation email to the requesting
+// admin's own inbox, so they can see the real rendering before inviting anyone.
+// The link is a harmless sample — no account is created.
+app.post('/make-server-3eae23a6/owner-provisioning/invite-test', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin || !actor.user?.email) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const portalType = String(body.portalType || 'customer').trim().toLowerCase();
+    if (!PORTAL_LABELS[portalType]) return c.json({ success: false, error: 'Unknown portal type.' }, 400);
+    const to = String(body.to || actor.user.email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(to)) return c.json({ success: false, error: 'Enter a valid destination email.' }, 400);
+    const fullAccess = body.fullAccess !== false;
+    const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
+    const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    if (!RESEND_API_KEY) return c.json({ success: false, error: 'RESEND_API_KEY is not configured, so test emails cannot be sent.' }, 500);
+    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+
+    const built = buildPortalInviteEmail({
+      name: actor.user.email.split('@')[0], portalType,
+      signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
+      companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess, trialMonths, overrides,
+    });
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [to], subject: `[TEST] ${built.subject}`, html: built.html, text: built.text }),
+    });
+    if (!res.ok) { const errBody = await res.text().catch(() => ''); return c.json({ success: false, error: `Resend send failed (${res.status}): ${errBody}` }, 502); }
+    return c.json({ success: true, to });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test invite.' }, 500); }
 });
 
 // Entitlements: does this user have full-access via a trial grant, is it still

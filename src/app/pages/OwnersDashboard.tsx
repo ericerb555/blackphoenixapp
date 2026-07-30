@@ -53,6 +53,7 @@ import DatabaseMigrationTool from '../components/DatabaseMigrationTool';
 import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
+import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -693,6 +694,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 <div className="mt-5 flex flex-wrap items-center gap-3"><button disabled={sendingFreePortalInvite} type="submit" className="rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{sendingFreePortalInvite ? 'Creating access…' : 'Create free access & send invite'}</button><span className="text-xs text-gray-500">No subscription, maintenance plan, invoice, or payment is created here.</span></div>
               </form>
             )}
+
+            {/* Portal invitation emails — see & edit what each invite sends */}
+            <PortalInviteEmailEditor />
+
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <div className="text-center py-8">
                 <Users className="w-16 h-16 text-gray-600 mx-auto mb-4" />
