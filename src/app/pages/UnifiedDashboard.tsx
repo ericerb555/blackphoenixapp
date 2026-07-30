@@ -382,6 +382,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       label: 'Operations',
       icon: Briefcase,
       modules: [
+        { label: 'eCommerce Store', path: '/enterprise-content-center', tab: 'ecommerce', icon: Store, color: 'orange', description: 'All store tools in one place — catalog, suppliers, orders, pricing & insights', badge: 'HUB' },
         { label: 'Active Jobs', path: '/job-tracking-hub', tab: 'active-jobs', icon: Briefcase, color: 'orange', description: 'Track active jobs and statuses' },
         { label: 'Projects', path: '/projects-new', icon: Building2, color: 'blue', description: 'Project management and tracking' },
         { label: 'Bid Room', path: '/bid-room', icon: Target, color: 'amber', description: 'Quick access to bidding center', badge: 'QUICK' },
