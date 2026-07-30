@@ -177,6 +177,7 @@ const BlueprintAnalysisPage = lazy(() => import("./pages/BlueprintAnalysisPage")
 const DobaIntegration = lazy(() => import("./pages/DobaIntegration"));
 const ExitIntentManager = lazy(() => import("./pages/ExitIntentManager"));
 const EmergencyServicesLandingPage = lazy(() => import("./pages/EmergencyServicesLandingPage"));
+const DIYRepairEncyclopedia = lazy(() => import("./pages/documents/DIYRepairEncyclopedia"));
 
 // ── Re-exports for auth pages (used directly in App.tsx renderPage) ──────────
 export { Login, SignUp, ForgotPassword, ResetPassword, DirectoryLandingPage };
@@ -197,6 +198,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "property-management-landing-page":       PropertyManagementLandingPage,
   "territory-landing-page":                 TerritoryLandingPage,
   "emergency-services-landing-page":        EmergencyServicesLandingPage,
+  "self-service":                           DIYRepairEncyclopedia,
   "marketing-hub-landing-page":             MarketingHubLandingPage,
   "contractor-network-landing-page":        ContractorNetworkLandingPage,
 

@@ -14,6 +14,7 @@ import {
   BarChart3, Mail, MessageSquare, Search, Users, FileText, Star,
   Zap, Target, Image as ImageIcon, TrendingUp, ArrowUpRight, Bot,
   Activity, Link2, Box, DollarSign, Package, ShoppingCart, AlertCircle,
+  Rocket, RefreshCw, QrCode, Brain, Building2, Truck, BookOpen,
 } from 'lucide-react';
 
 type Action =
@@ -95,6 +96,38 @@ const GROUPS: Group[] = [
       { name: 'Content Analytics', desc: 'Performance across content', icon: BarChart3, action: { kind: 'tab', tab: 'analytics' } },
       { name: 'Shop Intelligence', desc: 'Ecommerce analytics & insights', icon: BarChart3, action: { kind: 'tab', tab: 'shop-intelligence' } },
       { name: 'Referral Rewards', desc: 'Grow through referrals', icon: Users, action: { kind: 'nav', path: 'referral-rewards' } },
+    ],
+  },
+  {
+    title: 'Dropshipping & Orders',
+    icon: ShoppingCart,
+    tools: [
+      { name: 'Spocket', desc: 'US/EU dropship supplier', icon: Rocket, action: { kind: 'nav', path: 'spocket' }, badge: 'PRIMARY' },
+      { name: 'Zendrop', desc: 'Auto-fulfillment · products live', icon: Zap, action: { kind: 'nav', path: 'zendrop' }, badge: 'LIVE' },
+      { name: 'Subscribe & Save', desc: 'Recurring orders · up to 15% off', icon: RefreshCw, action: { kind: 'nav', path: 'subscribe' }, badge: 'NEW' },
+      { name: 'Product Reviews', desc: 'Ratings · moderation · insights', icon: Star, action: { kind: 'nav', path: 'reviews' }, badge: 'NEW' },
+      { name: 'Orders', desc: 'Stripe payments · fulfillment', icon: ShoppingCart, action: { kind: 'nav', path: 'orders' }, badge: 'LIVE' },
+    ],
+  },
+  {
+    title: 'Growth & Rewards',
+    icon: TrendingUp,
+    tools: [
+      { name: 'Revenue Analytics', desc: 'Products · channels · email', icon: BarChart3, action: { kind: 'nav', path: 'revenue-analytics' }, badge: 'NEW' },
+      { name: 'QR Code Generator', desc: 'Truck · cards · flyers · signs', icon: QrCode, action: { kind: 'nav', path: 'qr-codes' }, badge: 'NEW' },
+      { name: 'Phoenix Rewards', desc: 'Loyalty · referrals · perks', icon: Star, action: { kind: 'nav', path: 'loyalty' }, badge: 'NEW' },
+      { name: 'Email Lead Gen', desc: 'Capture · score · convert', icon: Mail, action: { kind: 'nav', path: 'email-lead-gen' }, badge: 'NEW' },
+    ],
+  },
+  {
+    title: 'Field Service & Property AI',
+    icon: Brain,
+    tools: [
+      { name: 'PropertyAI Enterprise', desc: 'Health · capital · revenue · AI', icon: Brain, action: { kind: 'nav', path: 'property-ai-enterprise' }, badge: 'NEW' },
+      { name: 'Property Revenue AI', desc: 'Landlord · condo · commercial', icon: Building2, action: { kind: 'nav', path: 'property-revenue' } },
+      { name: 'AI Emergency Agent', desc: 'Auto-triage, no wakeup calls', icon: AlertCircle, action: { kind: 'nav', path: 'emergency-services-landing-page' }, badge: 'AI' },
+      { name: 'Auto-Dispatch Engine', desc: 'Smart contractor routing', icon: Truck, action: { kind: 'nav', path: 'service-scheduling' } },
+      { name: 'Self-Service Hub', desc: 'DIY guides, no call needed', icon: BookOpen, action: { kind: 'nav', path: 'self-service' } },
     ],
   },
 ];
