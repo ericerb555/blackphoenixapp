@@ -46,7 +46,7 @@ import { companyConfigRouter } from "./company-config.tsx";
 import { emailCenterRouter } from "./email-center.tsx";
 import { storeContentRouter } from "./store-content.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "./dropshipper-config.tsx";
-import { getAllInventory, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
+import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
 
 const app = new Hono();
@@ -7847,6 +7847,171 @@ app.get('/make-server-3eae23a6/dropshipper/orders', async (c) => { const actor =
 app.get('/make-server-3eae23a6/dropshipper/errors', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const errors = await getDropshipperErrors(Number(c.req.query('limit') || 100)); return c.json({ success: true, errors, total: errors.length }); });
 app.post('/make-server-3eae23a6/dropshipper/sync-inventory', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperInventory()); });
 app.post('/make-server-3eae23a6/dropshipper/sync-tracking', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperTracking()); });
+// Publish dropship inventory items to the live storefront catalog with an
+// operator-chosen list price. Body: { items: [{ sku, listPrice }] }.
+// Writes a canonical `product_{sku}` record (GET /products reads this prefix),
+// preserving the raw supplier cost as `cost_price` so the margin is auditable.
+app.post('/make-server-3eae23a6/dropshipper/inventory/publish', async (c) => {
+  const actor = await dropshipAdmin(c);
+  if (!actor) return c.json({ error: 'Administrator access is required.' }, 403);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (items.length === 0) return c.json({ error: 'No items provided.' }, 400);
+    const published: string[] = [];
+    const failed: { sku: string; error: string }[] = [];
+    for (const entry of items) {
+      const sku = String(entry?.sku || '').trim();
+      if (!sku) { failed.push({ sku: '', error: 'Missing SKU' }); continue; }
+      try {
+        const inv = await getDropshipperInventoryItem(sku);
+        if (!inv) { failed.push({ sku, error: 'Inventory item not found' }); continue; }
+        const cost = Number(inv.cost ?? inv.price ?? 0);
+        const listPrice = Number(entry.listPrice);
+        if (!Number.isFinite(listPrice) || listPrice <= 0) { failed.push({ sku, error: 'Invalid list price' }); continue; }
+        const key = `product_${sku}`;
+        const existing = (await kv.get(key)) || {};
+        const now = new Date().toISOString();
+        const slug = String(inv.name || sku).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const product = {
+          ...existing,
+          id: sku,
+          vendorId: 'dropshipper_' + (inv.providerId || 'supplier'),
+          vendorName: inv.providerId || 'Dropship Supplier',
+          name: inv.name || existing.name || 'Untitled Product',
+          description: inv.description || existing.description || '',
+          category: inv.category || existing.category || 'General',
+          price: listPrice,
+          cost_price: cost,
+          images: (inv.images && inv.images.length ? inv.images : existing.images) || [],
+          primaryImage: (inv.images && inv.images[0]) || existing.primaryImage || '',
+          sku,
+          inventoryQuantity: Number(inv.stock ?? existing.inventoryQuantity ?? 0),
+          trackInventory: true,
+          isActive: true,
+          isFeatured: existing.isFeatured || false,
+          slug: existing.slug || slug,
+          viewCount: existing.viewCount || 0,
+          orderCount: existing.orderCount || 0,
+          createdAt: existing.createdAt || now,
+          updatedAt: now,
+          _dropshipper: { source: 'dropshipper', providerId: inv.providerId, publishedAt: now },
+        };
+        await kv.set(key, product);
+        published.push(sku);
+      } catch (err) {
+        failed.push({ sku, error: String(err) });
+      }
+    }
+    return c.json({ success: failed.length === 0, published, failed, count: published.length });
+  } catch (error) {
+    console.log('[dropshipper/inventory/publish] error:', error);
+    return c.json({ error: 'Failed to publish products', details: String(error) }, 500);
+  }
+});
+
+// AI-assisted per-item repricing. A flat markup over- or under-prices a mixed
+// catalog, so this asks the model to anchor each product to a realistic market
+// selling price (using charm pricing) while GUARDRAILS clamp every result
+// server-side to [cost*(1+minMargin), cost*(1+maxMarkup)] so the AI can never
+// price below the floor or run away above the ceiling.
+// Body: { items:[{sku,name,category,cost,currentPrice}], minMarginPct, maxMarkupPct, strategy }
+app.post('/make-server-3eae23a6/dropshipper/inventory/suggest-pricing', async (c) => {
+  const actor = await dropshipAdmin(c);
+  if (!actor) return c.json({ error: 'Administrator access is required.' }, 403);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const items = (Array.isArray(body.items) ? body.items : [])
+      .map((i: any) => ({ sku: String(i.sku || ''), name: String(i.name || ''), category: String(i.category || 'General'), cost: Number(i.cost) || 0, currentPrice: Number(i.currentPrice) || 0 }))
+      .filter((i: any) => i.sku && i.cost > 0);
+    if (items.length === 0) return c.json({ error: 'No priceable items provided (each needs a SKU and a cost > 0).' }, 400);
+
+    const minMargin = Math.max(0, Number(body.minMarginPct ?? 15)) / 100;
+    const maxMarkup = Math.max(minMargin, Number(body.maxMarkupPct ?? 400) / 100);
+    const strategy = ['competitive', 'value', 'premium'].includes(body.strategy) ? body.strategy : 'competitive';
+
+    const clamp = (price: number, cost: number) => {
+      const floor = cost * (1 + minMargin);
+      const ceil = cost * (1 + maxMarkup);
+      let p = Math.min(Math.max(price, floor), ceil);
+      // Charm pricing: round to nearest .99 for a natural retail feel.
+      p = Math.max(0.99, Math.round(p) - 0.01);
+      return Math.round(p * 100) / 100;
+    };
+
+    const openAIKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openAIKey) return c.json({ error: 'OPENAI_API_KEY is not configured.' }, 500);
+
+    const strategyHint = {
+      competitive: 'Price to match or slightly undercut typical online marketplace prices to maximize sales volume.',
+      value: 'Price on the lower end of the market range to win price-sensitive shoppers while staying above the margin floor.',
+      premium: 'Price toward the higher end where the product/category supports it, without exceeding the ceiling.',
+    }[strategy];
+
+    // Chunk to keep each model call small and reliable.
+    const chunks: any[][] = [];
+    for (let i = 0; i < items.length; i += 40) chunks.push(items.slice(i, i + 40));
+
+    const suggestions: any[] = [];
+    for (const chunk of chunks) {
+      const prompt = `You are a pricing strategist for an e-commerce store. For each product, estimate a realistic MARKET RETAIL price a shopper would expect to pay online for a similar item, based on the product name and category. ${strategyHint}
+Goal: competitive prices that drive sales — do NOT overprice.
+Return STRICT JSON: {"prices":[{"sku","price","confidence","rationale"}]}.
+- "price": your suggested retail price in USD (a number). We will apply margin guardrails afterward, so price to the market, not to a fixed markup.
+- "confidence": 0-1 how sure you are about the market price.
+- "rationale": <= 12 words on the reasoning.
+Products:
+${JSON.stringify(chunk.map((i) => ({ sku: i.sku, name: i.name, category: i.category, myCost: i.cost })))}`;
+
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openAIKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: 'You are a precise e-commerce pricing assistant. Always respond with valid JSON only.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.4,
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.log('[suggest-pricing] OpenAI error:', resp.status, errText);
+        return c.json({ error: `AI pricing failed (HTTP ${resp.status}).`, details: errText }, 502);
+      }
+      const data = await resp.json();
+      let parsed: any = {};
+      try { parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; }
+      const rows = Array.isArray(parsed.prices) ? parsed.prices : [];
+      const bySku: Record<string, any> = {};
+      for (const r of rows) bySku[String(r.sku)] = r;
+
+      for (const item of chunk) {
+        const r = bySku[item.sku];
+        const raw = Number(r?.price);
+        // Fall back to a floor-based price if the model omitted this SKU.
+        const suggested = clamp(Number.isFinite(raw) && raw > 0 ? raw : item.cost * (1 + minMargin), item.cost);
+        const margin = item.cost > 0 ? Math.round(((suggested - item.cost) / item.cost) * 100) : 0;
+        suggestions.push({
+          sku: item.sku,
+          cost: item.cost,
+          currentPrice: item.currentPrice,
+          suggestedPrice: suggested,
+          margin,
+          confidence: Number.isFinite(Number(r?.confidence)) ? Number(r.confidence) : 0.4,
+          rationale: r?.rationale ? String(r.rationale) : 'Priced to margin floor (no market signal).',
+        });
+      }
+    }
+
+    return c.json({ success: true, strategy, minMarginPct: minMargin * 100, maxMarkupPct: maxMarkup * 100, suggestions });
+  } catch (error) {
+    console.log('[dropshipper/inventory/suggest-pricing] error:', error);
+    return c.json({ error: 'Failed to generate AI pricing', details: String(error) }, 500);
+  }
+});
 app.get('/make-server-3eae23a6/dropshipper/providers', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, providers: (await getDropshipperProviders()).map(({ apiKey, ...provider }: any) => provider) }); });
 app.get('/make-server-3eae23a6/dropshipper/catalog/staged', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, products: await getAllStagedProducts() }); });
 // Read-only alias used by the ad creator's KV fallback path (staged catalog data is low-sensitivity product listings destined for the public store).

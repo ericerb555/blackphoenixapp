@@ -10,6 +10,7 @@ import {
   DollarSign, ShoppingBag, Truck, Link2, Settings, Eye, EyeOff,
   ChevronDown, ChevronUp, Search, Filter, ArrowUpRight, Zap,
   AlertTriangle, BarChart3, Globe, X, Save, Edit2,
+  Sparkles, Wand2, TrendingUp, Check,
 } from 'lucide-react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
@@ -162,13 +163,17 @@ interface ConnectedSupplier {
 interface InventoryItem {
   id: string;
   name: string;
-  price: number;
+  price: number;      // default list price on the site (marked-up sell price)
+  cost: number;       // my cost — what we pay the supplier
   supplier: string;
   category: string;
   inStock: boolean;
   image: string;
   sku: string;
 }
+
+const money = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const marginPct = (list: number, cost: number) => (cost > 0 ? Math.round(((list - cost) / cost) * 100) : 0);
 
 type ManagerTab = 'suppliers' | 'inventory' | 'orders' | 'settings';
 
@@ -199,6 +204,20 @@ export default function MultiDropshipperManager() {
   const [inventoryFilter, setInventoryFilter] = useState('all');
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [importingToStore, setImportingToStore] = useState<string | null>(null);
+  const [pushingAll, setPushingAll] = useState(false);
+  // Per-SKU list-price overrides (what the product is listed for on the site).
+  const [listPrices, setListPrices] = useState<Record<string, number>>({});
+  const listPriceFor = (item: InventoryItem) => (listPrices[item.id] ?? item.price);
+
+  // ── Smart (AI) bulk pricing ──────────────────────────────────────────────
+  interface PriceSuggestion { sku: string; cost: number; currentPrice: number; suggestedPrice: number; margin: number; confidence: number; rationale: string; }
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [pricingStrategy, setPricingStrategy] = useState<'competitive' | 'value' | 'premium'>('competitive');
+  const [minMargin, setMinMargin] = useState('20');
+  const [maxMarkup, setMaxMarkup] = useState('300');
+  const [pricingScope, setPricingScope] = useState<'filtered' | 'all'>('filtered');
+  const [generatingPrices, setGeneratingPrices] = useState(false);
+  const [suggestions, setSuggestions] = useState<PriceSuggestion[] | null>(null);
 
   // Zendrop quick-connect (inline in the dropshipping area).
   const [zendropKey, setZendropKey] = useState('');
@@ -261,7 +280,8 @@ export default function MultiDropshipperManager() {
       const invMapped: InventoryItem[] = inventoryItems.map((it: any, idx: number) => ({
         id: String(it.sku || it.providerProductId || idx),
         name: it.name || 'Untitled Product',
-        price: Number(it.price ?? it.cost ?? 0),
+        price: Number(it.price ?? it.retailPrice ?? it.cost ?? 0),
+        cost: Number(it.cost ?? it.costPrice ?? it.price ?? 0),
         supplier: (SUPPLIERS.find((s) => s.id === String(it.providerId).toLowerCase())?.name) || it.providerId || 'Supplier',
         category: it.category || 'General',
         inStock: Number(it.stock ?? 0) > 0,
@@ -373,17 +393,97 @@ export default function MultiDropshipperManager() {
     toast.success(`${s?.name} disconnected`);
   }
 
+  async function publishItems(items: InventoryItem[]): Promise<boolean> {
+    const payload = items
+      .filter(i => i.sku)
+      .map(i => ({ sku: i.sku, listPrice: Number(listPriceFor(i)) }));
+    const bad = payload.find(p => !Number.isFinite(p.listPrice) || p.listPrice <= 0);
+    if (bad) { toast.error(`Set a valid list price before publishing (SKU ${bad.sku}).`); return false; }
+    try {
+      const res = await fetch(`${SERVER}/dropshipper/inventory/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ items: payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Publish failed (HTTP ${res.status}).`;
+        console.error('[DropshipperManager] publish failed:', msg, data);
+        toast.error(data.failed?.length ? `${msg} ${data.failed.length} item(s) failed.` : msg);
+        return (data.published?.length || 0) > 0;
+      }
+      return true;
+    } catch (e: any) {
+      console.error('[DropshipperManager] publish error:', e);
+      toast.error(`Could not reach the server to publish: ${e?.message || e}`);
+      return false;
+    }
+  }
+
   async function importToStore(item: InventoryItem) {
     setImportingToStore(item.id);
-    await new Promise(r => setTimeout(r, 1000));
-    toast.success(`"${item.name}" added to your store!`);
+    const ok = await publishItems([item]);
+    if (ok) toast.success(`"${item.name}" listed on your store at $${money(listPriceFor(item))}.`);
     setImportingToStore(null);
   }
 
   async function syncAllToStore() {
-    toast.success(`Syncing ${inventory.filter(i => i.inStock).length} in-stock products to your store…`);
-    await new Promise(r => setTimeout(r, 1500));
-    toast.success('Store updated with all in-stock dropship products!');
+    const items = filteredInventory.filter(i => i.inStock);
+    if (items.length === 0) { toast.error('No in-stock products to publish.'); return; }
+    setPushingAll(true);
+    toast.message(`Publishing ${items.length} in-stock products to your store…`);
+    const ok = await publishItems(items);
+    if (ok) toast.success(`Store updated — ${items.length} dropship products are now live with your list prices.`);
+    setPushingAll(false);
+  }
+
+  async function generateSmartPricing() {
+    const source = pricingScope === 'all' ? inventory : filteredInventory;
+    const items = source.filter(i => i.sku && i.cost > 0);
+    if (items.length === 0) { toast.error('No items with a known cost to price. Sync inventory first.'); return; }
+    setGeneratingPrices(true);
+    setSuggestions(null);
+    try {
+      const res = await fetch(`${SERVER}/dropshipper/inventory/suggest-pricing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          strategy: pricingStrategy,
+          minMarginPct: Number(minMargin) || 0,
+          maxMarkupPct: Number(maxMarkup) || 400,
+          items: items.map(i => ({ sku: i.sku, name: i.name, category: i.category, cost: i.cost, currentPrice: i.price })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `AI pricing failed (HTTP ${res.status}).`;
+        console.error('[DropshipperManager] suggest-pricing failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      setSuggestions(data.suggestions || []);
+      toast.success(`Generated ${data.suggestions?.length || 0} price suggestions with guardrails applied.`);
+    } catch (e: any) {
+      console.error('[DropshipperManager] suggest-pricing error:', e);
+      toast.error(`Could not reach the server for AI pricing: ${e?.message || e}`);
+    } finally {
+      setGeneratingPrices(false);
+    }
+  }
+
+  function applySuggestions() {
+    if (!suggestions?.length) return;
+    // Map suggestions (keyed by SKU) back onto inventory rows (keyed by id).
+    const bySku: Record<string, number> = {};
+    for (const s of suggestions) bySku[s.sku] = s.suggestedPrice;
+    const next: Record<string, number> = { ...listPrices };
+    for (const item of inventory) {
+      if (item.sku && bySku[item.sku] != null) next[item.id] = bySku[item.sku];
+    }
+    setListPrices(next);
+    setShowPricingModal(false);
+    setSuggestions(null);
+    toast.success('AI list prices applied. Review, then Push to Store when ready.');
   }
 
   const availableSuppliers = SUPPLIERS.filter(s => !connected.find(c => c.supplierId === s.id));
@@ -691,9 +791,14 @@ export default function MultiDropshipperManager() {
                 </button>
               ))}
             </div>
-            <button onClick={syncAllToStore}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-xl text-xs font-bold transition">
-              <ShoppingBag className="w-3.5 h-3.5" /> Push All to Store
+            <button onClick={() => { setSuggestions(null); setShowPricingModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600/25 to-orange-600/25 border border-purple-500/40 text-purple-200 hover:from-purple-600/40 hover:to-orange-600/40 rounded-xl text-xs font-bold transition">
+              <Sparkles className="w-3.5 h-3.5" /> Smart Pricing (AI)
+            </button>
+            <button onClick={syncAllToStore} disabled={pushingAll}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-xl text-xs font-bold transition disabled:opacity-50">
+              {pushingAll ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
+              Push All to Store
             </button>
           </div>
 
@@ -712,13 +817,30 @@ export default function MultiDropshipperManager() {
                     </span>
                   </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="font-bold text-orange-400">${item.price}</p>
+                {/* My cost (read-only) */}
+                <div className="text-right flex-shrink-0 hidden sm:block">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider">My Cost</p>
+                  <p className="font-bold text-gray-300 tabular-nums">${money(item.cost)}</p>
+                </div>
+                {/* Editable list price (what it's listed for on the site) */}
+                <div className="text-right flex-shrink-0 w-28">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">List Price</p>
+                  <div className="flex items-center gap-1 bg-[#0F0F0F] border border-[#2A2A2A] focus-within:border-orange-500/50 rounded-lg px-2 py-1 transition">
+                    <span className="text-orange-400 text-sm font-bold">$</span>
+                    <input
+                      type="number" min={0} step="0.01"
+                      value={listPriceFor(item)}
+                      onChange={e => setListPrices(prev => ({ ...prev, [item.id]: Number(e.target.value) }))}
+                      className="w-full bg-transparent text-orange-400 text-sm font-bold text-right focus:outline-none tabular-nums" />
+                  </div>
+                  <p className={`text-[10px] font-semibold mt-0.5 ${marginPct(listPriceFor(item), item.cost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {marginPct(listPriceFor(item), item.cost)}% margin · ${money(listPriceFor(item) - item.cost)}
+                  </p>
                 </div>
                 <button
                   onClick={() => importToStore(item)}
-                  disabled={importingToStore === item.id}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600/20 border border-orange-500/30 text-orange-400 hover:bg-orange-600/30 rounded-lg text-xs font-bold transition disabled:opacity-50">
+                  disabled={importingToStore === item.id || pushingAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600/20 border border-orange-500/30 text-orange-400 hover:bg-orange-600/30 rounded-lg text-xs font-bold transition disabled:opacity-50 flex-shrink-0">
                   {importingToStore === item.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ShoppingBag className="w-3 h-3" />}
                   Add to Store
                 </button>
@@ -1061,6 +1183,133 @@ export default function MultiDropshipperManager() {
                     Back
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── SMART (AI) PRICING MODAL ───────────────────────────────────────── */}
+      {showPricingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => !generatingPrices && setShowPricingModal(false)}>
+          <div className="bg-[#141414] border border-[#2A2A2A] rounded-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A2A] bg-gradient-to-r from-purple-600/10 to-orange-600/10">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-orange-500 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-bold text-white">Smart Bulk Pricing</p>
+                  <p className="text-xs text-gray-500">AI prices each item to market — guardrails protect your margin</p>
+                </div>
+              </div>
+              <button onClick={() => !generatingPrices && setShowPricingModal(false)} className="text-gray-500 hover:text-white transition"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Strategy</label>
+                  <div className="grid grid-cols-3 gap-2 mt-1.5">
+                    {([
+                      { id: 'value', label: 'Value', desc: 'Win on price' },
+                      { id: 'competitive', label: 'Competitive', desc: 'Match market' },
+                      { id: 'premium', label: 'Premium', desc: 'Top of range' },
+                    ] as const).map(s => (
+                      <button key={s.id} onClick={() => setPricingStrategy(s.id)}
+                        className={`px-2 py-2 rounded-lg text-left transition border ${pricingStrategy === s.id ? 'bg-purple-600/25 border-purple-500/50' : 'bg-[#1A1A1A] border-[#2A2A2A] hover:border-purple-500/30'}`}>
+                        <p className={`text-xs font-bold ${pricingStrategy === s.id ? 'text-purple-200' : 'text-gray-300'}`}>{s.label}</p>
+                        <p className="text-[10px] text-gray-500">{s.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Min Margin %</label>
+                    <input type="number" min={0} value={minMargin} onChange={e => setMinMargin(e.target.value)}
+                      className="w-full mt-1.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-purple-500/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none" />
+                    <p className="text-[10px] text-gray-600 mt-1">Never price below this profit floor.</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Max Markup %</label>
+                    <input type="number" min={0} value={maxMarkup} onChange={e => setMaxMarkup(e.target.value)}
+                      className="w-full mt-1.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-purple-500/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none" />
+                    <p className="text-[10px] text-gray-600 mt-1">Ceiling so nothing gets overpriced.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-400">Apply to:</span>
+                  {(['filtered', 'all'] as const).map(sc => (
+                    <button key={sc} onClick={() => setPricingScope(sc)}
+                      className={`px-2.5 py-1 rounded-lg font-semibold transition ${pricingScope === sc ? 'bg-purple-600 text-white' : 'bg-[#0F0F0F] border border-[#2A2A2A] text-gray-400 hover:text-white'}`}>
+                      {sc === 'filtered' ? `Current view (${filteredInventory.length})` : `Entire catalog (${inventory.length})`}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={generateSmartPricing} disabled={generatingPrices}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-orange-500 hover:opacity-90 text-white rounded-xl text-xs font-bold transition disabled:opacity-50">
+                  {generatingPrices ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  {generatingPrices ? 'Analyzing market…' : suggestions ? 'Regenerate' : 'Generate AI Prices'}
+                </button>
+              </div>
+
+              {/* Results */}
+              {suggestions && suggestions.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+                    <span>{suggestions.length} suggestions · avg margin {Math.round(suggestions.reduce((a, s) => a + s.margin, 0) / suggestions.length)}%</span>
+                    <span className="flex items-center gap-1 text-purple-300"><TrendingUp className="w-3 h-3" /> Editable after applying</span>
+                  </div>
+                  <div className="border border-[#2A2A2A] rounded-xl divide-y divide-[#222] max-h-[34vh] overflow-y-auto">
+                    {suggestions.map(s => {
+                      const item = inventory.find(i => i.sku === s.sku);
+                      return (
+                        <div key={s.sku} className="flex items-center gap-3 px-4 py-2.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white truncate">{item?.name || s.sku}</p>
+                            <p className="text-[11px] text-gray-500 truncate">{s.rationale}</p>
+                          </div>
+                          <div className="text-right text-xs">
+                            <span className="text-gray-500">cost </span><span className="text-gray-300 tabular-nums">${money(s.cost)}</span>
+                          </div>
+                          <div className="text-right w-24">
+                            <p className="text-sm font-bold text-orange-400 tabular-nums">${money(s.suggestedPrice)}</p>
+                            <p className={`text-[10px] font-semibold ${s.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{s.margin}% margin</p>
+                          </div>
+                          <div className="w-14 text-right">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${s.confidence >= 0.66 ? 'bg-green-500/15 text-green-400' : s.confidence >= 0.4 ? 'bg-yellow-500/15 text-yellow-400' : 'bg-gray-500/15 text-gray-400'}`}>
+                              {Math.round(s.confidence * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!suggestions && !generatingPrices && (
+                <div className="text-center py-8 text-gray-500 text-sm">
+                  <Sparkles className="w-8 h-8 mx-auto mb-2 text-gray-700" />
+                  Pick a strategy and margin guardrails, then generate. The AI prices each product<br />individually to its likely market price — cheap items and premium items won't share one markup.
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {suggestions && suggestions.length > 0 && (
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#2A2A2A]">
+                <button onClick={() => setShowPricingModal(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition">Cancel</button>
+                <button onClick={applySuggestions}
+                  className="flex items-center gap-2 px-5 py-2 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-bold transition">
+                  <Check className="w-4 h-4" /> Apply {suggestions.length} Prices to Catalog
+                </button>
               </div>
             )}
           </div>

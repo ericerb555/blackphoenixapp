@@ -32,7 +32,7 @@ import {
   Building2, Phone, Mail, Wrench, ChevronRight, Star, CircleDot,
   Maximize2, Image, Video, FileCheck, ChevronDown, ChevronUp,
   XCircle, MoveRight, ExternalLink, Settings, Percent, Database,
-  Loader2, RefreshCw, Zap, Camera, PenTool
+  Loader2, RefreshCw, Zap, Camera, PenTool, Layers, X, Download
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
@@ -46,7 +46,21 @@ import { EmployeeNotes } from '../components/EmployeeNotes';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
+import { listDesignProjects, saveDesignProject, type DesignProjectSummary } from '../lib/designProjectService';
 import { useNavigate } from '../hooks/useNavigate';
+
+// The Design Center is a separate published Figma Make app that shares this
+// app's Supabase backend (design_project:* KV records). We link to it by URL and
+// pass the project id so, if the Design Center reads it, the project opens
+// directly. Both apps use the "shared" owner namespace by default.
+const DESIGN_CENTER_URL = 'https://author-canon-65421010.figma.site';
+const DESIGN_OWNER_KEY = 'shared';
+function openInDesignCenter(designProjectId?: string) {
+  const url = designProjectId
+    ? `${DESIGN_CENTER_URL}/?projectId=${encodeURIComponent(designProjectId)}&owner=${encodeURIComponent(DESIGN_OWNER_KEY)}`
+    : DESIGN_CENTER_URL;
+  window.open(url, '_blank', 'noopener');
+}
 
 type PipelineStage = 'quote-draft' | 'quote-sent' | 'quote-approved' | 'contract' | 'invoice' | 'payment';
 
@@ -211,6 +225,21 @@ export default function UnifiedProjectPipeline() {
   const [showEmployeeNotes, setShowEmployeeNotes] = useState(false);
   const [financialSheetItem, setFinancialSheetItem] = useState<PipelineItem | null>(null);
   const [employeeNotesItem, setEmployeeNotesItem] = useState<PipelineItem | null>(null);
+  // Design Center bridge — design projects from the shared backend.
+  const [designProjects, setDesignProjects] = useState<DesignProjectSummary[]>([]);
+  const [showDesignPanel, setShowDesignPanel] = useState(false);
+  const [designSearch, setDesignSearch] = useState('');
+  const [designBusyId, setDesignBusyId] = useState<string | null>(null);
+
+  const loadDesignProjects = async () => {
+    try {
+      const list = await listDesignProjects(DESIGN_OWNER_KEY);
+      setDesignProjects(list);
+    } catch (err) {
+      console.error('[Pipeline] Could not load Design Center projects:', err);
+    }
+  };
+  useEffect(() => { loadDesignProjects(); }, []);
 
   // Helper function to save a single item to backend
   const saveItemToBackend = async (item: PipelineItem) => {
@@ -227,6 +256,70 @@ export default function UnifiedProjectPipeline() {
     } catch (error) {
       console.error('[Pipeline] Error saving item:', error);
       throw error;
+    }
+  };
+
+  // Bring a Design Center project INTO the pipeline as a linked item.
+  const importDesignProject = async (dp: DesignProjectSummary) => {
+    const already = items.find(i => (i as any).designProjectId === dp.id);
+    if (already) { setSelectedItem(already); setShowProjectDetails(true); setShowDesignPanel(false); return; }
+    setDesignBusyId(dp.id);
+    try {
+      const now = new Date().toISOString();
+      const item: PipelineItem = {
+        id: `DPRJ-${dp.id}`,
+        itemNumber: `DP-${dp.id.slice(-6).toUpperCase()}`,
+        stage: 'quote-draft',
+        customerName: 'Design Project',
+        customerEmail: '',
+        serviceType: 'Design',
+        title: dp.name || 'Untitled Design',
+        description: `Imported from Design Center — ${dp.floorCount} floor(s), ${dp.elementCount} element(s).`,
+        estimatedValue: 0,
+        priority: 'medium',
+        createdDate: dp.createdAt || now,
+        lastModified: now,
+      };
+      (item as any).source = 'design-studio';
+      (item as any).designProjectId = dp.id;
+      (item as any).designProjectVersion = dp.version;
+      const saved = await saveItemToBackend(item);
+      setItems(prev => [saved || item, ...prev.filter(i => i.id !== item.id)]);
+      toast.success(`"${dp.name}" added to the pipeline.`);
+      setShowDesignPanel(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not import this design project.');
+    } finally {
+      setDesignBusyId(null);
+    }
+  };
+
+  // Push a pipeline item OUT to the Design Center: ensure a linked design
+  // project exists, then open the Design Center to work on it.
+  const sendToDesignCenter = async (item: PipelineItem) => {
+    setDesignBusyId(item.id);
+    try {
+      let designId = (item as any).designProjectId as string | undefined;
+      if (!designId) {
+        const { project } = await saveDesignProject({
+          name: item.title || `Project ${item.itemNumber}`,
+          ownerKey: DESIGN_OWNER_KEY,
+          quoteId: item.quote?.id || null,
+          note: `Created from pipeline ${item.itemNumber}`,
+        });
+        designId = project.id;
+        const updated = { ...item, lastModified: new Date().toISOString() };
+        (updated as any).designProjectId = designId;
+        (updated as any).source = (item as any).source || 'design-studio';
+        await saveItemToBackend(updated).catch(() => {});
+        setItems(prev => prev.map(i => (i.id === item.id ? updated : i)));
+        loadDesignProjects();
+      }
+      openInDesignCenter(designId);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not open this project in the Design Center.');
+    } finally {
+      setDesignBusyId(null);
     }
   };
 
@@ -909,6 +1002,19 @@ export default function UnifiedProjectPipeline() {
               Refresh
             </button>
             
+            {/* Design Center bridge */}
+            <button
+              onClick={() => { loadDesignProjects(); setShowDesignPanel(true); }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500/10 to-indigo-600/10 border-2 border-blue-500/30 hover:border-blue-400 text-blue-300 hover:text-white font-semibold rounded-lg transition-all"
+              title="Import, search, and open projects in the Design Center"
+            >
+              <Layers className="w-5 h-5" />
+              Design Center
+              {designProjects.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-blue-500/20">{designProjects.length}</span>
+              )}
+            </button>
+
             {/* Labor Rates & Markups Button */}
             <button
               onClick={() => {
@@ -1465,6 +1571,127 @@ export default function UnifiedProjectPipeline() {
           }}
         />
       )}
+
+      {/* ── Design Center bridge panel ─────────────────────────────────────── */}
+      {showDesignPanel && (() => {
+        const q = designSearch.trim().toLowerCase();
+        const importedIds = new Set(items.map(i => (i as any).designProjectId).filter(Boolean));
+        const dps = designProjects.filter(dp =>
+          !q || dp.name?.toLowerCase().includes(q) || dp.id.toLowerCase().includes(q)
+        );
+        const linkableItems = items.filter(i =>
+          !q ||
+          i.title?.toLowerCase().includes(q) ||
+          i.customerName?.toLowerCase().includes(q) ||
+          i.itemNumber?.toLowerCase().includes(q) ||
+          i.id.toLowerCase().includes(q)
+        );
+        return (
+          <div className="fixed inset-0 z-[120] flex items-start justify-center p-4 sm:p-8 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={() => setShowDesignPanel(false)}>
+            <div className="w-full max-w-3xl bg-[#141414] border border-gray-700 rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center gap-3 p-4 border-b border-gray-800">
+                <Layers className="w-5 h-5 text-blue-400" />
+                <div className="flex-1">
+                  <h2 className="text-lg font-bold text-white">Design Center</h2>
+                  <p className="text-xs text-gray-500">Search, import, and open projects across the pipeline and Design Center.</p>
+                </div>
+                <button onClick={() => openInDesignCenter()} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-blue-300 border border-blue-500/30 hover:bg-blue-500/10 transition">
+                  <ExternalLink className="w-3.5 h-3.5" /> Open Design Center
+                </button>
+                <button onClick={() => setShowDesignPanel(false)} className="p-2 rounded-lg hover:bg-white/5"><X className="w-5 h-5 text-gray-400" /></button>
+              </div>
+
+              {/* Search */}
+              <div className="p-4 border-b border-gray-800">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    autoFocus
+                    value={designSearch}
+                    onChange={e => setDesignSearch(e.target.value)}
+                    placeholder="Search any project by name, customer, or ID…"
+                    className="w-full pl-9 pr-3 py-2.5 bg-black/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="max-h-[60vh] overflow-y-auto p-4 space-y-6">
+                {/* Design Center projects */}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">In the Design Center ({dps.length})</p>
+                  {dps.length === 0 ? (
+                    <p className="text-sm text-gray-600 py-3">No matching design projects.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {dps.map(dp => {
+                        const imported = importedIds.has(dp.id);
+                        const busy = designBusyId === dp.id;
+                        return (
+                          <div key={dp.id} className="flex items-center gap-3 p-3 rounded-xl bg-black/40 border border-gray-800">
+                            <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                              <PenTool className="w-4 h-4 text-blue-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">{dp.name || 'Untitled Design'}</p>
+                              <p className="text-xs text-gray-500">v{dp.version} · {dp.floorCount} floor(s) · {dp.elementCount} element(s) · {new Date(dp.updatedAt).toLocaleDateString()}</p>
+                            </div>
+                            <button onClick={() => openInDesignCenter(dp.id)} className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition" title="Open in Design Center">
+                              <ExternalLink className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => importDesignProject(dp)}
+                              disabled={busy}
+                              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition disabled:opacity-50 ${imported ? 'text-green-400 border border-green-500/30' : 'text-white bg-blue-600 hover:bg-blue-500'}`}
+                            >
+                              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : imported ? <CheckCircle className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                              {imported ? 'In pipeline' : 'Import'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Pipeline items → push out to Design Center */}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">In the pipeline ({linkableItems.length})</p>
+                  {linkableItems.length === 0 ? (
+                    <p className="text-sm text-gray-600 py-3">No matching pipeline projects.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {linkableItems.slice(0, 50).map(item => {
+                        const linked = !!(item as any).designProjectId;
+                        const busy = designBusyId === item.id;
+                        return (
+                          <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl bg-black/40 border border-gray-800">
+                            <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-orange-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">{item.title}</p>
+                              <p className="text-xs text-gray-500 truncate">{item.itemNumber} · {item.customerName || 'Design Project'}</p>
+                            </div>
+                            <button
+                              onClick={() => sendToDesignCenter(item)}
+                              disabled={busy}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-blue-300 border border-blue-500/30 hover:bg-blue-500/10 transition disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : linked ? <ExternalLink className="w-3.5 h-3.5" /> : <MoveRight className="w-3.5 h-3.5" />}
+                              {linked ? 'Open in Design Center' : 'Send to Design Center'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -22,7 +22,9 @@ export interface DropshipperProduct {
   sku: string;
   name: string;
   description: string;
-  price: number;
+  price: number;        // marked-up sell price (default list price on the site)
+  cost: number;         // raw supplier cost (what we pay the dropshipper)
+  category?: string;
   stock: number;
   images: string[];
   lastSynced: string;
@@ -140,6 +142,8 @@ async function fetchInventoryFromProvider(provider: config.DropshipperProvider):
     name: item.name,
     description: item.description || '',
     price: applyMarkup(item.price, provider.settings.markupPercentage),
+    cost: Number(item.price) || 0,
+    category: item.category || item.categoryName || 'General',
     stock: item.stock || 0,
     images: item.images || [],
     lastSynced: new Date().toISOString(),
