@@ -40,6 +40,7 @@ import MusicTimelineEditor from '../components/MusicTimelineEditor';
 import { useNavigate } from '../hooks/useNavigate';
 import AdStudio from '../components/adstudio/AdStudio';
 import MarketingCommandCenter from '../components/adstudio/MarketingCommandCenter';
+import EcommerceStoreHub from '../components/adstudio/EcommerceStoreHub';
 import {
   UserContext,
   getMockUserContext,
@@ -158,7 +159,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce'>('command');
 
   // Which sub-tab the embedded Online Store panel should open on (deep-linkable).
   const [storeSubTab, setStoreSubTab] = useState<import('../components/DropshipperAdminPanel').StoreTab>('overview');
@@ -169,10 +170,17 @@ export default function EnterpriseContentCenter() {
     setActiveTab('store');
   };
 
+  // Shared tab-open handler used by the hub surfaces (Command Center + eCommerce
+  // Store). Routes the Online Store sub-tabs into the embedded store panel.
+  const handleOpenTab = (t: string) => {
+    if (t.startsWith('store-')) openStoreTab(t.replace('store-', '') as any);
+    else setActiveTab(t as any);
+  };
+
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
     try {
-      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store'];
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce'];
       const storeSubTabs = ['overview', 'providers', 'catalog', 'pricing', 'inventory', 'orders', 'errors'];
       const tab = new URLSearchParams(window.location.search).get('tab');
       if (tab && tab.startsWith('store-') && storeSubTabs.includes(tab.replace('store-', ''))) {
@@ -1803,6 +1811,7 @@ export default function EnterpriseContentCenter() {
           {[
             { id: 'command', label: '🎯 Command Center', icon: Target },
             { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
+            { id: 'ecommerce', label: '🛒 eCommerce Store', icon: Store },
             { id: 'library', label: 'Content Library', icon: FileText },
             { id: 'create', label: 'AI Generator', icon: Sparkles },
             { id: 'storage', label: 'Storage', icon: HardDrive },
@@ -1811,15 +1820,7 @@ export default function EnterpriseContentCenter() {
             { id: 'social-accounts', label: '🔗 Social Accounts', icon: Share2 },
             { id: 'social-scheduler', label: 'Social Scheduler', icon: Share2 },
             { id: 'calendar', label: 'Calendar', icon: Calendar },
-            { id: 'shop-intelligence', label: '📊 Shop Intelligence', icon: TrendingUp },
-            { id: 'hot-products', label: '🔥 Hot Products', icon: Flame },
-            { id: 'store-content', label: '🔗 Store Content', icon: Link2 },
-            { id: 'store', label: '🛍️ Online Store', icon: Store },
-            { id: 'store-boosters', label: '🚀 Store Boosters', icon: Zap },
-            { id: 'promotions-engine', label: '🏷️ Promotions Engine', icon: Tag },
-            { id: 'fulfillment', label: '🚚 Fulfillment', icon: PackageIcon },
             { id: 'creator-studio', label: '🎬 Creator Studio', icon: Film },
-            { id: 'creator-vetting', label: '🛒 Store Analytics', icon: BarChart3 },
             { id: 'analytics', label: 'Analytics', icon: BarChart3 },
             { id: 'settings', label: 'Settings', icon: Settings }
           ].map((tab) => {
@@ -1844,13 +1845,12 @@ export default function EnterpriseContentCenter() {
         <div className="p-6">
           {/* Marketing Command Center Tab */}
           {activeTab === 'command' && (
-            <MarketingCommandCenter
-              onNavigate={hubNavigate}
-              onOpenTab={(t) => {
-                if (t.startsWith('store-')) openStoreTab(t.replace('store-', '') as any);
-                else setActiveTab(t as any);
-              }}
-            />
+            <MarketingCommandCenter onNavigate={hubNavigate} onOpenTab={handleOpenTab} />
+          )}
+
+          {/* eCommerce Store — one place for every store tab & feature */}
+          {activeTab === 'ecommerce' && (
+            <EcommerceStoreHub onNavigate={hubNavigate} onOpenTab={handleOpenTab} />
           )}
 
           {/* Ad Studio Tab */}

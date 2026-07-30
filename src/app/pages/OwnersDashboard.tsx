@@ -263,7 +263,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       modules: [
         { name: 'Vendor Ads Hub', path: 'vendor-advertising-hub', icon: Megaphone },
         { name: 'Vendor Super Portal', path: 'vendor-super-portal', icon: Crown },
-        { name: 'Dropshipper Admin', path: 'enterprise-content-center?tab=store-providers', icon: Truck },
+        { name: 'Dropshipper Admin', path: 'enterprise-content-center?tab=ecommerce', icon: Truck },
         { name: 'Public Store', path: 'public-store', icon: ShoppingCart },
         { name: 'Mobile App Hub', path: 'mobile-app-hub', icon: Smartphone }
       ]

@@ -53,7 +53,7 @@ export const navigationSections: NavSection[] = [
       { name: "🎯 Marketing Command Center", path: "enterprise-content-center?tab=command", badge: "HUB" },
       { name: "📣 Ad Studio",             path: "enterprise-content-center?tab=ad-studio", badge: "NEW" },
       { name: "Content Center",           path: "enterprise-content-center" },
-      { name: "Online Store",             path: "enterprise-content-center?tab=store-overview" },
+      { name: "Online Store",             path: "enterprise-content-center?tab=ecommerce" },
       { name: "Zendrop",                  path: "zendrop",                badge: "NEW" },
       { name: "Auto-Product Pilot",       path: "auto-product-pilot",     badge: "NEW" },
       { name: "AI Ranking Engine",        path: "ai-ranking-engine",      badge: "NEW" },
@@ -124,7 +124,7 @@ export const navigationSections: NavSection[] = [
     icon: "Store",
     items: [
       { name: "Vendors Admin Hub",   path: "vendors-admin-hub" },
-      { name: "Dropshipper Admin",   path: "enterprise-content-center?tab=store-providers" },
+      { name: "Dropshipper Admin",   path: "enterprise-content-center?tab=ecommerce" },
       { name: "Zendrop Integration", path: "zendrop" },
       { name: "Public Store",        path: "public-store" },
       { name: "Order Tracking",      path: "order-tracking",      badge: "Track" },
