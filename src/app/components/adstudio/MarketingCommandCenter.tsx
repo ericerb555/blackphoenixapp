@@ -14,7 +14,7 @@ import {
   BarChart3, Mail, MessageSquare, Search, Users, FileText, Star,
   Zap, Target, Image as ImageIcon, TrendingUp, ArrowUpRight, Bot,
   Activity, Link2, Box, DollarSign, Package, ShoppingCart, AlertCircle,
-  Rocket, RefreshCw, QrCode, Brain, Building2, Truck, BookOpen,
+  Rocket, RefreshCw, QrCode, Brain, Building2, Truck, BookOpen, Wrench,
 } from 'lucide-react';
 
 type Action =
@@ -71,10 +71,16 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'Store & eCommerce',
-    icon: ShoppingBag,
+    title: 'Operations',
+    icon: Wrench,
     tools: [
       { name: 'eCommerce Store', desc: 'All store tools in one place — catalog, suppliers, orders, pricing & insights', icon: Store, action: { kind: 'tab', tab: 'ecommerce' }, badge: 'HUB' },
+    ],
+  },
+  {
+    title: 'Store & Promotions',
+    icon: ShoppingBag,
+    tools: [
       { name: 'Public Store', desc: 'View your live storefront', icon: ShoppingBag, action: { kind: 'nav', path: 'public-store' } },
       { name: 'Promotions Manager', desc: 'Deals, discounts & flash sales', icon: Tag, action: { kind: 'nav', path: 'promotions-manager' } },
       { name: 'Photo Importer', desc: 'Bulk import media for campaigns', icon: ImageIcon, action: { kind: 'nav', path: 'photo-importer' } },
