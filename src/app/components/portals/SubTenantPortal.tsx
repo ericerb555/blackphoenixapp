@@ -14,6 +14,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import InvestmentTab from './InvestmentTab';
 import SubTenantForms from './SubTenantForms';
 import NotificationBell from './NotificationBell';
 import NotificationPreferences from './NotificationPreferences';
@@ -27,7 +28,7 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   render() { return this.state.err ? null : this.props.children; }
 }
 
-type Tab = 'dashboard' | 'work-requests' | 'lease' | 'rent' | 'deals' | 'shop' | 'referrals' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'work-requests' | 'lease' | 'rent' | 'deals' | 'shop' | 'investments' | 'referrals' | 'messages' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard',     label: 'Dashboard',     icon: Home },
@@ -36,6 +37,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'rent',          label: 'Rent & Payments', icon: DollarSign },
   { id: 'deals',         label: 'Deals & Offers',  icon: Tag },
   { id: 'shop',          label: 'Online Shop',     icon: ShoppingCart },
+  { id: 'investments',   label: 'Investments',     icon: DollarSign },
   { id: 'referrals',     label: 'Referrals',       icon: Gift, badge: 'EARN' },
   { id: 'messages',      label: 'Messages',        icon: MessageSquare },
   { id: 'settings',      label: 'Settings',        icon: Settings },
@@ -807,6 +809,8 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
         )}
 
         {/* SETTINGS */}
+        {tab === 'investments' && <InvestmentTab portalType="tenant" ownerName={tenantName} />}
+
         {tab === 'settings' && (
           <div className="space-y-4 max-w-lg">
             <h2 className="text-xl font-bold">My Settings</h2>

@@ -154,10 +154,16 @@ emailCenterRouter.get('/log', async (c) => {
 emailCenterRouter.post('/send', async (c) => {
   try {
     const body = await c.req.json();
-    const { to, subject, html, templateKey } = body || {};
+    const { to, subject, html, templateKey, attachments } = body || {};
     if (!to || !subject || !html) {
       return c.json({ error: 'to, subject, and html are required' }, 400);
     }
+    // Optional attachments: [{ filename, content }] where content is base64.
+    const normalizedAttachments = Array.isArray(attachments)
+      ? attachments
+          .filter((a: any) => a && a.filename && a.content)
+          .map((a: any) => ({ filename: String(a.filename), content: String(a.content) }))
+      : undefined;
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     const recipients = Array.isArray(to) ? to : [to];
@@ -192,6 +198,9 @@ emailCenterRouter.post('/send', async (c) => {
           to: recipients,
           subject,
           html,
+          ...(normalizedAttachments && normalizedAttachments.length
+            ? { attachments: normalizedAttachments }
+            : {}),
         }),
       });
       if (!res.ok) {

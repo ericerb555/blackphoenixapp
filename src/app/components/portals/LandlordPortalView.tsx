@@ -6,7 +6,7 @@ import {
   Building2, BarChart3, ChevronRight, ArrowUpRight, Tag, MessageSquare,
   TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
   FileText, FileSignature, Send, CreditCard, CheckCircle, ExternalLink,
-  Image as ImageIcon, Video, Upload, AlertTriangle, Trash2, Pencil,
+  Image as ImageIcon, Video, Upload, AlertTriangle, Trash2, Pencil, Brain,
 } from 'lucide-react';
 import LandlordLeaseManager from './LandlordLeaseManager';
 import LandlordFormsManager from './LandlordFormsManager';
@@ -22,6 +22,8 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
+import PropertyAIEnterprise from '../../pages/PropertyAIEnterprise';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
@@ -71,7 +73,7 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'tenants' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'tenants' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'property-ai' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -84,6 +86,8 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'deals', label: 'Deals & Reels', icon: Tag },
   { id: 'financials', label: 'Financials', icon: BarChart3 },
+  { id: 'investments', label: 'Investments', icon: DollarSign },
+  { id: 'property-ai', label: 'Property AI Enterprise', icon: Brain, badge: 'NEW' },
   { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -622,6 +626,12 @@ export default function LandlordPortalView() {
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="landlord" ownerName={name} />}
         {tab === 'plan-builder' && <PlanBuilderTab portalType="landlord" ownerName={name} />}
         {tab === 'crm' && <CRMSection portalType="landlord" />}
+        {tab === 'investments' && <InvestmentTab portalType="landlord" ownerName={name} />}
+        {tab === 'property-ai' && (
+          <div className="-mx-4 sm:-mx-6 -my-6">
+            <Safe><PropertyAIEnterprise /></Safe>
+          </div>
+        )}
         {tab === 'deals' && (<>
           <FeaturedDealsReels portalType="landlord" />
           <DealsOffersSection portalType="advertiser" storageKey="landlord_deals_offers" />
@@ -746,12 +756,12 @@ export default function LandlordPortalView() {
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Landlord Name</label>
-                <input value={name} onChange={e => setName(e.target.value)}
+                <input value={name} readOnly
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-teal-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
-                <input value={email} onChange={e => setEmail(e.target.value)}
+                <input value={email} readOnly
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-teal-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
               <button onClick={() => toast.success('Settings saved!')}

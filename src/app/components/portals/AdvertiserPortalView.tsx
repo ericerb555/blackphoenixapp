@@ -29,12 +29,13 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 
 export default function AdvertiserPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'messages' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'investments' | 'messages' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -209,6 +210,7 @@ export default function AdvertiserPortalView() {
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: TrendingUp },
+    { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
@@ -596,6 +598,7 @@ export default function AdvertiserPortalView() {
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="advertiser" ownerName={advertiserInfo.accountManager} />}
         {activeTab === 'plan-builder' && <PlanBuilderTab portalType="advertiser" ownerName={advertiserInfo.name} currentTier={subscriptionTier} />}
+        {activeTab === 'investments' && <InvestmentTab portalType="advertiser" ownerName={advertiserInfo.name} />}
         {activeTab === 'performance' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
             <h2 className="text-lg font-bold text-white mb-4">Performance Reports</h2>

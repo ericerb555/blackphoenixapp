@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity, Layers, PlusCircle, X } from 'lucide-react';
+import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity, Layers, PlusCircle, X, List, Info } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
   ENTITY_TYPES,
@@ -95,6 +95,8 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [detailsPreset, setDetailsPreset] = useState<PlanPreset | null>(null);
+  const [detailsService, setDetailsService] = useState<string | null>(null);
 
   // Custom "price out your own" requests, added as line items alongside catalog picks.
   const [customItems, setCustomItems] = useState<CustomItem[]>([]);
@@ -469,8 +471,19 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
                   <p className="text-xs text-gray-500 mb-3 pr-16">{preset.tagline}</p>
                   <p className="text-2xl font-bold text-white">${price.toLocaleString()}<span className="text-sm text-gray-500 font-normal">/mo</span></p>
                   <p className="text-[11px] text-gray-600 mb-3">{preset.serviceIds.length} services included</p>
-                  <span className={`inline-flex items-center gap-1 text-xs font-medium ${active ? 'text-orange-400' : 'text-gray-400'}`}>
-                    {active ? <><Check className="w-3.5 h-3.5" /> Selected</> : <><Plus className="w-3.5 h-3.5" /> Use this plan</>}
+                  <span className="flex items-center justify-between">
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium ${active ? 'text-orange-400' : 'text-gray-400'}`}>
+                      {active ? <><Check className="w-3.5 h-3.5" /> Selected</> : <><Plus className="w-3.5 h-3.5" /> Use this plan</>}
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setDetailsPreset(preset); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setDetailsPreset(preset); } }}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-white transition"
+                    >
+                      <List className="w-3.5 h-3.5" /> View details
+                    </span>
                   </span>
                 </button>
               );
@@ -528,30 +541,41 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
                 const active = selectedIds.has(s.id);
                 const price = computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
                 return (
-                  <button
+                  <div
                     key={s.id}
-                    onClick={() => toggleService(s.id)}
-                    className={`w-full text-left flex items-center gap-3 rounded-lg border p-2.5 transition ${
+                    className={`flex items-center gap-3 rounded-lg border p-2.5 transition ${
                       active
                         ? 'border-orange-500/50 bg-orange-600/10'
                         : 'border-[#1a1a1a] bg-[#0a0a0a] hover:border-[#2a2a2a]'
                     }`}
                   >
-                    <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center ${
-                      active ? 'bg-orange-600 text-white' : 'bg-[#161616] text-gray-500'
-                    }`}>
-                      {active ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="flex items-center gap-2">
-                        <span className="text-sm text-white truncate">{s.name}</span>
-                        {s.recommended && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Recommended</span>}
-                        {s.nhSpecific && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">NH</span>}
+                    <button
+                      onClick={() => toggleService(s.id)}
+                      className="flex flex-1 min-w-0 items-center gap-3 text-left"
+                    >
+                      <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center ${
+                        active ? 'bg-orange-600 text-white' : 'bg-[#161616] text-gray-500'
+                      }`}>
+                        {active ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                       </span>
-                      <span className="text-xs text-gray-500">{s.category} · {s.unit}</span>
-                    </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm text-white truncate">{s.name}</span>
+                          {s.recommended && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Recommended</span>}
+                          {s.nhSpecific && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">NH</span>}
+                        </span>
+                        <span className="text-xs text-gray-500">{s.category} · {s.unit}</span>
+                      </span>
+                    </button>
                     <span className="shrink-0 text-sm font-semibold text-white">${price}</span>
-                  </button>
+                    <button
+                      onClick={() => setDetailsService(s.id)}
+                      title="View service details"
+                      className="shrink-0 rounded-md p-1.5 text-gray-500 transition hover:bg-white/5 hover:text-orange-400"
+                    >
+                      <Info className="w-4 h-4" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -673,6 +697,121 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
         portalType={portalType}
         currentTier={currentTier}
       />
+
+      {/* Single service details */}
+      {detailsService && (() => {
+        const s = catalog.find(item => item.id === detailsService);
+        if (!s) return null;
+        const price = computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
+        const active = selectedIds.has(s.id);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setDetailsService(null)}>
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-[#1f1f1f] bg-[#0d0d0d]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3 border-b border-[#1f1f1f] p-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-orange-400">{s.category}</p>
+                  <p className="mt-1 text-lg font-bold text-white">{s.name}</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {s.recommended && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Recommended</span>}
+                    {s.nhSpecific && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">NH-specific</span>}
+                  </div>
+                </div>
+                <button onClick={() => setDetailsService(null)} className="rounded-lg p-2 text-gray-500 transition hover:bg-white/5 hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-4 p-5">
+                <p className="text-sm text-gray-300">{s.description}</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] p-3">
+                    <p className="text-xs text-gray-500">Billed</p>
+                    <p className="font-medium text-white">{s.unit}</p>
+                  </div>
+                  <div className="rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] p-3">
+                    <p className="text-xs text-gray-500">{skill.label} · {frequency.label}</p>
+                    <p className="font-semibold text-white">${price.toLocaleString()}<span className="text-xs font-normal text-gray-500">/mo</span></p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { toggleService(s.id); setDetailsService(null); }}
+                  className={`w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition ${
+                    active ? 'bg-[#161616] text-gray-300 hover:text-white' : 'bg-gradient-to-r from-orange-600 to-orange-700 text-white hover:from-orange-700 hover:to-orange-800'
+                  }`}
+                >
+                  {active ? <><Minus className="h-4 w-4" /> Remove from plan</> : <><Plus className="h-4 w-4" /> Add to plan</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Set plan details — every service in the preset */}
+      {detailsPreset && (() => {
+        const items = detailsPreset.serviceIds
+          .map(id => catalog.find(s => s.id === id))
+          .filter((s): s is typeof catalog[number] => Boolean(s));
+        const total = items.reduce((sum, s) => sum + computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier), 0);
+        const byCategory = items.reduce<Record<string, typeof items>>((acc, s) => {
+          (acc[s.category] = acc[s.category] || []).push(s);
+          return acc;
+        }, {});
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setDetailsPreset(null)}>
+            <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#1f1f1f] bg-[#0d0d0d]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3 border-b border-[#1f1f1f] p-5">
+                <div>
+                  <p className="text-lg font-bold text-white">{detailsPreset.name}</p>
+                  <p className="text-sm text-gray-500">{detailsPreset.tagline}</p>
+                  <p className="mt-1 text-xs text-gray-600">{items.length} services · {skill.label} · {frequency.label}</p>
+                </div>
+                <button onClick={() => setDetailsPreset(null)} className="rounded-lg p-2 text-gray-500 transition hover:bg-white/5 hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="flex-1 space-y-5 overflow-y-auto p-5">
+                {Object.entries(byCategory).map(([category, services]) => (
+                  <div key={category}>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-orange-400">{category}</p>
+                    <div className="space-y-2">
+                      {services.map(s => {
+                        const price = computePrice(s.baseMonthlyPrice, skill.multiplier, frequency.multiplier);
+                        return (
+                          <div key={s.id} className="flex items-start justify-between gap-3 rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] p-3">
+                            <div className="min-w-0">
+                              <p className="flex items-center gap-2 text-sm font-medium text-white">
+                                {s.name}
+                                {s.nhSpecific && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">NH</span>}
+                              </p>
+                              <p className="text-xs text-gray-500">{s.description}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-sm font-semibold text-white">${price}</p>
+                              <p className="text-[10px] text-gray-600">{s.unit}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-[#1f1f1f] p-5">
+                <div>
+                  <p className="text-xs text-gray-500">Estimated total</p>
+                  <p className="text-2xl font-bold text-white">${total.toLocaleString()}<span className="text-sm font-normal text-gray-500">/mo</span></p>
+                </div>
+                <button
+                  onClick={() => { applyPreset(detailsPreset); setDetailsPreset(null); }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-600 to-orange-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:from-orange-700 hover:to-orange-800"
+                >
+                  <Plus className="h-4 w-4" /> Use this plan
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -1,6 +1,12 @@
 // Shopping Cart Component
 // Full cart view with checkout flow
-import { CompactStandardButton } from './ui/button/StandardButton';
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import {
+  Truck, Trash2, X, Store, Plus, Package, Minus,
+  CreditCard, ArrowRight, AlertCircle, ShoppingCart as ShoppingCartIcon,
+} from 'lucide-react';
+import { StandardButton, CompactStandardButton } from './ui/button/StandardButton';
 import EnhancedCheckoutFlow from './EnhancedCheckoutFlow';
 import * as hybridCart from '../utils/hybridCartApi';
 

@@ -2,12 +2,13 @@ import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 import { useState } from 'react';
 import {
   Briefcase, Bell, MessageSquare, Settings, Clock, Star,
   ArrowUpRight, ClipboardList, CheckCircle, Calendar,
   Target, FileText, Download, ChevronRight, Search, Filter,
-  Home, BarChart3, Award, Sparkles
+  Home, BarChart3, Award, Sparkles, DollarSign
 } from 'lucide-react';
 import { ChartContainer } from '../ChartContainer';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
@@ -22,7 +23,7 @@ export default function EmployeePortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'messages' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'investments' | 'messages' | 'guide'>('dashboard');
 
   // Mock employee data — pulled from RoleSwitcher demo profile if present
   const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
@@ -254,6 +255,7 @@ export default function EmployeePortalView() {
               { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
               { id: 'performance', label: 'Performance', icon: BarChart3 },
               { id: 'referrals', label: 'Referrals', icon: Award },
+              { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -676,6 +678,7 @@ export default function EmployeePortalView() {
         {/* Performance Tab */}
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="employee" ownerName={employeeInfo.name} />}
         {activeTab === 'plan-builder' && <PlanBuilderTab portalType="employee" ownerName={employeeInfo.name} />}
+        {activeTab === 'investments' && <InvestmentTab portalType="employee" ownerName={employeeInfo.name} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">
             <div>

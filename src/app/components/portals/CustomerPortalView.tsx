@@ -5,6 +5,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 import { useState, useEffect, useRef, Component, ReactNode } from 'react';
 
 // Error boundary so SponsoredMarquee can't crash the portal
@@ -60,7 +61,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'referrals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'guide'>('dashboard');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -655,6 +656,7 @@ export default function CustomerPortalView() {
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'shopping', label: 'Shop', icon: ShoppingCart },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
+    { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referrals', icon: Star },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
@@ -1527,6 +1529,7 @@ export default function CustomerPortalView() {
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="customer" ownerName={customerInfo.name} />}
         {activeTab === 'plan-builder' && <PlanBuilderTab portalType="customer" ownerName={customerInfo.name} />}
+        {activeTab === 'investments' && <InvestmentTab portalType="customer" ownerName={customerInfo.name} />}
         {activeTab === 'shopping' && (
           <div>
             <CustomerMarketplace />

@@ -64,7 +64,6 @@ export function InlineVideoCapture({
       }).catch(() => {});
     }
     return () => {
-    return () => {
       stopStream();
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);

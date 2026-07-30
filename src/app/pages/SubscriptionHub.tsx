@@ -21,7 +21,7 @@ import {
   ArrowUpRight, ChevronDown, ChevronRight, Building2, Phone, Mail, MapPin,
   CheckCircle, XCircle, Timer, PlayCircle, PauseCircle, Settings, History,
   FileText, MessageSquare, Bell, Share2, Copy, ExternalLink, Percent,
-  Target, Briefcase, ShoppingCart, Coins, Wallet, ArrowDownRight, TrendingRight
+  Target, Briefcase, ShoppingCart, Coins, Wallet, ArrowDownRight, User
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';

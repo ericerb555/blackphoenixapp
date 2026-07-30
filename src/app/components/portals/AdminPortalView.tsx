@@ -1,4 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
+import InvestmentTab from './InvestmentTab';
 /**
  * Admin Portal - Platform Owner Dashboard
  * Real-time alerts, customer service, and employee support
@@ -54,7 +55,7 @@ interface AdminPortalViewProps {
 }
 
 export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'guide'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'guide'>('overview');
 
   // ── Dispatch Center Data ───────────────────────────────────────────────────
   const [workOrders, setWorkOrders] = useState([
@@ -345,6 +346,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               { id: 'alerts', label: 'System Alerts', icon: Bell },
               { id: 'customer-service', label: 'Customer Service', icon: MessageSquare },
               { id: 'employee-support', label: 'Employee Support', icon: HeadphonesIcon },
+              { id: 'investments', label: 'Investments', icon: DollarSign },
               { id: 'guide', label: 'Portal Guide', icon: ClipboardList },
             ].map(tab => (
               <button
@@ -379,6 +381,8 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
         {/* Overview Tab */}
         {activeTab === 'guide' && <PortalFeatureGuide portal="admin" />}
+
+        {activeTab === 'investments' && <InvestmentTab portalType="admin" />}
 
         {activeTab === 'overview' && (
           <div className="space-y-6">

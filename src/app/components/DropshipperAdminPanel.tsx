@@ -14,7 +14,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
-import { StandardButton } from './ui/button';
+import { StandardButton } from './ui/button/StandardButton';
 import ProductCatalogBrowser from './ProductCatalogBrowser';
 import ProductCatalogAdmin from '../pages/ProductCatalogAdmin';
 
@@ -48,11 +48,26 @@ interface DropshipperConfig {
   lastSync?: string;
 }
 
-export default function DropshipperAdminPanel() {
+export type StoreTab = 'overview' | 'providers' | 'catalog' | 'pricing' | 'inventory' | 'orders' | 'errors';
+
+export default function DropshipperAdminPanel({
+  embedded = false,
+  initialTab,
+}: {
+  /** When true, drops the full-screen page background so the panel can live inside another tabbed surface (e.g. the Command Center). Keeps its own header, stats, and sub-tab strip. */
+  embedded?: boolean;
+  /** Opens the panel on a specific sub-tab (used for deep-links from the Command Center). */
+  initialTab?: StoreTab;
+} = {}) {
   const [config, setConfig] = useState<DropshipperConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'catalog' | 'pricing' | 'inventory' | 'orders' | 'errors'>('overview');
+  const [activeTab, setActiveTab] = useState<StoreTab>(initialTab ?? 'overview');
+
+  // Keep the visible sub-tab in sync when the host requests a specific one.
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [stats, setStats] = useState({ inventory: 0, orders: 0, errors: 0 });
 
@@ -195,9 +210,21 @@ export default function DropshipperAdminPanel() {
     }
   };
 
+  const renderTabContent = (tab: StoreTab) => (
+    <>
+      {tab === 'overview' && <OverviewTab config={config} stats={stats} />}
+      {tab === 'providers' && <ProvidersTab config={config} onRefresh={loadConfig} />}
+      {tab === 'catalog' && <CatalogTab />}
+      {tab === 'pricing' && <ProductCatalogAdmin />}
+      {tab === 'inventory' && <InventoryTab />}
+      {tab === 'orders' && <OrdersTab />}
+      {tab === 'errors' && <ErrorsTab />}
+    </>
+  );
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+      <div className={`${embedded ? 'py-16' : 'min-h-screen bg-[#0A0A0A]'} flex items-center justify-center`}>
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-[#2A2A2A] border-t-[#ea580c] rounded-full animate-spin mx-auto mb-4" />
           <p className="text-gray-400">Loading Dropshipper Panel...</p>
@@ -207,7 +234,7 @@ export default function DropshipperAdminPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] p-6">
+    <div className={embedded ? '' : 'min-h-screen bg-[#0A0A0A] p-6'}>
       {/* Header */}
       <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 mb-6">
         <div className="flex items-center justify-between">
@@ -346,13 +373,7 @@ export default function DropshipperAdminPanel() {
 
       {/* Tab Content */}
       <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
-        {activeTab === 'overview' && <OverviewTab config={config} stats={stats} />}
-        {activeTab === 'providers' && <ProvidersTab config={config} onRefresh={loadConfig} />}
-        {activeTab === 'catalog' && <CatalogTab />}
-        {activeTab === 'pricing' && <ProductCatalogAdmin />}
-        {activeTab === 'inventory' && <InventoryTab />}
-        {activeTab === 'orders' && <OrdersTab />}
-        {activeTab === 'errors' && <ErrorsTab />}
+        {renderTabContent(activeTab)}
       </div>
     </div>
   );

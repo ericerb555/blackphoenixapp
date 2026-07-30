@@ -84,8 +84,12 @@ export async function getUserCompanies(userId: string) {
     console.error('Error getting user companies:', err);
     return [];
   }
-}// Named exports
-{ applyCompanyScope as  };
+}
 
 // Also export everything as a namespace
-export const companyScopeUtils =
+export const companyScopeUtils = {
+  applyCompanyScope,
+  getCurrentScope,
+  validateCompanyAccess,
+  getUserCompanies,
+};

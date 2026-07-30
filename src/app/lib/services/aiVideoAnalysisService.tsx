@@ -7,6 +7,60 @@ import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan`;
 
+// ---- Analysis result types ----
+export interface RoomDimensions {
+  length: number;
+  width: number;
+  height: number;
+  squareFootage: number;
+}
+
+export interface MaterialDetection {
+  location: string;
+  material: string;
+  color: string;
+  finish: string;
+  condition: 'excellent' | 'good' | 'fair' | 'poor';
+  estimatedAge: string;
+  notes: string[];
+  confidence: number;
+}
+
+export interface FloorPlan {
+  id: string;
+  roomName: string;
+  roomType: string;
+  dimensions: RoomDimensions;
+  walls: any[];
+  features: string[];
+  svgData: string;
+  scale: string;
+  confidence: number;
+}
+
+export interface VideoAnalysisResult {
+  id: string;
+  videoId: string;
+  timestamp: string;
+  roomType: string;
+  dimensions: RoomDimensions;
+  floorPlan: FloorPlan;
+  materials: MaterialDetection[];
+  doors: any[];
+  windows: any[];
+  fixtures: any[];
+  lighting: any;
+  electrical: any;
+  plumbing: any;
+  hvac: any;
+  issues: any[];
+  recommendations: any[];
+  overallCondition: any;
+  estimatedRenovationCost: any;
+  analysisConfidence: number;
+  completeness: number;
+}
+
 // Video Analysis Service using GPT-4 Vision
 class AIVideoAnalysisService {
   /**

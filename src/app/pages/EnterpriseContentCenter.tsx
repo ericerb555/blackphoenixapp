@@ -26,7 +26,8 @@ import {
   FileAudio, File, Crown, Zap as ZapIcon, AlertTriangle, 
   TrendingUp as TrendingUpIcon, Package as PackageIcon, Shield,
   AlertCircle, Briefcase, Link as LinkIcon, Unlink, ExternalLink,
-  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame, Link2
+  CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame, Link2,
+  Store
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
@@ -63,6 +64,7 @@ import PromotionsEngineManager from '../components/PromotionsEngineManager';
 import FulfillmentManager from '../components/FulfillmentManager';
 import HotProductsRadar from '../components/HotProductsRadar';
 import StoreContentStudio from '../components/StoreContentStudio';
+import DropshipperAdminPanel from '../components/DropshipperAdminPanel';
 import {
   useContentManagement,
   ContentPiece,
@@ -156,14 +158,27 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store'>('command');
+
+  // Which sub-tab the embedded Online Store panel should open on (deep-linkable).
+  const [storeSubTab, setStoreSubTab] = useState<import('../components/DropshipperAdminPanel').StoreTab>('overview');
+
+  // Open the Online Store tab, optionally jumping to a specific sub-area.
+  const openStoreTab = (sub?: import('../components/DropshipperAdminPanel').StoreTab) => {
+    if (sub) setStoreSubTab(sub);
+    setActiveTab('store');
+  };
 
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
     try {
-      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence'];
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store'];
+      const storeSubTabs = ['overview', 'providers', 'catalog', 'pricing', 'inventory', 'orders', 'errors'];
       const tab = new URLSearchParams(window.location.search).get('tab');
-      if (tab && valid.includes(tab)) {
+      if (tab && tab.startsWith('store-') && storeSubTabs.includes(tab.replace('store-', ''))) {
+        // Deep-link into a specific Online Store sub-area, e.g. ?tab=store-orders
+        openStoreTab(tab.replace('store-', '') as any);
+      } else if (tab && valid.includes(tab)) {
         setActiveTab(tab as any);
       } else if (window.location.pathname.includes('ad-studio')) {
         setActiveTab('ad-studio');
@@ -1799,6 +1814,7 @@ export default function EnterpriseContentCenter() {
             { id: 'shop-intelligence', label: '📊 Shop Intelligence', icon: TrendingUp },
             { id: 'hot-products', label: '🔥 Hot Products', icon: Flame },
             { id: 'store-content', label: '🔗 Store Content', icon: Link2 },
+            { id: 'store', label: '🛍️ Online Store', icon: Store },
             { id: 'store-boosters', label: '🚀 Store Boosters', icon: Zap },
             { id: 'promotions-engine', label: '🏷️ Promotions Engine', icon: Tag },
             { id: 'fulfillment', label: '🚚 Fulfillment', icon: PackageIcon },
@@ -1828,7 +1844,13 @@ export default function EnterpriseContentCenter() {
         <div className="p-6">
           {/* Marketing Command Center Tab */}
           {activeTab === 'command' && (
-            <MarketingCommandCenter onNavigate={hubNavigate} onOpenTab={(t) => setActiveTab(t as any)} />
+            <MarketingCommandCenter
+              onNavigate={hubNavigate}
+              onOpenTab={(t) => {
+                if (t.startsWith('store-')) openStoreTab(t.replace('store-', '') as any);
+                else setActiveTab(t as any);
+              }}
+            />
           )}
 
           {/* Ad Studio Tab */}
@@ -1858,6 +1880,13 @@ export default function EnterpriseContentCenter() {
 
           {activeTab === 'store-content' && (
             <StoreContentStudio />
+          )}
+
+          {/* Online Store — moved in from the "Online Store" nav page. Renders the
+              full DropshipperAdminPanel with its native sub-tab strip, reusing its
+              own data loading so every area is wired end to end. */}
+          {activeTab === 'store' && (
+            <DropshipperAdminPanel embedded initialTab={storeSubTab} />
           )}
 
           {/* Library Tab */}

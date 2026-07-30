@@ -13,6 +13,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
+import InvestmentTab from './InvestmentTab';
 import ReferralRewards from '../ReferralRewards';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
@@ -37,7 +38,7 @@ const DEMO_REVENUE = [
   { month: 'Apr', revenue: 22100 }, { month: 'May', revenue: 28400 }, { month: 'Jun', revenue: 34800 },
 ];
 
-type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'referrals' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'investments' | 'referrals' | 'settings' | 'guide';
 
 interface Props { onNavigate: (page: string) => void; }
 
@@ -270,6 +271,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     { id: 'crm', label: 'CRM', icon: Tag },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
     { id: 'deals', label: 'Deals & Reels', icon: Star },
+    { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referrals', icon: Award },
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
@@ -670,6 +672,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
         {/* CRM */}
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="territory" />}
         {tab === 'crm' && <CRMSection portalType="territory" />}
+        {tab === 'investments' && <InvestmentTab portalType="territory" ownerName={ownerName} />}
 
         {/* DEALS & REELS */}
         {tab === 'deals' && (<>

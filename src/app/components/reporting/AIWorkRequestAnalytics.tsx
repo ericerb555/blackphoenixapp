@@ -5,7 +5,7 @@ import {
   ArrowUpRight, ArrowDownRight, Sparkles, Eye, FileText,
   BarChart3, PieChart, Activity, Layers
 } from 'lucide-react';
-import { DataTable, Column } from '../ui/table/DataTable';
+import { DataTable, DataTableColumn as Column } from '../ui/table/DataTable';
 
 interface AIWorkRequestStats {
   totalRequests: number;

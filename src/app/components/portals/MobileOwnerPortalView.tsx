@@ -16,12 +16,13 @@ import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
+import InvestmentTab from './InvestmentTab';
 
 export default function MobileOwnerPortalView() {
   const [showGiftModal, setShowGiftModal] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<SupabaseData.Subscription | null>(null);
   const [subscriptions, setSubscriptions] = useState<SupabaseData.Subscription[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'analytics'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'analytics' | 'investments'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Load subscriptions
@@ -184,7 +185,8 @@ export default function MobileOwnerPortalView() {
           {[
             { id: 'overview', label: 'Overview', icon: Target },
             { id: 'customers', label: 'Customers', icon: Users },
-            { id: 'analytics', label: 'Analytics', icon: BarChart3 }
+            { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+            { id: 'investments', label: 'Investments', icon: DollarSign }
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -357,6 +359,8 @@ export default function MobileOwnerPortalView() {
               <div className="rounded-2xl border border-white/10 bg-[#111] p-5"><h4 className="font-semibold text-white">Plan mix</h4><div className="mt-4 space-y-3">{Object.entries(subscriptions.reduce((groups: Record<string, number>, sub) => ({ ...groups, [sub.plan || 'Unassigned']: (groups[sub.plan || 'Unassigned'] || 0) + 1 }), {})).map(([plan, count]) => <div key={plan} className="flex items-center justify-between border-b border-white/5 pb-2 text-sm"><span className="text-gray-300">{plan}</span><span className="font-bold text-white">{count}</span></div>)}</div></div>
             </div>
           )}
+
+          {activeTab === 'investments' && <InvestmentTab portalType="owner" />}
         </div>
       </div>
 

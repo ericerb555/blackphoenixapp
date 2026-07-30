@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, Send, Check, Upload, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Send, Check, Upload, X, FileText } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import ApplicationPlanBuilderSection from './ApplicationPlanBuilderSection';
@@ -148,6 +148,10 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
   const handleNext = () => {
     if (!validateFields(currentStepData.fields || [])) return;
     if (currentStep < steps.length - 1) setCurrentStep(currentStep + 1);
+  };
+
+  const handlePrev = () => {
+    if (currentStep > 0) setCurrentStep(currentStep - 1);
   };
 
   const handlePreview = () => {

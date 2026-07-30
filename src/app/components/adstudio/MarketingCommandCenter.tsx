@@ -13,6 +13,7 @@ import {
   Megaphone, Sparkles, Share2, Calendar, ShoppingBag, Store, Tag,
   BarChart3, Mail, MessageSquare, Search, Users, FileText, Star,
   Zap, Target, Image as ImageIcon, TrendingUp, ArrowUpRight, Bot,
+  Activity, Link2, Box, DollarSign, Package, ShoppingCart, AlertCircle,
 } from 'lucide-react';
 
 type Action =
@@ -72,7 +73,13 @@ const GROUPS: Group[] = [
     title: 'Store & Promotions',
     icon: ShoppingBag,
     tools: [
-      { name: 'Online Store', desc: 'Manage your storefront & catalog', icon: Store, action: { kind: 'nav', path: 'dropshipper-admin' } },
+      { name: 'Store Overview', desc: 'Storefront status & integration health', icon: Activity, action: { kind: 'tab', tab: 'store-overview' } },
+      { name: 'Store Providers', desc: 'Manage dropshipper connections', icon: Link2, action: { kind: 'tab', tab: 'store-providers' } },
+      { name: 'Store Catalog', desc: 'Browse & manage product catalog', icon: Box, action: { kind: 'tab', tab: 'store-catalog' } },
+      { name: 'Store Pricing', desc: 'Product pricing & markup rules', icon: DollarSign, action: { kind: 'tab', tab: 'store-pricing' } },
+      { name: 'Store Inventory', desc: 'Synced inventory & stock levels', icon: Package, action: { kind: 'tab', tab: 'store-inventory' } },
+      { name: 'Store Orders', desc: 'Forwarded orders & fulfillment', icon: ShoppingCart, action: { kind: 'tab', tab: 'store-orders' } },
+      { name: 'Store Error Logs', desc: 'Integration errors & diagnostics', icon: AlertCircle, action: { kind: 'tab', tab: 'store-errors' } },
       { name: 'Public Store', desc: 'View your live storefront', icon: ShoppingBag, action: { kind: 'nav', path: 'public-store' } },
       { name: 'Promotions Manager', desc: 'Deals, discounts & flash sales', icon: Tag, action: { kind: 'nav', path: 'promotions-manager' } },
       { name: 'Auto-Product Pilot', desc: 'Automated product importing', icon: Bot, action: { kind: 'nav', path: 'auto-product-pilot' }, badge: 'NEW' },

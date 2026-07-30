@@ -8,6 +8,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 import phoenixLogo from '../../../imports/BPB_phoenix_full_color_logo.png';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
@@ -75,7 +76,7 @@ function badge(s: string) {
   return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
 
-type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'guide';
+type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'guide';
 
 function getDemoProfile() {
   try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
@@ -203,6 +204,7 @@ export default function SubcontractorPortal() {
     { id: 'jobs', label: 'Active Jobs', icon: Briefcase },
     { id: 'bids', label: 'My Bids', icon: FileText },
     { id: 'payments', label: 'Payments', icon: DollarSign },
+    { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
@@ -530,6 +532,7 @@ export default function SubcontractorPortal() {
         {/* PERFORMANCE */}
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="subcontractor" ownerName={subName} />}
         {tab === 'plan-builder' && <PlanBuilderTab portalType="subcontractor" ownerName={subCompany} />}
+        {tab === 'investments' && <InvestmentTab portalType="subcontractor" ownerName={subName} />}
         {tab === 'performance' && (
           <div className="space-y-6">
             <h2 className="text-xl font-bold">Performance Metrics</h2>

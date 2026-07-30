@@ -21,7 +21,7 @@ import {
   Code, Database, Workflow, Package, MessageSquare, Calendar,
   DollarSign, Image, Video, Users, Activity, Shield, Globe,
   Brain, Lightbulb, TrendingUp, Star, Clock, Bell, Info,
-  AlertCircle, Copy, Download, RefreshCw, Layers, Box
+  AlertCircle, Copy, Download, RefreshCw, Layers, Box, XCircle
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { TextArea } from './ui/input/TextArea';

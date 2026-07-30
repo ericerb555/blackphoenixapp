@@ -263,7 +263,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       modules: [
         { name: 'Vendor Ads Hub', path: 'vendor-advertising-hub', icon: Megaphone },
         { name: 'Vendor Super Portal', path: 'vendor-super-portal', icon: Crown },
-        { name: 'Dropshipper Admin', path: 'dropshipper-admin', icon: Truck },
+        { name: 'Dropshipper Admin', path: 'enterprise-content-center?tab=store-providers', icon: Truck },
         { name: 'Public Store', path: 'public-store', icon: ShoppingCart },
         { name: 'Mobile App Hub', path: 'mobile-app-hub', icon: Smartphone }
       ]
@@ -350,7 +350,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
   const handleCompanySwitch = (companyId: string) => {
     setSelectedCompany(companyId);
-    toast.success(`Switched to ${mockCompanies.find(c => c.id === companyId)?.name}`);
+    toast.success(`Switched to ${userCompanies.find(c => c.id === companyId)?.name}`);
   };
 
   const sendFreePortalInvite = async (event: React.FormEvent) => {
@@ -1142,13 +1142,12 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             setShowGiftModal(false);
             setGiftTargetSub(null);
           }}
-          targetSubscription={giftTargetSub}
+          subscription={giftTargetSub}
           onSuccess={() => {
             loadSubscriptions();
             setShowGiftModal(false);
             setGiftTargetSub(null);
           }}
-          subscriptions={subscriptions}
           userRole="owner"
           userName="Owner"
         />

@@ -25,7 +25,7 @@ export class EmailService {
       const body = this.generateInvoiceEmailBody(invoiceData, customMessage);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/send-invoice-email`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/send`,
         {
           method: 'POST',
           headers: {
@@ -35,9 +35,11 @@ export class EmailService {
           body: JSON.stringify({
             to: recipientEmail,
             subject,
-            body,
-            attachmentBase64: pdfBase64,
-            attachmentName: `Invoice_${invoiceData.invoiceNumber}.pdf`,
+            html: body,
+            templateKey: 'invoice',
+            attachments: pdfBase64
+              ? [{ filename: `Invoice_${invoiceData.invoiceNumber}.pdf`, content: pdfBase64 }]
+              : undefined,
           }),
         }
       );
@@ -209,7 +211,7 @@ export class EmailService {
   static async getEmailHistory(): Promise<any[]> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/emails`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/log`,
         {
           headers: {
             Authorization: `Bearer ${publicAnonKey}`,
@@ -221,8 +223,8 @@ export class EmailService {
         throw new Error('Failed to fetch email history');
       }
 
-      const emails = await response.json();
-      return emails;
+      const data = await response.json();
+      return Array.isArray(data) ? data : (data.emails || []);
     } catch (error) {
       console.error('Error fetching email history:', error);
       return [];

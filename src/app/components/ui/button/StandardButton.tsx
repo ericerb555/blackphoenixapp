@@ -29,7 +29,7 @@
 import { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
-interface StandardButtonProps {
+export interface StandardButtonProps {
   onClick?: () => void;
   color?: 'blue' | 'purple' | 'green' | 'orange' | 'red' | 'teal' | 'pink' | 'yellow';
   icon?: ReactNode;

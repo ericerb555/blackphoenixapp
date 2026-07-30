@@ -51,6 +51,10 @@ const STATUS_COLORS: Record<string, string> = {
   prospect: 'bg-yellow-500/20 text-yellow-400',
 };
 
+interface Props {
+  portalType: string;
+}
+
 export default function CRMSection({ portalType }: Props) {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);

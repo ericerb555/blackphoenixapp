@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, CreditCard, ChevronRight, ArrowUpRight, CheckCircle, Tag, BarChart3, MessageSquare,
-  TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles, LoaderCircle, Plus,
+  TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles, LoaderCircle, Plus, FileText,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
@@ -13,6 +13,7 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
@@ -54,7 +55,7 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'revenue-ai' | 'messages' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'investments' | 'revenue-ai' | 'messages' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -65,6 +66,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'deals', label: 'Deals & Reels', icon: Tag },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'investments', label: 'Investments', icon: DollarSign },
   { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -365,6 +367,7 @@ export default function PropertyManagerPortalView() {
         {tab === 'plan-tracker' && <MaintenancePlanTracker portalRole="property_manager" ownerName={name} />}
         {tab === 'plan-builder' && <PlanBuilderTab portalType="property_manager" ownerName={name} />}
         {tab === 'crm' && <CRMSection portalType="property-manager" />}
+        {tab === 'investments' && <InvestmentTab portalType="property_manager" ownerName={name} />}
         {tab === 'deals' && (<>
           <FeaturedDealsReels portalType="property_manager" />
           <DealsOffersSection portalType="advertiser" storageKey="pm_deals_offers" />
@@ -473,12 +476,12 @@ export default function PropertyManagerPortalView() {
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Property Manager Name</label>
-                <input value={name} onChange={e => setName(e.target.value)}
+                <input value={name} readOnly
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
-                <input value={email} onChange={e => setEmail(e.target.value)}
+                <input value={email} readOnly
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
               <button onClick={() => toast.success('Settings saved!')}

@@ -28,6 +28,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import InvestmentTab from './InvestmentTab';
 
 interface Order {
   id: string;
@@ -52,7 +53,7 @@ export default function VendorPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'messages' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'investments' | 'messages' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -180,6 +181,7 @@ export default function VendorPortalView() {
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
+    { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'api-settings', label: 'API Settings', icon: Code },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
@@ -608,6 +610,7 @@ export default function VendorPortalView() {
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.accountManager} />}
         {activeTab === 'plan-builder' && <PlanBuilderTab portalType="vendor" ownerName={vendorInfo.name} currentTier={subscriptionTier} />}
+        {activeTab === 'investments' && <InvestmentTab portalType="vendor" ownerName={vendorInfo.name} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">
             <SubmitReelForApproval submitterName={vendorInfo?.name || 'Vendor'} submitterType="vendor" />

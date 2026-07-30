@@ -19,7 +19,7 @@ import {
   AlertCircle, Info, ChevronDown, ChevronUp, ExternalLink,
   Download, Upload, Search, Filter, Calendar, Users, DollarSign,
   FileText, Image, ShoppingBag, Package, Megaphone, Target,
-  Wrench, Gift, Crown, Building2, LineChart, PieChart, Layers, Video
+  Wrench, Gift, Crown, Building2, LineChart, PieChart, Layers, Video, X
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 

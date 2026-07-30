@@ -18,7 +18,7 @@ import {
   Edit, Trash2, Plus, Search, Filter, Download, RefreshCw,
   ArrowUpRight, ArrowDownRight, ChevronRight, Bell, Star,
   Lock, Unlock, Ban, Check, X, Mail, Phone, Calendar,
-  TrendingRight, Layers, Package, Briefcase, Award
+  Layers, Package, Briefcase, Award
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useUser } from '../lib/user-context';
