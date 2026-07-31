@@ -328,7 +328,12 @@ export default function PropertyAIStudio() {
                 <section className="bg-[#141414] border border-emerald-500/30 rounded-2xl p-6">
                   <h3 className="flex items-center gap-2 font-semibold text-white mb-3">
                     <ShieldCheck className="w-5 h-5 text-emerald-400" /> Verified parcel record
-                    <span className="ml-auto text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Regrid</span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      {report.parcel.sourceLabel
+                        || (report.parcel.source === 'massgis' ? 'MassGIS (free)'
+                          : report.parcel.source === 'nh-granit' ? 'NH GRANIT (free)'
+                          : 'Regrid')}
+                    </span>
                   </h3>
                   <div className="grid sm:grid-cols-3 gap-3 text-sm">
                     <Fact label="Official zoning" value={report.parcel.zoning || report.parcel.zoningDescription} />

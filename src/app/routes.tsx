@@ -41,6 +41,9 @@ const InvestmentOpportunities = lazy(() => import("./pages/InvestmentOpportuniti
 const InvestmentManagement = lazy(() => import("./pages/InvestmentManagement"));
 const PropertyPartnership = lazy(() => import("./pages/PropertyPartnership"));
 const PropertyAIStudio = lazy(() => import("./pages/PropertyAIStudio"));
+const VariancesStudio = lazy(() => import("./pages/VariancesStudio"));
+const ProductPagePilot = lazy(() => import("./pages/ProductPagePilot"));
+const CampaignPage = lazy(() => import("./pages/CampaignPage"));
 const DropshipperAdmin = lazy(() => import("./components/DropshipperAdminPanel"));
 const PublicStore = lazy(() => import("./pages/PublicStore"));
 const OrderTracking = lazy(() => import("./components/OrderTracking"));
@@ -396,6 +399,12 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "partner-with-us":         PropertyPartnership,
   "property-ai-studio":      PropertyAIStudio,
   "property-intelligence":   PropertyAIStudio,
+  "variances":               VariancesStudio,
+  "variance-filing":         VariancesStudio,
+  "product-page-pilot":      ProductPagePilot,
+  "page-pilot":              ProductPagePilot,
+  "campaign-pages":          ProductPagePilot,
+  "campaign":                CampaignPage,
 
   // Unified Project Pipeline (all workflow aliases → single page)
   "work-order-management":      WorkOrderManager,

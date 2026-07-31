@@ -3,20 +3,21 @@
  * World-class shopping experience with modern design
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ShoppingCart, Search, Menu, X, User, Heart, Star, Filter,
   ChevronDown, Package, Truck, Shield, CreditCard, ArrowLeft,
   Plus, Minus, Check, Eye, TrendingUp, Zap, Award, ChevronRight, ChevronLeft,
   Grid, List, SlidersHorizontal, RefreshCw, ShoppingBag, Lock,
   Flame, Tag, ArrowRight, MessageSquare, Mail, Instagram,
-  Facebook, Youtube, MapPin, Phone,
+  Facebook, Youtube, MapPin, Phone, Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../contexts/AuthContext';
 import { useCompany } from '../contexts/CompanyContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { CampaignPromoStrip } from '../components/CampaignPromoStrip';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
 import { ActiveFlashBanner } from './FlashSaleManager';
 import { ProductReels } from '../components/ProductReels';
@@ -129,6 +130,7 @@ export default function PublicStore() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) throw new Error(data.error || 'Payment confirmation is still pending.');
         if (cancelled) return;
+        if (!data.duplicate) attributePurchase(data.order);
         setCart([]); setShowCart(false); setShowCheckout(false); setCheckoutStep('info');
         window.history.replaceState({}, '', window.location.pathname);
         toast.success(data.duplicate ? 'Your order is already confirmed.' : `Order ${data.order?.id || ''} confirmed! We will email your receipt.`);
@@ -139,6 +141,28 @@ export default function PublicStore() {
     void complete();
     return () => { cancelled = true; };
   }, []);
+
+  // Credit a completed order back to the campaign page that referred the shopper
+  // (attribution stashed in localStorage by CampaignPage). Best-effort + idempotent
+  // on the server via the orderId guard. Attribution is valid for 24h.
+  const attributePurchase = (order: any) => {
+    try {
+      const raw = localStorage.getItem('pagePilotAttribution');
+      if (!raw) return;
+      const attr = JSON.parse(raw);
+      if (!attr?.campaignId || (attr.ts && Date.now() - attr.ts > 24 * 60 * 60 * 1000)) {
+        localStorage.removeItem('pagePilotAttribution');
+        return;
+      }
+      const revenue = Number(order?.total ?? order?.amount ?? order?.totalAmount ?? order?.grandTotal ?? 0) || 0;
+      fetch(`${SERVER}/page-pilot/track/${attr.campaignId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        body: JSON.stringify({ type: 'purchase', revenue, orderId: order?.id || '' }),
+      }).catch(() => {});
+      localStorage.removeItem('pagePilotAttribution');
+    } catch (_) { /* ignore */ }
+  };
 
   // Keep the persisted cart/wishlist in sync with state so a refresh or the
   // Stripe redirect round-trip restores exactly what the shopper had.
@@ -628,6 +652,27 @@ export default function PublicStore() {
     toast.success('Added to cart!');
   };
 
+  // "Buy in place" — campaign landing pages deep-link here with ?add=<productId>.
+  // Once products have loaded, auto-add that product and open the cart drawer.
+  const handledAddRef = useRef(false);
+  useEffect(() => {
+    if (handledAddRef.current || !allProducts.length) return;
+    const addId = new URLSearchParams(window.location.search).get('add');
+    if (!addId) { handledAddRef.current = true; return; }
+    const p = allProducts.find(x => x.id === addId);
+    if (p) {
+      addToCart(p);
+      setShowCart(true);
+      handledAddRef.current = true;
+      // Clean the param so a refresh doesn't re-add.
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('add');
+        window.history.replaceState({}, '', url.toString());
+      } catch (_) { /* ignore */ }
+    }
+  }, [allProducts]);
+
   const toggleWishlist = (productId: string) => {
     if (wishlist.includes(productId)) {
       setWishlist(wishlist.filter(id => id !== productId));
@@ -753,6 +798,19 @@ export default function PublicStore() {
   // Inline product card renderer
   const ProductCard = ({ product }: { product: typeof allProducts[0] }) => {
     const isWishlisted = wishlist.includes(product.id);
+    // Use every available photo: hovering across the image cycles through the
+    // full gallery, with position dots + a count badge so shoppers see them all.
+    const gallery = ((product.images && product.images.length ? product.images : [product.image])
+      .filter((u: any) => u && u !== '/placeholder-product.jpg')) as string[];
+    const [imgIdx, setImgIdx] = useState(0);
+    const activeImage = gallery[imgIdx] || product.image;
+    const hasMulti = gallery.length > 1;
+    const onImageHover = (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!hasMulti) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ratio = Math.min(0.999, Math.max(0, (e.clientX - rect.left) / rect.width));
+      setImgIdx(Math.floor(ratio * gallery.length));
+    };
     return (
       <div
         className="group relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 cursor-pointer"
@@ -762,11 +820,29 @@ export default function PublicStore() {
         onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}
       >
         {/* Image */}
-        <div className="aspect-square relative overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          {product.image && product.image !== '/placeholder-product.jpg'
-            ? <img src={product.image} alt={product.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        <div
+          className="aspect-square relative overflow-hidden"
+          style={{ background: 'rgba(255,255,255,0.04)' }}
+          onMouseMove={onImageHover}
+          onMouseLeave={() => setImgIdx(0)}
+        >
+          {activeImage && activeImage !== '/placeholder-product.jpg'
+            ? <img src={activeImage} alt={product.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
             : <div className="w-full h-full flex items-center justify-center"><Package className="w-16 h-16 text-gray-700" /></div>
           }
+          {/* Multi-photo affordance: count badge + position dots */}
+          {hasMulti && (
+            <>
+              <span className="absolute bottom-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition" style={{ background: 'rgba(0,0,0,0.7)' }}>
+                <ImageIcon className="w-3 h-3" /> {gallery.length}
+              </span>
+              <div className="absolute bottom-2 left-0 right-0 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                {gallery.map((_, i) => (
+                  <span key={i} className={`h-1 rounded-full transition-all ${i === imgIdx ? 'w-4 bg-orange-400' : 'w-1.5 bg-white/50'}`} />
+                ))}
+              </div>
+            </>
+          )}
           {product.badge && (
             <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-xs font-black shadow-lg" style={{ background: '#ea580c' }}>
               {product.badge}
@@ -1370,6 +1446,9 @@ export default function PublicStore() {
             />
           </div>
 
+          {/* Featured campaign landing pages (Product Page Pilot) */}
+          <CampaignPromoStrip />
+
           {/* Product count */}
           <p className="text-sm text-gray-600 mb-5">{viewProducts.length} product{viewProducts.length !== 1 ? 's' : ''}</p>
 
@@ -1871,6 +1950,7 @@ export default function PublicStore() {
                       });
                       const data = await res.json();
                       if (data.zeroBalanceOrder && data.order) {
+                        attributePurchase(data.order);
                         setCart([]); setShowCart(false); setShowCheckout(false); setCheckoutStep('info');
                         setGiftCardBalance(null); setCheckoutForm(form => ({ ...form, giftCardCode: '' }));
                         toast.success(`Order ${data.order.id} confirmed — your gift card covered the total.`);

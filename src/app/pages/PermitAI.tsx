@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Send, Bot, User, MapPin, Wrench, Building, Phone, Globe, Mail,
   Clock, Sparkles, FileText, AlertTriangle, ChevronDown, X, RotateCcw,
-  ExternalLink, CheckCircle, Clipboard, Home,
+  ExternalLink, CheckCircle, Clipboard, Home, Scale,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -252,6 +252,15 @@ export default function PermitAI({ initialAddress = '', initialWorkType = '', in
             </span>
           )}
           <div className="flex-1" />
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('variances')}
+              title="Draft a zoning variance application with AI"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-orange-300 hover:text-orange-200 rounded-lg hover:bg-orange-500/10 border border-orange-500/30 text-xs transition"
+            >
+              <Scale className="w-3.5 h-3.5" /> Variance Filing
+            </button>
+          )}
           {messages.length > 0 && (
             <button onClick={reset} className="flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-[#1A1A1A] text-xs transition">
               <RotateCcw className="w-3.5 h-3.5" /> New Chat

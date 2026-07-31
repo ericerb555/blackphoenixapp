@@ -72,7 +72,8 @@ interface ParcelFacts {
   parcelValue?: number;
   lat?: number;
   lon?: number;
-  source: 'regrid';
+  source: 'regrid' | 'massgis' | 'nh-granit';
+  sourceLabel?: string; // human-friendly provider name for the UI
 }
 
 async function fetchRegridParcel(address: string): Promise<ParcelFacts | null> {
@@ -140,7 +141,8 @@ function parcelPromptBlock(p: ParcelFacts | null): string {
   add('Assessed improvement value', p.improvementValue);
   add('Total assessed value', p.parcelValue);
   if (!lines.length) return '';
-  return `\n\nVERIFIED PARCEL DATA (from the official Regrid parcel record — treat these as authoritative and build the analysis around them; do NOT contradict them):\n${lines.join('\n')}`;
+  const src = p.sourceLabel || (p.source === 'regrid' ? 'the official Regrid parcel record' : 'the official government parcel record');
+  return `\n\nVERIFIED PARCEL DATA (from ${src} — treat these as authoritative and build the analysis around them; do NOT contradict them):\n${lines.join('\n')}`;
 }
 
 // ── ATTOM valuation data ────────────────────────────────────────────────────
@@ -223,6 +225,198 @@ function valuationPromptBlock(v: ValuationFacts | null): string {
   add('Last sale date', v.lastSaleDate);
   if (!lines.length) return '';
   return `\n\nVERIFIED VALUATION DATA (from ATTOM — use these to anchor current value, ARV, and ROI estimates; do NOT contradict them):\n${lines.join('\n')}`;
+}
+
+// ── Free government parcel data (no API key required) ───────────────────────
+// A zero-cost alternative to Regrid, strongest in exactly the states this
+// business serves: Massachusetts (MassGIS standardized assessor parcels) and
+// New Hampshire (NH GRANIT statewide parcels). We geocode the address with the
+// free US Census geocoder, then query the state's public ArcGIS parcel service
+// — first by point, then by address string as a fallback (the free geocoder
+// can interpolate slightly off-parcel). Every step is best-effort: a miss just
+// returns null and analysis falls back to the next source. Endpoints are
+// overridable via env in case a state re-publishes its service.
+const CENSUS_GEOCODER =
+  'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+const MASSGIS_PARCELS_URL =
+  Deno.env.get('MASSGIS_PARCELS_URL') ||
+  'https://services1.arcgis.com/hGdibHYSPO59RG1h/arcgis/rest/services/Massachusetts_Property_Tax_Parcels/FeatureServer/0/query';
+const NH_GRANIT_PARCELS_URL =
+  Deno.env.get('NH_GRANIT_PARCELS_URL') ||
+  'https://nhgeodata.unh.edu/nhgeodata/rest/services/CAD/ParcelMosaic/MapServer/1/query';
+
+async function fetchWithTimeout(url: string, ms = 12000): Promise<Response | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (err: any) {
+    console.log(`[free-data] fetch failed ${url}: ${err?.message || err}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+interface GeoResult {
+  lat: number;
+  lon: number;
+  state?: string;
+  number?: string;
+  street?: string;
+  city?: string;
+  matched?: string;
+}
+
+// Geocode a one-line address with the free US Census geocoder.
+async function geocodeCensus(address: string): Promise<GeoResult | null> {
+  const url = `${CENSUS_GEOCODER}?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&format=json`;
+  const res = await fetchWithTimeout(url);
+  if (!res || !res.ok) {
+    if (res) console.log(`[census] geocode "${address}" returned ${res.status}`);
+    return null;
+  }
+  try {
+    const data = await res.json();
+    const match = data?.result?.addressMatches?.[0];
+    if (!match?.coordinates) return null;
+    const comp = match.addressComponents || {};
+    const street = [comp.streetName, comp.suffixType].filter(Boolean).join(' ').trim();
+    return {
+      lat: Number(match.coordinates.y),
+      lon: Number(match.coordinates.x),
+      state: comp.state,
+      number: comp.fromAddress,
+      street,
+      city: comp.city,
+      matched: match.matchedAddress,
+    };
+  } catch (err: any) {
+    console.log(`[census] parse failed for "${address}": ${err?.message || err}`);
+    return null;
+  }
+}
+
+// Query an ArcGIS FeatureServer/MapServer layer, returning the first feature's
+// attributes. `whereOrPoint` is either a SQL where clause or a lon/lat point.
+async function arcgisQuery(
+  baseUrl: string,
+  q: { point?: { lat: number; lon: number }; where?: string },
+): Promise<Record<string, any> | null> {
+  const params = new URLSearchParams({
+    outFields: '*',
+    returnGeometry: 'false',
+    outSR: '4326',
+    f: 'json',
+  });
+  if (q.point) {
+    params.set('geometry', `${q.point.lon},${q.point.lat}`);
+    params.set('geometryType', 'esriGeometryPoint');
+    params.set('inSR', '4326');
+    params.set('spatialRel', 'esriSpatialRelIntersects');
+  } else {
+    params.set('where', q.where || '1=1');
+    params.set('resultRecordCount', '1');
+  }
+  const res = await fetchWithTimeout(`${baseUrl}?${params.toString()}`);
+  if (!res || !res.ok) {
+    if (res) console.log(`[arcgis] ${baseUrl} returned ${res.status}`);
+    return null;
+  }
+  try {
+    const data = await res.json();
+    return data?.features?.[0]?.attributes || null;
+  } catch (err: any) {
+    console.log(`[arcgis] parse failed ${baseUrl}: ${err?.message || err}`);
+    return null;
+  }
+}
+
+// Escape single quotes for an ArcGIS SQL literal.
+const sqlLit = (v: string) => v.replace(/'/g, "''");
+
+// Read a value from an attributes bag trying several possible field names.
+function pick(attrs: Record<string, any>, keys: string[]): any {
+  for (const k of keys) {
+    const v = attrs[k];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+// MassGIS standardized assessor parcels → ParcelFacts.
+function mapMassGis(a: Record<string, any>, geo: GeoResult): ParcelFacts {
+  const num = (v: any) => (v === undefined || v === null || v === '' ? undefined : Number(v));
+  return {
+    parcelNumber: pick(a, ['LOC_ID', 'MAP_PAR_ID', 'PROP_ID']),
+    owner: pick(a, ['OWNER1']),
+    address: pick(a, ['SITE_ADDR']) || [pick(a, ['ADDR_NUM']), pick(a, ['FULL_STR'])].filter(Boolean).join(' ').trim(),
+    city: pick(a, ['CITY']),
+    state: 'MA',
+    zip: pick(a, ['ZIP']),
+    zoning: pick(a, ['ZONING']),
+    landUse: pick(a, ['USE_DESC', 'USE_CODE']),
+    acreage: num(pick(a, ['LOT_SIZE'])),
+    buildingSqft: num(pick(a, ['BLD_AREA', 'RES_AREA'])),
+    yearBuilt: pick(a, ['YEAR_BUILT']),
+    landValue: num(pick(a, ['LAND_VAL'])),
+    improvementValue: num(pick(a, ['BLDG_VAL'])),
+    parcelValue: num(pick(a, ['TOTAL_VAL'])),
+    lat: geo.lat,
+    lon: geo.lon,
+    source: 'massgis',
+    sourceLabel: 'MassGIS Assessor Parcels (free)',
+  };
+}
+
+// NH GRANIT statewide parcel mosaic → ParcelFacts. This statewide layer carries
+// parcel id, town, street address, and a standardized land-use code (SLUC) — but
+// NOT owner, assessed value, zoning, or acreage (those live in each town's own
+// assessing system). We pass the land-use code through labeled so the AI can
+// interpret it, and leave the value/zoning fields empty rather than fabricate.
+function mapNhGranit(a: Record<string, any>, geo: GeoResult): ParcelFacts {
+  const slu = pick(a, ['SLU', 'SLUC']);
+  return {
+    parcelNumber: pick(a, ['PID', 'DisplayId', 'NH_GIS_ID']),
+    address: pick(a, ['StreetAddress']),
+    city: pick(a, ['Town']),
+    state: 'NH',
+    landUse: slu ? `NH standardized land-use code ${slu}` : undefined,
+    lat: geo.lat,
+    lon: geo.lon,
+    source: 'nh-granit',
+    sourceLabel: 'NH GRANIT Statewide Parcels (free)',
+  };
+}
+
+// Orchestrator: free parcel lookup for MA & NH via Census geocode + state GIS.
+async function fetchFreeParcel(address: string): Promise<ParcelFacts | null> {
+  if (!address.trim()) return null;
+  const geo = await geocodeCensus(address);
+  if (!geo) return null;
+  const state = (geo.state || '').toUpperCase();
+  try {
+    if (state === 'MA' || /\bMA\b/i.test(address)) {
+      // Point-in-parcel first, then fall back to an address-string match.
+      let attrs = await arcgisQuery(MASSGIS_PARCELS_URL, { point: geo });
+      if (!attrs && geo.number && geo.street && geo.city) {
+        const where = `ADDR_NUM='${sqlLit(geo.number)}' AND UPPER(FULL_STR) LIKE '%${sqlLit(geo.street.toUpperCase())}%' AND UPPER(CITY)='${sqlLit(geo.city.toUpperCase())}'`;
+        attrs = await arcgisQuery(MASSGIS_PARCELS_URL, { where });
+      }
+      if (attrs) return mapMassGis(attrs, geo);
+    }
+    if (state === 'NH' || /\bNH\b/i.test(address)) {
+      let attrs = await arcgisQuery(NH_GRANIT_PARCELS_URL, { point: geo });
+      if (!attrs && geo.number && geo.street && geo.city) {
+        const where = `UPPER(StreetAddress) LIKE '${sqlLit(geo.number.toUpperCase())} %${sqlLit(geo.street.toUpperCase())}%' AND UPPER(Town)='${sqlLit(geo.city.toUpperCase())}'`;
+        attrs = await arcgisQuery(NH_GRANIT_PARCELS_URL, { where });
+      }
+      if (attrs) return mapNhGranit(attrs, geo);
+    }
+  } catch (err: any) {
+    console.log(`[free-data] parcel lookup failed for "${address}": ${err?.message || err}`);
+  }
+  return null;
 }
 
 const PREFIX = '/make-server-3eae23a6';
@@ -782,10 +976,13 @@ investmentsRouter.post(`${PREFIX}/investments/ai-property-analysis`, async (c) =
     const openai = new OpenAI({ apiKey });
 
     // Ground the study in the real parcel record + valuation where available.
-    const [parcel, valuation] = await Promise.all([
-      fetchRegridParcel(address),
+    // Parcel data is sourced free-first (MassGIS / NH GRANIT via Census
+    // geocode) and only falls back to paid Regrid if the free lookup misses.
+    const [freeParcel, valuation] = await Promise.all([
+      fetchFreeParcel(address),
       fetchAttomValuation(address),
     ]);
+    const parcel = freeParcel || (await fetchRegridParcel(address));
 
     const system = `You are a senior real estate development and land-use analyst. Given a property address you produce a rigorous, realistic feasibility study for maximizing the property's value. You reason about likely zoning, lot characteristics, and the local market for that city/region based on general knowledge. When verified parcel data is provided, treat it as authoritative and build every strategy around it. When exact data is unknown, you make clearly-labeled reasonable estimates and ranges — never fabricate precise figures as if certain. You output ONLY valid JSON matching the requested schema.`;
 

@@ -43,6 +43,7 @@ export const navigationSections: NavSection[] = [
       { name: "Weather Monitor",       path: "weather-job-site-monitor", badge: "NEW" },
       { name: "Master Scheduling",     path: "master-scheduling" },
       { name: "PermitAI",              path: "permit-ai",             badge: "NEW" },
+      { name: "Variance Filing",       path: "variances",             badge: "AI" },
       { name: "Unified Calendar",      path: "unified-calendar" },
     ],
   },
@@ -52,6 +53,7 @@ export const navigationSections: NavSection[] = [
     items: [
       { name: "🎯 Marketing Command Center", path: "enterprise-content-center?tab=command", badge: "HUB" },
       { name: "📣 Ad Studio",             path: "enterprise-content-center?tab=ad-studio", badge: "NEW" },
+      { name: "🚀 Product Page Pilot",    path: "product-page-pilot",     badge: "AI" },
       { name: "Content Center",           path: "enterprise-content-center" },
       { name: "Online Store",             path: "enterprise-content-center?tab=ecommerce" },
       { name: "Zendrop",                  path: "zendrop",                badge: "NEW" },

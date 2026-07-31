@@ -511,8 +511,24 @@ export default function AutoProductPilot() {
       {/* ── PUBLISHED TAB ─────────────────────────────────────────────────────── */}
       {tab === 'published' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-gray-400">{published.length} products live in your store</p>
+            {published.length > 1 && (
+              <button
+                onClick={() => {
+                  const top = [...published]
+                    .sort((a, b) => b.opportunityScore - a.opportunityScore)
+                    .slice(0, 4)
+                    .map(p => ({ id: p.id, name: p.name, price: p.ourPrice, image: p.image, category: p.category, badge: p.badge }));
+                  try { localStorage.setItem('pagePilotSeed', JSON.stringify(top)); } catch { /* ignore */ }
+                  toast.success(`Building a collection page from your top ${top.length} winners…`);
+                  (window as any).__navigateApp?.('product-page-pilot');
+                }}
+                className="px-3 py-2 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-[#ea580c] to-[#dc2626] hover:brightness-110 transition"
+              >
+                🚀 Create collection page (top {Math.min(4, published.length)})
+              </button>
+            )}
           </div>
           {published.length === 0 ? (
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-12 text-center">
@@ -566,6 +582,20 @@ export default function AutoProductPilot() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    <button
+                      onClick={() => {
+                        try {
+                          localStorage.setItem('pagePilotSeed', JSON.stringify({
+                            id: p.id, name: p.name, price: p.ourPrice, image: p.image, category: p.category, badge: p.badge,
+                          }));
+                        } catch { /* ignore */ }
+                        toast.success('Opening Product Page Pilot…');
+                        (window as any).__navigateApp?.('product-page-pilot');
+                      }}
+                      className="w-full py-2 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-[#ea580c] to-[#dc2626] hover:brightness-110 transition"
+                    >
+                      🚀 Create landing page
+                    </button>
                   </div>
                 </div>
               ))}
