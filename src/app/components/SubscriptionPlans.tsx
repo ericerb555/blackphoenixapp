@@ -8,7 +8,7 @@
  * - Vendor, Subcontractor, and Advertiser plans
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Crown, Zap, Rocket, Building2, Wrench, Megaphone, Star,
   Check, X, Sparkles, TrendingUp, Shield, Award, Target,
@@ -23,6 +23,7 @@ import {
   type SubscriptionPlan,
   type PlanCategory,
 } from '../config/subscriptionPlans';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
 import { saveCustomerMembership, planTierLabel } from '../lib/subscriptionDiscount';
 import { useAuth } from '../contexts/AuthContext';
@@ -44,6 +45,11 @@ const CATEGORY_TABS: { id: PlanCategory; label: string; icon: any; color: string
 
 const subscriptionPlans: SubscriptionPlan[] = ALL_SUBSCRIPTION_PLANS;
 
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+// overrides[category][tier][feature] = boolean (owner-defined; absent = plan default)
+type TierOverrideMap = Record<string, Record<string, Record<string, boolean>>>;
+
 interface SubscriptionPlansProps {
   onSelectPlan?: (planId: string) => void;
 }
@@ -56,6 +62,45 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
   const [showEditor, setShowEditor] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any | null>(null);
   const filteredPlans = getPlansByCategory(activeCategory);
+  const [tierOverrides, setTierOverrides] = useState<TierOverrideMap>({});
+
+  // Load owner-defined per-tier feature entitlements once.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/tier-features`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.overrides) setTierOverrides(data.overrides);
+      } catch (err) {
+        console.error(`Failed to load tier feature overrides in SubscriptionPlans: ${err}`);
+      }
+    })();
+  }, []);
+
+  // Union of every feature across the tiers of the active category (preserves order).
+  const categoryFeatureUnion = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const plan of filteredPlans) {
+      for (const f of plan.features) {
+        if (!seen.has(f)) { seen.add(f); list.push(f); }
+      }
+    }
+    return list;
+  }, [filteredPlans]);
+
+  // Features to display for a plan after applying owner overrides. An override
+  // wins; otherwise the feature shows if it ships in that plan by default.
+  const getEffectiveFeatures = (plan: SubscriptionPlan): string[] => {
+    const tierMap = tierOverrides[plan.category]?.[plan.tier];
+    if (!tierMap) return plan.features;
+    return categoryFeatureUnion.filter((feature) => {
+      const ov = tierMap[feature];
+      return typeof ov === 'boolean' ? ov : plan.features.includes(feature);
+    });
+  };
 
   const getColorClasses = (color: string, variant: 'bg' | 'text' | 'border' | 'shadow') => {
     const colors: Record<string, Record<string, string>> = {
@@ -454,7 +499,7 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
 
                 {/* Features */}
                 <div className="space-y-3">
-                  {plan.features.map((feature, idx) => (
+                  {getEffectiveFeatures(plan).map((feature, idx) => (
                     <div key={idx} className="flex items-start gap-3">
                       <Check className={`w-5 h-5 ${getColorClasses(color, 'text')} flex-shrink-0 mt-0.5`} />
                       <span className="text-sm text-zinc-300">{feature}</span>

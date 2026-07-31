@@ -54,6 +54,7 @@ import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
+import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -63,7 +64,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -395,6 +396,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'users' as MainTab, label: 'User Management', icon: Users },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
+    { id: 'tier-features' as MainTab, label: 'Tier Features', icon: Layers },
     { id: 'modules' as MainTab, label: 'All Modules', icon: Layers },
     { id: 'settings' as MainTab, label: 'System Settings', icon: Settings },
     { id: 'access-control' as MainTab, label: 'Access Control', icon: Shield, badge: pendingAccessRequests }
@@ -1026,6 +1028,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         )}
 
         {/* MODULES TAB - ALL MODULES */}
+        {activeTab === 'tier-features' && (
+          <TierFeatureManager />
+        )}
+
         {activeTab === 'modules' && (
           <div className="space-y-8">
             <div>

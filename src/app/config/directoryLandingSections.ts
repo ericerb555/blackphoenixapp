@@ -117,7 +117,7 @@ export const DIRECTORY_SECTIONS: DirectorySection[] = [
     image: 'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=800&q=80',
     navigate: 'contractor-network-landing-page',
     portalRoute: 'subcontractor-portal',
-    benefits: ['Project Opportunities', 'Bid Management', 'Payment Processing', 'Professional Network'],
+    benefits: ['Bid Room & Lead Marketplace', 'Change Order Camera', 'Integrated Payments', 'Professional Network'],
     cohortType: 'contractor'
   },
   {
@@ -131,7 +131,7 @@ export const DIRECTORY_SECTIONS: DirectorySection[] = [
     image: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800&q=80',
     navigate: 'brand-partners',
     portalRoute: 'advertiser-portal',
-    benefits: ['Targeted Reach', 'Performance Tracking', 'Flexible Campaigns', 'Premium Placement'],
+    benefits: ['Ad Studio AI Creative', 'Marketing Command Center', 'Retargeting & Social Hub', 'Performance Tracking'],
     cohortType: 'advertiser'
   },
   {
@@ -159,7 +159,7 @@ export const DIRECTORY_SECTIONS: DirectorySection[] = [
     image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80',
     navigate: 'investment-opportunities',
     portalRoute: 'investor-portal',
-    benefits: ['Verified Projects', 'ROI Tracking', 'Diversified Portfolio', 'Transparent Reporting'],
+    benefits: ['Verified Projects', 'Investor App & Deal Room', 'ROI & Distribution Tracking', 'Transparent Reporting'],
     cohortType: 'investor'
   },
   {

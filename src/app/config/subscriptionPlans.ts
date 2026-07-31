@@ -969,14 +969,89 @@ export const PORTAL_OPTIONS_BY_CATEGORY: Record<PlanCategory, string[]> = {
 };
 
 /**
+ * PLATFORM CAPABILITIES BY CATEGORY
+ *
+ * The actual platform tooling each portal unlocks today. Kept in sync with the
+ * live app (see nav.ts / routes.tsx). These lines are appended to every plan in
+ * the category so the published feature lists always reflect what the product
+ * really does — no plan should advertise less than the app delivers.
+ */
+export const PLATFORM_CAPABILITIES_BY_CATEGORY: Record<PlanCategory, string[]> = {
+  customer: [
+    '🌐 Customer Portal: track projects, invoices & service history online',
+    '📅 Online booking with unified service calendar',
+    '🛒 Marketplace access with member pricing & live order tracking',
+    '💬 Live chat support with your service team',
+  ],
+  construction: [
+    '📐 AI Blueprint Analyzer & Structural Design tools',
+    '📋 PermitAI permit automation + AI Variance Filing',
+    '🏗️ Bid Room, Master Scheduling & Change Order Camera',
+    '🌦️ Weather job-site monitoring & waste/disposal tracking',
+    '📸 Progress photo documentation & job financial tracker',
+  ],
+  demolition: [
+    '📍 Live job & disposal tracking dashboard',
+    '🗑️ Waste & disposal tracking with unified calendar',
+    '📅 Online scheduling & instant quote requests',
+    '💬 Live chat dispatch support',
+  ],
+  'property-management': [
+    '🏢 Multi-property dashboard with tenant sub-portals',
+    '🌐 White-label tenant portal creation & management',
+    '📊 Financial reporting & analytics',
+    '🌦️ Weather monitoring & preventive maintenance scheduling',
+    '💬 Live chat & 24/7 emergency dispatch',
+  ],
+  vendor: [
+    '🛍️ Full eCommerce storefront + Zendrop dropshipping catalog (1-click import)',
+    '🚀 Product Page Pilot: AI advertorial / campaign landing pages',
+    '🔥 Hot Products Radar + Auto-Product Pilot AI product sourcing',
+    '📈 AI Ranking Engine, promotions engine & order tracking',
+    '🎯 Retargeting pixels, exit-intent popups, live chat & review collection',
+  ],
+  subcontractor: [
+    '🏗️ Bid Room & lead marketplace access',
+    '📸 Change Order Camera & progress documentation',
+    '🧰 Materials Center & Purchase Orders',
+    '📅 Scheduling, invoicing & integrated payment processing',
+  ],
+  advertiser: [
+    '📣 Ad Studio: AI creative & campaign builder',
+    '🎯 Marketing Command Center + retargeting pixels',
+    '📱 Social Media Hub, Blog Manager & Keyword Rank Tracker',
+    '🤝 Influencer & ambassador tracking + marketing automation',
+  ],
+  investor: [
+    '📲 Investor App with real-time portfolio dashboard',
+    '📄 Document library & deal-room access',
+    '📊 ROI, distribution & return tracking',
+  ],
+  'territory-owner': [
+    '🌐 Full white-label platform: customer, vendor, subcontractor & investor portals',
+    '📣 Complete marketing suite: Ad Studio, Marketing Command Center & Social Media Hub',
+    '🛍️ eCommerce + dropshipping suite: Product Page Pilot, Hot Products Radar & Zendrop',
+    '📊 Territory analytics & revenue dashboards',
+  ],
+};
+
+/**
  * Ensures every plan carries its portal type, portal-specific options, the
- * custom-request flag, and the universal custom-request feature line.
+ * real platform capabilities for its category, the custom-request flag, and the
+ * universal custom-request feature line.
  */
 function equipPortalOptions(plans: SubscriptionPlan[]): SubscriptionPlan[] {
   return plans.map((plan) => {
-    const features = plan.features.includes(CUSTOM_REQUEST_FEATURE)
-      ? plan.features
-      : [...plan.features, CUSTOM_REQUEST_FEATURE];
+    const capabilities = PLATFORM_CAPABILITIES_BY_CATEGORY[plan.category] ?? [];
+    // Append any platform capabilities not already listed, then guarantee the
+    // universal custom-request line sits at the very end.
+    const merged = [...plan.features];
+    for (const cap of capabilities) {
+      if (!merged.includes(cap)) merged.push(cap);
+    }
+    const features = merged.includes(CUSTOM_REQUEST_FEATURE)
+      ? merged
+      : [...merged, CUSTOM_REQUEST_FEATURE];
     return {
       ...plan,
       portalType: plan.portalType ?? CATEGORY_TO_PORTAL[plan.category],

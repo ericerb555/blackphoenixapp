@@ -952,11 +952,12 @@ export default function App() {
         return;
       }
 
-      // Suppress Failed to fetch errors (already handled by components)
+      // Suppress Failed to fetch errors (already handled by components).
+      // These are non-actionable — components own their own fetch error UX —
+      // so we swallow them silently rather than spamming the console.
       if (event.message?.includes('Failed to fetch') ||
           event.message?.includes('NetworkError') ||
           event.message?.includes('fetch')) {
-        console.warn('⚠️ Network fetch error (handled by component)');
         event.preventDefault();
         return;
       }
@@ -972,7 +973,7 @@ export default function App() {
           reason.includes('NetworkError') ||
           reason.includes('fetch') ||
           reason.includes('Network request failed')) {
-        console.warn('⚠️ Unhandled network promise rejection (suppressed):', reason);
+        // Non-actionable, handled by the originating component — swallow silently.
         event.preventDefault();
         return;
       }

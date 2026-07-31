@@ -49,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (errorMessage.includes('Failed to fetch') ||
         errorMessage.includes('NetworkError') ||
         errorMessage.includes('Network request failed')) {
-      console.warn('⚠️ ErrorBoundary suppressed network error (handled elsewhere)');
+      // Non-actionable network error — components handle their own fetch UX.
       // Reset error state instead of showing error UI
       this.setState({
         hasError: false,
