@@ -15,6 +15,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { useStoreConfig, effectiveUnitPrice, volumeDiscountPercent, lineTotal } from '../hooks/useStoreConfig';
+import { Truck } from 'lucide-react';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const STORAGE_KEY = 'bp_mkt_products';
@@ -47,6 +49,7 @@ interface Product {
   deliveryMethod: 'download' | 'generated' | 'interactive';
   visible: boolean;
   sortOrder: number;
+  stock?: number; // physical/dropship items only — drives low-stock scarcity badges
 }
 
 interface CartItem { product: Product; quantity: number; }
@@ -114,6 +117,21 @@ export default function DigitalStorefront() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
 
+  // Live merchandising config (boosters + promotions) from the admin panels.
+  const { boosters, promotions, activeDiscounts } = useStoreConfig();
+
+  // Rolling urgency countdown — seeded once per visit from the configured minutes.
+  const [urgencyLeft, setUrgencyLeft] = useState<number>(0);
+  useEffect(() => {
+    if (!boosters.urgency.enabled) return;
+    setUrgencyLeft(boosters.urgency.minutes * 60);
+    const t = setInterval(() => setUrgencyLeft(s => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [boosters.urgency.enabled, boosters.urgency.minutes]);
+
+  // Effective (post-discount) unit price for display.
+  const priceOf = (p: Product) => effectiveUnitPrice(p, activeDiscounts);
+
   useEffect(() => {
     (async () => {
       try {
@@ -152,9 +170,30 @@ export default function DigitalStorefront() {
   );
 
   const featured = useMemo(() => products.filter(p => p.visible && p.popular).slice(0, 3), [products]);
-  const cartTotal = cart.reduce((a, i) => a + i.product.price * i.quantity, 0);
+  // List price (pre-promotion) vs. the effective total after scheduled + volume discounts.
+  const cartListTotal = cart.reduce((a, i) => a + i.product.price * i.quantity, 0);
+  const cartTotal = cart.reduce((a, i) => a + lineTotal(i.product, i.quantity, activeDiscounts, promotions), 0);
   const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
-  const cartSavings = cart.reduce((a, i) => a + (i.product.originalPrice ? (i.product.originalPrice - i.product.price) * i.quantity : 0), 0);
+  const promoSavings = cartListTotal - cartTotal;
+  const bundleSavings = cart.reduce((a, i) => a + (i.product.originalPrice ? (i.product.originalPrice - i.product.price) * i.quantity : 0), 0);
+  const cartSavings = bundleSavings + promoSavings;
+
+  // Free-shipping progress (boosters). threshold stored in cents.
+  const freeShip = boosters.freeShipping;
+  const freeShipRemaining = Math.max(0, (freeShip.threshold || 0) - cartTotal);
+  const freeShipUnlocked = freeShip.enabled && cartTotal >= (freeShip.threshold || 0);
+  const freeShipPct = freeShip.threshold ? Math.min(100, Math.round((cartTotal / freeShip.threshold) * 100)) : 0;
+
+  // Cart upsell — popular products not already in the cart.
+  const upsellItems = useMemo(() => {
+    if (!boosters.cartUpsell.enabled) return [] as Product[];
+    const inCart = new Set(cart.map(i => i.product.id));
+    return products
+      .filter(p => p.visible && p.popular && !inCart.has(p.id))
+      .slice(0, boosters.cartUpsell.maxItems || 4);
+  }, [products, cart, boosters.cartUpsell]);
+
+  const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   function addToCart(p: Product) {
     setCart(prev => {
@@ -179,7 +218,11 @@ export default function DigitalStorefront() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
-          items: cart.map(i => ({ id: i.product.id, title: i.product.title, price: i.product.price, qty: i.quantity })),
+          items: cart.map(i => {
+            // Bill the promotion-adjusted unit price so checkout matches the cart.
+            const unit = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
+            return { id: i.product.id, title: i.product.title, price: unit, qty: i.quantity };
+          }),
           email,
           name,
           successUrl: window.location.origin + '/store?checkout=success',
@@ -278,7 +321,7 @@ export default function DigitalStorefront() {
                       {cart.map(i => (
                         <div key={i.product.id} className="flex justify-between text-sm">
                           <span className="text-gray-300 truncate flex-1 mr-3">{i.product.title} × {i.quantity}</span>
-                          <span className="text-white font-medium">{fmt(i.product.price * i.quantity)}</span>
+                          <span className="text-white font-medium">{fmt(lineTotal(i.product, i.quantity, activeDiscounts, promotions))}</span>
                         </div>
                       ))}
                       <div className="border-t border-[#2A2A2A] pt-2 flex justify-between font-bold">
@@ -338,7 +381,34 @@ export default function DigitalStorefront() {
                         ))}
                         {cartSavings > 0 && (
                           <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-2.5 text-sm text-green-400 flex items-center gap-2">
-                            <Gift className="w-4 h-4" /> You save {fmt(cartSavings)} with bundles!
+                            <Gift className="w-4 h-4" /> You save {fmt(cartSavings)} on this order!
+                          </div>
+                        )}
+
+                        {/* Cart upsell — "Frequently bought together" */}
+                        {upsellItems.length > 0 && (
+                          <div className="pt-2">
+                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{boosters.cartUpsell.heading}</p>
+                            <div className="space-y-2">
+                              {upsellItems.map(u => {
+                                const up = priceOf(u);
+                                return (
+                                  <div key={u.id} className="flex items-center gap-3 bg-[#141414] border border-[#2A2A2A] rounded-lg p-2.5">
+                                    <div className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[u.category].bg}`}>
+                                      <CatIcon cat={u.category} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium text-white truncate">{u.title}</p>
+                                      <p className="text-xs text-orange-400 font-semibold">{fmt(up.price)}</p>
+                                    </div>
+                                    <button onClick={() => addToCart(u)}
+                                      className="px-2.5 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition flex items-center gap-1">
+                                      <Plus className="w-3 h-3" /> Add
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -350,6 +420,39 @@ export default function DigitalStorefront() {
               {/* Cart Footer */}
               {checkoutStep === 'cart' && cart.length > 0 && (
                 <div className="px-6 py-5 border-t border-[#2A2A2A] space-y-3">
+                  {/* Urgency countdown */}
+                  {boosters.urgency.enabled && urgencyLeft > 0 && (
+                    <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-xs text-red-300">
+                      <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="flex-1">{boosters.urgency.message}</span>
+                      <span className="font-mono font-bold text-red-400">{fmtTime(urgencyLeft)}</span>
+                    </div>
+                  )}
+
+                  {/* Free-shipping progress */}
+                  {freeShip.enabled && (
+                    <div className="bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5">
+                      <div className="flex items-center gap-2 text-xs mb-1.5">
+                        <Truck className={`w-3.5 h-3.5 flex-shrink-0 ${freeShipUnlocked ? 'text-green-400' : 'text-orange-400'}`} />
+                        <span className={freeShipUnlocked ? 'text-green-400 font-medium' : 'text-gray-300'}>
+                          {freeShipUnlocked
+                            ? freeShip.unlockedMessage
+                            : freeShip.message.replace('{remaining}', fmt(freeShipRemaining))}
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-[#2A2A2A] overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${freeShipUnlocked ? 'bg-green-500' : 'bg-orange-500'}`}
+                          style={{ width: `${freeShipPct}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {promoSavings > 0 && (
+                    <div className="flex justify-between text-xs text-green-400">
+                      <span>Promotions & volume discounts</span>
+                      <span>−{fmt(promoSavings)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Subtotal ({cartCount} item{cartCount !== 1 ? 's' : ''})</span>
                     <span className="font-bold text-white">{fmt(cartTotal)}</span>
@@ -413,13 +516,50 @@ export default function DigitalStorefront() {
                 </div>
 
                 {/* Price */}
-                <div className="flex items-baseline gap-3">
-                  <span className="text-3xl font-bold text-white">{fmt(selected.price)}</span>
-                  {selected.originalPrice && (
-                    <span className="text-lg text-gray-500 line-through">{fmt(selected.originalPrice)}</span>
-                  )}
-                  <span className="text-sm text-gray-500">{selected.pricingModel === 'subscription' ? '/month' : 'one-time'}</span>
-                </div>
+                {(() => {
+                  const ep = priceOf(selected);
+                  const onSale = ep.price < selected.price;
+                  return (
+                    <div>
+                      <div className="flex items-baseline gap-3 flex-wrap">
+                        <span className="text-3xl font-bold text-white">{fmt(ep.price)}</span>
+                        {(onSale || selected.originalPrice) && (
+                          <span className="text-lg text-gray-500 line-through">{fmt(selected.originalPrice || selected.price)}</span>
+                        )}
+                        <span className="text-sm text-gray-500">{selected.pricingModel === 'subscription' ? '/month' : 'one-time'}</span>
+                      </div>
+                      {ep.promoName && (
+                        <span className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-red-500/15 border border-red-500/30 text-red-300 text-xs font-bold rounded">
+                          <Tag className="w-3 h-3" /> {ep.promoName}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Low-stock scarcity (physical/dropship items only) */}
+                {boosters.stockScarcity.enabled && typeof selected.stock === 'number' && selected.stock > 0 && selected.stock <= boosters.stockScarcity.threshold && (
+                  <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-sm text-amber-300">
+                    <Zap className="w-4 h-4" /> {boosters.stockScarcity.message.replace('{count}', String(selected.stock))}
+                  </div>
+                )}
+
+                {/* Volume pricing tiers */}
+                {promotions.volumePricing.enabled && promotions.volumePricing.tiers.length > 0 && (
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5" /> Buy more, save more
+                    </p>
+                    <div className="space-y-1.5">
+                      {[...promotions.volumePricing.tiers].sort((a, b) => a.minQty - b.minQty).map((t, i) => (
+                        <div key={i} className="flex justify-between text-sm">
+                          <span className="text-gray-300">Buy {t.minQty}+</span>
+                          <span className="text-green-400 font-semibold">{t.discountPercent}% off</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* CTA */}
                 {purchased.has(selected.id) ? (
@@ -561,7 +701,10 @@ export default function DigitalStorefront() {
                     </div>
                     <p className="text-xs text-gray-400 line-clamp-2 mb-4">{p.subtitle}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-lg font-bold text-white">{fmt(p.price)}</span>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-bold text-white">{fmt(priceOf(p).price)}</span>
+                        {priceOf(p).price < p.price && <span className="text-xs text-gray-500 line-through">{fmt(p.price)}</span>}
+                      </div>
                       <button onClick={e => { e.stopPropagation(); addToCart(p); }}
                         className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition">
                         Add to Cart
@@ -633,13 +776,22 @@ export default function DigitalStorefront() {
                     <span className="text-xs text-gray-600">{p.fileTypes[0]}</span>
                   </div>
 
+                  {/* Low-stock scarcity */}
+                  {boosters.stockScarcity.enabled && typeof p.stock === 'number' && p.stock > 0 && p.stock <= boosters.stockScarcity.threshold && (
+                    <p className="text-xs text-amber-400 font-medium mb-3 flex items-center gap-1">
+                      <Zap className="w-3 h-3" /> {boosters.stockScarcity.message.replace('{count}', String(p.stock))}
+                    </p>
+                  )}
+
                   {/* Price + CTA */}
                   <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-lg font-bold text-white">{fmt(p.price)}</span>
-                      {p.originalPrice && (
-                        <span className="text-xs text-gray-500 line-through ml-2">{fmt(p.originalPrice)}</span>
-                      )}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-bold text-white">{fmt(priceOf(p).price)}</span>
+                      {priceOf(p).price < p.price ? (
+                        <span className="text-xs text-gray-500 line-through">{fmt(p.price)}</span>
+                      ) : p.originalPrice ? (
+                        <span className="text-xs text-gray-500 line-through">{fmt(p.originalPrice)}</span>
+                      ) : null}
                     </div>
                     {isPurchased ? (
                       <button onClick={e => { e.stopPropagation(); (window as any).__navigateApp?.(`/document?id=${p.id}`); }}

@@ -569,8 +569,17 @@ export default function MarketplaceAdmin() {
           cacheProducts(data.products);
           setDbReady(true);
         } else if (data.products && data.products.length === 0) {
-          // Table exists but empty — seed it
+          // Server catalog is empty. Auto-push the products we already have
+          // locally (cached edits or the default catalog) so they're linked and
+          // immediately live on the storefront — no manual "sync" click needed.
           setDbReady(true);
+          const local = cachedProducts();
+          if (local.length > 0) {
+            fetch(`${API}/marketplace/products/seed`, {
+              method: 'POST', headers,
+              body: JSON.stringify({ products: local }),
+            }).catch(() => { /* stay on localStorage cache */ });
+          }
         }
       })
       .catch(() => { /* stay on localStorage cache */ })

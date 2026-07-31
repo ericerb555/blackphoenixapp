@@ -39,6 +39,8 @@ const ServiceProviderApplication = lazy(() => import("./pages/ServiceProviderApp
 const TerritoryApplication = lazy(() => import("./pages/TerritoryApplication"));
 const InvestmentOpportunities = lazy(() => import("./pages/InvestmentOpportunities"));
 const InvestmentManagement = lazy(() => import("./pages/InvestmentManagement"));
+const PropertyPartnership = lazy(() => import("./pages/PropertyPartnership"));
+const PropertyAIStudio = lazy(() => import("./pages/PropertyAIStudio"));
 const DropshipperAdmin = lazy(() => import("./components/DropshipperAdminPanel"));
 const PublicStore = lazy(() => import("./pages/PublicStore"));
 const OrderTracking = lazy(() => import("./components/OrderTracking"));
@@ -54,7 +56,6 @@ const QRCodeGenerator = lazy(() => import("./pages/QRCodeGenerator"));
 const RevenueAnalytics = lazy(() => import("./pages/RevenueAnalytics"));
 const SMSMarketing = lazy(() => import("./pages/SMSMarketing"));
 const AffiliateProgram = lazy(() => import("./pages/AffiliateProgram"));
-const ServiceBooking = lazy(() => import("./pages/ServiceBooking"));
 const InvoiceBuilder = lazy(() => import("./pages/InvoiceBuilder"));
 const FlashSaleManager = lazy(() => import("./pages/FlashSaleManager"));
 const GiftCards = lazy(() => import("./pages/GiftCards"));
@@ -138,6 +139,7 @@ const PropertyRevenueHub = lazy(() => import("./pages/PropertyRevenueHub"));
 const PropertyAIEnterprise = lazy(() => import("./pages/PropertyAIEnterprise"));
 const OrderSuccess = lazy(() => import("./pages/OrderSuccess"));
 const DigitalStorefront = lazy(() => import("./pages/DigitalStorefront"));
+const MarketplaceAdmin = lazy(() => import("./pages/MarketplaceAdmin"));
 const AdCreator = lazy(() => import("./pages/AdCreator"));
 const DocumentViewer = lazy(() => import("./pages/DocumentViewer"));
 const PermitAI = lazy(() => import("./pages/PermitAI"));
@@ -357,11 +359,11 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "invoice":    InvoiceBuilder,
   "estimates":  InvoiceBuilder,
 
-  // Service Booking
-  "book":     ServiceBooking,
-  "booking":  ServiceBooking,
-  "services": ServiceBooking,
-  "quote":    ServiceBooking,
+  // Service Booking — single system (all aliases resolve to ServiceScheduling)
+  "book":     ServiceScheduling,
+  "booking":  ServiceScheduling,
+  "services": ServiceScheduling,
+  "quote":    ServiceScheduling,
 
   // Affiliate
   "affiliate": AffiliateProgram,
@@ -390,6 +392,10 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "investment-opportunities": InvestmentOpportunities,
   "investment-management":   InvestmentManagement,
   "investment-calculator":   InvestmentCalculator,
+  "property-partnership":    PropertyPartnership,
+  "partner-with-us":         PropertyPartnership,
+  "property-ai-studio":      PropertyAIStudio,
+  "property-intelligence":   PropertyAIStudio,
 
   // Unified Project Pipeline (all workflow aliases → single page)
   "work-order-management":      WorkOrderManager,
@@ -486,6 +492,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "digital-store":         DigitalStorefront,
   "shop":                  DigitalStorefront,
   "digital-products":      DigitalStorefront,
+  "marketplace-admin":     MarketplaceAdmin,
+  "digital-products-admin": MarketplaceAdmin,
   "ad-creator":            AdCreator,
   "ads":                   AdCreator,
   "promotions-creator":    AdCreator,

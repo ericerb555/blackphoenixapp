@@ -5,6 +5,7 @@
 
 import * as kv from './kv_store.tsx';
 import * as dropshipperConfig from './dropshipper-config.tsx';
+import { isAdultProduct } from './content-filter.tsx';
 
 // Storage keys
 const STAGING_KEY_PREFIX = 'dropshipper_staging';
@@ -94,8 +95,12 @@ export async function importCatalogFromProvider(
     let imported = 0;
     const errors: string[] = [];
 
+    let skippedAdult = 0;
     for (const product of products) {
       try {
+        // Never stage/import adult or sexual-wellness products into the store.
+        if (isAdultProduct(product)) { skippedAdult++; continue; }
+
         // Transform to staged product format
         const stagedProduct: StagedProduct = {
           stagingId: `staging_${providerId}_${product.id}_${Date.now()}`,
@@ -151,7 +156,7 @@ export async function importCatalogFromProvider(
       timestamp: new Date().toISOString(),
     });
 
-    console.log(`[Catalog Import] Completed: ${imported} products staged, ${errors.length} errors`);
+    console.log(`[Catalog Import] Completed: ${imported} products staged, ${errors.length} errors${skippedAdult ? `, ${skippedAdult} adult items skipped` : ''}`);
 
     return { success: errors.length === 0, imported, errors };
   } catch (error) {

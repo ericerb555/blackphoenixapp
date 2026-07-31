@@ -39,8 +39,13 @@ export default function CreateCustomerModal({ isOpen, onClose, onSuccess }: Crea
 
     setLoading(true);
     try {
-      await createCustomer(formData);
+      const created = await createCustomer(formData);
       toast.success('Customer created successfully!');
+      if (created.linkedInvoices && created.linkedInvoices > 0) {
+        toast.success(
+          `Linked ${created.linkedInvoices} existing invoice${created.linkedInvoices === 1 ? '' : 's'} to this customer.`,
+        );
+      }
       onSuccess();
       handleClose();
     } catch (error: any) {

@@ -84,9 +84,11 @@ export async function getCustomerById(id: string): Promise<Customer> {
   if (!customer) throw new Error('Customer not found.'); return customer;
 }
 
-export async function createCustomer(input: CreateCustomerInput): Promise<Customer> {
+export async function createCustomer(input: CreateCustomerInput): Promise<Customer & { linkedInvoices?: number }> {
   const response = await fetch(CUSTOMER_ENDPOINT, { method: 'POST', headers: await apiHeaders(true), body: JSON.stringify(input) });
-  const result = await response.json().catch(() => ({})); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to create customer.'); return normalizeCustomer(result.customer);
+  const result = await response.json().catch(() => ({})); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to create customer.');
+  // The server auto-links any invoices previously issued to this email; pass the count through so the UI can confirm it.
+  return { ...normalizeCustomer(result.customer), linkedInvoices: Number(result.linkedInvoices || 0) };
 }
 
 export async function updateCustomer(input: UpdateCustomerInput): Promise<Customer> {

@@ -22,9 +22,208 @@
 //   POST   /investments/documents/:id/sign                  -> { success, document }
 //   GET    /investments/analytics/portfolio/:email          -> { summary, commitments, recentPayouts }
 import { Hono } from 'npm:hono';
+import OpenAI from 'npm:openai@4';
+import Stripe from 'npm:stripe@17';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 
 const investmentsRouter = new Hono();
+
+// Stripe client for the AI Property Intelligence subscription (same account/key
+// pattern as stripe-connect.tsx). The browser never sees the secret key.
+function getStripe(): Stripe | null {
+  const key = Deno.env.get('STRIPE_SECRET_KEY');
+  if (!key) return null;
+  return new Stripe(key, {
+    apiVersion: '2024-12-18.acacia',
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+}
+
+// Server-authoritative monthly pricing (cents) per subscription tier.
+const AI_TIER_PRICING: Record<string, { amount: number; label: string }> = {
+  starter: { amount: 2900, label: 'Property Intelligence — Landlord' },
+  professional: { amount: 7900, label: 'Property Intelligence — Pro Investor' },
+  enterprise: { amount: 19900, label: 'Property Intelligence — Condo Association' },
+};
+
+// ── Regrid parcel data ──────────────────────────────────────────────────────
+// Grounds the AI feasibility study in the real parcel record (zoning, acreage,
+// land use, owner, assessed values). Regrid has strong NH/MA coverage. Fully
+// best-effort: if the key is missing or the lookup fails, analysis proceeds on
+// AI estimates alone.
+interface ParcelFacts {
+  parcelNumber?: string;
+  owner?: string;
+  address?: string;
+  city?: string;
+  county?: string;
+  state?: string;
+  zip?: string;
+  zoning?: string;
+  zoningDescription?: string;
+  zoningType?: string;
+  landUse?: string;
+  acreage?: number;
+  buildingSqft?: number;
+  yearBuilt?: string | number;
+  landValue?: number;
+  improvementValue?: number;
+  parcelValue?: number;
+  lat?: number;
+  lon?: number;
+  source: 'regrid';
+}
+
+async function fetchRegridParcel(address: string): Promise<ParcelFacts | null> {
+  const token = Deno.env.get('REGRID_API_KEY');
+  if (!token || !address.trim()) return null;
+  try {
+    const url = `https://app.regrid.com/api/v2/parcels/address?query=${encodeURIComponent(address)}&limit=1&token=${encodeURIComponent(token)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      console.log(`[regrid] lookup for "${address}" returned ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const feature = data?.parcels?.features?.[0] || data?.features?.[0];
+    const f = feature?.properties?.fields || feature?.properties || null;
+    if (!f) return null;
+    const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
+    return {
+      parcelNumber: f.parcelnumb || f.parcelnumb_no_formatting,
+      owner: f.owner,
+      address: f.address || f.saddno ? [f.saddno, f.saddstr].filter(Boolean).join(' ') : f.address,
+      city: f.scity || f.city,
+      county: f.county,
+      state: f.state2 || f.state,
+      zip: f.szip || f.zip,
+      zoning: f.zoning,
+      zoningDescription: f.zoning_description,
+      zoningType: f.zoning_type,
+      landUse: f.usedesc || f.lbcs_activity_desc,
+      acreage: num(f.ll_gisacre ?? f.gisacre),
+      buildingSqft: num(f.ll_bldg_footprint_sqft),
+      yearBuilt: f.yearbuilt,
+      landValue: num(f.landval),
+      improvementValue: num(f.improvval),
+      parcelValue: num(f.parval),
+      lat: num(f.lat),
+      lon: num(f.lon),
+      source: 'regrid',
+    };
+  } catch (err: any) {
+    console.log(`[regrid] lookup failed for "${address}": ${err?.message || err}`);
+    return null;
+  }
+}
+
+function parcelPromptBlock(p: ParcelFacts | null): string {
+  if (!p) return '';
+  const lines: string[] = [];
+  const add = (label: string, v: any) => { if (v !== undefined && v !== null && v !== '') lines.push(`- ${label}: ${v}`); };
+  add('Parcel number', p.parcelNumber);
+  add('Owner of record', p.owner);
+  add('County', p.county);
+  add('State', p.state);
+  add('Official zoning code', p.zoning);
+  add('Zoning description', p.zoningDescription);
+  add('Zoning type', p.zoningType);
+  add('Land use', p.landUse);
+  add('Lot size (acres)', p.acreage);
+  add('Building footprint (sqft)', p.buildingSqft);
+  add('Year built', p.yearBuilt);
+  add('Assessed land value', p.landValue);
+  add('Assessed improvement value', p.improvementValue);
+  add('Total assessed value', p.parcelValue);
+  if (!lines.length) return '';
+  return `\n\nVERIFIED PARCEL DATA (from the official Regrid parcel record — treat these as authoritative and build the analysis around them; do NOT contradict them):\n${lines.join('\n')}`;
+}
+
+// ── ATTOM valuation data ────────────────────────────────────────────────────
+// Adds an AVM (automated valuation) with a value range + confidence, core
+// building characteristics, and the last recorded sale — used to ground the
+// study's value and ROI numbers. Best-effort: skipped cleanly if unavailable.
+interface ValuationFacts {
+  avmValue?: number;
+  avmHigh?: number;
+  avmLow?: number;
+  confidence?: number;
+  beds?: number;
+  baths?: number;
+  livingSqft?: number;
+  lotSqft?: number;
+  yearBuilt?: string | number;
+  lastSalePrice?: number;
+  lastSaleDate?: string;
+  source: 'attom';
+}
+
+async function fetchAttomValuation(address: string): Promise<ValuationFacts | null> {
+  const apiKey = Deno.env.get('ATTOM_API_KEY');
+  if (!apiKey || !address.trim()) return null;
+  // ATTOM wants address1 = street, address2 = "City, ST ZIP".
+  const firstComma = address.indexOf(',');
+  const address1 = firstComma > -1 ? address.slice(0, firstComma).trim() : address.trim();
+  const address2 = firstComma > -1 ? address.slice(firstComma + 1).trim() : '';
+  try {
+    const url = `https://api.gateway.attomdata.com/propertyapi/v1.0.0/attomavm/detail?address1=${encodeURIComponent(address1)}&address2=${encodeURIComponent(address2)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', apikey: apiKey },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      console.log(`[attom] AVM lookup for "${address}" returned ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const p = data?.property?.[0];
+    if (!p) return null;
+    const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
+    const amt = p.avm?.amount || {};
+    return {
+      avmValue: num(amt.value),
+      avmHigh: num(amt.high),
+      avmLow: num(amt.low),
+      confidence: num(amt.scr ?? p.avm?.condCode),
+      beds: num(p.building?.rooms?.beds),
+      baths: num(p.building?.rooms?.bathstotal ?? p.building?.rooms?.bathsfull),
+      livingSqft: num(p.building?.size?.livingsize ?? p.building?.size?.universalsize),
+      lotSqft: num(p.lot?.lotsize2 ?? (p.lot?.lotsize1 ? Number(p.lot.lotsize1) * 43560 : undefined)),
+      yearBuilt: p.summary?.yearbuilt,
+      lastSalePrice: num(p.sale?.amount?.saleamt),
+      lastSaleDate: p.sale?.salesearchdate || p.sale?.saleTransDate,
+      source: 'attom',
+    };
+  } catch (err: any) {
+    console.log(`[attom] AVM lookup failed for "${address}": ${err?.message || err}`);
+    return null;
+  }
+}
+
+function valuationPromptBlock(v: ValuationFacts | null): string {
+  if (!v) return '';
+  const lines: string[] = [];
+  const add = (label: string, val: any) => { if (val !== undefined && val !== null && val !== '') lines.push(`- ${label}: ${val}`); };
+  add('AVM estimated value', v.avmValue ? `$${v.avmValue.toLocaleString()}` : undefined);
+  add('AVM value range', v.avmLow && v.avmHigh ? `$${v.avmLow.toLocaleString()} – $${v.avmHigh.toLocaleString()}` : undefined);
+  add('AVM confidence score', v.confidence);
+  add('Beds', v.beds);
+  add('Baths', v.baths);
+  add('Living area (sqft)', v.livingSqft);
+  add('Lot size (sqft)', v.lotSqft);
+  add('Year built', v.yearBuilt);
+  add('Last sale price', v.lastSalePrice ? `$${v.lastSalePrice.toLocaleString()}` : undefined);
+  add('Last sale date', v.lastSaleDate);
+  if (!lines.length) return '';
+  return `\n\nVERIFIED VALUATION DATA (from ATTOM — use these to anchor current value, ARV, and ROI estimates; do NOT contradict them):\n${lines.join('\n')}`;
+}
 
 const PREFIX = '/make-server-3eae23a6';
 const OPP = (id: string) => `investment:opportunity:${id}`;
@@ -36,6 +235,20 @@ const PAYOUT_PREFIX = 'investment:payout:';
 const DOC = (oppId: string, id: string) => `investment:document:${oppId}:${id}`;
 const DOC_PREFIX = (oppId: string) => `investment:document:${oppId}:`;
 const SEED_FLAG = 'investment:seeded:v1';
+// Partner-property submissions: an investor who already owns a property asks us
+// to help decide (and execute) the best strategy — fix & flip, lease, subdivide
+// & build, repurpose, or a quick sale. Stored with the strategy score computed
+// on the intake page so the owner's pipeline can triage without recomputing.
+const PARTNER = (id: string) => `investment:partner-property:${id}`;
+const PARTNER_PREFIX = 'investment:partner-property:';
+// AI Property Intelligence: address-driven feasibility studies + the light
+// subscription/usage gate that turns it into a paid product for landlords and
+// condo associations. Reports are stored per-id and indexed by requester email.
+const AI_REPORT = (id: string) => `investment:ai-report:${id}`;
+const AI_REPORT_PREFIX = 'investment:ai-report:';
+const AI_SUB = (email: string) => `property_ai_subscription:${email.toLowerCase()}`;
+const AI_USAGE = (email: string) => `property_ai_usage:${email.toLowerCase()}`;
+const AI_FREE_LIMIT = 2; // free feasibility studies before a subscription is required
 
 // ── Demo opportunities seeded on first read so the tab shows live cards ──────
 const DEMO_OPPORTUNITIES = [
@@ -330,6 +543,486 @@ investmentsRouter.get(`${PREFIX}/investments/analytics/portfolio/:email`, async 
     });
   } catch (error: any) {
     return c.json({ error: `Failed to compute portfolio: ${error?.message || error}` }, 500);
+  }
+});
+
+// ── Partner properties (owner-has-property strategy intake) ────────────────
+// Public submit — anyone with a property can ask us to partner. We stamp a
+// status of 'new' so it lands at the top of the owner's review pipeline.
+investmentsRouter.post(`${PREFIX}/investments/partner-properties`, async (c) => {
+  try {
+    const body = await c.req.json();
+    const now = new Date().toISOString();
+    const id = body.id || crypto.randomUUID();
+    const record = {
+      id,
+      contact: body.contact || {},
+      property: body.property || {},
+      recommendation: body.recommendation || null,
+      // Denormalize a few fields so the pipeline list is cheap to render.
+      contact_name: body?.contact?.name || '',
+      contact_email: (body?.contact?.email || '').toLowerCase(),
+      recommended_strategy: body?.recommendation?.primary?.label || 'Under review',
+      recommended_score: body?.recommendation?.primary?.score ?? null,
+      status: 'new',
+      owner_notes: '',
+      created_at: now,
+      updated_at: now,
+    };
+    await kv.set(PARTNER(id), record);
+    return c.json({ success: true, partnerProperty: record }, 201);
+  } catch (error: any) {
+    console.log(`Error creating partner property: ${error?.message || error}`);
+    return c.json({ error: `Failed to submit partner property: ${error?.message || error}` }, 500);
+  }
+});
+
+// List all submissions for the owner's review pipeline (newest first).
+investmentsRouter.get(`${PREFIX}/investments/partner-properties`, async (c) => {
+  try {
+    const partnerProperties = ((await kv.getByPrefix(PARTNER_PREFIX)) || []) as any[];
+    partnerProperties.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    return c.json({ success: true, partnerProperties });
+  } catch (error: any) {
+    console.log(`Error fetching partner properties: ${error?.message || error}`);
+    return c.json({ error: `Failed to fetch partner properties: ${error?.message || error}` }, 500);
+  }
+});
+
+// An investor can look up the properties they submitted by email.
+investmentsRouter.get(`${PREFIX}/investments/partner-properties/investor/:email`, async (c) => {
+  try {
+    const email = (c.req.param('email') || '').toLowerCase();
+    const all = ((await kv.getByPrefix(PARTNER_PREFIX)) || []) as any[];
+    const partnerProperties = all
+      .filter((x) => (x.contact_email || '') === email)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    return c.json({ success: true, partnerProperties });
+  } catch (error: any) {
+    return c.json({ error: `Failed to fetch partner properties: ${error?.message || error}` }, 500);
+  }
+});
+
+// Owner updates a submission (status change, notes, or agreed strategy).
+investmentsRouter.put(`${PREFIX}/investments/partner-properties/:id`, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await kv.get(PARTNER(id));
+    if (!existing) return c.json({ error: 'Partner property not found' }, 404);
+    const body = await c.req.json();
+    const record = { ...existing, ...body, id, updated_at: new Date().toISOString() };
+    await kv.set(PARTNER(id), record);
+    return c.json({ success: true, partnerProperty: record });
+  } catch (error: any) {
+    return c.json({ error: `Failed to update partner property: ${error?.message || error}` }, 500);
+  }
+});
+
+investmentsRouter.delete(`${PREFIX}/investments/partner-properties/:id`, async (c) => {
+  try {
+    await kv.del(PARTNER(c.req.param('id')));
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: `Failed to delete partner property: ${error?.message || error}` }, 500);
+  }
+});
+
+// ── AI Property Intelligence ───────────────────────────────────────────────
+
+// Resolve the requester's role from a bearer token (best-effort). Platform
+// owners/admins never hit the paywall.
+async function resolveRole(authHeader?: string): Promise<{ role: string | null; email: string | null }> {
+  const token = authHeader?.split(' ')[1];
+  if (!token) return { role: null, email: null };
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user?.id) return { role: null, email: null };
+    const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
+    const role = perms?.role || user.user_metadata?.role || null;
+    return { role, email: (user.email || '').toLowerCase() };
+  } catch {
+    return { role: null, email: null };
+  }
+}
+
+function isPrivileged(role: string | null): boolean {
+  return role === 'admin' || role === 'owner' || role === 'super_admin' || role === 'platform_owner';
+}
+
+// Subscription status for the AI studio (used by the frontend to show the gate).
+investmentsRouter.get(`${PREFIX}/investments/ai-subscription/:email`, async (c) => {
+  try {
+    const email = (c.req.param('email') || '').toLowerCase();
+    const { role } = await resolveRole(c.req.header('Authorization'));
+    const sub = (await kv.get(AI_SUB(email))) as any;
+    const usage = ((await kv.get(AI_USAGE(email))) as any)?.count || 0;
+    const active = isPrivileged(role) || !!sub?.active;
+    return c.json({
+      success: true,
+      active,
+      privileged: isPrivileged(role),
+      subscription: sub || null,
+      usage,
+      freeLimit: AI_FREE_LIMIT,
+      freeRemaining: Math.max(0, AI_FREE_LIMIT - usage),
+    });
+  } catch (error: any) {
+    return c.json({ error: `Failed to load AI subscription: ${error?.message || error}` }, 500);
+  }
+});
+
+// Create a Stripe Checkout session (subscription mode) for a tier. Pricing is
+// server-authoritative — the client only names the tier.
+investmentsRouter.post(`${PREFIX}/investments/ai-subscription/checkout`, async (c) => {
+  try {
+    const body = await c.req.json();
+    const email = (body.email || '').toLowerCase();
+    const tier = String(body.tier || 'professional');
+    const pricing = AI_TIER_PRICING[tier];
+    if (!email) return c.json({ error: 'An email is required to subscribe.' }, 400);
+    if (!pricing) return c.json({ error: `Unknown subscription tier: ${tier}` }, 400);
+
+    const stripe = getStripe();
+    if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
+
+    const origin = String(body.origin || '').replace(/\/$/, '');
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: email,
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          recurring: { interval: 'month' },
+          unit_amount: pricing.amount,
+          product_data: { name: pricing.label },
+        },
+      }],
+      metadata: { kind: 'property_ai', email, tier, audience: body.audience || 'landlord' },
+      success_url: `${origin}/property-ai-studio?ai_sub=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/property-ai-studio?ai_sub=cancel`,
+    });
+
+    return c.json({ success: true, url: session.url, sessionId: session.id });
+  } catch (error: any) {
+    console.log(`Error creating AI subscription checkout: ${error?.message || error}`);
+    return c.json({ error: `Failed to start checkout: ${error?.message || error}` }, 500);
+  }
+});
+
+// Confirm a completed Checkout session and activate the subscription entitlement.
+investmentsRouter.post(`${PREFIX}/investments/ai-subscription/confirm`, async (c) => {
+  try {
+    const body = await c.req.json();
+    const sessionId = String(body.session_id || '');
+    if (!sessionId) return c.json({ error: 'A session_id is required.' }, 400);
+
+    const stripe = getStripe();
+    if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const paid = session.payment_status === 'paid' || session.status === 'complete';
+    if (!paid) {
+      return c.json({ success: false, active: false, error: 'Payment not completed yet.' }, 402);
+    }
+
+    const email = (session.metadata?.email || session.customer_email || '').toLowerCase();
+    if (!email) return c.json({ error: 'Could not resolve the subscriber email from the session.' }, 400);
+    const now = new Date().toISOString();
+    const subscription = {
+      email,
+      active: true,
+      tier: session.metadata?.tier || 'professional',
+      plan: AI_TIER_PRICING[session.metadata?.tier || 'professional']?.label || 'Property Intelligence',
+      audience: session.metadata?.audience || 'landlord',
+      stripe_customer: session.customer || null,
+      stripe_subscription: session.subscription || null,
+      stripe_session: session.id,
+      started_at: now,
+      updated_at: now,
+    };
+    await kv.set(AI_SUB(email), subscription);
+    return c.json({ success: true, active: true, subscription });
+  } catch (error: any) {
+    console.log(`Error confirming AI subscription: ${error?.message || error}`);
+    return c.json({ error: `Failed to confirm subscription: ${error?.message || error}` }, 500);
+  }
+});
+
+// Generate an AI feasibility study for an address.
+investmentsRouter.post(`${PREFIX}/investments/ai-property-analysis`, async (c) => {
+  try {
+    const body = await c.req.json();
+    const address = String(body.address || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!address) return c.json({ error: 'Please provide a property address.' }, 400);
+
+    // ── Gate ──────────────────────────────────────────────────────────────
+    const { role } = await resolveRole(c.req.header('Authorization'));
+    const sub = email ? ((await kv.get(AI_SUB(email))) as any) : null;
+    const usageRec = email ? ((await kv.get(AI_USAGE(email))) as any) : null;
+    const usage = usageRec?.count || 0;
+    const privileged = isPrivileged(role);
+    const subscribed = !!sub?.active;
+    if (!privileged && !subscribed && usage >= AI_FREE_LIMIT) {
+      return c.json({
+        error: 'You have used all of your free feasibility studies. Subscribe to run unlimited analyses.',
+        needsSubscription: true,
+        usage,
+        freeLimit: AI_FREE_LIMIT,
+      }, 402);
+    }
+
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) return c.json({ error: 'AI is not configured (missing OPENAI_API_KEY).' }, 500);
+    const openai = new OpenAI({ apiKey });
+
+    // Ground the study in the real parcel record + valuation where available.
+    const [parcel, valuation] = await Promise.all([
+      fetchRegridParcel(address),
+      fetchAttomValuation(address),
+    ]);
+
+    const system = `You are a senior real estate development and land-use analyst. Given a property address you produce a rigorous, realistic feasibility study for maximizing the property's value. You reason about likely zoning, lot characteristics, and the local market for that city/region based on general knowledge. When verified parcel data is provided, treat it as authoritative and build every strategy around it. When exact data is unknown, you make clearly-labeled reasonable estimates and ranges — never fabricate precise figures as if certain. You output ONLY valid JSON matching the requested schema.`;
+
+    const user = `Property address: "${address}".
+${body.propertyType ? `Owner says property type: ${body.propertyType}.` : ''}
+${body.notes ? `Owner notes: ${body.notes}.` : ''}${parcelPromptBlock(parcel)}${valuationPromptBlock(valuation)}
+
+Produce a feasibility study as JSON with EXACTLY this shape:
+{
+  "propertyOverview": { "summary": string, "estimatedType": string, "estimatedValueRange": string, "lotSizeEstimate": string, "yearBuiltEstimate": string, "keyFacts": string[] },
+  "zoning": { "likelyDesignation": string, "allowedUses": string[], "constraints": string[], "rezonePotential": string },
+  "marketSnapshot": { "summary": string, "medianValue": string, "rentTrend": string, "demandLevel": "low"|"moderate"|"high", "notableFactors": string[] },
+  "strategies": [
+    {
+      "name": string,
+      "category": "rezone"|"subdivide"|"build-up"|"rehab"|"other",
+      "fitScore": number,
+      "summary": string,
+      "estimatedCost": string,
+      "projectedReturn": string,
+      "roiEstimate": string,
+      "riskLevel": "low"|"medium"|"high",
+      "steps": [ { "phase": string, "description": string, "duration": string } ],
+      "permitsAndProcesses": string[],
+      "timeline": string,
+      "risks": string[],
+      "keyConsiderations": string[]
+    }
+  ],
+  "recommendedStrategy": string,
+  "disclaimer": string
+}
+
+Include 3 to 5 diverse strategies spanning rezoning, subdividing, building up/adding units, and rehab where plausible for this property. Order strategies by fitScore descending. Be specific and actionable in steps, permits, and timelines. Output ONLY the JSON object.`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.5,
+      max_tokens: 4000,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = completion.choices?.[0]?.message?.content || '{}';
+    let analysis: any;
+    try {
+      analysis = JSON.parse(raw);
+    } catch (parseErr) {
+      console.log(`AI property analysis: failed to parse model JSON: ${parseErr}. Raw: ${raw.slice(0, 500)}`);
+      return c.json({ error: 'The AI returned an unexpected format. Please try again.' }, 502);
+    }
+
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const report = {
+      id,
+      address,
+      email,
+      property_type: body.propertyType || '',
+      notes: body.notes || '',
+      parcel: parcel || null,
+      valuation: valuation || null,
+      analysis,
+      created_at: now,
+    };
+    await kv.set(AI_REPORT(id), report);
+
+    // Count usage against the free tier (only for non-privileged, non-subscribed).
+    let newUsage = usage;
+    if (email && !privileged && !subscribed) {
+      newUsage = usage + 1;
+      await kv.set(AI_USAGE(email), { count: newUsage, updated_at: now });
+    }
+
+    return c.json({
+      success: true,
+      report,
+      usage: newUsage,
+      freeRemaining: privileged || subscribed ? null : Math.max(0, AI_FREE_LIMIT - newUsage),
+    }, 201);
+  } catch (error: any) {
+    console.log(`Error generating AI property analysis: ${error?.message || error}`);
+    return c.json({ error: `Failed to generate analysis: ${error?.message || error}` }, 500);
+  }
+});
+
+// Find a stored AI subscription record by its Stripe customer or subscription id
+// (used by the webhook, where we only get Stripe ids, not the email).
+async function findSubByStripe(opts: { customer?: string | null; subscription?: string | null }): Promise<any | null> {
+  const all = ((await kv.getByPrefix('property_ai_subscription:')) || []) as any[];
+  return (
+    all.find((s) =>
+      (opts.subscription && s.stripe_subscription === opts.subscription) ||
+      (opts.customer && s.stripe_customer === opts.customer),
+    ) || null
+  );
+}
+
+async function setSubActive(record: any, active: boolean, note: string) {
+  if (!record?.email) return;
+  await kv.set(AI_SUB(record.email), {
+    ...record,
+    active,
+    status_note: note,
+    updated_at: new Date().toISOString(),
+  });
+  console.log(`[ai-sub] ${record.email} -> active=${active} (${note})`);
+}
+
+// Stripe webhook — keeps the AI subscription entitlement in sync with billing
+// so a cancellation or failed renewal automatically revokes access. Configure a
+// Stripe endpoint pointing here and store its signing secret as
+// STRIPE_WEBHOOK_SECRET. Uses the raw request body for signature verification.
+investmentsRouter.post(`${PREFIX}/investments/stripe-webhook`, async (c) => {
+  const stripe = getStripe();
+  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
+  if (!stripe) return c.json({ error: 'Billing not configured (missing STRIPE_SECRET_KEY).' }, 500);
+  if (!webhookSecret) return c.json({ error: 'Webhook not configured (missing STRIPE_WEBHOOK_SECRET).' }, 500);
+
+  const signature = c.req.header('stripe-signature') || '';
+  const payload = await c.req.text();
+
+  let event: any;
+  try {
+    // Async variant is required under Deno's Web Crypto.
+    event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret);
+  } catch (err: any) {
+    console.log(`[ai-sub webhook] signature verification failed: ${err?.message || err}`);
+    return c.json({ error: `Webhook signature verification failed: ${err?.message || err}` }, 400);
+  }
+
+  try {
+    const obj = event.data?.object || {};
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        // Belt-and-suspenders activation (the confirm route usually handles this).
+        const email = (obj.metadata?.email || obj.customer_email || '').toLowerCase();
+        if (email && obj.metadata?.kind === 'property_ai') {
+          const existing = (await kv.get(AI_SUB(email))) as any;
+          await kv.set(AI_SUB(email), {
+            ...(existing || {}),
+            email,
+            active: true,
+            tier: obj.metadata?.tier || existing?.tier || 'professional',
+            audience: obj.metadata?.audience || existing?.audience || 'landlord',
+            stripe_customer: obj.customer || existing?.stripe_customer || null,
+            stripe_subscription: obj.subscription || existing?.stripe_subscription || null,
+            stripe_session: obj.id,
+            updated_at: new Date().toISOString(),
+            started_at: existing?.started_at || new Date().toISOString(),
+          });
+          console.log(`[ai-sub] activated via checkout.session.completed for ${email}`);
+        }
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const rec = await findSubByStripe({ customer: obj.customer, subscription: obj.id });
+        if (rec) {
+          const good = obj.status === 'active' || obj.status === 'trialing';
+          await setSubActive(rec, good, `subscription.updated:${obj.status}`);
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const rec = await findSubByStripe({ customer: obj.customer, subscription: obj.id });
+        if (rec) await setSubActive(rec, false, 'subscription.deleted');
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const rec = await findSubByStripe({ customer: obj.customer, subscription: obj.subscription });
+        if (rec) await setSubActive(rec, false, 'invoice.payment_failed');
+        break;
+      }
+      case 'invoice.payment_succeeded': {
+        const rec = await findSubByStripe({ customer: obj.customer, subscription: obj.subscription });
+        if (rec && !rec.active) await setSubActive(rec, true, 'invoice.payment_succeeded');
+        break;
+      }
+      default:
+        break;
+    }
+    return c.json({ received: true });
+  } catch (err: any) {
+    console.log(`[ai-sub webhook] handler error for ${event?.type}: ${err?.message || err}`);
+    return c.json({ error: `Webhook handler error: ${err?.message || err}` }, 500);
+  }
+});
+
+// Admin: list all AI subscribers for a revenue/status view.
+investmentsRouter.get(`${PREFIX}/investments/ai-subscribers`, async (c) => {
+  try {
+    const { role } = await resolveRole(c.req.header('Authorization'));
+    if (!isPrivileged(role)) {
+      return c.json({ error: 'Administrator access is required to view subscribers.' }, 403);
+    }
+    const subs = ((await kv.getByPrefix('property_ai_subscription:')) || []) as any[];
+    subs.sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''));
+    const monthly = subs.reduce((sum, s) => sum + (s.active ? (AI_TIER_PRICING[s.tier]?.amount || 0) : 0), 0);
+    return c.json({
+      success: true,
+      subscribers: subs.map((s) => ({
+        email: s.email,
+        active: !!s.active,
+        tier: s.tier,
+        plan: s.plan || AI_TIER_PRICING[s.tier]?.label,
+        audience: s.audience,
+        priceMonthly: (AI_TIER_PRICING[s.tier]?.amount || 0) / 100,
+        started_at: s.started_at,
+        updated_at: s.updated_at,
+        status_note: s.status_note || null,
+        stripe_subscription: s.stripe_subscription || null,
+      })),
+      stats: {
+        total: subs.length,
+        active: subs.filter((s) => s.active).length,
+        mrr: monthly / 100,
+      },
+    });
+  } catch (error: any) {
+    return c.json({ error: `Failed to fetch subscribers: ${error?.message || error}` }, 500);
+  }
+});
+
+// List a requester's saved reports (newest first).
+investmentsRouter.get(`${PREFIX}/investments/ai-reports/:email`, async (c) => {
+  try {
+    const email = (c.req.param('email') || '').toLowerCase();
+    const all = ((await kv.getByPrefix(AI_REPORT_PREFIX)) || []) as any[];
+    const reports = all
+      .filter((r) => (r.email || '') === email)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    return c.json({ success: true, reports });
+  } catch (error: any) {
+    return c.json({ error: `Failed to fetch reports: ${error?.message || error}` }, 500);
   }
 });
 

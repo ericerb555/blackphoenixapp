@@ -5,6 +5,7 @@
 
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
+import { isAdultProduct } from './content-filter.tsx';
 
 // Storage keys
 const INVENTORY_KEY_PREFIX = 'dropshipper_inventory';
@@ -96,13 +97,16 @@ export async function syncInventory(): Promise<{ success: boolean; synced: numbe
 
     try {
       const products = await fetchInventoryFromProvider(provider);
-      
+
+      let skippedAdult = 0;
       for (const product of products) {
+        // Never sync adult / sexual-wellness products into the store.
+        if (isAdultProduct(product)) { skippedAdult++; continue; }
         await saveInventoryItem(product);
         totalSynced++;
       }
 
-      console.log(`[Dropshipper] Synced ${products.length} products from ${provider.name}`);
+      console.log(`[Dropshipper] Synced ${products.length - skippedAdult} products from ${provider.name}${skippedAdult ? ` (skipped ${skippedAdult} adult items)` : ''}`);
     } catch (error) {
       const errorMsg = `Failed to sync from ${provider.name}: ${error}`;
       errors.push(errorMsg);

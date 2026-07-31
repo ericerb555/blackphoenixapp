@@ -13,6 +13,7 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import * as config from "./dropshipper-config.tsx";
+import { isAdultProduct } from "./content-filter.tsx";
 
 const zendropRouter = new Hono();
 
@@ -308,7 +309,9 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
 
   const normalized = raw
     .map((r) => normalize(r, markupType, markupValue))
-    .filter((p) => p.name);
+    .filter((p) => p.name)
+    // Never import/update adult or sexual-wellness products into the store.
+    .filter((p) => !isAdultProduct(p));
 
   const nowIso = new Date().toISOString();
   const writes: Promise<void>[] = [];

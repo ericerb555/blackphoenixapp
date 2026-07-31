@@ -14,6 +14,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { zendropFetch, extractProducts, normalize, loadServerConfig, resolveKey, num } from "./zendrop.tsx";
+import { isAdultProduct } from "./content-filter.tsx";
 
 const hotProductsRouter = new Hono();
 
@@ -110,11 +111,11 @@ hotProductsRouter.get("/make-server-3eae23a6/hot-products/discover", async (c) =
       return c.json({ success: false, error: `Zendrop scan failed: ${trendingRes.error || "no products returned"}` }, 502);
     }
 
-    // Merge + dedupe by id.
+    // Merge + dedupe by id, dropping any adult / sexual-wellness products.
     const mergedMap = new Map<string, any>();
     for (const r of [...trendingRaw, ...catalogRaw]) {
       const id = String(r?.id ?? "");
-      if (id && !mergedMap.has(id)) mergedMap.set(id, r);
+      if (id && !mergedMap.has(id) && !isAdultProduct(r)) mergedMap.set(id, r);
     }
 
     const ranked = [...mergedMap.values()]
@@ -199,6 +200,8 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/import", async (c) =>
       const raw = detailMap.get(String(cand.id)) || cand;
       const p = normalize(raw, markupType, markupValue);
       if (!p.name) continue;
+      // Never import adult / sexual-wellness products into the store.
+      if (isAdultProduct(raw) || isAdultProduct(p)) continue;
       const storeId = `zendrop_${p.sku}`;
       const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
       const storeProduct = {

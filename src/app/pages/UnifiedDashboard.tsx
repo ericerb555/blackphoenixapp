@@ -400,8 +400,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Purchase Orders', path: '/materials-center', tab: 'procurement', icon: Receipt, color: 'green', description: 'PO management' },
         { label: 'Supplier Connect', path: '/supplier-management-hub', tab: 'connect', icon: Truck, color: 'purple', description: 'Supplier relationships' },
         { label: 'Unified Calendar', path: '/unified-calendar', icon: Calendar, color: 'green', description: 'Company calendar' },
-        { label: 'Service Scheduling', path: '/service-scheduling', icon: Clock, color: 'blue', description: 'Service bookings' },
-        { label: 'Services', path: '/services', icon: Wrench, color: 'orange', description: 'Service operations' },
+        { label: 'Service Scheduling', path: '/service-scheduling', icon: Clock, color: 'blue', description: 'Book & schedule services — the single booking system' },
         { label: 'Waste Disposal', path: '/waste-disposal-tracking', icon: Truck, color: 'red', description: 'Waste tracking' },
         { label: 'AI Diagnostics', path: '/ai-diagnostics', icon: Brain, color: 'purple', description: 'AI-powered diagnostics' },
       ]

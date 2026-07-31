@@ -29,9 +29,11 @@ import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
 import { productsRouter } from "./ecommerce-products.tsx";
+import marketplaceRouter from "./marketplace.tsx";
 import flashSalesRouter from "./flash-sales.tsx";
 import storeBoostersRouter from "./store-boosters.tsx";
 import promotionsEngineRouter from "./promotions-engine.tsx";
+import invoiceLinkingRouter, { linkInvoicesByEmail } from "./invoice-linking.tsx";
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
 import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
@@ -153,11 +155,13 @@ app.route("/", zendropRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
+app.route("/", marketplaceRouter);
 app.route("/make-server-3eae23a6/email-center", emailCenterRouter);
 app.route("/make-server-3eae23a6/store-content", storeContentRouter);
 app.route("/", flashSalesRouter);
 app.route("/", storeBoostersRouter);
 app.route("/", promotionsEngineRouter);
+app.route("/", invoiceLinkingRouter);
 app.route("/", fulfillmentRouter);
 app.route("/", hotProductsRouter);
 app.route("/make-server-3eae23a6", cartRouter);
@@ -2986,7 +2990,25 @@ app.post('/make-server-3eae23a6/marketplace/checkout', async (c) => {
       params.set(`line_items[${i}][quantity]`, String(Math.max(1, Number(item.qty || item.quantity || 1))));
     });
     const session = await stripeCheckoutSession(params, 'tbpco_ecommerce');
-    return c.json({ success: true, url: session.url, sessionId: session.id });
+
+    // Record a pending order under the shared `store_order:` prefix so it shows
+    // up in Marketplace Admin (GET /marketplace/orders) and the Order Manager.
+    const orderId = `BP-${Date.now()}`;
+    const total = items.reduce((a: number, i: any) => a + (Number(i.price) || 0) * (Number(i.qty || i.quantity) || 1), 0);
+    await kv.set(`store_order:${orderId}`, {
+      id: orderId,
+      customer_name: String(body.name || ''),
+      customer_email: email,
+      items,
+      total,
+      fulfillment_status: 'unfulfilled',
+      payment_status: 'pending',
+      stripe_session_id: session.id,
+      commerce_account: 'TBPCO_ECOMMERCE',
+      created_at: new Date().toISOString(),
+    });
+
+    return c.json({ success: true, url: session.url, sessionId: session.id, orderId });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to start secure checkout.' }, 500); }
 });
 
@@ -7071,7 +7093,7 @@ function customerFromContact(contact: any) { const name = String(contact.name ||
 async function customerAdmin(c: any) { const actor = await financialActor(c); return actor.admin ? actor.user : null; }
 app.get('/make-server-3eae23a6/customers', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; return c.json({ success: true, customers: contacts.filter((contact: any) => contact.email).map(customerFromContact) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-3eae23a6/customers/stats', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = ((await kv.get(CRM_CONTACTS_KEY) as any[]) || []).filter((item: any) => item.email).map(customerFromContact); const stats = { total: contacts.length, active: contacts.filter((item: any) => item.status === 'active').length, leads: contacts.filter((item: any) => item.status === 'lead').length, vip: contacts.filter((item: any) => item.status === 'vip').length, inactive: contacts.filter((item: any) => item.status === 'inactive').length, totalRevenue: contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0), avgDeal: contacts.length ? contacts.reduce((sum: number, item: any) => sum + Number(item.total_spent || 0), 0) / contacts.length : 0 }; return c.json({ success: true, stats }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
-app.post('/make-server-3eae23a6/customers', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const email = String(body.email || '').trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'A valid customer email is required.' }, 400); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.email || '').toLowerCase() === email); const now = new Date().toISOString(); const record = { ...(index >= 0 ? contacts[index] : {}), ...stripBase64(body), id: index >= 0 ? contacts[index].id : crypto.randomUUID(), name: `${String(body.first_name || '').trim()} ${String(body.last_name || '').trim()}`.trim() || String(body.name || '').trim(), email, type: 'customer', updatedAt: now, updatedBy: user.email, createdAt: index >= 0 ? contacts[index].createdAt : now, createdBy: index >= 0 ? contacts[index].createdBy : user.email }; if (index >= 0) contacts[index] = record; else contacts.unshift(record); await kv.set(CRM_CONTACTS_KEY, contacts); return c.json({ success: true, customer: customerFromContact(record) }, index >= 0 ? 200 : 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-3eae23a6/customers', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const body = await c.req.json(); const email = String(body.email || '').trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'A valid customer email is required.' }, 400); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.email || '').toLowerCase() === email); const now = new Date().toISOString(); const record = { ...(index >= 0 ? contacts[index] : {}), ...stripBase64(body), id: index >= 0 ? contacts[index].id : crypto.randomUUID(), name: `${String(body.first_name || '').trim()} ${String(body.last_name || '').trim()}`.trim() || String(body.name || '').trim(), email, type: 'customer', updatedAt: now, updatedBy: user.email, createdAt: index >= 0 ? contacts[index].createdAt : now, createdBy: index >= 0 ? contacts[index].createdBy : user.email }; if (index >= 0) contacts[index] = record; else contacts.unshift(record); await kv.set(CRM_CONTACTS_KEY, contacts); const linkResult = await linkInvoicesByEmail(email, String(record.id)).catch((err) => { console.log(`[customers] invoice auto-link failed for ${email}: ${err}`); return { linked: 0, ids: [] }; }); return c.json({ success: true, customer: customerFromContact(record), linkedInvoices: linkResult.linked }, index >= 0 ? 200 : 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.put('/make-server-3eae23a6/customers/:id', async (c) => { try { const user = await customerAdmin(c); if (!user) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const index = contacts.findIndex((item: any) => String(item.id) === String(c.req.param('id'))); if (index < 0) return c.json({ success: false, error: 'Customer not found.' }, 404); const body = await c.req.json(); const email = body.email ? String(body.email).trim().toLowerCase() : contacts[index].email; const record = { ...contacts[index], ...stripBase64(body), email, name: body.first_name || body.last_name ? `${String(body.first_name ?? customerFromContact(contacts[index]).first_name).trim()} ${String(body.last_name ?? customerFromContact(contacts[index]).last_name).trim()}`.trim() : contacts[index].name, updatedAt: new Date().toISOString(), updatedBy: user.email }; contacts[index] = record; await kv.set(CRM_CONTACTS_KEY, contacts); return c.json({ success: true, customer: customerFromContact(record) }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.delete('/make-server-3eae23a6/customers/:id', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const contacts = (await kv.get(CRM_CONTACTS_KEY) as any[]) || []; const filtered = contacts.filter((item: any) => String(item.id) !== String(c.req.param('id'))); if (filtered.length === contacts.length) return c.json({ success: false, error: 'Customer not found.' }, 404); await kv.set(CRM_CONTACTS_KEY, filtered); return c.json({ success: true }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-3eae23a6/reporting/referral-sources', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [referrals, applications] = await Promise.all([kv.get('referrals:all'), kv.get(APPLICATIONS_KEY)]); const now = Date.now(); const sourceMeta: Record<string, { category: string; color: string }> = { affiliate: { category: 'affiliate', color: '#a855f7' }, loyalty: { category: 'referral', color: '#ea4335' }, direct: { category: 'direct', color: '#34A853' }, social: { category: 'social', color: '#FBBC05' } }; const grouped = new Map<string, any>(); for (const referral of (referrals as any[]) || []) { const source = String(referral.source || 'loyalty'); const row = grouped.get(source) || { source_name: source === 'loyalty' ? 'Member Referral' : source === 'affiliate' ? 'Affiliate Referral' : source, category: sourceMeta[source]?.category || 'other', color: sourceMeta[source]?.color || '#6b7280', total_signups: 0, signups_last_30_days: 0, signups_last_7_days: 0, total_value: 0, avg_value_per_signup: 0, first_signup: '', last_signup: '', user_roles: [] as string[] }; const date = new Date(referral.date || referral.createdAt || 0).getTime(); row.total_signups += 1; if (date >= now - 30 * 86400000) row.signups_last_30_days += 1; if (date >= now - 7 * 86400000) row.signups_last_7_days += 1; row.total_value += money(referral.orderAmount || 0); const day = new Date(date || now).toISOString().slice(0, 10); row.first_signup = !row.first_signup || day < row.first_signup ? day : row.first_signup; row.last_signup = !row.last_signup || day > row.last_signup ? day : row.last_signup; grouped.set(source, row); } const sourceData = Array.from(grouped.values()).map((row: any) => ({ ...row, avg_value_per_signup: row.total_signups ? money(row.total_value / row.total_signups) : 0 })); const appRows = applications as any[] || []; const completed = appRows.filter((item: any) => ['approved','active','rejected'].includes(String(item.status || '').toLowerCase())).length; const funnel = { started_count: appRows.length, completed_count: completed, skipped_count: 0, abandoned_count: Math.max(0, appRows.length - completed), completion_rate: appRows.length ? Number((completed / appRows.length * 100).toFixed(1)) : 0, avg_completion_time_minutes: 0 }; return c.json({ success: true, sources: sourceData, funnel }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });

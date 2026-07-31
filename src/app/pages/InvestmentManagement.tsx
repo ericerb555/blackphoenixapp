@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import InvestmentOpportunityManager from '../components/InvestmentOpportunityManager';
 import InvestmentDetailsManager from '../components/InvestmentDetailsManager';
+import PartnerPropertyPipeline from '../components/PartnerPropertyPipeline';
+import AISubscribersPanel from '../components/AISubscribersPanel';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
-import { DollarSign, FileText, ArrowLeft } from 'lucide-react';
+import { DollarSign, FileText, ArrowLeft, Handshake, Users } from 'lucide-react';
 
 export default function InvestmentManagement() {
   const { user } = useUser();
-  const [activeTab, setActiveTab] = useState<'opportunities' | 'details'>('opportunities');
+  const [activeTab, setActiveTab] = useState<'opportunities' | 'details' | 'partners' | 'subscribers'>('opportunities');
 
   const handleBackToCommandCenter = () => {
     window.location.href = '/unified-dashboard';
@@ -83,11 +85,35 @@ export default function InvestmentManagement() {
             <FileText className="w-5 h-5" />
             Investment Details & Financials
           </button>
+          <button
+            onClick={() => setActiveTab('partners')}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'partners'
+                ? 'bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'
+            }`}
+          >
+            <Handshake className="w-5 h-5" />
+            Partner Properties
+          </button>
+          <button
+            onClick={() => setActiveTab('subscribers')}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'subscribers'
+                ? 'bg-gradient-to-r from-[#ea580c] to-[#dc2626] text-white shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'
+            }`}
+          >
+            <Users className="w-5 h-5" />
+            AI Subscribers
+          </button>
         </div>
 
         {/* Tab Content */}
         {activeTab === 'opportunities' && <InvestmentOpportunityManager />}
         {activeTab === 'details' && <InvestmentDetailsManager />}
+        {activeTab === 'partners' && <PartnerPropertyPipeline />}
+        {activeTab === 'subscribers' && <AISubscribersPanel />}
       </div>
     </div>
   );

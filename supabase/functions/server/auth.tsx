@@ -6,6 +6,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { linkInvoicesByEmail } from "./invoice-linking.tsx";
 
 const authRouter = new Hono();
 
@@ -78,6 +79,11 @@ async function ensureCrmCustomer(params: {
     (cust: any) => (cust?.email || "").toLowerCase() === normalizedEmail
   );
   if (match) {
+    // Even for an existing customer, attach any invoices that were issued to
+    // this email before an account/CRM record existed.
+    await linkInvoicesByEmail(normalizedEmail, String(match.id || params.userId || "")).catch(
+      (err) => console.log(`[CRM] invoice auto-link (existing) failed for ${normalizedEmail}: ${err}`),
+    );
     return { created: false, customer: match };
   }
 
@@ -102,6 +108,10 @@ async function ensureCrmCustomer(params: {
   };
   await kv.set(`customer:${id}`, customer);
   console.log(`✅ [CRM] Added signup to CRM: ${normalizedEmail} (${id})`);
+  // Attach any invoices issued to this email before they signed up.
+  await linkInvoicesByEmail(normalizedEmail, String(id)).catch(
+    (err) => console.log(`[CRM] invoice auto-link (new) failed for ${normalizedEmail}: ${err}`),
+  );
   return { created: true, customer };
 }
 
