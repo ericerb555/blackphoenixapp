@@ -39,6 +39,79 @@ import invoiceLinkingRouter, { linkInvoicesByEmail } from "./invoice-linking.tsx
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
 import tierFeaturesRouter from "./tier-features.tsx";
+import shippingRatesRouter from "./shipping-rates.tsx";
+// ── Authoritative store pricing helpers (inlined so the function always bundles) ──
+// Server independently derives item prices, shipping, and tax so a tampered
+// checkout request cannot zero out the charged total.
+function pricingMoney(n: any): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.round(v * 100) / 100 : 0;
+}
+const STORE_STATE_TAX_RATES: Record<string, number> = {
+  AL: 0.09, AK: 0.0, AZ: 0.084, AR: 0.094, CA: 0.0885, CO: 0.077, CT: 0.0635, DE: 0.0,
+  FL: 0.07, GA: 0.073, HI: 0.044, ID: 0.06, IL: 0.087, IN: 0.07, IA: 0.069, KS: 0.087,
+  KY: 0.06, LA: 0.0952, ME: 0.055, MD: 0.06, MA: 0.0625, MI: 0.06, MN: 0.0749, MS: 0.0707,
+  MO: 0.082, MT: 0.0, NE: 0.069, NV: 0.082, NH: 0.0, NJ: 0.066, NM: 0.079, NY: 0.0852,
+  NC: 0.0699, ND: 0.069, OH: 0.072, OK: 0.089, OR: 0.0, PA: 0.068, RI: 0.07, SC: 0.075,
+  SD: 0.064, TN: 0.0955, TX: 0.0825, UT: 0.0719, VT: 0.0624, VA: 0.057, WA: 0.093,
+  WV: 0.065, WI: 0.054, WY: 0.054, DC: 0.06,
+};
+function storeZipToState(zip: string): string {
+  const z = parseInt(String(zip).slice(0, 3), 10);
+  if (!Number.isFinite(z)) return "";
+  if (z >= 988 && z <= 994) return "WA"; if (z >= 970 && z <= 979) return "OR";
+  if (z >= 900 && z <= 961) return "CA"; if (z >= 967 && z <= 968) return "HI";
+  if (z >= 995 && z <= 999) return "AK"; if (z >= 800 && z <= 816) return "CO";
+  if (z >= 820 && z <= 831) return "WY"; if (z >= 832 && z <= 838) return "ID";
+  if (z >= 840 && z <= 847) return "UT"; if (z >= 850 && z <= 865) return "AZ";
+  if (z >= 870 && z <= 884) return "NM"; if (z >= 750 && z <= 799) return "TX";
+  if (z >= 700 && z <= 714) return "LA"; if (z >= 716 && z <= 729) return "AR";
+  if (z >= 386 && z <= 397) return "MS"; if (z >= 350 && z <= 369) return "AL";
+  if (z >= 370 && z <= 385) return "TN"; if (z >= 400 && z <= 427) return "KY";
+  if (z >= 430 && z <= 458) return "OH"; if (z >= 460 && z <= 479) return "IN";
+  if (z >= 480 && z <= 499) return "MI"; if (z >= 530 && z <= 549) return "WI";
+  if (z >= 550 && z <= 567) return "MN"; if (z >= 500 && z <= 528) return "IA";
+  if (z >= 580 && z <= 588) return "ND"; if (z >= 570 && z <= 577) return "SD";
+  if (z >= 680 && z <= 693) return "NE"; if (z >= 660 && z <= 679) return "KS";
+  if (z >= 630 && z <= 658) return "MO"; if (z >= 600 && z <= 629) return "IL";
+  if (z >= 730 && z <= 749) return "OK"; if (z >= 590 && z <= 599) return "MT";
+  if (z >= 300 && z <= 319) return "GA"; if (z >= 320 && z <= 349) return "FL";
+  if (z >= 270 && z <= 289) return "NC"; if (z >= 290 && z <= 299) return "SC";
+  if (z >= 200 && z <= 205) return "DC"; if (z >= 206 && z <= 219) return "MD";
+  if (z >= 220 && z <= 246) return "VA"; if (z >= 247 && z <= 268) return "WV";
+  if (z >= 150 && z <= 196) return "PA"; if (z >= 197 && z <= 199) return "DE";
+  if (z >= 100 && z <= 149) return "NY"; if (z >= 70 && z <= 89) return "NJ";
+  if (z >= 10 && z <= 27) return "MA"; if (z >= 28 && z <= 29) return "RI";
+  if (z >= 30 && z <= 49) return "NH"; if (z >= 50 && z <= 69) return "VT";
+  if (z >= 3 && z <= 6) return "ME";
+  return "";
+}
+function taxRateForAddress(address: string): { rate: number; state: string } {
+  const matches = String(address || "").match(/\b(\d{5})(?:-\d{4})?\b/g);
+  const zip = matches && matches.length ? matches[matches.length - 1].slice(0, 5) : "";
+  const state = storeZipToState(zip);
+  return { rate: state && STORE_STATE_TAX_RATES[state] != null ? STORE_STATE_TAX_RATES[state] : 0, state };
+}
+async function loadShippingConfig(): Promise<{ enabled: boolean; threshold: number; flatRate: number }> {
+  const saved = (await kv.get("store_boosters:config")) as any;
+  const fs = saved?.freeShipping || {};
+  return {
+    enabled: fs.enabled !== false,
+    threshold: Number(fs.threshold) || 75,
+    flatRate: fs.flatRate === undefined || fs.flatRate === null ? 6.95 : Math.max(0, pricingMoney(fs.flatRate)),
+  };
+}
+function computeShipping(subtotal: number, cfg: { enabled: boolean; threshold: number; flatRate: number }): number {
+  if (subtotal <= 0) return 0;
+  if (cfg.enabled && subtotal >= cfg.threshold) return 0;
+  return cfg.flatRate;
+}
+async function authoritativeUnitPrice(id: string): Promise<number | null> {
+  const product = (await kv.get(`product_${id}`)) || (await kv.get(`live_product_${id}`));
+  if (!product) return null;
+  const price = pricingMoney((product as any).price ?? (product as any).retailPrice);
+  return price > 0 ? price : null;
+}
 import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
 const INVITE_TEMPLATE_KEY = (portalType: string) => `portal_invite_template:${portalType}`;
 import { cartRouter } from "./ecommerce-cart.tsx";
@@ -170,6 +243,7 @@ app.route("/", invoiceLinkingRouter);
 app.route("/", fulfillmentRouter);
 app.route("/", hotProductsRouter);
 app.route("/", tierFeaturesRouter);
+app.route("/", shippingRatesRouter);
 app.route("/make-server-3eae23a6", cartRouter);
 app.route("/make-server-3eae23a6", ordersRouter);
 app.route("/", crmContentRouter);
@@ -7559,10 +7633,22 @@ app.post('/make-server-3eae23a6/store/checkout', async (c) => {
     if (!validStoreItems(body.items)) return c.json({ error: 'Your cart must contain valid items.' }, 400);
     const customer = body.customer || {}; const email = String(customer.email || '').trim().toLowerCase();
     if (!email || !String(customer.name || '').trim() || !String(customer.address || '').trim()) return c.json({ error: 'Name, email, and shipping address are required.' }, 400);
-    const items = body.items.map((item: any) => ({ id: String(item.id), name: String(item.name), price: money(item.price), qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' }));
+    // SERVER-AUTHORITATIVE PRICING — never trust client-supplied prices, shipping, or tax.
+    // Unit prices are looked up from the product record in KV; we only fall back to the
+    // posted price when the product can't be found (e.g. legacy/removed item).
+    const items = await Promise.all(body.items.map(async (item: any) => {
+      const id = String(item.id);
+      const authoritative = await authoritativeUnitPrice(id);
+      const price = authoritative !== null ? authoritative : Math.max(0, pricingMoney(item.price));
+      return { id, name: String(item.name), price, qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' };
+    }));
     const subtotal = money(items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0));
-    const shipping = Math.max(0, money(body.shipping));
-    const tax = Math.max(0, money(body.tax));
+    // Shipping recomputed from the admin store-boosters config (flat rate, free over threshold).
+    const shippingCfg = await loadShippingConfig();
+    const shipping = Math.max(0, money(computeShipping(subtotal, shippingCfg)));
+    // Sales tax recomputed from the shipping-address ZIP → state → rate table.
+    const { rate: taxRate } = taxRateForAddress(String(customer.address || ''));
+    const tax = Math.max(0, money(subtotal * taxRate));
     const total = money(subtotal + shipping + tax);
     const checkoutId = crypto.randomUUID();
     const giftCardReservation = await reserveGiftCardForStore(body.giftCardCode, checkoutId, total);

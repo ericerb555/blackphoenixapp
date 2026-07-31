@@ -37,6 +37,7 @@ interface NormalizedProduct {
   description: string;
   price: number;   // your sell price (after markup)
   cost: number;    // wholesale cost from Zendrop
+  shippingCost: number; // per-item shipping cost, when Zendrop provides it
   stock: number;
   images: string[];
   category: string;
@@ -188,6 +189,8 @@ function extractCount(data: any, fallbackLen: number): number {
  */
 export function normalize(raw: any, markupType: string, markupValue: number): NormalizedProduct {
   const cost = num(raw.cost ?? raw.price ?? raw.wholesale_price ?? raw.variants?.[0]?.cost ?? raw.variants?.[0]?.price);
+  // Capture a per-item shipping cost if the feed happens to include one.
+  const shippingCost = num(raw.shipping_cost ?? raw.shipping_price ?? raw.shipping_fee ?? raw.shipping ?? raw.variants?.[0]?.shipping_cost ?? raw.variants?.[0]?.shipping_price ?? 0);
   const images: string[] = [];
   if (Array.isArray(raw.images)) {
     for (const im of raw.images) images.push(typeof im === "string" ? im : (im?.url || im?.src || ""));
@@ -207,6 +210,7 @@ export function normalize(raw: any, markupType: string, markupValue: number): No
     description: String(raw.description ?? raw.body_html ?? "").replace(/<[^>]+>/g, "").slice(0, 2000),
     price: applyMarkup(cost, markupType, markupValue),
     cost,
+    shippingCost,
     stock: num(raw.stock ?? raw.inventory ?? raw.quantity ?? raw.variants?.[0]?.inventory_quantity, 100),
     images: cleanImages,
     category: String(raw.category ?? raw.product_type ?? raw.tags?.[0] ?? "General"),
@@ -337,6 +341,7 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
       price: p.price,
       compare_at_price: p.price ? +(p.price * 1.3).toFixed(2) : undefined,
       cost_price: p.cost,
+      shippingCost: p.shippingCost,
       inventoryQuantity: p.stock,
       trackInventory: true,
       images: p.images,
@@ -555,6 +560,7 @@ zendropRouter.post(`${PREFIX}/zendrop/publish-to-store`, async (c) => {
       price: source.price,
       compare_at_price: source.price > 0 ? +(source.price * 1.3).toFixed(2) : undefined,
       cost_price: source.cost,
+      shippingCost: (source as any).shippingCost ?? 0,
       images: source.images || [],
       primaryImage: source.images?.[0] || "",
       inventoryQuantity: source.stock ?? 100,

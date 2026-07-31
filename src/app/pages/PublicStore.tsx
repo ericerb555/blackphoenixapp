@@ -81,6 +81,7 @@ export default function PublicStore() {
   const [qvColor, setQvColor] = useState('');
   // Which gallery image is showing in the product detail view.
   const [qvImage, setQvImage] = useState(0);
+  const [qvAdded, setQvAdded] = useState(false);
   const [sortBy, setSortBy] = useState('featured');
   const [priceRange, setPriceRange] = useState([0, 10000]);
   const [showFilters, setShowFilters] = useState(false);
@@ -632,6 +633,7 @@ export default function PublicStore() {
     setQvSize('');
     setQvColor('');
     setQvImage(0);
+    setQvAdded(false);
     setShowQuickView(product);
   };
 
@@ -649,7 +651,30 @@ export default function PublicStore() {
     } else {
       setCart([...cart, { ...product, quantity: 1, selectedSize, selectedColor }]);
     }
-    toast.success('Added to cart!');
+    toast.custom((t) => (
+      <div className="w-full max-w-sm rounded-2xl p-4 shadow-2xl" style={{ background: '#141414', border: '1px solid rgba(234,88,12,0.3)' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <Check className="w-4 h-4 text-green-400 flex-shrink-0" />
+          <p className="text-sm font-bold text-white truncate">Added to cart · {product.name}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => { toast.dismiss(t); setShowCart(true); }}
+            className="py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-1.5 transition hover:brightness-110"
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" /> View Cart
+          </button>
+          <button
+            onClick={() => { toast.dismiss(t); setShowCart(false); setShowCheckout(true); setCheckoutStep('info'); }}
+            className="py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-1.5 transition hover:brightness-110"
+            style={{ background: '#ea580c' }}
+          >
+            <Lock className="w-3.5 h-3.5" /> Checkout
+          </button>
+        </div>
+      </div>
+    ), { duration: 6000 });
   };
 
   // "Buy in place" — campaign landing pages deep-link here with ?add=<productId>.
@@ -1716,10 +1741,10 @@ export default function PublicStore() {
 
       {/* ── QUICK VIEW MODAL ─────────────────────────────────────────────────── */}
       {showQuickView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setShowQuickView(null)} />
-          <div className="relative w-full max-w-3xl rounded-3xl overflow-hidden" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
-            <button onClick={() => setShowQuickView(null)} className="absolute top-4 right-4 z-10 w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.07)' }}>
+          <div className="relative w-full max-w-3xl rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto overscroll-contain my-0 sm:my-8" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
+            <button onClick={() => setShowQuickView(null)} className="fixed sm:absolute top-4 right-4 z-[60] w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-white transition" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }} aria-label="Close">
               <X className="w-5 h-5" />
             </button>
             <div className="flex flex-col md:flex-row">
@@ -1772,7 +1797,7 @@ export default function PublicStore() {
                   </div>
                 );
               })()}
-              <div className="flex-1 p-8">
+              <div className="flex-1 p-5 sm:p-8">
                 <div className="flex items-center gap-2 mb-2">
                   {showQuickView.badge && <span className="px-3 py-1 rounded-full text-xs font-black" style={{ background: '#ea580c' }}>{showQuickView.badge}</span>}
                   <span className="text-xs text-gray-500">{showQuickView.category}</span>
@@ -1813,15 +1838,37 @@ export default function PublicStore() {
                     ))}</div>
                   </div>
                 )}
-                <button onClick={() => {
-                    if (showQuickView.sizes && showQuickView.sizes.length > 0 && !qvSize) { toast.error('Please select a size first.'); return; }
-                    addToCart(showQuickView, { size: qvSize || undefined, color: qvColor || undefined });
-                    setShowQuickView(null);
-                  }}
-                  disabled={!showQuickView.inStock}
-                  className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105 disabled:opacity-40" style={{ background: '#ea580c' }}>
-                  <ShoppingCart className="w-5 h-5" /> {showQuickView.inStock ? 'Add to Cart' : 'Out of Stock'}
-                </button>
+                {!qvAdded ? (
+                  <button onClick={() => {
+                      if (showQuickView.sizes && showQuickView.sizes.length > 0 && !qvSize) { toast.error('Please select a size first.'); return; }
+                      addToCart(showQuickView, { size: qvSize || undefined, color: qvColor || undefined });
+                      setQvAdded(true);
+                    }}
+                    disabled={!showQuickView.inStock}
+                    className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105 disabled:opacity-40" style={{ background: '#ea580c' }}>
+                    <ShoppingCart className="w-5 h-5" /> {showQuickView.inStock ? 'Add to Cart' : 'Out of Stock'}
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-bold text-green-400" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                      <Check className="w-4 h-4" /> Added to cart
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button onClick={() => { setShowQuickView(null); setShowCart(true); }}
+                        className="w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        <ShoppingCart className="w-4 h-4" /> View Cart
+                      </button>
+                      <button onClick={() => { setShowQuickView(null); setShowCart(false); setShowCheckout(true); setCheckoutStep('info'); }}
+                        className="w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: '#ea580c' }}>
+                        <Lock className="w-4 h-4" /> Checkout
+                      </button>
+                    </div>
+                    <button onClick={() => setQvAdded(false)}
+                      className="w-full py-2 text-xs text-gray-500 hover:text-gray-300 transition">
+                      Continue shopping
+                    </button>
+                  </div>
+                )}
                 <div className="pt-4 border-t mt-4" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                   <h3 className="text-sm font-black text-white mb-3">Customer Reviews</h3>
                   <StoreReviews productId={showQuickView.id} compact />

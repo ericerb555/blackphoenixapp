@@ -117,7 +117,7 @@ export default function ProductDetailModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={onClose}
     >
       <motion.div
@@ -125,7 +125,7 @@ export default function ProductDetailModal({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto my-8"
+        className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-t-2xl sm:rounded-2xl w-full max-w-6xl max-h-[92vh] overflow-y-auto overscroll-contain my-0 sm:my-8"
       >
         {/* Header */}
         <div className="sticky top-0 bg-[#1A1A1A] border-b border-[#2A2A2A] p-6 flex items-center justify-between z-10">
