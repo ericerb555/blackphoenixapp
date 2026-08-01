@@ -17,6 +17,7 @@ import {
   AlertCircle, TrendingDown, ArrowUpRight, HelpCircle, Layers, Sparkles, Megaphone,
 } from 'lucide-react';
 import PropertyDocuments from '../components/PropertyDocuments';
+import TabErrorBoundary from '../components/TabErrorBoundary';
 import { PropertyRecordsPanel } from '../components/property/PropertyRecordsPanel';
 import { lookupParcel } from '../lib/services/propertyRecordsService';
 import PropertyKnowledgeCenter from '../components/PropertyKnowledgeCenter';
@@ -171,8 +172,38 @@ function hydrateProfile(saved: any): PropertyProfile {
   return {
     ...base,
     ...saved,
-    systems: Array.isArray(saved.systems) && saved.systems.length ? saved.systems : base.systems,
+    // Each saved system is plain JSON — it lost its `icon` (a React component) and
+    // may be missing newer fields. Merge every saved system over a full template so
+    // fields like `icon` and `replacementCost` always exist (otherwise the Profile
+    // and Health Score tabs crash reading e.g. `sys.replacementCost[0]`).
+    systems: hydrateSystems(saved.systems, base.systems),
   };
+}
+
+// Restore a complete, safe shape for every building system.
+function hydrateSystems(savedSystems: any, baseSystems: BuildingSystem[]): BuildingSystem[] {
+  if (!Array.isArray(savedSystems) || savedSystems.length === 0) return baseSystems;
+  const byId: Record<string, BuildingSystem> = {};
+  for (const s of baseSystems) byId[s.id] = s;
+  const fallback = baseSystems[0];
+  return savedSystems.map((s: any) => {
+    const template = (s && byId[s.id]) || fallback;
+    const rc = Array.isArray(s?.replacementCost) && s.replacementCost.length >= 2
+      ? [Number(s.replacementCost[0]) || 0, Number(s.replacementCost[1]) || 0] as [number, number]
+      : template.replacementCost;
+    const category = (s?.category as BuildingSystem['category']) || template.category;
+    return {
+      ...template,
+      ...(s && typeof s === 'object' ? s : {}),
+      category,
+      // Functions don't survive JSON — restore the icon from a matching default,
+      // otherwise from the system's category (for custom systems).
+      icon: (s && byId[s.id]?.icon) || CATEGORY_ICON[category] || Building2,
+      replacementCost: rc,
+      expectedLifespan: Number(s?.expectedLifespan) || template.expectedLifespan,
+      condition: (s?.condition as SystemCondition) || template.condition,
+    };
+  });
 }
 
 /**
@@ -400,11 +431,14 @@ function FactorBar({ factor }: { factor: HealthFactor }) {
 function SystemCard({
   sys, onEdit,
 }: { sys: BuildingSystem; onEdit: (s: BuildingSystem) => void }) {
-  const Icon = sys.icon || Building2;
+  const Icon = sys.icon || CATEGORY_ICON[sys.category] || Building2;
   const now = new Date().getFullYear();
+  const lifespan = sys.expectedLifespan || 20;
   const age = sys.installedYear ? now - sys.installedYear : null;
-  const remaining = age !== null ? sys.expectedLifespan - age : null;
-  const pct = remaining !== null ? Math.max(0, Math.min(100, (remaining / sys.expectedLifespan) * 100)) : 50;
+  const remaining = age !== null ? lifespan - age : null;
+  const pct = remaining !== null ? Math.max(0, Math.min(100, (remaining / lifespan) * 100)) : 50;
+  // A legacy/partial system may not carry a replacement-cost range — fall back safely.
+  const [rcMin, rcMax] = Array.isArray(sys.replacementCost) ? sys.replacementCost : [0, 0];
 
   return (
     <div className="bg-[#111] border border-[#2A2A2A] rounded-xl p-4 hover:border-[#3A3A3A] transition space-y-3">
@@ -443,7 +477,7 @@ function SystemCard({
 
       <div className="flex items-center justify-between text-xs">
         <span className="text-gray-500">Replacement est.</span>
-        <span className="text-gray-300 font-medium">{fmt$(sys.replacementCost[0])}–{fmt$(sys.replacementCost[1])}</span>
+        <span className="text-gray-300 font-medium">{fmt$(rcMin)}–{fmt$(rcMax)}</span>
       </div>
     </div>
   );
@@ -491,6 +525,8 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
   // Which portfolio property (if any) the AI profile is currently linked to.
   const [linkedPropertyId, setLinkedPropertyId] = useState<string>('');
   const [editingSystem, setEditingSystem] = useState<BuildingSystem | null>(null);
+  // True while the edit modal is creating a brand-new (custom) system rather than editing one.
+  const [isNewSystem, setIsNewSystem] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileDraft, setProfileDraft] = useState<PropertyProfile>(profile);
   const [showAddProperty, setShowAddProperty] = useState(false);
@@ -558,12 +594,48 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
   }
 
   function saveSystem(updated: BuildingSystem) {
+    if (!updated.name.trim()) { toast.error('Give the system a name.'); return; }
+    // Keep the icon in sync with the chosen category (custom systems have no template icon).
+    const withIcon = { ...updated, icon: CATEGORY_ICON[updated.category] || Building2 };
     setProfile(prev => ({
       ...prev,
-      systems: prev.systems.map(s => s.id === updated.id ? updated : s),
+      systems: isNewSystem
+        ? [...prev.systems, withIcon]
+        : prev.systems.map(s => s.id === withIcon.id ? withIcon : s),
     }));
+    toast.success(isNewSystem ? `Added "${updated.name}".` : `${updated.name} updated.`);
     setEditingSystem(null);
-    toast.success(`${updated.name} updated.`);
+    setIsNewSystem(false);
+  }
+
+  // Create a blank custom system and open the modal to fill it in.
+  function addSystem() {
+    setIsNewSystem(true);
+    setEditingSystem({
+      id: `custom-${Date.now()}`,
+      name: '',
+      category: 'mechanical',
+      icon: CATEGORY_ICON.mechanical,
+      installedYear: profile.yearBuilt,
+      expectedLifespan: 20,
+      lastServiceDate: null,
+      condition: 'good',
+      warrantyExpiry: null,
+      notes: '',
+      replacementCost: [0, 0],
+    });
+  }
+
+  function deleteSystem(id: string) {
+    setProfile(prev => ({ ...prev, systems: prev.systems.filter(s => s.id !== id) }));
+    setEditingSystem(null);
+    setIsNewSystem(false);
+    toast.success('System removed.');
+  }
+
+  function closeSystemModal() {
+    setEditingSystem(null);
+    setIsNewSystem(false);
   }
 
   const scoreColor = SCORE_COLOR(healthScore);
@@ -645,6 +717,7 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+       <TabErrorBoundary resetKey={tab} label={PHASE_TABS.find(t => t.id === tab)?.label.toLowerCase() || 'section'}>
 
         {/* ── DASHBOARD ─────────────────────────────────────────────────────── */}
         {tab === 'dashboard' && (
@@ -716,7 +789,7 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
                     <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-semibold text-white">{s.name} — Poor Condition</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Estimated replacement: {fmt$(s.replacementCost[0])}–{fmt$(s.replacementCost[1])}. Schedule service before further deterioration.</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Estimated replacement: {fmt$(s.replacementCost?.[0] ?? 0)}–{fmt$(s.replacementCost?.[1] ?? 0)}. Schedule service before further deterioration.</p>
                     </div>
                     <button onClick={() => setTab('health')} className="ml-auto text-xs text-red-400 hover:underline whitespace-nowrap flex-shrink-0">View →</button>
                   </div>
@@ -880,7 +953,13 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Building Systems</p>
-                <span className="text-xs text-gray-500">{profile.systems.length} tracked</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500">{profile.systems.length} tracked</span>
+                  <button onClick={addSystem}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition">
+                    <Plus className="w-3.5 h-3.5" /> Add System
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {profile.systems.map(sys => (
@@ -942,7 +1021,7 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
                 {profile.systems.map(sys => {
                   const score = { excellent: 100, good: 80, fair: 55, poor: 25, unknown: 50 }[sys.condition];
                   const color = SCORE_COLOR(score);
-                  const Icon = sys.icon || Building2;
+                  const Icon = sys.icon || CATEGORY_ICON[sys.category] || Building2;
                   return (
                     <div key={sys.id} className="bg-[#0d0d0d] border border-[#1f1f1f] rounded-xl p-4 space-y-3">
                       <div className="flex items-center gap-2">
@@ -1151,6 +1230,7 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
         {/* ── AD CREATOR ────────────────────────────────────────────────────── */}
         {tab === 'ads' && <AdCreator />}
 
+       </TabErrorBoundary>
       </div>
 
       {/* System edit modal */}
@@ -1158,15 +1238,31 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
         {editingSystem && (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setEditingSystem(null)} />
-            <motion.div className="relative bg-[#111] border border-[#2A2A2A] rounded-2xl p-6 w-full max-w-md space-y-4 z-10"
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeSystemModal} />
+            <motion.div className="relative bg-[#111] border border-[#2A2A2A] rounded-2xl p-6 w-full max-w-md space-y-4 z-10 max-h-[90vh] overflow-y-auto"
               initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}>
               <div className="flex items-center justify-between">
-                <h3 className="font-bold text-lg">Edit — {editingSystem.name}</h3>
-                <button onClick={() => setEditingSystem(null)} className="p-1.5 rounded-lg hover:bg-[#2A2A2A] text-gray-400"><X className="w-4 h-4" /></button>
+                <h3 className="font-bold text-lg">{isNewSystem ? 'Add System' : `Edit — ${editingSystem.name}`}</h3>
+                <button onClick={closeSystemModal} className="p-1.5 rounded-lg hover:bg-[#2A2A2A] text-gray-400"><X className="w-4 h-4" /></button>
               </div>
 
               <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1.5">System Name</label>
+                  <input type="text" value={editingSystem.name} placeholder="e.g. Elevator, Pool Pump, Generator"
+                    onChange={e => setEditingSystem(prev => prev ? { ...prev, name: e.target.value } : prev)}
+                    className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1.5">Category</label>
+                  <select value={editingSystem.category}
+                    onChange={e => setEditingSystem(prev => prev ? { ...prev, category: e.target.value as BuildingSystem['category'] } : prev)}
+                    className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none capitalize">
+                    {(['structural', 'mechanical', 'electrical', 'plumbing', 'exterior', 'safety'] as BuildingSystem['category'][]).map(c => (
+                      <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5">Year Installed</label>
                   <input type="number" value={editingSystem.installedYear ?? ''}
@@ -1196,6 +1292,26 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
                     className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none" />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1.5">Expected Lifespan (years)</label>
+                  <input type="number" min={1} value={editingSystem.expectedLifespan || ''}
+                    onChange={e => setEditingSystem(prev => prev ? { ...prev, expectedLifespan: Number(e.target.value) } : prev)}
+                    className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Replacement Cost — Min ($)</label>
+                    <input type="number" min={0} value={editingSystem.replacementCost?.[0] ?? 0}
+                      onChange={e => setEditingSystem(prev => prev ? { ...prev, replacementCost: [Number(e.target.value), prev.replacementCost?.[1] ?? 0] } : prev)}
+                      className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">Replacement Cost — Max ($)</label>
+                    <input type="number" min={0} value={editingSystem.replacementCost?.[1] ?? 0}
+                      onChange={e => setEditingSystem(prev => prev ? { ...prev, replacementCost: [prev.replacementCost?.[0] ?? 0, Number(e.target.value)] } : prev)}
+                      className="w-full bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none" />
+                  </div>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-gray-400 mb-1.5">Notes</label>
                   <textarea value={editingSystem.notes}
                     onChange={e => setEditingSystem(prev => prev ? { ...prev, notes: e.target.value } : prev)}
@@ -1205,8 +1321,14 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button onClick={() => setEditingSystem(null)} className="flex-1 py-2.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] text-gray-400 text-sm font-semibold">Cancel</button>
-                <button onClick={() => editingSystem && saveSystem(editingSystem)} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition">Save Changes</button>
+                {!isNewSystem && (
+                  <button onClick={() => editingSystem && deleteSystem(editingSystem.id)}
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-sm font-semibold transition">
+                    <Trash2 className="w-4 h-4" /> Remove
+                  </button>
+                )}
+                <button onClick={closeSystemModal} className="flex-1 py-2.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] text-gray-400 text-sm font-semibold">Cancel</button>
+                <button onClick={() => editingSystem && saveSystem(editingSystem)} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition">{isNewSystem ? 'Add System' : 'Save Changes'}</button>
               </div>
             </motion.div>
           </motion.div>
