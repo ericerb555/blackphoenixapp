@@ -187,11 +187,8 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
         >
           <EnhancedCheckoutFlow
             cartItems={cartItems}
-            subtotal={subtotal}
-            tax={tax}
-            shipping={shipping}
-            total={total}
-            onBack={() => setShowCheckout(false)}
+            cartTotal={subtotal}
+            onCancel={() => setShowCheckout(false)}
             onComplete={() => {
               setCartItems([]);
               setShowCheckout(false);

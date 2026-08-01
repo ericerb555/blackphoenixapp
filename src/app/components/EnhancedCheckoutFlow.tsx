@@ -39,6 +39,8 @@ export default function EnhancedCheckoutFlow({
   onComplete, 
   onCancel 
 }: CheckoutFlowProps) {
+  // Guard against a missing/NaN total so the summary never crashes on render.
+  const safeCartTotal = typeof cartTotal === 'number' && !Number.isNaN(cartTotal) ? cartTotal : 0;
   const [currentStep, setCurrentStep] = useState<CheckoutStep>('info');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
   const [processing, setProcessing] = useState(false);
@@ -135,11 +137,11 @@ export default function EnhancedCheckoutFlow({
   };
 
   const calculateTax = () => {
-    return cartTotal * 0.08; // 8% tax
+    return safeCartTotal * 0.08; // 8% tax
   };
 
   const calculateTotal = () => {
-    return cartTotal + calculateShippingCost() + calculateTax();
+    return safeCartTotal + calculateShippingCost() + calculateTax();
   };
 
   return (
@@ -791,7 +793,7 @@ export default function EnhancedCheckoutFlow({
               <div className="space-y-3 py-4 border-t border-slate-800">
                 <div className="flex justify-between text-slate-300">
                   <span>Subtotal</span>
-                  <span className="font-semibold">${cartTotal.toFixed(2)}</span>
+                  <span className="font-semibold">${safeCartTotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-slate-300">
                   <span>Shipping</span>

@@ -17,7 +17,7 @@
  * `shippingCost` (per-item supplier shipping).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck, ShieldCheck, ShieldOff, Sparkles } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck, ShieldCheck, ShieldOff, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -68,6 +68,16 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [blocked, setBlocked] = useState<any[]>([]);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedBusyId, setBlockedBusyId] = useState<string | null>(null);
+
+  // Row selection for the AI pricing agent.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // AI pricing modal + its options.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiRunning, setAiRunning] = useState(false);
+  const [aiStrategy, setAiStrategy] = useState<'value' | 'competitive' | 'premium'>('competitive');
+  const [aiMinMargin, setAiMinMargin] = useState('25');
+  const [aiMaxMarkup, setAiMaxMarkup] = useState('400');
+  const [aiEstimateShipping, setAiEstimateShipping] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -345,6 +355,75 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
     setSavingAll(false);
     if (fail === 0) toast.success(`Saved ${ok} product${ok !== 1 ? 's' : ''}.`);
     else toast.error(`Saved ${ok}, failed ${fail}. Check console/network and retry.`);
+  };
+
+  // ── AI pricing: selection + run ─────────────────────────────────────────────
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = useMemo(() => filtered.map(p => p.id), [filtered]);
+  const selectedCount = useMemo(() => visibleIds.filter(id => selected.has(id)).length, [visibleIds, selected]);
+  const allSelected = visibleIds.length > 0 && selectedCount === visibleIds.length;
+  const toggleSelectAll = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allSelected) { for (const id of visibleIds) next.delete(id); }
+      else { for (const id of visibleIds) next.add(id); }
+      return next;
+    });
+  };
+
+  const runAiPricing = async () => {
+    // Target the selected visible rows, or all visible rows when none are ticked.
+    const targets = selectedCount > 0 ? filtered.filter(p => selected.has(p.id)) : filtered;
+    const items = targets
+      .map(p => { const d = valOf(p); return { id: p.id, name: p.name, category: p.category, cost: d.cost, shipping: d.shipping, currentPrice: d.price }; })
+      .filter(i => i.cost > 0);
+    if (items.length === 0) { toast.error('No priceable items (each needs a cost greater than $0).'); return; }
+
+    setAiRunning(true);
+    try {
+      const token = await adminToken();
+      const res = await fetch(`${SERVER}/store-ai-pricing/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
+        body: JSON.stringify({
+          items,
+          strategy: aiStrategy,
+          minMarginPct: Number(aiMinMargin) || 0,
+          maxMarkupPct: Number(aiMaxMarkup) || 400,
+          estimateShipping: aiEstimateShipping,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `AI pricing failed (${res.status})`);
+      const suggestions: any[] = Array.isArray(data.suggestions) ? data.suggestions : [];
+      if (suggestions.length === 0) { toast('The AI returned no suggestions to apply.'); return; }
+      // Write suggestions into the row drafts so the owner can review before saving.
+      setDrafts(prev => {
+        const next = { ...prev };
+        for (const s of suggestions) {
+          const p = products.find(x => x.id === s.id);
+          if (!p) continue;
+          const base = next[s.id] ?? { price: p.price, cost: p.cost, shipping: p.shipping, images: p.images };
+          next[s.id] = {
+            ...base,
+            price: Number(s.suggestedPrice) || base.price,
+            shipping: aiEstimateShipping && Number.isFinite(Number(s.suggestedShipping)) ? Number(s.suggestedShipping) : base.shipping,
+          };
+        }
+        return next;
+      });
+      setAiOpen(false);
+      toast.success(`AI priced ${suggestions.length} item${suggestions.length !== 1 ? 's' : ''}. Review the highlighted rows, then Save.`);
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] runAiPricing:', err);
+      toast.error(err.message || 'Could not generate AI prices.');
+    } finally { setAiRunning(false); }
   };
 
   const inputCls = 'w-24 px-2 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-sm focus:outline-none focus:border-[#ea580c]';

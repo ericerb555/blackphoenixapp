@@ -90,6 +90,15 @@ export default function InvoicePreviewModal({ isOpen, onClose, invoice }: Invoic
         <div className="sticky top-0 bg-[#1A1A1A] border-b border-[#2A2A2A] px-6 py-4 flex items-center justify-between z-10">
           <h2 className="text-xl font-bold text-white">Invoice Preview</h2>
           <div className="flex items-center gap-2">
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+              >
+                <Edit2 className="w-4 h-4" />
+                Edit
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center gap-2 px-4 py-2 bg-[#0A0A0A] hover:bg-[#2A2A2A] border border-[#2A2A2A] text-gray-300 rounded-lg transition"
