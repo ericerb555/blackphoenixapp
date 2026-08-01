@@ -55,6 +55,7 @@ import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
+import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
@@ -744,6 +745,11 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
             {/* Portal invitation emails — see & edit what each invite sends */}
             <PortalInviteEmailEditor />
+
+            {/* Sent invites — track status & resend */}
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
+              <SentInvitesPanel />
+            </div>
 
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <div className="text-center py-8">
