@@ -17,7 +17,7 @@
  * `shippingCost` (per-item supplier shipping).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck, ShieldCheck, ShieldOff, Sparkles, Wand2 } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck, ShieldCheck, ShieldOff, Sparkles, Wand2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -51,6 +51,23 @@ const markupOf = (price: number, cost: number) =>
   cost > 0 ? Math.round(((price - cost) / cost) * 100) : 0;
 const priceFromMarkup = (cost: number, markupPct: number) =>
   Math.round(cost * (1 + markupPct / 100) * 100) / 100;
+
+/**
+ * Profit guardrail — the store must never sell at a loss. Every saved price has
+ * to clear the landed cost (cost + supplier shipping) by at least this margin,
+ * so each sale captures a positive profit. Returns an error string or null.
+ */
+const MIN_PROFIT_MARGIN_PCT = 5; // require the price to beat landed cost by >=5%
+const profitError = (d: Draft): string | null => {
+  const landed = money(d.cost) + money(d.shipping);
+  const price = money(d.price);
+  if (landed <= 0) return null; // no known cost yet — nothing to compare against
+  const floor = Math.round(landed * (1 + MIN_PROFIT_MARGIN_PCT / 100) * 100) / 100;
+  if (price < floor) {
+    return `Price $${price.toFixed(2)} is below the minimum profitable price of $${floor.toFixed(2)} (landed cost $${landed.toFixed(2)} + ${MIN_PROFIT_MARGIN_PCT}% margin).`;
+  }
+  return null;
+};
 
 export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
@@ -311,6 +328,8 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const saveOne = async (p: CatalogProduct) => {
     const d = valOf(p);
     if (!(d.price >= 0)) { toast.error('Price must be a positive number.'); return; }
+    const profitErr = profitError(d);
+    if (profitErr) { toast.error(profitErr); return; }
     setSavingId(p.id);
     try {
       const token = await adminToken();
@@ -334,6 +353,14 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const saveAll = async () => {
     const dirty = products.filter(isDirty);
     if (dirty.length === 0) { toast('Nothing to save yet.'); return; }
+    // Block the whole batch if any row would sell at a loss — safer than silently
+    // skipping, so the owner sees exactly which products need a higher price.
+    const unprofitable = dirty.filter(p => profitError(valOf(p)));
+    if (unprofitable.length > 0) {
+      const names = unprofitable.slice(0, 3).map(p => `"${p.name}"`).join(', ');
+      toast.error(`${unprofitable.length} product${unprofitable.length !== 1 ? 's' : ''} priced at or below cost (${names}${unprofitable.length > 3 ? '…' : ''}). Raise the price to keep a positive profit before saving.`);
+      return;
+    }
     setSavingAll(true);
     const token = await adminToken();
     let ok = 0, fail = 0;
@@ -535,6 +562,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           const landed = money(d.cost + d.shipping);
           const profit = money(d.price - landed);
           const margin = d.price > 0 ? (profit / d.price) * 100 : 0;
+          const belowFloor = !!profitError(d);
           const dirty = isDirty(p);
           const gallery = d.images;
           const galleryOpen = imagesOpen === p.id;
@@ -602,15 +630,21 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
               <div className="col-span-2 md:col-span-1">
                 <div className="text-[11px] text-gray-500 md:hidden uppercase tracking-wide mb-0.5">Landed / Profit</div>
                 <div className="text-xs text-gray-400">Landed <span className="text-gray-200 font-semibold">{usd(landed)}</span></div>
-                <div className={`text-sm font-black ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className={`text-sm font-black ${belowFloor ? 'text-red-400' : profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {profit >= 0 ? '+' : '−'}{usd(Math.abs(profit))} <span className="text-[11px] font-semibold opacity-80">({margin.toFixed(0)}%)</span>
                 </div>
+                {belowFloor && (
+                  <div className="text-[10px] font-bold text-red-400 flex items-center gap-1 mt-0.5">
+                    <AlertTriangle className="w-3 h-3" /> Below min profit
+                  </div>
+                )}
               </div>
               {/* Save */}
               <div className="col-span-2 md:col-span-1 flex md:justify-end">
-                <button onClick={() => saveOne(p)} disabled={!dirty || savingId === p.id}
+                <button onClick={() => saveOne(p)} disabled={!dirty || savingId === p.id || belowFloor}
+                  title={belowFloor ? 'Raise the price above the landed cost to keep a positive profit before saving.' : ''}
                   className="flex items-center justify-center gap-1.5 w-full md:w-auto px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                  style={{ background: dirty ? '#ea580c' : 'rgba(255,255,255,0.08)' }}>
+                  style={{ background: dirty && !belowFloor ? '#ea580c' : 'rgba(255,255,255,0.08)' }}>
                   {savingId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : dirty ? <Save className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                   {savingId === p.id ? 'Saving' : dirty ? 'Save' : 'Saved'}
                 </button>

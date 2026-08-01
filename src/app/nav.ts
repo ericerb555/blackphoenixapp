@@ -123,6 +123,15 @@ export const navigationSections: NavSection[] = [
     ],
   },
   {
+    name: "Digital Products",
+    icon: "Download",
+    items: [
+      { name: "Digital Products",     path: "marketplace-admin",  badge: "MANAGE" },
+      { name: "Digital Storefront",   path: "digital-store",      badge: "VIEW" },
+      { name: "Ad Creator",           path: "ad-creator",         badge: "ADS" },
+    ],
+  },
+  {
     name: "Vendors & eCommerce",
     icon: "Store",
     items: [

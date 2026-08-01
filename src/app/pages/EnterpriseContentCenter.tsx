@@ -41,6 +41,7 @@ import { useNavigate } from '../hooks/useNavigate';
 import AdStudio from '../components/adstudio/AdStudio';
 import MarketingCommandCenter from '../components/adstudio/MarketingCommandCenter';
 import EcommerceStoreHub from '../components/adstudio/EcommerceStoreHub';
+import MarketplaceAdmin from './MarketplaceAdmin';
 import {
   UserContext,
   getMockUserContext,
@@ -159,7 +160,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce' | 'digital-products'>('command');
 
   // Which sub-tab the embedded Online Store panel should open on (deep-linkable).
   const [storeSubTab, setStoreSubTab] = useState<import('../components/DropshipperAdminPanel').StoreTab>('overview');
@@ -180,7 +181,7 @@ export default function EnterpriseContentCenter() {
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
     try {
-      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce'];
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce', 'digital-products'];
       const storeSubTabs = ['overview', 'providers', 'catalog', 'pricing', 'inventory', 'orders', 'errors'];
       const tab = new URLSearchParams(window.location.search).get('tab');
       if (tab && tab.startsWith('store-') && storeSubTabs.includes(tab.replace('store-', ''))) {
@@ -1812,6 +1813,7 @@ export default function EnterpriseContentCenter() {
             { id: 'command', label: '🎯 Command Center', icon: Target },
             { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
             { id: 'ecommerce', label: '🛒 eCommerce Store', icon: Store },
+            { id: 'digital-products', label: '📦 Digital Products', icon: Download },
             { id: 'library', label: 'Content Library', icon: FileText },
             { id: 'create', label: 'AI Generator', icon: Sparkles },
             { id: 'storage', label: 'Storage', icon: HardDrive },
@@ -1856,6 +1858,29 @@ export default function EnterpriseContentCenter() {
           {/* Ad Studio Tab */}
           {activeTab === 'ad-studio' && (
             <AdStudio onNavigate={hubNavigate} onSaveToLibrary={handleAdSaveToLibrary} />
+          )}
+
+          {/* Digital Products Tab — create, price & organize all digital products.
+              These feed the Ad Studio product picker, so you can make ads for them
+              right here in the Content Center. */}
+          {activeTab === 'digital-products' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Download className="w-5 h-5 text-[#ea580c]" /> Digital Products
+                  </h3>
+                  <p className="text-sm text-gray-400">Manage all your ebooks, templates, calculators & bundles. They automatically appear in the Ad Studio.</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('ad-studio')}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#ea580c] hover:bg-orange-600 text-white text-sm font-semibold rounded-lg transition"
+                >
+                  <Megaphone className="w-4 h-4" /> Make an ad for these
+                </button>
+              </div>
+              <MarketplaceAdmin />
+            </div>
           )}
 
           {/* Store Boosters Tab — AOV-boosting merchandising config */}

@@ -753,6 +753,12 @@ export default function DigitalStorefront() {
                 onClick={() => setSelected(p)}>
                 {/* Top accent */}
                 <div className={`h-1 ${p.popular ? 'bg-orange-500' : 'bg-[#2A2A2A]'}`} />
+                {/* AI-generated cover art (shown when available) */}
+                {(p as any).coverImage && (
+                  <div className="aspect-[16/9] w-full overflow-hidden bg-[#0A0A0A]">
+                    <img src={(p as any).coverImage} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  </div>
+                )}
                 <div className="p-5">
                   <div className="flex items-start gap-3 mb-3">
                     <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[p.category].bg}`}>

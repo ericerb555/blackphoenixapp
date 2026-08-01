@@ -295,6 +295,24 @@ productsRouter.put('/products/:id', async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    // Profit guardrail — never persist a price that sells at a loss. The price
+    // must clear the landed cost (cost + supplier shipping) by at least the
+    // minimum margin. This is the authoritative backstop; the admin UI enforces
+    // the same rule, but the server is the last line of defense.
+    const MIN_PROFIT_MARGIN_PCT = 5;
+    const cost = Number((updatedProduct as any).cost_price ?? (updatedProduct as any).cost) || 0;
+    const shipping = Number((updatedProduct as any).shippingCost ?? (updatedProduct as any).shipping_cost) || 0;
+    const price = Number((updatedProduct as any).price) || 0;
+    const landed = cost + shipping;
+    if (landed > 0) {
+      const floor = Math.round(landed * (1 + MIN_PROFIT_MARGIN_PCT / 100) * 100) / 100;
+      if (price < floor) {
+        return c.json({
+          error: `Price $${price.toFixed(2)} is below the minimum profitable price of $${floor.toFixed(2)} (landed cost $${landed.toFixed(2)} + ${MIN_PROFIT_MARGIN_PCT}% margin). The store cannot sell at a loss.`,
+        }, 400);
+      }
+    }
+
     // If name changed, update slug
     if (updates.name && updates.name !== product.name && !updates.slug) {
       updatedProduct.slug = generateSlug(updates.name);

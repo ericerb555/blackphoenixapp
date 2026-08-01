@@ -237,25 +237,47 @@ export default function AdStudio({
         features: Array.isArray(raw.features) ? raw.features : [],
       });
 
+      // Digital products (ebooks, templates, calculators, bundles) store their
+      // price in CENTS, so convert to dollars to match physical products.
+      const normalizeDigital = (raw: any): AdProduct => ({
+        ...normalize(raw),
+        price: typeof raw.price === 'number' ? raw.price / 100 : normalize(raw).price,
+        originalPrice: typeof raw.originalPrice === 'number' ? raw.originalPrice / 100 : undefined,
+      });
+
       // Try the product-ad catalog first, then the general products endpoint.
-      let list: any[] = [];
+      let physical: any[] = [];
       for (const url of [`${SERVER}/product-ads/available-products`, `${SERVER}/products`]) {
         try {
           const res = await fetch(url, { headers: AUTH });
           if (!res.ok) continue;
           const json = await res.json();
           const arr = Array.isArray(json) ? json : (json.products || json.data || json.items || []);
-          if (Array.isArray(arr) && arr.length > 0) { list = arr; break; }
+          if (Array.isArray(arr) && arr.length > 0) { physical = arr; break; }
         } catch { /* try next */ }
       }
 
-      if (list.length > 0) {
-        setProducts(list.map(normalize));
+      // Always also load digital products so the ad maker can advertise them.
+      let digital: AdProduct[] = [];
+      try {
+        const res = await fetch(`${SERVER}/marketplace/products`, { headers: AUTH });
+        if (res.ok) {
+          const json = await res.json();
+          const arr = Array.isArray(json.products) ? json.products : Array.isArray(json) ? json : [];
+          digital = arr.filter((p: any) => p.visible !== false).map(normalizeDigital);
+        }
+      } catch (err) {
+        console.error('[AdStudio] Failed to load digital products:', err);
+      }
+
+      const combined = [...physical.map(normalize), ...digital];
+      if (combined.length > 0) {
+        setProducts(combined);
       } else {
         // Fallback: locally staged marketing products, if any.
         try {
           const local = JSON.parse(localStorage.getItem('bp_mkt_products') || '[]');
-          setProducts((Array.isArray(local) ? local : []).map(normalize));
+          setProducts((Array.isArray(local) ? local : []).map(normalizeDigital));
         } catch {
           setProducts([]);
         }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Download, Mail, Printer } from 'lucide-react';
+import { X, Download, Mail, Printer, Edit2 } from 'lucide-react';
 import CompanyHeader from '../branding/CompanyHeader';
 import { companyInfo } from '../../lib/config/companyInfo';
 import { PDFService, type InvoicePDFData } from '../../lib/services/pdfService';
@@ -11,9 +11,10 @@ interface InvoicePreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   invoice: Invoice;
+  onEdit?: () => void;
 }
 
-export default function InvoicePreviewModal({ isOpen, onClose, invoice }: InvoicePreviewModalProps) {
+export default function InvoicePreviewModal({ isOpen, onClose, invoice, onEdit }: InvoicePreviewModalProps) {
   const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   if (!isOpen) return null;
@@ -205,6 +206,18 @@ export default function InvoicePreviewModal({ isOpen, onClose, invoice }: Invoic
 
           {/* Line Items Table */}
           <div className="mb-8">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-gray-500 uppercase">Line Items</h3>
+              {onEdit && (
+                <button
+                  onClick={onEdit}
+                  className="print:hidden flex items-center gap-2 px-3 py-1.5 text-xs bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] text-gray-300 rounded-lg transition"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  Edit line items
+                </button>
+              )}
+            </div>
             <table className="w-full">
               <thead>
                 <tr className="bg-[#1A1A1A] print:bg-gray-100 border-b-2 border-[#2A2A2A] print:border-gray-300">

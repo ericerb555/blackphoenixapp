@@ -10,7 +10,7 @@ import {
   Layers, CheckCircle, AlertCircle, DollarSign, Tag, Star,
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Copy,
   ArrowUp, ArrowDown, Shield, Upload, Grid, List,
-  TrendingUp, Zap, Gift, RefreshCw, Home,
+  TrendingUp, Zap, Gift, RefreshCw, Home, Sparkles, Image as ImageIcon, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -49,6 +49,10 @@ interface AdminProduct {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  // AI-generated cover art. `coverImage` is a (short-lived) signed URL for
+  // preview; `coverImagePath` is the durable storage path the server re-signs.
+  coverImage?: string;
+  coverImagePath?: string;
 }
 
 const STORAGE_KEY = 'bp_mkt_products';
@@ -329,9 +333,40 @@ function ProductForm({ product, onSave, onCancel }: {
   const [fileTypesText, setFileTypesText] = useState(product.fileTypes.join(', '));
   const [priceInput, setPriceInput] = useState((product.price / 100).toFixed(2));
   const [origPriceInput, setOrigPriceInput] = useState(product.originalPrice ? (product.originalPrice / 100).toFixed(2) : '');
+  const [imgPrompt, setImgPrompt] = useState('');
+  const [imgStyle, setImgStyle] = useState('modern, premium, clean');
+  const [generatingImg, setGeneratingImg] = useState(false);
 
   function set<K extends keyof AdminProduct>(k: K, v: AdminProduct[K]) {
     setForm(f => ({ ...f, [k]: v }));
+  }
+
+  // Ask the server's image AI for a cover. When the product already exists the
+  // server also attaches the image to the record; here we mirror it into the
+  // form so the change is saved (and previewed) even for brand-new products.
+  async function generateCover() {
+    if (!form.title.trim() && !imgPrompt.trim()) { toast.error('Add a title or a custom prompt first'); return; }
+    setGeneratingImg(true);
+    try {
+      const res = await fetch(`${API}/marketplace/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        body: JSON.stringify({
+          productId: product.id.startsWith('prod-') ? undefined : product.id,
+          title: form.title, category: CATEGORY_META[form.category]?.label || form.category,
+          description: form.description || form.subtitle, style: imgStyle, prompt: imgPrompt.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { throw new Error(data.error || `Request failed (${res.status})`); }
+      setForm(f => ({ ...f, coverImage: data.url, coverImagePath: data.path }));
+      toast.success('Cover image generated');
+    } catch (err: any) {
+      console.error('[MarketplaceAdmin] cover image generation failed:', err);
+      toast.error(err.message || 'Could not generate image');
+    } finally {
+      setGeneratingImg(false);
+    }
   }
 
   function submit() {
@@ -411,6 +446,45 @@ function ProductForm({ product, onSave, onCancel }: {
             <textarea value={form.description} onChange={e => set('description', e.target.value)}
               rows={4} placeholder="Full product description..."
               className={`${inputCls} resize-none`} />
+          </div>
+
+          {/* AI Cover Image */}
+          <div className="rounded-xl border border-[#2A2A2A] bg-gradient-to-br from-[#0A0A0A] to-[#141018] p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-bold text-white">AI Cover Image</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/25">DALL·E 3</span>
+            </div>
+            <div className="flex gap-4">
+              {/* Preview */}
+              <div className="w-28 h-28 flex-shrink-0 rounded-lg overflow-hidden border border-[#2A2A2A] bg-[#0A0A0A] flex items-center justify-center">
+                {form.coverImage
+                  ? <img src={form.coverImage} alt={form.title || 'Cover'} className="w-full h-full object-cover" />
+                  : <ImageIcon className="w-8 h-8 text-gray-700" />}
+              </div>
+              {/* Controls */}
+              <div className="flex-1 space-y-2">
+                <input value={imgStyle} onChange={e => setImgStyle(e.target.value)}
+                  placeholder="Style (e.g. modern, premium, minimal, bold)"
+                  className={inputCls} />
+                <textarea value={imgPrompt} onChange={e => setImgPrompt(e.target.value)}
+                  rows={2} placeholder="Optional: describe the exact image you want (overrides auto prompt)"
+                  className={`${inputCls} resize-none`} />
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={generateCover} disabled={generatingImg}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-50 transition">
+                    {generatingImg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {generatingImg ? 'Generating…' : form.coverImage ? 'Regenerate' : 'Generate image'}
+                  </button>
+                  {form.coverImage && (
+                    <button type="button" onClick={() => setForm(f => ({ ...f, coverImage: undefined, coverImagePath: undefined }))}
+                      className="px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-[#2A2A2A] transition">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Price + Original Price */}
