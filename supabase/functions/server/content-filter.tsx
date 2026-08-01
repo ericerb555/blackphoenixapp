@@ -78,3 +78,80 @@ export function filterAdultProducts<T>(products: T[]): T[] {
   if (!Array.isArray(products)) return products;
   return products.filter((p) => !isAdultProduct(p));
 }
+
+// ---------------------------------------------------------------------------
+// Owner-controllable filter state + quarantine.
+//
+// The keyword match above stays pure. On top of it we layer:
+//   - an owner ON/OFF toggle (default ON) stored in KV,
+//   - an allow-list of product ids the owner explicitly promoted back,
+//   - a "blocked_product:" quarantine so blocked items are reviewable and can
+//     be moved into the store instead of silently dropped.
+// ---------------------------------------------------------------------------
+import * as kv from "./kv_store.tsx";
+
+export const CONTENT_FILTER_CONFIG_KEY = "content_filter:config";
+export const CONTENT_FILTER_ALLOW_KEY = "content_filter:allow";
+export const BLOCKED_PRODUCT_PREFIX = "blocked_product:";
+
+// Tiny in-process cache so the hot import path doesn't hit KV per product.
+let _cfg: { at: number; enabled: boolean } | null = null;
+let _allow: { at: number; set: Set<string> } | null = null;
+const TTL = 8000;
+
+export function invalidateFilterState(): void {
+  _cfg = null;
+  _allow = null;
+}
+
+export async function isFilterEnabled(): Promise<boolean> {
+  if (_cfg && Date.now() - _cfg.at < TTL) return _cfg.enabled;
+  const raw = (await kv.get(CONTENT_FILTER_CONFIG_KEY)) as any;
+  const enabled = raw?.enabled !== false; // default ON
+  _cfg = { at: Date.now(), enabled };
+  return enabled;
+}
+
+export async function setFilterEnabled(enabled: boolean): Promise<void> {
+  await kv.set(CONTENT_FILTER_CONFIG_KEY, { enabled: !!enabled, updatedAt: new Date().toISOString() });
+  invalidateFilterState();
+}
+
+export async function getAllowSet(): Promise<Set<string>> {
+  if (_allow && Date.now() - _allow.at < TTL) return _allow.set;
+  const raw = (await kv.get(CONTENT_FILTER_ALLOW_KEY)) as any;
+  const set = new Set<string>(Array.isArray(raw?.ids) ? raw.ids.map(String) : []);
+  _allow = { at: Date.now(), set };
+  return set;
+}
+
+export async function allowProductId(id: string): Promise<void> {
+  const set = await getAllowSet();
+  set.add(String(id));
+  await kv.set(CONTENT_FILTER_ALLOW_KEY, { ids: Array.from(set), updatedAt: new Date().toISOString() });
+  invalidateFilterState();
+}
+
+/** Park a blocked product in the quarantine for owner review. */
+export async function quarantineProduct(storeProduct: any, source: string): Promise<void> {
+  if (!storeProduct?.id) return;
+  await kv.set(`${BLOCKED_PRODUCT_PREFIX}${storeProduct.id}`, {
+    ...storeProduct,
+    source: source || storeProduct.source || "unknown",
+    blockedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Screen a product on an import path. Returns true if the product should be
+ * skipped (adult, filter on, not owner-allowed) — and quarantines it so the
+ * owner can review/promote it later.
+ */
+export async function screenAndQuarantine(storeProduct: any, source: string): Promise<boolean> {
+  if (!(await isFilterEnabled())) return false;
+  if (!isAdultProduct(storeProduct)) return false;
+  const allow = await getAllowSet();
+  if (storeProduct?.id != null && allow.has(String(storeProduct.id))) return false;
+  await quarantineProduct(storeProduct, source);
+  return true;
+}

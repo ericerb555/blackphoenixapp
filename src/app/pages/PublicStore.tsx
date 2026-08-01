@@ -601,7 +601,8 @@ export default function PublicStore() {
   const freeShipThreshold = Number(boosters.freeShipping?.threshold) || 500;
   const qualifiesFreeShip = freeShipEnabled && cartTotal >= freeShipThreshold;
   const freeShipRemaining = Math.max(0, freeShipThreshold - cartTotal);
-  const checkoutShipping = qualifiesFreeShip ? 0 : 25;
+  const flatShipRate = Number(boosters.freeShipping?.flatRate) || 6.95;
+  const checkoutShipping = qualifiesFreeShip ? 0 : flatShipRate;
   const urgencyLabel = urgencySecondsLeft > 0
     ? `${String(Math.floor(urgencySecondsLeft / 60)).padStart(2, '0')}:${String(urgencySecondsLeft % 60).padStart(2, '0')}`
     : '';
@@ -1696,7 +1697,7 @@ export default function PublicStore() {
                   <div className="flex justify-between text-sm text-gray-500">
                     <span>Shipping</span>
                     <span className={qualifiesFreeShip ? 'text-green-400 font-semibold' : 'text-white font-semibold'}>
-                      {qualifiesFreeShip ? '✓ FREE' : '$25.00'}
+                      {qualifiesFreeShip ? '✓ FREE' : `$${flatShipRate.toFixed(2)}`}
                     </span>
                   </div>
                   {taxRate > 0 && (
@@ -1708,7 +1709,7 @@ export default function PublicStore() {
                   <div className="flex justify-between text-base font-black text-white pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                     <span>Total</span>
                     <span style={{ color: '#ea580c' }}>
-                      ${((qualifiesFreeShip ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)}
+                      ${((qualifiesFreeShip ? cartTotal : cartTotal + flatShipRate) + cartTotal * taxRate).toFixed(2)}
                     </span>
                   </div>
                   {taxRate > 0 && (
@@ -1887,7 +1888,7 @@ export default function PublicStore() {
             <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(234,88,12,0.05)' }}>
               <div>
                 <p className="font-black text-white">Secure Checkout</p>
-                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((qualifiesFreeShip ? cartTotal : cartTotal + 25) + cartTotal * taxRate).toFixed(2)} total</p>
+                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((qualifiesFreeShip ? cartTotal : cartTotal + flatShipRate) + cartTotal * taxRate).toFixed(2)} total</p>
               </div>
               <button onClick={() => setShowCheckout(false)} className="p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
                 <X className="w-4 h-4" />

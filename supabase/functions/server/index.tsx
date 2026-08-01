@@ -41,6 +41,7 @@ import hotProductsRouter from "./hot-products.tsx";
 import tierFeaturesRouter from "./tier-features.tsx";
 import shippingRatesRouter from "./shipping-rates.tsx";
 import storeAiPricingRouter from "./store-ai-pricing.tsx";
+import contentFilterRouter from "./content-filter-admin.tsx";
 // ── Authoritative store pricing helpers (inlined so the function always bundles) ──
 // Server independently derives item prices, shipping, and tax so a tampered
 // checkout request cannot zero out the charged total.
@@ -231,6 +232,7 @@ app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
 app.route("/make-server-3eae23a6/analytics", storeAnalyticsRouter);
 app.route("/", zendropRouter);
+app.route("/", contentFilterRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);

@@ -384,6 +384,37 @@ export default function UnifiedDashboardMobile({
           </div>
         )}
 
+        {/* Invoices — quick access to create a new invoice or look one up */}
+        {activeTab === 'operations' && !searchQuery && (
+          <div className="mb-5">
+            <div className="rounded-2xl border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-600/15 to-emerald-700/5 p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/40">
+                  <Receipt className="w-6 h-6 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-white leading-tight">Invoices</h3>
+                  <p className="text-xs text-gray-400">Create a new invoice or look one up</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleNavigation('/invoices', 'new')}
+                  className="flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm active:scale-[0.97] transition-all shadow-lg shadow-emerald-500/30"
+                >
+                  <Plus className="w-4 h-4" /> Create Invoice
+                </button>
+                <button
+                  onClick={() => handleNavigation('/invoices')}
+                  className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#1A1A1A] border border-emerald-500/30 text-emerald-400 font-bold text-sm active:scale-[0.97] transition-all"
+                >
+                  <Search className="w-4 h-4" /> Look Up
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {searchQuery && filteredModules.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Search className="w-16 h-16 text-gray-600 mb-4" />

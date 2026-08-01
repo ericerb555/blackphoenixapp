@@ -17,7 +17,7 @@
  * `shippingCost` (per-item supplier shipping).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Save, Package, Percent, CheckCircle2, Images, Plus, Trash2, Star, X, Truck, ShieldCheck, ShieldOff, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -63,6 +63,11 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [supplierFilter, setSupplierFilter] = useState('');
   const [globalMarkup, setGlobalMarkup] = useState('');
   const [imagesOpen, setImagesOpen] = useState<string | null>(null);
+  const [filterEnabled, setFilterEnabled] = useState(true);
+  const [filterBusy, setFilterBusy] = useState(false);
+  const [blocked, setBlocked] = useState<any[]>([]);
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  const [blockedBusyId, setBlockedBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +141,83 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       toast.error(err.message || 'Could not refresh live shipping.');
     } finally { setRefreshingShip(false); }
   }, [load]);
+
+  // ── Adult-content filter controls ──────────────────────────────────────────
+  const loadFilter = useCallback(async () => {
+    try {
+      const token = await adminToken();
+      const headers = { Authorization: `Bearer ${token || publicAnonKey}` };
+      const [cfgRes, blkRes] = await Promise.all([
+        fetch(`${SERVER}/content-filter/config`, { headers }),
+        fetch(`${SERVER}/content-filter/blocked`, { headers }),
+      ]);
+      const cfg = await cfgRes.json().catch(() => null);
+      const blk = await blkRes.json().catch(() => null);
+      if (cfg?.success) setFilterEnabled(cfg.enabled !== false);
+      if (blk?.success) setBlocked(Array.isArray(blk.blocked) ? blk.blocked : []);
+    } catch (err) {
+      console.error('[ProductCatalogAdmin] loadFilter:', err);
+    }
+  }, []);
+
+  useEffect(() => { loadFilter(); }, [loadFilter]);
+
+  const toggleFilter = useCallback(async () => {
+    setFilterBusy(true);
+    try {
+      const token = await adminToken();
+      const next = !filterEnabled;
+      const res = await fetch(`${SERVER}/content-filter/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Could not update filter (${res.status})`);
+      setFilterEnabled(data.enabled !== false);
+      toast.success(`Adult-product filter turned ${data.enabled !== false ? 'ON' : 'OFF'}.`);
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] toggleFilter:', err);
+      toast.error(err.message || 'Could not update the filter.');
+    } finally { setFilterBusy(false); }
+  }, [filterEnabled]);
+
+  const allowBlocked = useCallback(async (id: string) => {
+    setBlockedBusyId(id);
+    try {
+      const token = await adminToken();
+      const res = await fetch(`${SERVER}/content-filter/blocked/${encodeURIComponent(id)}/allow`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token || publicAnonKey}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Could not move product (${res.status})`);
+      setBlocked(prev => prev.filter(b => String(b.id) !== String(id)));
+      toast.success('Moved into the store.');
+      await load();
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] allowBlocked:', err);
+      toast.error(err.message || 'Could not move the product.');
+    } finally { setBlockedBusyId(null); }
+  }, [load]);
+
+  const dismissBlocked = useCallback(async (id: string) => {
+    setBlockedBusyId(id);
+    try {
+      const token = await adminToken();
+      const res = await fetch(`${SERVER}/content-filter/blocked/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token || publicAnonKey}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Could not dismiss product (${res.status})`);
+      setBlocked(prev => prev.filter(b => String(b.id) !== String(id)));
+      toast.success('Dismissed.');
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] dismissBlocked:', err);
+      toast.error(err.message || 'Could not dismiss the product.');
+    } finally { setBlockedBusyId(null); }
+  }, []);
 
   // Current (possibly-edited) value for a product.
   const valOf = useCallback((p: CatalogProduct): Draft => drafts[p.id] ?? { price: p.price, cost: p.cost, shipping: p.shipping, images: p.images }, [drafts]);
@@ -313,6 +395,21 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
           title="Pull real-time per-item shipping from the supplier">
           {refreshingShip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4 text-orange-400" />} Live shipping
+        </button>
+        <button onClick={toggleFilter} disabled={filterBusy}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold disabled:opacity-40"
+          style={filterEnabled
+            ? { background: 'rgba(16,185,129,0.14)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }
+            : { background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171' }}
+          title="Block adult / sexual-wellness products from auto-posting to your store">
+          {filterBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : filterEnabled ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+          Adult filter: {filterEnabled ? 'On' : 'Off'}
+        </button>
+        <button onClick={() => setBlockedOpen(true)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white"
+          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+          title="Review products the filter blocked">
+          Blocked ({blocked.length})
         </button>
         <button onClick={load} disabled={loading} className="p-2 rounded-xl text-gray-400 hover:text-white" title="Reload">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -575,6 +672,44 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
                 style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
                 {aiRunning ? <><Loader2 className="w-4 h-4 animate-spin" /> Pricing…</> : <><Sparkles className="w-4 h-4" /> Generate prices</>}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Blocked products review */}
+      {blockedOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4" onClick={() => setBlockedOpen(false)}>
+          <div className="w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col overflow-hidden" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.1)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">Blocked products ({blocked.length})</h3>
+              </div>
+              <button onClick={() => setBlockedOpen(false)} className="text-gray-500 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4 overflow-y-auto overscroll-contain space-y-2">
+              {blocked.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">Nothing has been blocked. Adult / sexual-wellness products the filter catches will appear here for review.</p>
+              ) : blocked.map((b) => (
+                <div key={b.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <img src={b.primaryImage || (Array.isArray(b.images) ? b.images[0] : '') || ''} alt={b.name || 'Blocked product'}
+                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-black/30" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate">{b.name || 'Untitled'}</p>
+                    <p className="text-xs text-gray-500 truncate">{b.category || 'General'} · {b.source || 'unknown'}{b.price != null ? ` · $${Number(b.price).toFixed(2)}` : ''}</p>
+                  </div>
+                  <button onClick={() => allowBlocked(String(b.id))} disabled={blockedBusyId === String(b.id)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-40 flex-shrink-0"
+                    style={{ background: 'rgba(16,185,129,0.9)' }} title="Move into store">
+                    {blockedBusyId === String(b.id) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Move to store
+                  </button>
+                  <button onClick={() => dismissBlocked(String(b.id))} disabled={blockedBusyId === String(b.id)}
+                    className="p-2 rounded-lg text-gray-500 hover:text-red-400 disabled:opacity-40 flex-shrink-0" title="Dismiss permanently">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -1445,6 +1445,42 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             </div>
           )}
 
+          {/* Invoices — Featured Button (Operations Tab Only) */}
+          {activeTab === 'operations' && !searchQuery && (
+            <div className="mb-6">
+              <div className="group relative w-full p-6 rounded-2xl border-2 border-emerald-500/50 bg-gradient-to-br from-emerald-600/20 to-emerald-700/10 backdrop-blur-sm transition-all duration-300">
+                <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/50 flex-shrink-0">
+                      <Receipt className="w-8 h-8 text-white" />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-xl font-bold text-white mb-1">Invoices</h3>
+                      <p className="text-sm text-gray-300">
+                        Create a new invoice or look one up — fast access to your billing.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => handleNavigation('/invoices-new', 'new')}
+                      className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-sm transition-colors shadow-lg shadow-emerald-500/30"
+                    >
+                      <Plus className="w-4 h-4" /> Create Invoice
+                    </button>
+                    <button
+                      onClick={() => handleNavigation('/invoices-new')}
+                      className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#1A1A1A] border border-emerald-500/40 text-emerald-400 hover:border-emerald-500 font-bold text-sm transition-colors"
+                    >
+                      <Search className="w-4 h-4" /> Look Up
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Deal Publisher — full-width panel, not a module grid */}
           {activeTab === 'deals' && !searchQuery && (
             <DealPublisher />

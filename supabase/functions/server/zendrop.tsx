@@ -13,7 +13,7 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import * as config from "./dropshipper-config.tsx";
-import { isAdultProduct } from "./content-filter.tsx";
+import { screenAndQuarantine } from "./content-filter.tsx";
 
 const zendropRouter = new Hono();
 
@@ -313,22 +313,18 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
 
   const normalized = raw
     .map((r) => normalize(r, markupType, markupValue))
-    .filter((p) => p.name)
-    // Never import/update adult or sexual-wellness products into the store.
-    .filter((p) => !isAdultProduct(p));
+    .filter((p) => p.name);
 
   const nowIso = new Date().toISOString();
   const writes: Promise<void>[] = [];
+  let blockedCount = 0;
+  let importedCount = 0;
   for (const p of normalized) {
     const isFeatured = trendingIds.has(String(p.providerProductId));
 
-    // 1) Dropshipper inventory record — used by the dropshipper module for
-    //    order-forwarding, sync tracking, and the Zendrop page's own catalog view.
-    writes.push(kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)));
-
-    // 2) Storefront product record. The public store's GET /products reads the
-    //    `product_` prefix (same as canonical vendor products), so imported
-    //    Zendrop items MUST be written there to appear in the live store.
+    // Storefront product record. The public store's GET /products reads the
+    // `product_` prefix (same as canonical vendor products), so imported
+    // Zendrop items MUST be written there to appear in the live store.
     const storeId = `zendrop_${p.sku}`;
     const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
     const storeProduct = {
@@ -358,15 +354,28 @@ async function importTopProducts(apiKey: string, limit: number): Promise<{ impor
       createdAt: nowIso,
       updatedAt: nowIso,
     };
+
+    // Adult/sexual-wellness guard: if the owner's filter is on and this looks
+    // like an adult product (and isn't owner-allowed), quarantine it for review
+    // instead of publishing it to the store — and skip both writes.
+    if (await screenAndQuarantine(storeProduct, "zendrop")) {
+      blockedCount += 1;
+      continue;
+    }
+
+    // Dropshipper inventory record — used by the dropshipper module for
+    // order-forwarding, sync tracking, and the Zendrop page's catalog view.
+    writes.push(kv.set(`${INVENTORY_KEY_PREFIX}:${p.sku}`, JSON.stringify(p)));
     writes.push(kv.set(`product_${storeId}`, storeProduct));
+    importedCount += 1;
   }
   await Promise.all(writes);
 
   await config.updateLastSync();
-  await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: normalized.length });
+  await saveServerConfig({ lastSync: new Date().toLocaleString(), productCount: importedCount });
 
   const endpoint = lastCatalogUrl || trendingRes.url;
-  return { imported: normalized.length, sample: normalized.slice(0, 3), endpoint };
+  return { imported: importedCount, blocked: blockedCount, sample: normalized.slice(0, 3), endpoint };
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
