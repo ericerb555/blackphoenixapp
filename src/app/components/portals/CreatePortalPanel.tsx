@@ -23,8 +23,10 @@ const PORTAL_OPTIONS: { value: string; label: string }[] = [
 ];
 
 interface InviteResult {
-  name: string; email: string; portalType: string;
+  name: string; email: string; phone?: string; portalType: string;
   invitationSent: boolean; inviteNotice?: string;
+  smsSent?: boolean; smsNotice?: string;
+  emailProvider?: string; inviteLink?: string | null;
 }
 
 export default function CreatePortalPanel() {
@@ -32,6 +34,9 @@ export default function CreatePortalPanel() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', portalType: 'customer' });
   const [fullAccess, setFullAccess] = useState(true);
   const [trialMonths, setTrialMonths] = useState(6);
+  // Delivery channels. Email on by default; SMS opt-in (Twilio must be configured).
+  const [sendEmail, setSendEmail] = useState(true);
+  const [sendSms, setSendSms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<InviteResult | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -66,19 +71,40 @@ export default function CreatePortalPanel() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) { toast.error('Full name, email, and phone are all required.'); return; }
+    if (!sendEmail && !sendSms) { toast.error('Pick at least one way to send the invite — email or SMS.'); return; }
     if (!session?.access_token) { toast.error('Sign in again before creating a portal.'); return; }
     setSubmitting(true); setResult(null);
     try {
       const response = await fetch(`${SERVER}/owner-provisioning/invites`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, fullAccess, trialMonths }),
+        body: JSON.stringify({ ...form, fullAccess, trialMonths, sendEmail, sendSms }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Could not create the portal.');
-      setResult(payload.invite);
-      const grant = fullAccess ? ` They have full access to every feature for ${trialMonths} month${trialMonths === 1 ? '' : 's'}, then must choose a plan.` : '';
-      toast.success(`${PORTAL_OPTIONS.find(p => p.value === form.portalType)?.label} portal created.${grant}`);
+      const invite = payload.invite as InviteResult;
+      setResult(invite);
+
+      // Report the ACTUAL delivery outcome per channel — don't claim success if
+      // nothing was delivered. Surface the server's notice so failures are visible.
+      const emailOk = sendEmail && invite.invitationSent;
+      const smsOk = sendSms && invite.smsSent;
+      const emailFailed = sendEmail && !invite.invitationSent;
+      const smsFailed = sendSms && !invite.smsSent;
+
+      if ((sendEmail && emailOk || !sendEmail) && (sendSms && smsOk || !sendSms) && (emailOk || smsOk)) {
+        const channels = [emailOk && 'email', smsOk && 'SMS'].filter(Boolean).join(' + ');
+        toast.success(`Portal created — invite sent via ${channels} to ${invite.name}.`);
+      } else if (emailOk || smsOk) {
+        // Partial: one channel worked, the other didn't.
+        const okCh = emailOk ? 'email' : 'SMS';
+        const badNotice = emailFailed ? (invite.inviteNotice || 'email failed') : (invite.smsNotice || 'SMS failed');
+        toast.warning(`Portal created and sent via ${okCh}, but the other channel didn't send: ${badNotice}`, { duration: 9000 });
+      } else {
+        // Nothing delivered — show why.
+        const reason = [emailFailed && `Email: ${invite.inviteNotice || 'not delivered'}`, smsFailed && `SMS: ${invite.smsNotice || 'not delivered'}`].filter(Boolean).join(' · ');
+        toast.error(`Portal record created, but the invite did NOT send. ${reason || 'Check email/SMS configuration.'}`, { duration: 12000 });
+      }
       setForm({ name: '', email: '', phone: '', portalType: form.portalType });
     } catch (error: any) { toast.error(error?.message || 'Could not create the portal.'); }
     finally { setSubmitting(false); }
@@ -134,6 +160,23 @@ export default function CreatePortalPanel() {
           )}
         </div>
 
+        {/* Delivery channels */}
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">How to send the invite</p>
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center gap-3">
+              <input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500" />
+              <Mail className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-800">Email the secure sign-in link</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-3">
+              <input type="checkbox" checked={sendSms} onChange={e => setSendSms(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500" />
+              <Phone className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-800">Text the sign-in link via SMS <span className="text-gray-400">(to {form.phone.trim() || 'their phone'})</span></span>
+            </label>
+          </div>
+        </div>
+
         <div className="flex flex-col gap-2 sm:flex-row">
           <button type="button" onClick={openPreview} disabled={previewing} className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60 sm:w-auto">
             {previewing ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</> : <><Eye className="h-4 w-4" /> Preview email</>}
@@ -159,17 +202,55 @@ export default function CreatePortalPanel() {
         </div>
       )}
 
-      {result && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-bold text-green-800"><CheckCircle className="h-5 w-5" /> Portal created for {result.name}</div>
-          <p className="mt-2 text-sm text-green-700">
-            {result.invitationSent
-              ? `A secure sign-in email was sent to ${result.email}. When they sign in for the first time, they'll complete a short application and land in their ${PORTAL_OPTIONS.find(p => p.value === result.portalType)?.label} portal.`
-              : `Their portal record is ready. ${result.inviteNotice || 'They can sign in with their existing account to finish setup.'}`}
+      {result && (() => {
+        const emailAttempted = sendEmail;
+        const smsAttempted = sendSms;
+        const anyDelivered = (emailAttempted && result.invitationSent) || (smsAttempted && result.smsSent);
+        const tone = anyDelivered ? 'green' : 'amber';
+        const border = tone === 'green' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50';
+        const head = tone === 'green' ? 'text-green-800' : 'text-amber-800';
+        const bodyText = tone === 'green' ? 'text-green-700' : 'text-amber-800';
+        return (
+        <div className={`rounded-xl border p-5 ${border}`}>
+          <div className={`flex items-center gap-2 text-sm font-bold ${head}`}><CheckCircle className="h-5 w-5" /> Portal created for {result.name}</div>
+
+          {/* Per-channel delivery status */}
+          <div className={`mt-3 space-y-1.5 text-sm ${bodyText}`}>
+            {emailAttempted && (
+              <div className="flex items-start gap-2">
+                <Mail className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  {result.invitationSent
+                    ? <>Sign-in email sent to <strong>{result.email}</strong>{result.emailProvider ? ` (via ${result.emailProvider})` : ''}.</>
+                    : <>Email did <strong>not</strong> send: {result.inviteNotice || 'delivery failed.'}</>}
+                </span>
+              </div>
+            )}
+            {smsAttempted && (
+              <div className="flex items-start gap-2">
+                <Phone className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  {result.smsSent
+                    ? <>Text message sent to <strong>{result.phone}</strong>.</>
+                    : <>SMS did <strong>not</strong> send: {result.smsNotice || 'delivery failed.'}</>}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <p className={`mt-3 text-sm ${bodyText}`}>
+            On first sign-in they'll complete a short application and land in their {PORTAL_OPTIONS.find(p => p.value === result.portalType)?.label} portal.
           </p>
-          <button onClick={() => { navigator.clipboard?.writeText(result.email); toast.success('Email copied.'); }} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-green-800 hover:underline"><Copy className="h-3.5 w-3.5" /> Copy email</button>
+
+          <div className="mt-3 flex flex-wrap gap-4">
+            <button onClick={() => { navigator.clipboard?.writeText(result.email); toast.success('Email copied.'); }} className={`inline-flex items-center gap-1.5 text-xs font-semibold hover:underline ${head}`}><Copy className="h-3.5 w-3.5" /> Copy email</button>
+            {result.inviteLink && (
+              <button onClick={() => { navigator.clipboard?.writeText(result.inviteLink!); toast.success('Sign-in link copied — you can send it manually.'); }} className={`inline-flex items-center gap-1.5 text-xs font-semibold hover:underline ${head}`}><Copy className="h-3.5 w-3.5" /> Copy sign-in link</button>
+            )}
+          </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
