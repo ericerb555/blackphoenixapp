@@ -1741,9 +1741,9 @@ export default function PublicStore() {
 
       {/* ── QUICK VIEW MODAL ─────────────────────────────────────────────────── */}
       {showQuickView && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setShowQuickView(null)} />
-          <div className="relative w-full max-w-3xl rounded-t-3xl sm:rounded-3xl max-h-[92vh] overflow-y-auto overscroll-contain my-0 sm:my-8" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
+          <div className="relative w-full max-w-md sm:max-w-3xl rounded-3xl max-h-[80dvh] sm:max-h-[88vh] overflow-y-auto overscroll-contain mb-2 sm:my-8" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
             <button onClick={() => setShowQuickView(null)} className="fixed sm:absolute top-4 right-4 z-[60] w-9 h-9 rounded-xl flex items-center justify-center text-gray-400 hover:text-white transition" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }} aria-label="Close">
               <X className="w-5 h-5" />
             </button>

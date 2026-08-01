@@ -119,6 +119,16 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
         return;
       }
       if (!data?.success) throw new Error(data?.error || 'Shipping refresh failed.');
+      if (data.updated === 0) {
+        // Queried Zendrop but found no shipping figure — surface what it exposed
+        // so we know whether the capability exists at all.
+        console.warn('[ProductCatalogAdmin] shipping refresh found nothing. Zendrop tools:', data.availableTools, data);
+        toast.error(
+          `${data.note || 'Zendrop returned no shipping figure.'}${Array.isArray(data.availableTools) && data.availableTools.length ? ` Tools seen: ${data.availableTools.slice(0, 8).join(', ')}` : ''}`,
+          { duration: 10000 },
+        );
+        return;
+      }
       toast.success(`Pulled live shipping for ${data.updated} item${data.updated !== 1 ? 's' : ''}${data.missing ? ` · ${data.missing} had no rate` : ''}.`);
       await load();
     } catch (err: any) {

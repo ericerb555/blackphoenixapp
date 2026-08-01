@@ -23,6 +23,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { resolveKey, num } from "./zendrop.tsx";
+import { invalidateProductsCache } from "./ecommerce-products.tsx";
 
 const shippingRatesRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -128,15 +129,22 @@ async function discoverTools(apiKey: string): Promise<{ all: string[]; shipping:
   return { all, shipping };
 }
 
-/** Try each candidate shipping tool for one product; return the first real cost. */
+/** Try each candidate tool for one product; return the first real shipping cost.
+ *  Works for both dedicated shipping-rate tools AND product-detail tools that
+ *  carry a shipping figure somewhere inside their payload. */
 async function fetchLiveShipping(apiKey: string, tools: string[], product: any): Promise<number | null> {
   const productId = String(product.providerProductId || product.sku || product.id || "");
   const sku = String(product.sku || "");
-  // Zendrop tools ignore unknown args, so pass every id/destination shape we know.
+  const variantId = String(product.variantId || product.providerVariantId || sku || "");
+  // Zendrop tools ignore unknown args, so pass every id + a FULL US destination
+  // address (real rate quotes usually require a zip/state, not just a country).
   const args = {
     product_id: productId, productId, id: productId, sku,
-    variant_id: sku, quantity: 1, qty: 1,
+    variant_id: variantId, variantId, quantity: 1, qty: 1,
     destination_country: "US", country: "US", country_code: "US", destination: "US",
+    address: { country: "US", country_code: "US", state: "CA", province: "CA", city: "Los Angeles", zip: "90001", postal_code: "90001" },
+    shipping_address: { country: "US", state: "CA", city: "Los Angeles", zip: "90001" },
+    zip: "90001", postal_code: "90001", state: "CA", province: "CA", city: "Los Angeles",
   } as Record<string, unknown>;
   for (const tool of tools) {
     const res = await mcp(apiKey, "tools/call", { name: tool, arguments: args });
@@ -175,12 +183,18 @@ shippingRatesRouter.post(`${PREFIX}/shipping-rates/refresh`, async (c) => {
 
     const { all, shipping, error: toolErr } = await discoverTools(apiKey);
     if (toolErr) return c.json({ success: false, error: `Could not list Zendrop tools: ${toolErr}` }, 502);
-    if (shipping.length === 0) {
+
+    // Prefer dedicated shipping tools, but also fall back to product-detail /
+    // quote / order tools — Zendrop frequently returns the shipping figure
+    // nested inside a product or quote payload rather than in a "shipping" tool.
+    const detailTools = all.filter((n) => /product|item|detail|get|quote|estimate|order|checkout|calc/i.test(n) && !shipping.includes(n));
+    const candidateTools = [...shipping, ...detailTools];
+    if (candidateTools.length === 0) {
       return c.json({
         success: false,
         noShippingTool: true,
         availableTools: all,
-        error: "Your Zendrop plan/API doesn't expose a shipping-rate tool, so live per-item shipping can't be pulled. Keep entering shipping manually on the pricing page, or ask Zendrop to enable shipping-rate API access.",
+        error: "Zendrop's API exposes no tools we can query for shipping. Keep entering shipping manually on the pricing page, or ask Zendrop to enable shipping-rate/product API access.",
       }, 200);
     }
 
@@ -195,7 +209,7 @@ shippingRatesRouter.post(`${PREFIX}/shipping-rates/refresh`, async (c) => {
     let updated = 0, missing = 0;
     const sample: { name: string; shippingCost: number }[] = [];
     for (const { key, product } of slice) {
-      const cost = await fetchLiveShipping(apiKey, shipping, product);
+      const cost = await fetchLiveShipping(apiKey, candidateTools, product);
       if (cost == null) { missing += 1; continue; }
       product.shippingCost = cost;
       product.shippingUpdatedAt = new Date().toISOString();
@@ -203,15 +217,21 @@ shippingRatesRouter.post(`${PREFIX}/shipping-rates/refresh`, async (c) => {
       updated += 1;
       if (sample.length < 5) sample.push({ name: product.name, shippingCost: cost });
     }
+    if (updated > 0) invalidateProductsCache();
 
     return c.json({
       success: true,
-      shippingTool: shipping[0],
+      usedShippingTool: shipping.length > 0,
       shippingTools: shipping,
+      candidateTools,
+      availableTools: all,
       scanned: slice.length,
       updated,
       missing,
       sample,
+      note: updated === 0
+        ? "Queried Zendrop but couldn't find a shipping figure in any response. See availableTools — if there's no shipping/quote tool, Zendrop isn't exposing this on your plan."
+        : undefined,
     });
   } catch (err) {
     console.log(`[shipping-rates] refresh error: ${err}`);
