@@ -33,32 +33,38 @@ export default function InvoicePreviewModal({ isOpen, onClose, invoice }: Invoic
   };
 
   const convertInvoiceToPDFData = (): InvoicePDFData => {
+    const inv: any = invoice;
+    const rawItems: any[] = inv.line_items ?? inv.items ?? [];
     return {
-      invoiceNumber: invoice.invoiceNumber,
-      date: formatDate(invoice.date),
-      dueDate: formatDate(invoice.dueDate),
-      status: invoice.status,
+      invoiceNumber: inv.invoice_number ?? inv.invoiceNumber ?? '',
+      date: formatDate(inv.issue_date ?? inv.date),
+      dueDate: formatDate(inv.due_date ?? inv.dueDate),
+      status: inv.status,
       customer: {
-        name: invoice.customerName,
-        email: invoice.customerEmail || '',
-        phone: invoice.customerPhone,
-        address: invoice.customerAddress,
+        name: inv.customer_name ?? inv.customerName ?? '',
+        email: inv.customer_email ?? inv.customerEmail ?? '',
+        phone: inv.customer_phone ?? inv.customerPhone,
+        address: inv.customer_address ?? inv.customerAddress,
       },
-      project: invoice.projectName ? {
-        name: invoice.projectName,
-        number: invoice.projectId || '',
+      project: (inv.project_name ?? inv.projectName) ? {
+        name: inv.project_name ?? inv.projectName,
+        number: inv.project_id ?? inv.projectId ?? '',
       } : undefined,
-      items: invoice.items.map(item => ({
-        description: item.description,
-        quantity: item.quantity,
-        rate: item.rate,
-        amount: item.amount,
-      })),
-      subtotal: invoice.subtotal,
-      tax: invoice.tax,
-      total: invoice.total,
-      notes: invoice.notes,
-      terms: invoice.terms,
+      items: rawItems.map((item: any) => {
+        const quantity = Number(item.quantity) || 0;
+        const rate = Number(item.unit_price ?? item.rate) || 0;
+        return {
+          description: item.description ?? '',
+          quantity,
+          rate,
+          amount: Number(item.amount) || quantity * rate,
+        };
+      }),
+      subtotal: Number(inv.subtotal) || 0,
+      tax: Number(inv.tax_amount ?? inv.tax) || 0,
+      total: Number(inv.total_amount ?? inv.total) || 0,
+      notes: inv.notes,
+      terms: inv.terms,
     };
   };
 
@@ -331,7 +337,7 @@ export default function InvoicePreviewModal({ isOpen, onClose, invoice }: Invoic
         isOpen={emailModalOpen}
         onClose={() => setEmailModalOpen(false)}
         invoice={convertInvoiceToPDFData()}
-        defaultEmail={invoice.customerEmail}
+        defaultEmail={(invoice as any).customer_email ?? (invoice as any).customerEmail}
       />
     </div>
   );

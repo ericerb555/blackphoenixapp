@@ -20,11 +20,20 @@ import { toast } from 'sonner';
 import {
   TrendingUp, DollarSign, Briefcase, Target, PieChart, Loader2,
   ArrowUpRight, CheckCircle, Users, Percent, Clock, X, Sparkles,
+  Search, CreditCard, Crown, SlidersHorizontal,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
+
+// Mirrors the server-authoritative AI_TIER_PRICING (investments-kv.tsx). Display
+// only — the server re-validates pricing on checkout.
+const SUBSCRIPTION_TIERS: { id: string; name: string; price: string; blurb: string; featured?: boolean }[] = [
+  { id: 'starter', name: 'Landlord', price: '$29/mo', blurb: 'Property intelligence for single owners & small portfolios.' },
+  { id: 'professional', name: 'Pro Investor', price: '$79/mo', blurb: 'Deal analysis, feasibility studies & priority opportunity access.', featured: true },
+  { id: 'enterprise', name: 'Association', price: '$199/mo', blurb: 'Full intelligence suite for condo associations & funds.' },
+];
 
 interface Opportunity {
   id: string;
@@ -106,6 +115,16 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Search + category filter over opportunities.
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<string>('all');
+
+  // Subscription (Property Intelligence) state.
+  const [subActive, setSubActive] = useState(false);
+  const [subPlan, setSubPlan] = useState<string>('');
+  const [subBusyTier, setSubBusyTier] = useState<string>('');
+  const [showPlans, setShowPlans] = useState(false);
+
   const headers = {
     Authorization: `Bearer ${publicAnonKey}`,
     'Content-Type': 'application/json',
@@ -132,6 +151,15 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
           setPayouts(Array.isArray(data.recentPayouts) ? data.recentPayouts : []);
         } else {
           console.log(`InvestmentTab: portfolio request returned ${portRes.status}`);
+        }
+
+        const subRes = await fetch(`${API}/ai-subscription/${encodeURIComponent(email)}`, { headers });
+        if (subRes.ok) {
+          const data = await subRes.json().catch(() => ({}));
+          setSubActive(!!data.active);
+          setSubPlan(data.subscription?.plan || (data.privileged ? 'Team access' : ''));
+        } else {
+          console.log(`InvestmentTab: subscription request returned ${subRes.status}`);
         }
       }
     } catch (error: any) {
@@ -187,6 +215,41 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
     }
   }
 
+  // Kick off a Stripe Checkout subscription for the chosen tier.
+  async function startSubscription(tier: string) {
+    if (!email) {
+      toast.error('Please sign in to join the subscription.');
+      return;
+    }
+    setSubBusyTier(tier);
+    try {
+      const res = await fetch(`${API}/ai-subscription/checkout`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ email, tier, audience: portalType, origin: window.location.origin }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.url) throw new Error(payload.error || `Request failed (${res.status})`);
+      window.location.assign(payload.url);
+    } catch (error: any) {
+      console.error('InvestmentTab: failed to start subscription checkout:', error);
+      toast.error(`Could not start subscription: ${error.message}`);
+      setSubBusyTier('');
+    }
+  }
+
+  // Category list for the filter, derived from the live opportunities.
+  const categories = Array.from(new Set(opportunities.map(o => o.category).filter(Boolean))) as string[];
+
+  // Apply the search query + category filter.
+  const q = query.trim().toLowerCase();
+  const filteredOpportunities = opportunities.filter(o => {
+    if (category !== 'all' && o.category !== category) return false;
+    if (!q) return true;
+    return [o.title, o.description, o.category, o.location, o.highlight]
+      .some(v => typeof v === 'string' && v.toLowerCase().includes(q));
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20 text-gray-400">
@@ -219,6 +282,51 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
         </span>
       </div>
 
+      {/* Subscription (Property Intelligence) */}
+      <div className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/5 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300"><Crown className="h-5 w-5" /></div>
+            <div>
+              <p className="text-sm font-bold text-white">Investor Intelligence Subscription</p>
+              {subActive ? (
+                <p className="text-xs text-emerald-300 flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> Active{subPlan ? ` · ${subPlan}` : ''}</p>
+              ) : (
+                <p className="text-xs text-gray-400">Deal analysis, feasibility studies & priority access to new opportunities.</p>
+              )}
+            </div>
+          </div>
+          {subActive ? (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">Subscribed</span>
+          ) : (
+            <button onClick={() => setShowPlans(v => !v)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-black transition hover:bg-amber-400">
+              <CreditCard className="h-4 w-4" /> Join subscription
+            </button>
+          )}
+        </div>
+        {!subActive && showPlans && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {SUBSCRIPTION_TIERS.map(t => (
+              <div key={t.id} className={`rounded-xl border p-4 ${t.featured ? 'border-amber-500/50 bg-amber-500/10' : 'border-[#2A2A2A] bg-[#0A0A0A]'}`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-white">{t.name}</p>
+                  {t.featured && <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">POPULAR</span>}
+                </div>
+                <p className="mt-1 text-lg font-bold text-amber-300">{t.price}</p>
+                <p className="mt-1 text-xs text-gray-400">{t.blurb}</p>
+                <button
+                  onClick={() => startSubscription(t.id)}
+                  disabled={!!subBusyTier}
+                  className="mt-3 w-full rounded-lg bg-amber-500 py-2 text-sm font-bold text-black transition hover:bg-amber-400 disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {subBusyTier === t.id ? <><Loader2 className="h-4 w-4 animate-spin" /> Redirecting…</> : <>Subscribe</>}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Portfolio summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {stats.map((s) => {
@@ -245,18 +353,56 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
 
       {/* Opportunities */}
       <div>
-        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <Target className="w-4 h-4 text-emerald-400" /> Open Opportunities
-        </h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Target className="w-4 h-4 text-emerald-400" /> All Opportunities
+            <span className="text-xs font-normal text-gray-500">({filteredOpportunities.length})</span>
+          </h3>
+        </div>
+
+        {/* Search + category filter */}
+        {opportunities.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search opportunities by name, location, category…"
+                className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-white text-sm focus:border-emerald-500 outline-none"
+              />
+            </div>
+            {categories.length > 0 && (
+              <div className="relative">
+                <SlidersHorizontal className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="appearance-none pl-9 pr-8 py-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-white text-sm focus:border-emerald-500 outline-none cursor-pointer"
+                >
+                  <option value="all">All categories</option>
+                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
         {opportunities.length === 0 ? (
           <div className="bg-[#0A0A0A] border border-dashed border-[#2A2A2A] rounded-xl p-8 text-center">
             <Briefcase className="w-8 h-8 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400 text-sm">No investment opportunities are open right now.</p>
             <p className="text-gray-600 text-xs mt-1">Check back soon — new opportunities are added regularly.</p>
           </div>
+        ) : filteredOpportunities.length === 0 ? (
+          <div className="bg-[#0A0A0A] border border-dashed border-[#2A2A2A] rounded-xl p-8 text-center">
+            <Search className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400 text-sm">No opportunities match your search.</p>
+            <button onClick={() => { setQuery(''); setCategory('all'); }} className="text-emerald-400 text-xs mt-2 hover:underline">Clear filters</button>
+          </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
-            {opportunities.map((o) => {
+            {filteredOpportunities.map((o) => {
               const catColor = CATEGORY_COLORS[o.category || ''] || 'bg-gray-500/15 text-gray-300 border-gray-500/30';
               return (
                 <div key={o.id} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-5 hover:border-emerald-500/40 transition">

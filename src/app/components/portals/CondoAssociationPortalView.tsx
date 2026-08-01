@@ -20,6 +20,8 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import { CondoService } from '../../lib/services/propertyManagementService';
+import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
+import { lookupParcel } from '../../lib/services/propertyRecordsService';
 
 // Role types for the condo association
 type UserRole = 'board_president' | 'board_member' | 'property_manager' | 'resident';
@@ -64,6 +66,25 @@ export default function CondoAssociationPortalView() {
       toast.error('Failed to load condo data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Pull the association's parcel data + plot boundary from public records and
+  // store it on the condo so the board never re-enters property facts by hand.
+  const refreshAssociationRecords = async () => {
+    const address = (condoData?.address) || 'Harborview, NH';
+    try {
+      const { parcel, geometry } = await lookupParcel(address);
+      const patch = { parcel, parcelGeometry: geometry, recordsUpdatedAt: new Date().toISOString() };
+      setCondoData((prev: any) => ({ ...(prev || {}), ...patch }));
+      // Persist to the association record when it's a real (non-demo) condo.
+      if (condoData?.id && condoData.id !== 'demo-condo') {
+        try { await CondoService.update(condoData.id, patch); } catch (err) { console.error('Condo records save skipped:', err); }
+      }
+      toast.success('Association property records updated from public data.');
+    } catch (error: any) {
+      console.error('Condo records lookup failed:', error);
+      toast.error(error?.message || 'Unable to refresh association records.');
     }
   };
 
@@ -727,6 +748,16 @@ export default function CondoAssociationPortalView() {
                 </div>
               </div>
             </div>
+
+            {/* Public records, GIS & plot plan */}
+            <PropertyRecordsPanel
+              address={associationInfo.address}
+              parcel={condoData?.parcel}
+              geometry={condoData?.parcelGeometry}
+              recordsUpdatedAt={condoData?.recordsUpdatedAt}
+              canRefresh={currentUser.role !== 'resident'}
+              onRefresh={refreshAssociationRecords}
+            />
 
             {/* Work Orders */}
             {workOrders.length > 0 && (

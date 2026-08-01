@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { X, FileText, Plus, Trash2, Search, User, Calendar, DollarSign } from 'lucide-react';
+import { X, FileText, Plus, Trash2, Search, User, Calendar, DollarSign, Phone, MapPin, Mail, UserPlus, Smartphone } from 'lucide-react';
 import { InvoiceService, type InvoiceFormData, type InvoiceLineItem } from '../../lib/services/invoiceService';
-import { getCustomers, type Customer } from '../../lib/services/customerService';
+import { getCustomers, createCustomer, type Customer } from '../../lib/services/customerService';
 import { companyInfo } from '../../lib/config/companyInfo';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 import CompanyHeader from '../branding/CompanyHeader';
 import { toast } from 'sonner@2.0.3';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface CreateInvoiceModalProps {
   isOpen: boolean;
@@ -32,12 +36,17 @@ export default function CreateInvoiceModal({
   const [showCustomerSearch, setShowCustomerSearch] = useState(!customerId);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [useManualRecipient, setUseManualRecipient] = useState(false);
-  
+  const [saveAsContact, setSaveAsContact] = useState(false);
+  const [inviteToApp, setInviteToApp] = useState(false);
+  const [inviteBySms, setInviteBySms] = useState(false);
+
   const [formData, setFormData] = useState({
     customer_id: customerId || '',
     project_id: projectId || '',
     customer_name: '',
     customer_email: '',
+    customer_phone: '',
+    customer_address: '',
     recipient_portal: 'customer' as NonNullable<InvoiceFormData['recipient_portal']>,
     payment_rail: 'services' as NonNullable<InvoiceFormData['payment_rail']>,
     status: 'draft' as 'draft' | 'pending' | 'paid' | 'partial' | 'overdue' | 'cancelled',
@@ -66,6 +75,8 @@ export default function CreateInvoiceModal({
         project_id: invoice.project_id || '',
         customer_name: invoice.customer_name || '',
         customer_email: invoice.customer_email || '',
+        customer_phone: invoice.customer_phone || '',
+        customer_address: invoice.customer_address || '',
         recipient_portal: invoice.recipient_portal || 'customer',
         payment_rail: invoice.payment_rail || 'services',
         status: invoice.status || 'draft',
@@ -83,8 +94,12 @@ export default function CreateInvoiceModal({
       }
       setShowCustomerSearch(false);
       setUseManualRecipient(Boolean((invoice.customer_email || invoice.customerEmail) && !invoice.customer_id));
+      setSaveAsContact(false);
+      setInviteToApp(false);
     } else if (isOpen) {
       setUseManualRecipient(false);
+      setSaveAsContact(false);
+      setInviteToApp(false);
     }
   }, [isOpen]);
 
@@ -198,6 +213,68 @@ export default function CreateInvoiceModal({
     return calculateSubtotal() + calculateTax() - formData.discount_amount;
   };
 
+  // Split a "First Last" string into first/last name parts.
+  const splitName = (full: string): { first: string; last: string } => {
+    const parts = full.trim().split(/\s+/);
+    return { first: parts[0] || full.trim(), last: parts.slice(1).join(' ') };
+  };
+
+  // Persist the manually-entered recipient into the CRM as a new contact.
+  const saveNewContact = async (): Promise<string | null> => {
+    const { first, last } = splitName(formData.customer_name);
+    try {
+      const created = await createCustomer({
+        first_name: first,
+        last_name: last,
+        email: formData.customer_email.trim(),
+        phone: formData.customer_phone.trim() || undefined,
+        address_line1: formData.customer_address.trim() || undefined,
+        status: 'active',
+        source: 'invoice',
+      });
+      toast.success(`Added ${created.first_name} ${created.last_name} to your contacts`);
+      return created.id;
+    } catch (err: any) {
+      console.error('Failed to save new contact from invoice modal:', err);
+      toast.error(`Could not save contact: ${err?.message || err}`);
+      return null;
+    }
+  };
+
+  // Invite the recipient to their portal so their future activity links to them.
+  const sendAppInvite = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || publicAnonKey;
+      const phone = formData.customer_phone.trim();
+      const res = await fetch(`${SERVER}/owner-provisioning/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: formData.customer_name.trim(),
+          email: formData.customer_email.trim(),
+          phone,
+          portalType: formData.recipient_portal,
+          fullAccess: true,
+          sendEmail: true,
+          sendSms: inviteBySms && !!phone,
+        }),
+      });
+      if (res.status === 409) {
+        toast.info('This person already has an account or a pending invite.');
+        return;
+      }
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`${res.status} ${detail}`);
+      }
+      toast.success('Portal invite sent!');
+    } catch (err: any) {
+      console.error('Failed to send portal invite from invoice modal:', err);
+      toast.error(`Invoice saved, but the portal invite failed: ${err?.message || err}`);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -219,8 +296,17 @@ export default function CreateInvoiceModal({
 
     setLoading(true);
     try {
+      // Optionally persist the manual recipient into the CRM first, so the
+      // invoice can be linked to a real contact id.
+      let resolvedCustomerId = formData.customer_id;
+      if (useManualRecipient && saveAsContact && !resolvedCustomerId && formData.customer_name.trim() && formData.customer_email.trim()) {
+        const newId = await saveNewContact();
+        if (newId) resolvedCustomerId = newId;
+      }
+
       const invoiceData: InvoiceFormData = {
         ...formData,
+        customer_id: resolvedCustomerId,
         status: finalStatus,
         is_draft: isDraft,
         line_items: lineItems,
@@ -234,6 +320,11 @@ export default function CreateInvoiceModal({
       }
 
       if (error) throw error;
+
+      // Fire the portal invite after the invoice is safely saved.
+      if (useManualRecipient && inviteToApp && formData.customer_name.trim() && formData.customer_email.trim()) {
+        await sendAppInvite();
+      }
 
       if (isEditMode) {
         toast.success('Invoice updated successfully!');
@@ -258,6 +349,8 @@ export default function CreateInvoiceModal({
       project_id: '',
       customer_name: '',
       customer_email: '',
+      customer_phone: '',
+      customer_address: '',
       recipient_portal: 'customer',
       payment_rail: 'services',
       status: 'draft',
@@ -275,6 +368,9 @@ export default function CreateInvoiceModal({
     ]);
     setSelectedCustomer(null);
     setUseManualRecipient(false);
+    setSaveAsContact(false);
+    setInviteToApp(false);
+    setInviteBySms(false);
     setShowCustomerSearch(false);
     onClose();
   };
@@ -329,14 +425,46 @@ export default function CreateInvoiceModal({
                   <button type="button" onClick={() => { setUseManualRecipient(false); setShowCustomerSearch(true); setFormData({ ...formData, customer_id: '', customer_name: '', customer_email: '' }); }} className="text-sm font-semibold text-orange-400 hover:text-orange-300">Choose saved customer</button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <input required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="Recipient name" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
-                  <input required type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="Portal sign-in email" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="Recipient name" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  </div>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input required type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="Portal sign-in email" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  </div>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input type="tel" value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} placeholder="Phone number" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  </div>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input value={formData.customer_address} onChange={(e) => setFormData({ ...formData, customer_address: e.target.value })} placeholder="Billing address" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                  </div>
                   <select value={formData.recipient_portal} onChange={(e) => setFormData({ ...formData, recipient_portal: e.target.value as NonNullable<InvoiceFormData['recipient_portal']> })} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50">
                     <option value="customer">Customer portal</option><option value="vendor">Vendor portal</option><option value="advertiser">Advertiser portal</option><option value="subcontractor">Subcontractor portal</option><option value="employee">Employee / technician portal</option><option value="investor">Investor portal</option><option value="property_manager">Property manager portal</option><option value="condo_manager">Condo manager portal</option><option value="landlord">Landlord portal</option><option value="territory_owner">Territory owner portal</option>
                   </select>
                   <select value={formData.payment_rail} onChange={(e) => setFormData({ ...formData, payment_rail: e.target.value as NonNullable<InvoiceFormData['payment_rail']> })} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50">
                     <option value="services">Black Phoenix Builds — services & projects</option><option value="tbpco_ecommerce">TBPCO E-commerce — merchandise</option>
                   </select>
+                </div>
+
+                {/* Save as contact + portal invite */}
+                <div className="space-y-2 border-t border-orange-500/20 pt-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={saveAsContact} onChange={(e) => setSaveAsContact(e.target.checked)} className="mt-0.5 w-4 h-4 rounded bg-[#0A0A0A] border border-[#2A2A2A] text-orange-600 focus:ring-2 focus:ring-orange-500/50" />
+                    <span className="text-sm text-gray-300 flex items-center gap-1.5"><UserPlus className="w-4 h-4 text-orange-400" /> Save this person as a new contact</span>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={inviteToApp} onChange={(e) => setInviteToApp(e.target.checked)} className="mt-0.5 w-4 h-4 rounded bg-[#0A0A0A] border border-[#2A2A2A] text-orange-600 focus:ring-2 focus:ring-orange-500/50" />
+                    <span className="text-sm text-gray-300">Invite them to their portal so their activity links to their account</span>
+                  </label>
+                  {inviteToApp && (
+                    <label className="flex items-start gap-3 cursor-pointer pl-7">
+                      <input type="checkbox" checked={inviteBySms} onChange={(e) => setInviteBySms(e.target.checked)} disabled={!formData.customer_phone.trim()} className="mt-0.5 w-4 h-4 rounded bg-[#0A0A0A] border border-[#2A2A2A] text-orange-600 focus:ring-2 focus:ring-orange-500/50 disabled:opacity-40" />
+                      <span className="text-sm text-gray-400 flex items-center gap-1.5"><Smartphone className="w-4 h-4 text-orange-400" /> Also text the invite {formData.customer_phone.trim() ? '' : '(add a phone number first)'}</span>
+                    </label>
+                  )}
                 </div>
               </div>
             ) : selectedCustomer ? (

@@ -17,6 +17,8 @@ import {
   AlertCircle, TrendingDown, ArrowUpRight, HelpCircle, Layers, Sparkles, Megaphone,
 } from 'lucide-react';
 import PropertyDocuments from '../components/PropertyDocuments';
+import { PropertyRecordsPanel } from '../components/property/PropertyRecordsPanel';
+import { lookupParcel } from '../lib/services/propertyRecordsService';
 import PropertyKnowledgeCenter from '../components/PropertyKnowledgeCenter';
 import PropertyMarketplace from '../components/PropertyMarketplace';
 import MarketplaceAdmin from './MarketplaceAdmin';
@@ -157,6 +159,52 @@ function seedProfile(): PropertyProfile {
   };
 }
 
+/**
+ * Merge any stored/partial profile over a full default so every field (and the
+ * `systems` array) always exists. A legacy or partial profile missing a numeric
+ * field used to crash the Profile tab (blank screen) — this guarantees a
+ * complete, safe shape.
+ */
+function hydrateProfile(saved: any): PropertyProfile {
+  const base = seedProfile();
+  if (!saved || typeof saved !== 'object') return base;
+  return {
+    ...base,
+    ...saved,
+    systems: Array.isArray(saved.systems) && saved.systems.length ? saved.systems : base.systems,
+  };
+}
+
+/**
+ * Map a landlord-portfolio property (from the Properties tab) onto a Property AI
+ * profile so the landlord never has to re-enter the same basics. Only the fields
+ * the portfolio actually tracks are overwritten; systems/amenities are preserved
+ * from the given base profile.
+ */
+function mapLandlordProperty(p: any, base: PropertyProfile): PropertyProfile {
+  if (!p || typeof p !== 'object') return base;
+  const num = (v: any) => (v === '' || v == null || Number.isNaN(Number(v)) ? undefined : Number(v));
+  const units = num(p.units);
+  const vacancies = num(p.vacancies);
+  const monthlyRent = num(p.monthlyRent);
+  return {
+    ...base,
+    id: p.id ? `pai-${p.id}` : base.id,
+    name: p.name || base.name,
+    address: p.address || base.address,
+    type: 'landlord',
+    yearBuilt: num(p.yearBuilt) ?? base.yearBuilt,
+    units: units ?? base.units,
+    sqft: num(p.squareFootage) ?? base.sqft,
+    lotSize: p.lotSize || base.lotSize,
+    parkingSpaces: num(p.parkingSpaces) ?? base.parkingSpaces,
+    // Portfolio tracks per-unit monthly rent; approximate total monthly income.
+    currentIncome: monthlyRent != null ? monthlyRent * (units || 1) : base.currentIncome,
+    occupancyRate: units && units > 0 ? Math.round(((units - (vacancies || 0)) / units) * 100) : base.occupancyRate,
+    notes: p.conditionNotes || base.notes,
+  };
+}
+
 // ─── Health Score engine ───────────────────────────────────────────────────────
 
 function computeHealthFactors(p: PropertyProfile): HealthFactor[] {
@@ -288,7 +336,7 @@ const CONDITION_COLOR: Record<SystemCondition, string> = {
 
 const SCORE_COLOR = (s: number) => s >= 80 ? '#4ade80' : s >= 60 ? '#fbbf24' : '#f87171';
 
-function fmt$(n: number) { return `$${n.toLocaleString()}`; }
+function fmt$(n: number) { return `$${Number(n || 0).toLocaleString()}`; }
 
 const PHASE_TABS: { id: Tab; label: string; icon: any; phase: number; live: boolean }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home, phase: 1, live: true },
@@ -426,14 +474,22 @@ function LockedTab({ tab }: { tab: typeof PHASE_TABS[0] }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function PropertyAIEnterprise() {
+interface PropertyAIEnterpriseProps {
+  /** Landlord portfolio properties, passed in so the AI profile can be seeded
+   *  from them (no re-entering data). */
+  seedProperties?: any[];
+}
+
+export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnterpriseProps = {}) {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [profile, setProfile] = useState<PropertyProfile>(() => {
     try {
       const stored = localStorage.getItem('bp_pai_profile');
-      return stored ? JSON.parse(stored) : seedProfile();
+      return stored ? hydrateProfile(JSON.parse(stored)) : seedProfile();
     } catch { return seedProfile(); }
   });
+  // Which portfolio property (if any) the AI profile is currently linked to.
+  const [linkedPropertyId, setLinkedPropertyId] = useState<string>('');
   const [editingSystem, setEditingSystem] = useState<BuildingSystem | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileDraft, setProfileDraft] = useState<PropertyProfile>(profile);
@@ -455,9 +511,30 @@ export default function PropertyAIEnterprise() {
   useEffect(() => {
     (async () => {
       const saved = await loadDual('bp_pai_profile');
-      if (saved && typeof saved === 'object') setProfile(saved);
+      if (saved && typeof saved === 'object') {
+        setProfile(hydrateProfile(saved));
+        return;
+      }
+      // Nothing saved yet — if the landlord already has portfolio properties,
+      // seed the AI profile from the first one so they don't re-enter data.
+      if (Array.isArray(seedProperties) && seedProperties.length > 0) {
+        setProfile(prev => mapLandlordProperty(seedProperties[0], prev));
+        setLinkedPropertyId(seedProperties[0].id || '');
+      }
     })();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedProperties]);
+
+  // Pull the selected portfolio property's basics into the AI profile.
+  function linkPortfolioProperty(id: string) {
+    setLinkedPropertyId(id);
+    if (!id) return;
+    const match = (seedProperties || []).find(p => String(p.id) === String(id));
+    if (match) {
+      setProfile(prev => mapLandlordProperty(match, prev));
+      toast.success(`Imported "${match.name || 'property'}" from your portfolio.`);
+    }
+  }
 
   useEffect(() => {
     saveDual('bp_pai_profile', profile);
@@ -467,6 +544,17 @@ export default function PropertyAIEnterprise() {
     setProfile(profileDraft);
     setEditingProfile(false);
     toast.success('Profile updated.');
+  }
+
+  // Pull the parcel record + plot boundary for this property from public data.
+  async function refreshOwnerRecords() {
+    try {
+      const { parcel, geometry } = await lookupParcel(profile.address);
+      setProfile(prev => ({ ...prev, parcel, parcelGeometry: geometry, recordsUpdatedAt: new Date().toISOString() } as any));
+      toast.success('Property records updated from public data.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Unable to refresh property records.');
+    }
   }
 
   function saveSystem(updated: BuildingSystem) {
@@ -686,6 +774,26 @@ export default function PropertyAIEnterprise() {
                 </div>
               )}
             </div>
+
+            {/* Link to portfolio — avoids re-entering data already in the Properties tab */}
+            {Array.isArray(seedProperties) && seedProperties.length > 0 && (
+              <div className="bg-violet-500/5 border border-violet-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-violet-300">
+                  <Layers className="w-4 h-4" /> Linked property
+                </div>
+                <select
+                  value={linkedPropertyId}
+                  onChange={e => linkPortfolioProperty(e.target.value)}
+                  className="flex-1 bg-[#0d0d0d] border border-[#2A2A2A] focus:border-violet-500 rounded-lg px-3 py-2.5 text-white text-sm outline-none transition"
+                >
+                  <option value="">Not linked — enter manually</option>
+                  {seedProperties.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.name || p.address || 'Untitled property'}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 sm:max-w-[38%]">Pulls name, address, year, units, size, parking, and rent from your Properties tab so you don't re-enter them.</p>
+              </div>
+            )}
 
             {/* Basic info */}
             <div className="bg-[#111] border border-[#2A2A2A] rounded-2xl p-6 space-y-4">
@@ -1010,6 +1118,13 @@ export default function PropertyAIEnterprise() {
               </h2>
               <p className="text-sm text-gray-400 mt-1">Upload documents and let AI organize, extract, and flag what's missing — all searchable and versioned.</p>
             </div>
+            <PropertyRecordsPanel
+              address={profile.address}
+              parcel={(profile as any).parcel}
+              geometry={(profile as any).parcelGeometry}
+              recordsUpdatedAt={(profile as any).recordsUpdatedAt}
+              onRefresh={refreshOwnerRecords}
+            />
             <PropertyDocuments />
           </div>
         )}

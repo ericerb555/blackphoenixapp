@@ -3736,6 +3736,106 @@ async function signPropertyMedia(property: any) {
   return { ...property, media: signed };
 }
 
+// ── Public parcel records (Regrid) — GIS + plot plans ───────────────────────
+// Looks a property up in the official Regrid parcel database and returns both
+// the parcel facts (zoning, acreage, assessed value, owner of record, lat/lon)
+// and the raw parcel boundary geometry (GeoJSON) used to render the plot plan.
+// Best-effort: returns a clear error if the key is missing or nothing matches.
+async function fetchParcelRecord(address: string): Promise<{ parcel: any; geometry: any } | null> {
+  const token = Deno.env.get('REGRID_API_KEY');
+  if (!token || !address.trim()) return null;
+  const url = `https://app.regrid.com/api/v2/parcels/address?query=${encodeURIComponent(address)}&limit=1&token=${encodeURIComponent(token)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+  } catch (err: any) {
+    console.log(`[regrid] lookup failed for "${address}": ${err?.message || err}`);
+    return null;
+  } finally { clearTimeout(timeout); }
+  if (!res.ok) { console.log(`[regrid] lookup for "${address}" returned ${res.status}`); return null; }
+  const data = await res.json().catch(() => null);
+  const feature = data?.parcels?.features?.[0] || data?.features?.[0];
+  if (!feature) return null;
+  const f = feature.properties?.fields || feature.properties || {};
+  const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
+  const parcel = {
+    parcelNumber: f.parcelnumb || f.parcelnumb_no_formatting,
+    owner: f.owner,
+    address: f.address || [f.saddno, f.saddstr].filter(Boolean).join(' ') || undefined,
+    city: f.scity || f.city,
+    county: f.county,
+    state: f.state2 || f.state,
+    zip: f.szip || f.zip,
+    zoning: f.zoning,
+    zoningDescription: f.zoning_description,
+    zoningType: f.zoning_type,
+    landUse: f.usedesc || f.lbcs_activity_desc,
+    acreage: num(f.ll_gisacre ?? f.gisacre),
+    buildingSqft: num(f.ll_bldg_footprint_sqft),
+    yearBuilt: f.yearbuilt,
+    landValue: num(f.landval),
+    improvementValue: num(f.improvval),
+    parcelValue: num(f.parval),
+    lat: num(f.lat),
+    lon: num(f.lon),
+    source: 'regrid',
+    sourceLabel: 'Regrid parcel record',
+    fetchedAt: new Date().toISOString(),
+  };
+  return { parcel, geometry: feature.geometry || null };
+}
+
+// Generic address → parcel lookup. Read-only public data; reused by the condo
+// portal and the owner-side document views (which don't go through landlordActor).
+app.post('/make-server-3eae23a6/property-records/lookup', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const address = String(body.address || '').trim();
+    if (!address) return c.json({ success: false, error: 'An address is required to look up public records.' }, 400);
+    if (!Deno.env.get('REGRID_API_KEY')) return c.json({ success: false, error: 'The parcel data source (Regrid) is not configured for this account.' }, 501);
+    const result = await fetchParcelRecord(address);
+    if (!result) return c.json({ success: false, error: `No public parcel record was found for "${address}". Double-check the street address, city, and state.` }, 404);
+    return c.json({ success: true, parcel: result.parcel, geometry: result.geometry });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Parcel lookup failed.' }, 500); }
+});
+
+// Refresh a landlord property from public records: fills blank fields, and stores
+// the parcel facts + boundary geometry on the property for the GIS/plot-plan view.
+app.post('/make-server-3eae23a6/landlord/properties/:id/enrich', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to refresh property records.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    if (!Deno.env.get('REGRID_API_KEY')) return c.json({ success: false, error: 'The parcel data source (Regrid) is not configured for this account.' }, 501);
+    const key = landlordPortfolioKey(actor.user.email);
+    const portfolio = (await kv.get(key) as any[]) || [];
+    const idx = portfolio.findIndex((p: any) => String(p.id) === String(c.req.param('id')));
+    if (idx === -1) return c.json({ success: false, error: 'Property not found.' }, 404);
+    const property = portfolio[idx];
+    const result = await fetchParcelRecord(String(property.address || ''));
+    if (!result) return c.json({ success: false, error: `No public parcel record was found for "${property.address}".` }, 404);
+    const p = result.parcel;
+    const blank = (v: any) => v === null || v === undefined || v === '';
+    const updated = {
+      ...property,
+      yearBuilt: blank(property.yearBuilt) && p.yearBuilt ? Number(p.yearBuilt) : property.yearBuilt,
+      squareFootage: blank(property.squareFootage) && p.buildingSqft ? p.buildingSqft : property.squareFootage,
+      lotSize: blank(property.lotSize) && p.acreage ? `${p.acreage} acres` : property.lotSize,
+      currentValue: blank(property.currentValue) && p.parcelValue ? p.parcelValue : property.currentValue,
+      parcel: p,
+      parcelGeometry: result.geometry,
+      recordsUpdatedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    portfolio[idx] = updated;
+    await kv.set(key, portfolio);
+    const signed = await signPropertyMedia(updated);
+    return c.json({ success: true, property: signed, parcel: p });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to refresh property records.' }, 500); }
+});
+
 app.get('/make-server-3eae23a6/landlord/properties', async (c) => {
   try {
     const actor = await landlordActor(c);

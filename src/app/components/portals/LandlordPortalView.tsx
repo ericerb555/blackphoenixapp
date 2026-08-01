@@ -24,15 +24,27 @@ import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import PropertyAIEnterprise from '../../pages/PropertyAIEnterprise';
+import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
+import { enrichLandlordProperty } from '../../lib/services/propertyRecordsService';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 
-class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
+class Safe extends Component<{ children: ReactNode; label?: string }, { err: boolean }> {
   state = { err: false };
-  componentDidCatch() { this.setState({ err: true }); }
+  componentDidCatch(error: any) { console.error(`[LandlordPortal] ${this.props.label || 'section'} crashed:`, error); this.setState({ err: true }); }
   static getDerivedStateFromError() { return { err: true }; }
-  render() { return this.state.err ? null : this.props.children; }
+  render() {
+    if (!this.state.err) return this.props.children;
+    // Show a recoverable fallback instead of a blank screen.
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-center">
+        <p className="text-sm font-semibold text-red-300">This section hit a snag and couldn't load.</p>
+        <p className="mt-1 text-xs text-gray-400">Your data is safe. Try reloading this view.</p>
+        <button type="button" onClick={() => this.setState({ err: false })} className="mt-3 rounded-lg border border-red-500/40 px-4 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/10">Reload section</button>
+      </div>
+    );
+  }
 }
 
 const TENANTS = [
@@ -317,6 +329,17 @@ export default function LandlordPortalView() {
     } catch (error: any) { toast.error(error?.message || 'Unable to analyze property.'); } finally { setAnalyzingId(null); }
   }
 
+  // Pull the latest parcel data + plot boundary from public records and merge it
+  // into the property (blank fields are filled; parcel + geometry are stored).
+  async function enrichProperty(id: string) {
+    if (!session?.access_token) return;
+    try {
+      const { property } = await enrichLandlordProperty(id, session.access_token);
+      setProperties(current => current.map(p => p.id === id ? property : p));
+      toast.success('Property updated from public records.');
+    } catch (error: any) { toast.error(error?.message || 'Unable to refresh property records.'); }
+  }
+
   useEffect(() => {
     if (tab !== 'financials' || !session?.access_token) return;
     let cancelled = false;
@@ -561,6 +584,9 @@ export default function LandlordPortalView() {
                   {Array.isArray(ai.recommendations) && ai.recommendations.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-gray-400">{ai.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>}
                   {Array.isArray(ai.issues) && ai.issues.length > 0 && <button type="button" onClick={() => createWorkOrders(p.id)} disabled={creatingOrdersId === p.id} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-teal-500 disabled:opacity-50">{creatingOrdersId === p.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}Create {ai.issues.length} work order{ai.issues.length === 1 ? '' : 's'}</button>}
                 </div>}
+                <div className="mt-4">
+                  <PropertyRecordsPanel address={p.address} parcel={p.parcel} geometry={p.parcelGeometry} recordsUpdatedAt={p.recordsUpdatedAt} onRefresh={() => enrichProperty(p.id)} />
+                </div>
               </div>;
             })}
           </div>
@@ -629,7 +655,7 @@ export default function LandlordPortalView() {
         {tab === 'investments' && <InvestmentTab portalType="landlord" ownerName={name} />}
         {tab === 'property-ai' && (
           <div className="-mx-4 sm:-mx-6 -my-6">
-            <Safe><PropertyAIEnterprise /></Safe>
+            <Safe label="Property AI Enterprise"><PropertyAIEnterprise seedProperties={properties} /></Safe>
           </div>
         )}
         {tab === 'deals' && (<>
