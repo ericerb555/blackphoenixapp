@@ -192,8 +192,19 @@ export default function InvoicePreviewModal({ isOpen, onClose, invoice, onEdit }
               <div className="text-sm">
                 <p className="font-bold text-white print:text-gray-900 text-lg mb-1">{invoice.customer_name}</p>
                 <p className="text-gray-400 print:text-gray-600">{invoice.customer_email}</p>
+                {invoice.customer_address && (
+                  <p className="text-gray-400 print:text-gray-600 whitespace-pre-line">{invoice.customer_address}</p>
+                )}
               </div>
             </div>
+            {invoice.service_address && (
+              <div>
+                <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Address of Service</h3>
+                <div className="text-sm text-gray-400 print:text-gray-600 whitespace-pre-line">
+                  {invoice.service_address}
+                </div>
+              </div>
+            )}
             {invoice.project_id && (
               <div>
                 <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Project</h3>

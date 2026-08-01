@@ -137,6 +137,8 @@ export interface InvoiceFormData {
   customer_email?: string;
   customer_phone?: string;
   customer_address?: string;
+  /** Physical address where the work/service was performed (may differ from billing). */
+  service_address?: string;
   /** Portal that owns this invoice and should receive the in-app payment request. */
   recipient_portal?: 'customer' | 'vendor' | 'advertiser' | 'subcontractor' | 'employee' | 'investor' | 'property_manager' | 'condo_manager' | 'landlord' | 'territory_owner';
   /** Uses the correct connected company Stripe account; services is the default. */

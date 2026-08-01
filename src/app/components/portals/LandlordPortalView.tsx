@@ -25,6 +25,7 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import PropertyAIEnterprise from '../../pages/PropertyAIEnterprise';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
+import { LandlordDashboardMetrics, LandlordRentCollection, LandlordRenewals, LandlordApplications, LandlordDocumentVault } from './LandlordManagement';
 import { enrichLandlordProperty } from '../../lib/services/propertyRecordsService';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
@@ -47,25 +48,6 @@ class Safe extends Component<{ children: ReactNode; label?: string }, { err: boo
   }
 }
 
-const TENANTS = [
-  { id: 't1', name: 'Alice Monroe', unit: '12A - Oak St', rent: 1800, status: 'current' },
-  { id: 't2', name: 'Brian Walsh', unit: '3B - Maple Ave', rent: 1500, status: 'current' },
-  { id: 't3', name: 'Carmen Diaz', unit: '7 - Pine Rd', rent: 2100, status: 'late' },
-];
-
-const MAINTENANCE = [
-  { id: 'm1', title: 'Dishwasher leaking', unit: '12A - Oak St', priority: 'high', status: 'open' },
-  { id: 'm2', title: 'Broken window latch', unit: '3B - Maple Ave', priority: 'medium', status: 'open' },
-  { id: 'm3', title: 'HVAC filter replacement', unit: '7 - Pine Rd', priority: 'low', status: 'scheduled' },
-];
-
-const PROPERTIES = [
-  { id: 'p1', name: 'Oak Street Duplex', address: '14 Oak St', units: 8, vacancies: 1 },
-  { id: 'p2', name: 'Maple Avenue Flats', address: '201 Maple Ave', units: 12, vacancies: 0 },
-  { id: 'p3', name: 'Pine Road House', address: '7 Pine Rd', units: 6, vacancies: 1 },
-  { id: 'p4', name: 'Cedar Complex', address: '55 Cedar Blvd', units: 6, vacancies: 0 },
-];
-
 function priorityBadge(p: string) {
   if (p === 'urgent') return 'bg-red-500/10 text-red-400 border-red-500/20';
   if (p === 'high') return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
@@ -85,12 +67,16 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'tenants' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'property-ai' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'tenants' | 'rent' | 'applications' | 'renewals' | 'documents' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'property-ai' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'properties', label: 'Properties', icon: Building2 },
   { id: 'tenants', label: 'Tenants', icon: Users },
+  { id: 'rent', label: 'Rent', icon: CreditCard, badge: 'NEW' },
+  { id: 'applications', label: 'Applications', icon: FileText, badge: 'NEW' },
+  { id: 'renewals', label: 'Renewals', icon: FileSignature, badge: 'NEW' },
+  { id: 'documents', label: 'Documents', icon: FileText, badge: 'NEW' },
   { id: 'leases', label: 'Leases', icon: FileSignature },
   { id: 'maintenance', label: 'Maintenance', icon: Wrench },
   { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
@@ -370,6 +356,12 @@ export default function LandlordPortalView() {
     finally { setDecisionId(null); }
   }
 
+  // Live monthly rent roll: prefer actual tenant rents; if none are entered yet,
+  // fall back to the monthly rent listed on the properties themselves.
+  const tenantRentRoll = tenants.reduce((sum, t) => sum + Number(t.rent || 0), 0);
+  const propertyRentRoll = properties.reduce((sum, p) => sum + Number(p.monthlyRent || 0), 0);
+  const monthlyRevenue = tenantRentRoll > 0 ? tenantRentRoll : propertyRentRoll;
+
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0A0A0A', color: '#fff' }}>
       <Safe><SponsoredMarquee /></Safe>
@@ -414,11 +406,14 @@ export default function LandlordPortalView() {
 
         {tab === 'dashboard' && (
           <div className="space-y-6">
+            <Safe label="Dashboard metrics"><div className="rounded-2xl bg-white p-4"><LandlordDashboardMetrics session={session} /></div></Safe>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Properties', value: String(properties.length), icon: Building2 },
                 { label: 'Total Units', value: String(properties.reduce((sum, property) => sum + Number(property.units || 0), 0)), icon: Home },
-                { label: 'Monthly Revenue', value: '$28,400', icon: DollarSign },
+                // Monthly rent roll = sum of current tenants' rent. Falls back to the
+                // properties' listed monthly rent when no tenants are added yet.
+                { label: 'Monthly Revenue', value: `$${monthlyRevenue.toLocaleString()}`, icon: DollarSign },
                 { label: 'Vacancies', value: String(properties.reduce((sum, property) => sum + Number(property.vacancies || 0), 0)), icon: Wrench },
               ].map((s, i) => {
                 const Icon = s.icon;
@@ -616,6 +611,32 @@ export default function LandlordPortalView() {
           </FeatureGate>
         )}
 
+        {tab === 'rent' && (
+          <div className="rounded-2xl bg-white p-4 sm:p-6">
+            <Safe label="Rent collection"><LandlordRentCollection session={session} tenants={tenants} stripeReady={!!stripeStatus?.chargesEnabled} /></Safe>
+          </div>
+        )}
+
+        {tab === 'applications' && (
+          <div className="rounded-2xl bg-white p-4 sm:p-6">
+            <Safe label="Applications"><LandlordApplications session={session} onTenantAdded={(t: any) => setTenants(cur => [t, ...cur])} /></Safe>
+          </div>
+        )}
+
+        {tab === 'renewals' && (
+          <div className="rounded-2xl bg-white p-4 sm:p-6">
+            <Safe label="Renewals"><LandlordRenewals session={session} tenants={tenants} onTenantsChange={setTenants} /></Safe>
+          </div>
+        )}
+
+        {tab === 'documents' && (
+          <FeatureGate feature="Document Vault">
+            <div className="rounded-2xl bg-white p-4 sm:p-6">
+              <Safe label="Document vault"><LandlordDocumentVault session={session} /></Safe>
+            </div>
+          </FeatureGate>
+        )}
+
         {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><div className="space-y-6"><LandlordLeaseManager session={session} tenants={tenants} /><div className="border-t border-[#2A2A2A] pt-6"><LandlordFormsManager session={session} tenants={tenants} /></div></div></FeatureGate>}
 
         {tab === 'maintenance' && (
@@ -773,7 +794,7 @@ export default function LandlordPortalView() {
 
         {tab === 'messages' && (
           <div className="p-6">
-            <MessagesTab userId="" userEmail={email} userName={name} onTabOpen={clearUnread} />
+            <MessagesTab userId={user?.id || ''} userEmail={email} userName={name} senderRole="landlord" onTabOpen={clearUnread} />
           </div>
         )}
         {tab === 'settings' && (

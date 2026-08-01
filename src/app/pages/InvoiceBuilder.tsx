@@ -39,6 +39,7 @@ interface Invoice {
   clientEmail: string;
   clientPhone: string;
   clientAddress: string;
+  serviceAddress: string;
   customerId?: string;
   issueDate: string;
   dueDate: string;
@@ -83,7 +84,7 @@ function inDays(n: number) { return new Date(Date.now() + n * 86400000).toISOStr
 const DEMO_INVOICES: Invoice[] = [
   {
     id: 'inv1', type: 'invoice', number: 'INV-001234', clientName: 'Marcus Thompson', clientEmail: 'marcus@email.com',
-    clientPhone: '(555) 210-4490', clientAddress: '123 Oak St, Columbus, OH',
+    clientPhone: '(555) 210-4490', clientAddress: '123 Oak St, Columbus, OH', serviceAddress: '123 Oak St, Columbus, OH',
     issueDate: '2026-07-01', dueDate: '2026-07-15',
     items: [
       { id: 'i1', description: 'Bathroom Renovation — Labor', qty: 16, rate: 75 },
@@ -95,7 +96,7 @@ const DEMO_INVOICES: Invoice[] = [
   },
   {
     id: 'inv2', type: 'estimate', number: 'EST-005678', clientName: 'Sarah K.', clientEmail: 'sarah@email.com',
-    clientPhone: '(555) 384-1122', clientAddress: '456 Maple Ave, Dublin, OH',
+    clientPhone: '(555) 384-1122', clientAddress: '456 Maple Ave, Dublin, OH', serviceAddress: '456 Maple Ave, Dublin, OH',
     issueDate: today(), dueDate: inDays(30),
     items: [
       { id: 'i4', description: 'Lawn Mowing & Trimming (bi-weekly)', qty: 4, rate: 120 },
@@ -543,7 +544,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     const doc: Invoice = {
       id: crypto.randomUUID(),
       type, number: newInvoiceNumber(type),
-      clientName: '', clientEmail: '', clientPhone: '', clientAddress: '',
+      clientName: '', clientEmail: '', clientPhone: '', clientAddress: '', serviceAddress: '',
       issueDate: today(), dueDate: inDays(type === 'invoice' ? 14 : 30),
       items: [BLANK_ITEM()],
       notes: type === 'invoice'
@@ -726,6 +727,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
             <h1>${esc(current.type === 'invoice' ? 'Invoice' : 'Estimate')} ${esc(current.number)}</h1>
             <div style="font-size:13px;color:#444">${esc(current.clientName || 'Unassigned')}</div>
             ${current.clientAddress ? `<div style="font-size:12px;color:#666">${esc(current.clientAddress)}</div>` : ''}
+            ${current.serviceAddress ? `<div style="font-size:12px;color:#666">Service: ${esc(current.serviceAddress)}</div>` : ''}
             ${current.clientEmail ? `<div style="font-size:12px;color:#666">${esc(current.clientEmail)}</div>` : ''}
           </div>
           <div class="meta">
@@ -790,6 +792,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
         email: current.clientEmail || '',
         phone: current.clientPhone || '',
         address: current.clientAddress || '',
+        serviceAddress: current.serviceAddress || '',
       },
       issueDate: current.issueDate,
       dueDate: current.dueDate,
@@ -1049,7 +1052,8 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
               { key: 'clientName', label: 'Client Name', placeholder: 'John Smith', type: 'text' },
               { key: 'clientEmail', label: 'Email', placeholder: 'client@email.com', type: 'email' },
               { key: 'clientPhone', label: 'Phone', placeholder: '(555) 000-0000', type: 'tel' },
-              { key: 'clientAddress', label: 'Address', placeholder: '123 Main St, City, State', type: 'text' },
+              { key: 'clientAddress', label: 'Billing Address', placeholder: '123 Main St, City, State', type: 'text' },
+              { key: 'serviceAddress', label: 'Address of Service', placeholder: 'Where the work was performed', type: 'text' },
             ].map(f => (
               <div key={f.key}>
                 <label className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mb-1 block">{f.label}</label>
@@ -1337,6 +1341,11 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
               {current.clientEmail && <p className="text-xs text-gray-500">{current.clientEmail}</p>}
               {current.clientPhone && <p className="text-xs text-gray-500">{current.clientPhone}</p>}
               {current.clientAddress && <p className="text-xs text-gray-500">{current.clientAddress}</p>}
+              {current.serviceAddress && (
+                <p className="text-xs text-gray-500 mt-1">
+                  <span className="font-bold uppercase tracking-widest text-gray-400">Service:</span> {current.serviceAddress}
+                </p>
+              )}
             </div>
 
             {/* Line items */}

@@ -47,6 +47,7 @@ export default function CreateInvoiceModal({
     customer_email: '',
     customer_phone: '',
     customer_address: '',
+    service_address: '',
     recipient_portal: 'customer' as NonNullable<InvoiceFormData['recipient_portal']>,
     payment_rail: 'services' as NonNullable<InvoiceFormData['payment_rail']>,
     status: 'draft' as 'draft' | 'pending' | 'paid' | 'partial' | 'overdue' | 'cancelled',
@@ -77,6 +78,7 @@ export default function CreateInvoiceModal({
         customer_email: invoice.customer_email || '',
         customer_phone: invoice.customer_phone || '',
         customer_address: invoice.customer_address || '',
+        service_address: invoice.service_address || '',
         recipient_portal: invoice.recipient_portal || 'customer',
         payment_rail: invoice.payment_rail || 'services',
         status: invoice.status || 'draft',
@@ -351,6 +353,7 @@ export default function CreateInvoiceModal({
       customer_email: '',
       customer_phone: '',
       customer_address: '',
+      service_address: '',
       recipient_portal: 'customer',
       payment_rail: 'services',
       status: 'draft',
@@ -602,6 +605,22 @@ export default function CreateInvoiceModal({
                   Save as Draft
                 </label>
               </div>
+            </div>
+
+            {/* Address of Service — where the work was performed (may differ from billing) */}
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-orange-400" />
+                Address of Service
+              </label>
+              <input
+                type="text"
+                value={formData.service_address}
+                onChange={(e) => setFormData({ ...formData, service_address: e.target.value })}
+                placeholder="Where the service was performed (street, city, state, ZIP)"
+                className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+              />
+              <p className="mt-1 text-xs text-gray-500">Leave blank to use the billing address.</p>
             </div>
           </div>
 

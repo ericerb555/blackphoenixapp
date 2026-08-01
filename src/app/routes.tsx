@@ -183,6 +183,7 @@ const DobaIntegration = lazy(() => import("./pages/DobaIntegration"));
 const ExitIntentManager = lazy(() => import("./pages/ExitIntentManager"));
 const EmergencyServicesLandingPage = lazy(() => import("./pages/EmergencyServicesLandingPage"));
 const DIYRepairEncyclopedia = lazy(() => import("./pages/documents/DIYRepairEncyclopedia"));
+const TenantApplication = lazy(() => import("./pages/TenantApplication"));
 
 // ── Re-exports for auth pages (used directly in App.tsx renderPage) ──────────
 export { Login, SignUp, ForgotPassword, ResetPassword, DirectoryLandingPage };
@@ -245,6 +246,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "revenue-monetization-hub":   RevenueMonetizationHub,
   "customer-management-hub":    UnifiedCRMHub,
   "customer-registration":      CustomerRegistrationForm,
+  "apply":                      TenantApplication,
   "materials-estimating-hub":   MaterialsCenter,
   "supplier-management-hub":    SupplierManagementHub,
   "hr-employee-hub":            HREmployeeHub,

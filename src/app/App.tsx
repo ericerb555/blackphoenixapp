@@ -390,6 +390,7 @@ const FULL_BLEED_PAGES = new Set<string>([
   "get-started",
   "forgot-password",
   "reset-password",
+  "apply",
 ]);
 
 const isFullBleedPage = (page: string): boolean => FULL_BLEED_PAGES.has(page);
@@ -488,6 +489,13 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'service-provider-application',
     'territory-application',
     'customer-registration',
+    'apply',
+
+    // Portal invite landing — recipients arrive here from the emailed/SMS invite
+    // link (with their session in the URL) before their account is fully set up,
+    // so it must be reachable without an existing authenticated session.
+    'portal-onboarding',
+    'onboarding',
 
     // Service request forms (lead generation)
     'request-service',

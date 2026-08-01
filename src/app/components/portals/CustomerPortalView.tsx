@@ -1470,6 +1470,12 @@ export default function CustomerPortalView() {
                             <span>Issued: {invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : 'Recently'}</span>
                             {invoice.dueDate && <span>Due: {new Date(invoice.dueDate).toLocaleDateString()}</span>}
                           </div>
+                          {(invoice.service_address || invoice.serviceAddress) && (
+                            <div className="flex items-start gap-1.5 text-sm text-gray-400 mt-2">
+                              <MapPin className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                              <span><span className="text-gray-500">Address of service:</span> {invoice.service_address || invoice.serviceAddress}</span>
+                            </div>
+                          )}
                         </div>
                         <span className={`px-3 py-1 rounded-lg text-sm border ${getStatusColor(invoice.status || 'pending')}`}>
                           {invoice.status || 'pending'}

@@ -2241,7 +2241,7 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
               Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`,
               'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: smsText }),
+            body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: smsText }),
           });
           if (smsRes.ok) { results.smsSent = true; results.smsRecipients.push(phone); }
           else { const e = await smsRes.json(); console.error('[Notify] SMS error:', e); }
@@ -2358,7 +2358,7 @@ async function notifyRecipient(email: string, event: NotifEvent, opts: { subject
         const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
           method: 'POST',
           headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: (opts.sms || opts.text).slice(0, 320) }),
+          body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: (opts.sms || opts.text).slice(0, 320) }),
         });
         if (!res.ok) console.error(`[notifyRecipient] sms error for ${lower} (${event}):`, await res.text());
       } catch (e) { console.error(`[notifyRecipient] sms exception for ${lower} (${event}):`, e); }
@@ -2528,7 +2528,7 @@ app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
       method: 'POST',
       headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: `${COMPANY_NAME}: test SMS — your text notifications are working.` }),
+      body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: `${COMPANY_NAME}: test SMS — your text notifications are working.` }),
     });
     if (!res.ok) { const err = await res.text(); console.error('[test-sms] error:', err); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
     return c.json({ success: true });
@@ -2963,7 +2963,7 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
         const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
           method: 'POST',
           headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ To: prefs.phone, From: TWILIO_FROM, Body: `${subject}\n${text}`.slice(0, 1500) }),
+          body: new URLSearchParams({ To: toE164(prefs.phone), From: TWILIO_FROM, Body: `${subject}\n${text}`.slice(0, 1500) }),
         });
         smsSent = res.ok;
         if (!res.ok) console.log('market-alerts sms error:', await res.text());
@@ -4383,7 +4383,7 @@ function landlordStripeKey(email: string) { return `landlord_stripe:${String(ema
 function rentPaymentKey(id: string) { return `payment:${id}`; }
 function tenantRentIndexKey(email: string) { return `rent_payments_tenant:${String(email).toLowerCase()}`; }
 
-async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' = 'POST') {
+async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' | 'DELETE' = 'POST') {
   const key = stripeKeyFor('services');
   if (!key) throw new Error('Stripe is not configured on the platform account.');
   const resp = await fetch(`${STRIPE_API}/${path}`, {
@@ -4553,6 +4553,566 @@ app.post('/make-server-3eae23a6/tenant/rent/confirm', async (c) => {
     }
     return c.json({ success: true, payment: updated });
   } catch (error: any) { console.log('Rent confirm error:', error); return c.json({ success: false, error: error.message || 'Unable to confirm payment.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LANDLORD OPERATIONS — rent collection, recurring auto-pay, dashboard metrics,
+// lease renewals, tenant screening / applications, and a document vault. These
+// build on the tenant-initiated rent flow above and reuse the same Stripe
+// Connect account.
+// ─────────────────────────────────────────────────────────────────────────────
+function landlordRentIndexKey(email: string) { return `rent_payments_landlord:${String(email).toLowerCase()}`; }
+function landlordApplicationsKey(email: string) { return `landlord_applications:${String(email).toLowerCase()}`; }
+function landlordScreeningKey(email: string) { return `landlord_screening:${String(email).toLowerCase()}`; }
+function screeningTokenKey(token: string) { return `screening_token:${token}`; }
+function landlordDocsKey(email: string) { return `landlord_documents:${String(email).toLowerCase()}`; }
+
+// Landlord: charge a tenant rent (or a one-off fee). Creates a pending payment
+// and a Stripe Checkout session (destination charge to the landlord's connected
+// account), then emails the tenant a secure pay link. `channel` distinguishes an
+// online charge from a manually-recorded cash/check payment.
+app.post('/make-server-3eae23a6/landlord/tenants/:id/charge', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to charge a tenant.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const landlordEmail = String(actor.user.email).toLowerCase();
+    const roster = (await kv.get(landlordTenantsKey(landlordEmail)) as any[]) || [];
+    const tenant = roster.find((t: any) => t.id === c.req.param('id'));
+    if (!tenant) return c.json({ success: false, error: 'Tenant not found on your roster.' }, 404);
+    const tenantEmail = String(tenant.email || '').trim().toLowerCase();
+
+    const body = await c.req.json().catch(() => ({}));
+    const amount = money(body.amount ?? tenant.rent);
+    const lateFee = money(body.lateFee ?? 0);
+    const total = Math.round((amount + lateFee) * 100) / 100;
+    if (total <= 0) return c.json({ success: false, error: 'A positive charge amount is required.' }, 400);
+    const memo = String(body.memo || '').slice(0, 300);
+    const dueDate = String(body.dueDate || '').slice(0, 40);
+    const chargeType = String(body.chargeType || 'rent'); // rent | fee | deposit
+    const recurring = !!body.recurring;
+
+    const stripeRec = await kv.get(landlordStripeKey(landlordEmail)) as any;
+    const canCharge = !!stripeRec?.accountId && !!stripeRec?.chargesEnabled;
+
+    const paymentId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const appUrl = rentAppUrl();
+    let checkoutUrl = '';
+    let stripeCheckoutSessionId = '';
+
+    if (canCharge && tenantEmail) {
+      const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
+      const applicationFee = feePercent > 0 ? Math.round(total * 100 * (feePercent / 100)) : 0;
+      const params = new URLSearchParams({
+        'payment_method_types[]': 'card', mode: 'payment', customer_email: tenantEmail,
+        success_url: `${appUrl}/tenant-portal?tab=rent&rent_payment=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/tenant-portal?tab=rent&rent_cancelled=1`,
+        'line_items[0][price_data][currency]': 'usd',
+        'line_items[0][price_data][product_data][name]': `${chargeType === 'rent' ? 'Rent' : chargeType === 'deposit' ? 'Deposit' : 'Charge'}${tenant.unit ? ` · Unit ${tenant.unit}` : ''}${memo ? ` — ${memo}` : ''}`,
+        'line_items[0][price_data][unit_amount]': String(Math.round(total * 100)),
+        'line_items[0][quantity]': '1',
+        'payment_intent_data[transfer_data][destination]': stripeRec.accountId,
+        'metadata[rent_payment_id]': paymentId,
+        'metadata[tenant_email]': tenantEmail,
+        'metadata[landlord_email]': landlordEmail,
+      });
+      if (applicationFee > 0) params.set('payment_intent_data[application_fee_amount]', String(applicationFee));
+      const session = await stripeReq('checkout/sessions', params);
+      checkoutUrl = session.url;
+      stripeCheckoutSessionId = session.id;
+    }
+
+    const payment: any = {
+      id: paymentId, type: 'rent', chargeType, amount: total, baseAmount: amount, lateFee,
+      status: 'pending', channel: canCharge && tenantEmail ? 'online' : 'invoice',
+      customerEmail: tenantEmail, ownerEmail: landlordEmail, landlordEmail, tenantId: tenant.id,
+      tenantName: tenant.name || '', unit: tenant.unit || '', memo, dueDate, recurring,
+      stripeCheckoutSessionId,
+      connectedAccountId: canCharge ? stripeRec.accountId : '', checkoutUrl,
+      createdAt: now, updatedAt: now, createdBy: 'landlord',
+    };
+    await kv.set(rentPaymentKey(paymentId), payment);
+    const lidx = (await kv.get(landlordRentIndexKey(landlordEmail)) as string[]) || [];
+    await kv.set(landlordRentIndexKey(landlordEmail), [paymentId, ...lidx]);
+    if (tenantEmail) {
+      const tidx = (await kv.get(tenantRentIndexKey(tenantEmail)) as string[]) || [];
+      await kv.set(tenantRentIndexKey(tenantEmail), [paymentId, ...tidx]);
+    }
+
+    // Email the tenant a pay link (or a heads-up if online charging isn't set up).
+    if (tenantEmail) {
+      const amt = `$${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+      if (checkoutUrl) {
+        notifyRecipient(tenantEmail, 'payment', {
+          subject: `Rent due: ${amt}${tenant.unit ? ` · Unit ${tenant.unit}` : ''}`,
+          text: `Your landlord has requested a rent payment of ${amt}${dueDate ? ` due ${dueDate}` : ''}${memo ? `\n\nNote: ${memo}` : ''}.\n\nPay securely here:\n${checkoutUrl}`,
+          sms: `Rent due ${amt}${dueDate ? ` by ${dueDate}` : ''}. Pay: ${checkoutUrl}`,
+        }).catch(() => {});
+      } else {
+        notifyRecipient(tenantEmail, 'payment', {
+          subject: `Rent due: ${amt}${tenant.unit ? ` · Unit ${tenant.unit}` : ''}`,
+          text: `Your landlord has recorded a rent charge of ${amt}${dueDate ? ` due ${dueDate}` : ''}${memo ? `\n\nNote: ${memo}` : ''}. Please arrange payment directly with your landlord.`,
+        }).catch(() => {});
+      }
+    }
+    return c.json({ success: true, payment, checkoutUrl, onlineEnabled: canCharge });
+  } catch (error: any) { console.log('Landlord charge error:', error); return c.json({ success: false, error: error.message || 'Unable to charge the tenant.' }, 500); }
+});
+
+// Landlord: list all rent charges/payments they've issued. Returns newest first.
+app.get('/make-server-3eae23a6/landlord/rent', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view rent activity.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const ids = (await kv.get(landlordRentIndexKey(email)) as string[]) || [];
+    let payments = ids.length ? ((await kv.mget(ids.map(rentPaymentKey))) as any[] || []).filter(Boolean) : [];
+    payments.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    return c.json({ success: true, payments });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load rent activity.' }, 500); }
+});
+
+// Landlord: mark a charge paid manually (cash/check) or reconcile an online one.
+app.patch('/make-server-3eae23a6/landlord/rent/:id/mark-paid', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to update a payment.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const payment = await kv.get(rentPaymentKey(c.req.param('id'))) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+    if (String(payment.landlordEmail || '').toLowerCase() !== email && !actor.admin) return c.json({ success: false, error: 'This payment is not yours.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const method = String(body.method || 'cash'); // cash | check | other
+    const now = new Date().toISOString();
+    const updated = { ...payment, status: 'paid', paidAt: now, updatedAt: now, channel: payment.channel === 'online' ? payment.channel : 'manual', paymentMethod: method };
+    await kv.set(rentPaymentKey(payment.id), updated);
+    return c.json({ success: true, payment: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update the payment.' }, 500); }
+});
+
+// ── Recurring auto-pay (Stripe subscriptions) ────────────────────────────────
+// Landlord invites a tenant to enroll; Stripe then charges rent every month.
+// Status is reconciled on demand (no webhook required for the prototype).
+app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to set up auto-pay.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const landlordEmail = String(actor.user.email).toLowerCase();
+    const key = landlordTenantsKey(landlordEmail);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found on your roster.' }, 404);
+    const tenant = roster[idx];
+    const tenantEmail = String(tenant.email || '').trim().toLowerCase();
+    if (!tenantEmail) return c.json({ success: false, error: 'Add an email to this tenant before enabling auto-pay.' }, 400);
+
+    const stripeRec = await kv.get(landlordStripeKey(landlordEmail)) as any;
+    if (!stripeRec?.accountId || !stripeRec?.chargesEnabled) return c.json({ success: false, error: 'Finish connecting Stripe before enabling auto-pay.' }, 400);
+
+    const body = await c.req.json().catch(() => ({}));
+    const amount = money(body.amount ?? tenant.rent);
+    if (amount <= 0) return c.json({ success: false, error: 'A positive rent amount is required.' }, 400);
+    const dayOfMonth = Math.min(28, Math.max(1, Number(body.dayOfMonth) || 1));
+
+    const appUrl = rentAppUrl();
+    const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
+    const params = new URLSearchParams({
+      mode: 'subscription', customer_email: tenantEmail, 'payment_method_types[]': 'card',
+      success_url: `${appUrl}/tenant-portal?tab=rent&autopay=active&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/tenant-portal?tab=rent&autopay=cancelled`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': `Monthly Rent${tenant.unit ? ` · Unit ${tenant.unit}` : ''}`,
+      'line_items[0][price_data][recurring][interval]': 'month',
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1',
+      'subscription_data[transfer_data][destination]': stripeRec.accountId,
+      'metadata[tenant_email]': tenantEmail, 'metadata[landlord_email]': landlordEmail, 'metadata[autopay]': 'true',
+    });
+    if (feePercent > 0) params.set('subscription_data[application_fee_percent]', String(feePercent));
+    const session = await stripeReq('checkout/sessions', params);
+
+    const now = new Date().toISOString();
+    roster[idx] = { ...tenant, autopay: { status: 'pending', amount, dayOfMonth, checkoutSessionId: session.id, setupUrl: session.url, subscriptionId: '', updatedAt: now } };
+    await kv.set(key, roster);
+
+    notifyRecipient(tenantEmail, 'payment', {
+      subject: `Set up automatic rent payments${tenant.unit ? ` · Unit ${tenant.unit}` : ''}`,
+      text: `Your landlord invited you to enroll in automatic monthly rent payments of $${money(amount)}.\n\nSet it up securely here (one time):\n${session.url}\n\nYour card will be charged automatically each month.`,
+      sms: `Enroll in auto-pay for rent ($${money(amount)}/mo): ${session.url}`,
+    }).catch(() => {});
+
+    return c.json({ success: true, setupUrl: session.url, tenant: stripBase64(roster[idx]) });
+  } catch (error: any) { console.log('Autopay setup error:', error); return c.json({ success: false, error: error.message || 'Unable to set up auto-pay.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay/status', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to check auto-pay.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const key = landlordTenantsKey(actor.user.email);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found.' }, 404);
+    const ap = roster[idx].autopay;
+    if (!ap?.checkoutSessionId) return c.json({ success: true, tenant: stripBase64(roster[idx]) });
+    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(ap.checkoutSessionId)}`, undefined, 'GET');
+    let status = ap.status; let subscriptionId = ap.subscriptionId || '';
+    if (session?.subscription) {
+      subscriptionId = session.subscription;
+      const sub = await stripeReq(`subscriptions/${encodeURIComponent(subscriptionId)}`, undefined, 'GET');
+      status = ['active', 'trialing'].includes(sub?.status) ? 'active' : sub?.status === 'canceled' ? 'canceled' : 'pending';
+    }
+    roster[idx] = { ...roster[idx], autopay: { ...ap, status, subscriptionId, updatedAt: new Date().toISOString() } };
+    await kv.set(key, roster);
+    return c.json({ success: true, tenant: stripBase64(roster[idx]) });
+  } catch (error: any) { console.log('Autopay status error:', error); return c.json({ success: false, error: error.message || 'Unable to check auto-pay status.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay/cancel', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to cancel auto-pay.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const key = landlordTenantsKey(actor.user.email);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found.' }, 404);
+    const ap = roster[idx].autopay;
+    if (ap?.subscriptionId) { try { await stripeReq(`subscriptions/${encodeURIComponent(ap.subscriptionId)}`, undefined, 'DELETE'); } catch (e) { console.log('Autopay cancel stripe error:', e); } }
+    roster[idx] = { ...roster[idx], autopay: { ...(ap || {}), status: 'canceled', updatedAt: new Date().toISOString() } };
+    await kv.set(key, roster);
+    return c.json({ success: true, tenant: stripBase64(roster[idx]) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to cancel auto-pay.' }, 500); }
+});
+
+// Landlord: portfolio dashboard metrics — occupancy, rent roll, collected vs
+// outstanding (current month), upcoming lease expirations, and rent-due alerts.
+app.get('/make-server-3eae23a6/landlord/dashboard', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your dashboard.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const tenants = (await kv.get(landlordTenantsKey(email)) as any[]) || [];
+    const properties = (await kv.get(landlordPortfolioKey(email)) as any[]) || [];
+
+    const totalUnits = properties.reduce((s: number, p: any) => s + Math.max(1, Number(p.units) || 0), 0) || tenants.length;
+    const occupiedUnits = tenants.filter((t: any) => t.status !== 'pending').length;
+    const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+    const vacantUnits = Math.max(0, totalUnits - occupiedUnits);
+    const monthlyRentRoll = tenants.reduce((s: number, t: any) => s + (Number(t.rent) || 0), 0);
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const rentIds = (await kv.get(landlordRentIndexKey(email)) as string[]) || [];
+    const payments = rentIds.length ? ((await kv.mget(rentIds.map(rentPaymentKey))) as any[] || []).filter(Boolean) : [];
+    let collectedThisMonth = 0, outstanding = 0;
+    for (const p of payments) {
+      const created = new Date(p.createdAt || 0).getTime();
+      if (p.status === 'paid' && new Date(p.paidAt || p.updatedAt || p.createdAt || 0).getTime() >= monthStart) collectedThisMonth += Number(p.amount) || 0;
+      if (p.status !== 'paid' && created >= monthStart - 1000 * 60 * 60 * 24 * 40) outstanding += Number(p.amount) || 0;
+    }
+
+    const soon = now.getTime() + 1000 * 60 * 60 * 24 * 90;
+    const leaseExpirations = tenants
+      .filter((t: any) => t.leaseEnd)
+      .map((t: any) => ({ tenantId: t.id, name: t.name, unit: t.unit, leaseEnd: t.leaseEnd, daysLeft: Math.ceil((new Date(t.leaseEnd).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) }))
+      .filter((t: any) => Number.isFinite(t.daysLeft) && new Date(t.leaseEnd).getTime() <= soon)
+      .sort((a: any, b: any) => a.daysLeft - b.daysLeft);
+
+    const rentDueAlerts = tenants.filter((t: any) => t.status === 'late').map((t: any) => ({ tenantId: t.id, name: t.name, unit: t.unit, rent: t.rent }));
+
+    return c.json({
+      success: true,
+      metrics: {
+        totalProperties: properties.length, totalUnits, occupiedUnits, vacantUnits, occupancyRate,
+        totalTenants: tenants.length, monthlyRentRoll, collectedThisMonth, outstanding,
+        leaseExpirations, rentDueAlerts,
+      },
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load dashboard metrics.' }, 500); }
+});
+
+// Landlord: set/update a tenant's lease term dates (for renewal tracking).
+app.patch('/make-server-3eae23a6/landlord/tenants/:id/lease-terms', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to update lease terms.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const key = landlordTenantsKey(actor.user.email);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found on your roster.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+    roster[idx] = {
+      ...roster[idx],
+      leaseStart: body.leaseStart ? String(body.leaseStart).slice(0, 40) : roster[idx].leaseStart || '',
+      leaseEnd: body.leaseEnd ? String(body.leaseEnd).slice(0, 40) : roster[idx].leaseEnd || '',
+      leaseTerm: body.leaseTerm ? String(body.leaseTerm).slice(0, 60) : roster[idx].leaseTerm || '',
+      updatedAt: now,
+    };
+    await kv.set(key, roster);
+    return c.json({ success: true, tenant: stripBase64(roster[idx]) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update lease terms.' }, 500); }
+});
+
+// Landlord: send a renewal offer to a tenant (email/SMS + records the offer).
+app.post('/make-server-3eae23a6/landlord/tenants/:id/renewal-offer', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to send a renewal.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const key = landlordTenantsKey(actor.user.email);
+    const roster = (await kv.get(key) as any[]) || [];
+    const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Tenant not found on your roster.' }, 404);
+    const tenant = roster[idx];
+    const body = await c.req.json().catch(() => ({}));
+    const newRent = money(body.newRent ?? tenant.rent);
+    const newTerm = String(body.newTerm || '12 months').slice(0, 60);
+    const newEnd = String(body.newLeaseEnd || '').slice(0, 40);
+    const message = String(body.message || '').slice(0, 1000);
+    const now = new Date().toISOString();
+    const offer = { newRent, newTerm, newLeaseEnd: newEnd, message, sentAt: now };
+    roster[idx] = { ...tenant, renewalOffer: offer, updatedAt: now };
+    await kv.set(key, roster);
+    const tenantEmail = String(tenant.email || '').trim().toLowerCase();
+    if (tenantEmail) {
+      notifyRecipient(tenantEmail, 'message', {
+        subject: `Lease renewal offer${tenant.unit ? ` · Unit ${tenant.unit}` : ''}`,
+        text: `Your landlord has offered to renew your lease.\n\nNew term: ${newTerm}\nNew monthly rent: $${newRent.toLocaleString(undefined, { minimumFractionDigits: 2 })}${newEnd ? `\nNew lease end: ${newEnd}` : ''}${message ? `\n\n${message}` : ''}\n\nPlease reach out to your landlord to accept or discuss.`,
+        sms: `Lease renewal offer: ${newTerm} at $${newRent.toLocaleString()}/mo. Contact your landlord to confirm.`,
+      }).catch(() => {});
+    }
+    return c.json({ success: true, tenant: stripBase64(roster[idx]) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send the renewal offer.' }, 500); }
+});
+
+// Landlord: rental-application intake. GET returns applications + a shareable
+// public application link; PATCH approves (→ creates a tenant, optionally
+// provisioning a portal login in one click) or rejects.
+app.get('/make-server-3eae23a6/landlord/applications', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view applications.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    let token = await kv.get(landlordScreeningKey(email)) as string | null;
+    if (!token) {
+      token = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+      await kv.set(landlordScreeningKey(email), token);
+      await kv.set(screeningTokenKey(token), { landlordEmail: email, createdAt: new Date().toISOString() });
+    }
+    const applications = (await kv.get(landlordApplicationsKey(email)) as any[]) || [];
+    const applyUrl = `${rentAppUrl()}/apply?t=${token}`;
+    return c.json({ success: true, applications, token, applyUrl });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load applications.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/landlord/applications', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to add an application.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const app_ = buildApplicationRecord(body, 'landlord');
+    if (!app_.name) return c.json({ success: false, error: 'Applicant name is required.' }, 400);
+    const key = landlordApplicationsKey(email);
+    const existing = (await kv.get(key) as any[]) || [];
+    await kv.set(key, [app_, ...existing]);
+    return c.json({ success: true, application: app_ }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to add the application.' }, 500); }
+});
+
+app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to review applications.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const key = landlordApplicationsKey(email);
+    const apps = (await kv.get(key) as any[]) || [];
+    const idx = apps.findIndex((a: any) => a.id === c.req.param('id'));
+    if (idx < 0) return c.json({ success: false, error: 'Application not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const decision = String(body.decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) return c.json({ success: false, error: 'Decision must be approved or rejected.' }, 400);
+    const now = new Date().toISOString();
+    apps[idx] = { ...apps[idx], status: decision, decidedAt: now, decisionNote: String(body.note || '').slice(0, 500), updatedAt: now };
+    await kv.set(key, apps);
+
+    let tenant = null; let invite: any = null;
+    if (decision === 'approved') {
+      const a = apps[idx];
+      const roster = (await kv.get(landlordTenantsKey(email)) as any[]) || [];
+      const plan = await landlordSubPortalPlan(actor);
+      if (roster.length >= plan.quota) {
+        return c.json({ success: true, application: a, tenant: null, warning: `Application approved, but your ${plan.planId} plan tenant limit (${plan.quota}) is reached — free a slot to add them as a tenant.` });
+      }
+      const tenantEmail = String(a.email || '').trim().toLowerCase();
+      tenant = { id: `tenant_${crypto.randomUUID()}`, name: a.name, email: tenantEmail, unit: String(body.unit || a.desiredUnit || '').trim(), rent: money(body.rent ?? a.desiredRent ?? 0), status: 'pending', landlordEmail: email, landlordUserId: actor.user.id, fromApplication: a.id, createdAt: now, updatedAt: now };
+
+      // 1-click Approve & Invite: optionally provision a tenant portal login now.
+      if (body.invite && tenantEmail) {
+        try {
+          const { data: existingList } = await supabase.auth.admin.listUsers();
+          const already = (existingList?.users || []).find((u: any) => String(u.email || '').toLowerCase() === tenantEmail);
+          if (!already) {
+            const tempPassword = `Tenant-${crypto.randomUUID().slice(0, 8)}`;
+            const { error: cErr } = await supabase.auth.admin.createUser({
+              email: tenantEmail, password: tempPassword,
+              user_metadata: { name: a.name, full_name: a.name, role: 'tenant', accountType: 'tenant', unit: tenant.unit, landlordEmail: email },
+              email_confirm: true, // no mail server configured — confirm immediately
+            });
+            if (cErr) { invite = { created: false, error: cErr.message }; }
+            else { invite = { created: true, tempPassword }; (tenant as any).invited = true; (tenant as any).invitedAt = now; (tenant as any).hasAccount = true; }
+          } else {
+            invite = { created: false, alreadyHadAccount: true }; (tenant as any).invited = true; (tenant as any).hasAccount = true;
+          }
+          await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: email, landlordUserId: actor.user.id, tenantName: a.name, unit: tenant.unit, updatedAt: now });
+        } catch (e: any) { invite = { created: false, error: e?.message || 'Invite failed' }; }
+      } else if (tenantEmail) {
+        await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: email, landlordUserId: actor.user.id, tenantName: a.name, unit: tenant.unit, updatedAt: now });
+      }
+
+      await kv.set(landlordTenantsKey(email), [tenant, ...roster]);
+    }
+    return c.json({ success: true, application: apps[idx], tenant, invite });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update the application.' }, 500); }
+});
+
+// Public: a prospect submits a rental application via a landlord's shared link.
+app.get('/make-server-3eae23a6/screening/:token', async (c) => {
+  try {
+    const meta = await kv.get(screeningTokenKey(c.req.param('token'))) as any;
+    if (!meta?.landlordEmail) return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
+    return c.json({ success: true, landlordEmail: meta.landlordEmail });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the application form.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/screening/:token/apply', async (c) => {
+  try {
+    const meta = await kv.get(screeningTokenKey(c.req.param('token'))) as any;
+    if (!meta?.landlordEmail) return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
+    const landlordEmail = String(meta.landlordEmail).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const app_ = buildApplicationRecord(body, 'public');
+    if (!app_.name) return c.json({ success: false, error: 'Please enter your full name.' }, 400);
+    if (!app_.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(app_.email)) return c.json({ success: false, error: 'Please enter a valid email address.' }, 400);
+    const key = landlordApplicationsKey(landlordEmail);
+    const existing = (await kv.get(key) as any[]) || [];
+    await kv.set(key, [app_, ...existing]);
+    notifyRecipient(landlordEmail, 'landlord_form', {
+      subject: `New rental application — ${app_.name}`,
+      text: `${app_.name} submitted a rental application.\n\nEmail: ${app_.email}\nPhone: ${app_.phone || '—'}\nDesired move-in: ${app_.moveIn || '—'}\nMonthly income: ${app_.income ? `$${Number(app_.income).toLocaleString()}` : '—'}\n\nReview it in your Landlord portal → Applications.`,
+      sms: `New rental application from ${app_.name}. Review it in your Landlord portal.`,
+    }).catch(() => {});
+    return c.json({ success: true, message: 'Your application has been submitted.' }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit your application.' }, 500); }
+});
+
+function buildApplicationRecord(body: any, source: string) {
+  const now = new Date().toISOString();
+  return {
+    id: `app_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+    name: String(body.name || '').trim().slice(0, 200),
+    email: String(body.email || '').trim().toLowerCase().slice(0, 200),
+    phone: String(body.phone || '').trim().slice(0, 40),
+    currentAddress: String(body.currentAddress || '').trim().slice(0, 300),
+    employer: String(body.employer || '').trim().slice(0, 200),
+    income: Number(body.income) || 0,
+    creditScore: String(body.creditScore || '').trim().slice(0, 20),
+    householdSize: Number(body.householdSize) || 0,
+    pets: String(body.pets || '').trim().slice(0, 200),
+    moveIn: String(body.moveIn || '').trim().slice(0, 40),
+    desiredUnit: String(body.desiredUnit || '').trim().slice(0, 160),
+    desiredRent: Number(body.desiredRent) || 0,
+    notes: String(body.notes || '').trim().slice(0, 2000),
+    consentBackground: !!body.consentBackground,
+    status: 'pending', source, createdAt: now, updatedAt: now,
+  };
+}
+
+// ── Document vault ───────────────────────────────────────────────────────────
+const LANDLORD_DOCS_BUCKET = 'make-57095a78-landlord-docs';
+async function ensureLandlordDocsBucket() {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some((b: any) => b.name === LANDLORD_DOCS_BUCKET)) {
+    const created = await supabase.storage.createBucket(LANDLORD_DOCS_BUCKET, { public: false });
+    if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+  }
+}
+
+app.get('/make-server-3eae23a6/landlord/documents', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view documents.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const docs = (await kv.get(landlordDocsKey(email)) as any[]) || [];
+    const signed = await Promise.all(docs.map(async (d: any) => {
+      if (!d.path) return d;
+      try {
+        const { data } = await supabase.storage.from(LANDLORD_DOCS_BUCKET).createSignedUrl(d.path, 60 * 60 * 24 * 7);
+        return { ...d, url: data?.signedUrl || '' };
+      } catch { return { ...d, url: '' }; }
+    }));
+    return c.json({ success: true, documents: signed });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load documents.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/landlord/documents', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to upload documents.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!(file instanceof File)) return c.json({ success: false, error: 'A file is required.' }, 400);
+    if (file.size > 25 * 1024 * 1024) return c.json({ success: false, error: 'Documents must be 25MB or smaller.' }, 400);
+    await ensureLandlordDocsBucket();
+    const id = `doc_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'document';
+    const path = `${email}/${id}-${safeName}`;
+    const upload = await supabase.storage.from(LANDLORD_DOCS_BUCKET).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+    if (upload.error) throw upload.error;
+    const now = new Date().toISOString();
+    const doc = {
+      id, name: String(body.name || file.name).slice(0, 200), fileName: file.name,
+      category: String(body.category || 'General').slice(0, 60),
+      relatedTo: String(body.relatedTo || '').slice(0, 200),
+      size: file.size, contentType: file.type || 'application/octet-stream', path, createdAt: now,
+    };
+    const key = landlordDocsKey(email);
+    const existing = (await kv.get(key) as any[]) || [];
+    await kv.set(key, [doc, ...existing]);
+    const { data: signed } = await supabase.storage.from(LANDLORD_DOCS_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
+    return c.json({ success: true, document: { ...doc, url: signed?.signedUrl || '' } }, 201);
+  } catch (error: any) { console.log('Document upload error:', error); return c.json({ success: false, error: error.message || 'Unable to upload the document.' }, 500); }
+});
+
+app.delete('/make-server-3eae23a6/landlord/documents/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to delete documents.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const key = landlordDocsKey(email);
+    const docs = (await kv.get(key) as any[]) || [];
+    const doc = docs.find((d: any) => d.id === c.req.param('id'));
+    if (!doc) return c.json({ success: false, error: 'Document not found.' }, 404);
+    if (doc.path) { try { await supabase.storage.from(LANDLORD_DOCS_BUCKET).remove([doc.path]); } catch { /* best effort */ } }
+    await kv.set(key, docs.filter((d: any) => d.id !== doc.id));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete the document.' }, 500); }
 });
 
 // Regenerate a single section of an existing draft with an optional instruction.
@@ -5008,6 +5568,18 @@ const FACEBOOK_APP_SECRET = Deno.env.get('FACEBOOK_APP_SECRET') || '';
 const TIKTOK_CLIENT_KEY   = Deno.env.get('TIKTOK_CLIENT_KEY')   || '';
 const TIKTOK_CLIENT_SECRET= Deno.env.get('TIKTOK_CLIENT_SECRET')|| '';
 const APP_URL             = Deno.env.get('APP_URL')             || 'https://www.theblackphoenixcompany.com';
+// Normalize a phone number to E.164 (e.g. "(555) 123-4567" -> "+15551234567").
+// Twilio rejects non-E.164 numbers, which is why raw formatted input never sends.
+function toE164(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const digits = s.replace(/\D/g, '');
+  if (!digits) return '';
+  if (s.startsWith('+')) return '+' + digits;
+  if (digits.length === 10) return '+1' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  return '+' + digits;
+}
 // OAuth providers must redirect back to the server route that actually handles the
 // token exchange (GET /social/callback below), NOT a frontend path. Register this
 // exact URL in your Facebook/TikTok app settings as an allowed redirect URI.
@@ -6830,16 +7402,38 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
-    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
     const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
 
     // Generate the secure sign-in link ONCE, up front, so every channel (email,
     // SMS, QR) points at the exact same account-setup link.
+    //
+    // IMPORTANT: we MUST pass redirectTo so that, after Supabase verifies the
+    // token, it sends the recipient back into THIS app (the onboarding page)
+    // with the session in the URL. Without it, Supabase redirects to the
+    // project's default Site URL and the link appears to "do nothing".
+    // Note: the redirect target must be listed in the Supabase dashboard under
+    // Authentication → URL Configuration → Redirect URLs, or Supabase ignores it.
+    const inviteRedirectTo = `${APP_URL.replace(/\/$/, '')}/portal-onboarding`;
     try {
-      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { data: metadata } });
+      // New invitees: an "invite" link sets their password on first click.
+      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+        type: 'invite', email, options: { data: metadata, redirectTo: inviteRedirectTo },
+      });
       const actionLink = linkData?.properties?.action_link || linkData?.action_link;
-      if (!linkError && actionLink) inviteLink = actionLink;
+      if (!linkError && actionLink) {
+        inviteLink = actionLink;
+      } else if (linkError) {
+        // The account already exists (e.g. re-inviting an employee). Fall back to
+        // a magic-link so the returning user still gets a working sign-in link.
+        console.log(`ℹ️ [PortalInvite] invite link failed (${linkError.message}); trying magiclink.`);
+        const { data: magicData, error: magicError } = await supabase.auth.admin.generateLink({
+          type: 'magiclink', email, options: { redirectTo: inviteRedirectTo },
+        });
+        const magicLink = magicData?.properties?.action_link || magicData?.action_link;
+        if (!magicError && magicLink) inviteLink = magicLink;
+      }
     } catch (e: any) { console.log(`ℹ️ [PortalInvite] Link generation failed: ${e?.message || e}`); }
 
     // EMAIL: branded Resend using the shared template; falls back to Supabase's
@@ -6880,13 +7474,16 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
         smsNotice = 'SMS is not configured (Twilio env vars missing).';
       } else if (!phone) {
         smsNotice = 'No phone number provided for SMS.';
+      } else if (!toE164(phone)) {
+        smsNotice = `The phone number "${phone}" is not a valid number for SMS.`;
       } else {
         try {
-          const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || 'https://www.theblackphoenixcompany.com/portal-onboarding', companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+          const toNumber = toE164(phone);
+          const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
           const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
             method: 'POST',
             headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ From: TWILIO_FROM, To: phone, Body: smsBody }),
+            body: new URLSearchParams({ From: TWILIO_FROM, To: toNumber, Body: smsBody }),
           });
           if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = `Twilio rejected the message: ${err}`; } else { smsSent = true; }
         } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
@@ -6921,7 +7518,7 @@ app.get('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) => 
     const fullAccess = c.req.query('fullAccess') !== 'false';
     const trialMonths = Math.min(24, Math.max(1, Number(c.req.query('trialMonths')) || 6));
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
-    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
     const { subject, html } = buildPortalInviteEmail({
       name, portalType,
@@ -6972,7 +7569,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) =>
     const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
     const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
-    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const sampleLink = 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link';
     const { subject, html } = buildPortalInviteEmail({
       name, portalType, signInUrl: sampleLink,
@@ -7028,7 +7625,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test', async (c) => {
     if (!RESEND_API_KEY) return c.json({ success: false, error: 'RESEND_API_KEY is not configured, so test emails cannot be sent.' }, 500);
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
-    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || '';
+    const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
 
     const built = buildPortalInviteEmail({
       name: actor.user.email.split('@')[0], portalType,
@@ -7074,7 +7671,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test-sms', async (c) =
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
       method: 'POST',
       headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ From: TWILIO_FROM, To: to, Body: `[TEST] ${sms}` }),
+      body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(to), Body: `[TEST] ${sms}` }),
     });
     if (!res.ok) { const err = await res.text().catch(() => ''); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
     return c.json({ success: true, to });
