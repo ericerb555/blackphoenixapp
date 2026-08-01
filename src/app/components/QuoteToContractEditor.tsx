@@ -69,8 +69,8 @@ import {
 } from '../lib/services/materialsHubService';
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
 import WorkRequestFullView from './WorkRequestFullView';
-import * as CompanyStore from '../lib/simpleCompanyStore';
-import { pickMainAppCompany, setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
+import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
+import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 
 interface MaterialItem {
   id: string;
@@ -195,11 +195,11 @@ export function QuoteToContractEditor({
         // Quotes/contracts always represent the main app business (Black Phoenix
         // Builds), never the ecommerce store. Resolve it and use it for both the
         // header display and the global company info the documents read.
-        const companies = await CompanyStore.getAllCompanies();
-        const mainApp = pickMainAppCompany(companies);
+        const { data: companies } = await CompanyDatabaseService.getCompanies();
+        const mainApp = pickMainAppCompany(companies || []);
         if (mainApp) {
-          setActiveCompanyInfoFromStore(mainApp);
-          setCompanyName(mainApp.dba || mainApp.name || 'Company Name');
+          setActiveCompanyInfo(mainApp);
+          setCompanyName(mainApp.company_name || mainApp.company_legal_name || 'Company Name');
           setCompanyLogo(mainApp.logo_url || '');
         }
 

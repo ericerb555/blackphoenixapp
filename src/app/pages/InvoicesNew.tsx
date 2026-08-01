@@ -13,8 +13,8 @@ import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
-import * as CompanyStore from '../lib/simpleCompanyStore';
-import { pickMainAppCompany, setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
+import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
+import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'draft' | 'pending' | 'paid' | 'overdue';
@@ -58,9 +58,9 @@ export default function InvoicesNew() {
     // never the ecommerce store — resolve and apply it regardless of any switch.
     (async () => {
       try {
-        const companies = await CompanyStore.getAllCompanies(user?.id);
-        const mainApp = pickMainAppCompany(companies);
-        if (mainApp) setActiveCompanyInfoFromStore(mainApp);
+        const { data: companies } = await CompanyDatabaseService.getCompanies();
+        const mainApp = pickMainAppCompany(companies || []);
+        if (mainApp) setActiveCompanyInfo(mainApp);
       } catch (err) {
         console.error('[InvoicesNew] Could not resolve main-app company:', err);
       }

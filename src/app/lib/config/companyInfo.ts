@@ -104,7 +104,10 @@ export let companyInfo: CompanyInfo = { ...defaultCompanyInfo };
  */
 export function pickMainAppCompany(companies: any[]): any | null {
   if (!Array.isArray(companies) || companies.length === 0) return null;
-  const nameOf = (c: any) => `${c?.name || ''} ${c?.dba || ''}`.toLowerCase();
+  // Handle both store shapes: simpleCompanyStore (name/dba) and
+  // CompanyDatabaseService / branding profile (company_name/company_legal_name).
+  const nameOf = (c: any) =>
+    `${c?.name || ''} ${c?.dba || ''} ${c?.company_name || ''} ${c?.company_legal_name || ''}`.toLowerCase();
   const byBuild = companies.find((c) => /build/.test(nameOf(c)));
   if (byBuild) return byBuild;
   const primary = companies.find((c) => c?.is_primary);
@@ -118,6 +121,21 @@ export function pickMainAppCompany(companies: any[]): any | null {
  * field names than the branding profile (e.g. a single `address` string,
  * `business_license`, a `bank_accounts` array), so it needs its own mapping.
  */
+/**
+ * Sync the global company info from a branding-profile-shaped record (the shape
+ * used by BrandingService and CompanyDatabaseService: `company_name`,
+ * `address_line1`, `tax_id`, `bank_name`, etc.). Invoices and quotes read the
+ * global `companyInfo`, so this is what makes them show the right business.
+ */
+export function setActiveCompanyInfo(company: any | null): CompanyInfo {
+  if (company && company.company_name) {
+    companyInfo = convertProfileToCompanyInfo(company as BrandingProfile);
+  } else {
+    companyInfo = { ...defaultCompanyInfo };
+  }
+  return companyInfo;
+}
+
 export function setActiveCompanyInfoFromStore(company: any | null): CompanyInfo {
   if (!company || !company.name) {
     companyInfo = { ...defaultCompanyInfo };
