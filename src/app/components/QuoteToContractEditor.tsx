@@ -35,6 +35,8 @@ import {
   Building2,
   Mail,
   Phone,
+  UserPlus,
+  Smartphone,
   MapPin,
   Calendar,
   TrendingUp,
@@ -237,6 +239,10 @@ export function QuoteToContractEditor({
   const [editMode, setEditMode] = useState(false);
   const [editedQuote, setEditedQuote] = useState<Quote | undefined>(normalizeQuote(workRequest.quote));
   const [loading, setLoading] = useState(false);
+  // Optional: also invite the customer to join the app when sending the quote.
+  const [inviteToApp, setInviteToApp] = useState(false);
+  const [invitePhone, setInvitePhone] = useState('');
+  const [inviteBySms, setInviteBySms] = useState(false);
   
   // Subcontractor bidding state
   const [subcontractorBids, setSubcontractorBids] = useState<SubcontractorBid[]>([]);
@@ -776,8 +782,55 @@ export function QuoteToContractEditor({
     }
   };
 
+  // Fire the existing server-side portal invite for this customer.
+  // Returns a human-readable status string, or null on hard failure (toasted).
+  const sendAppInvite = async (): Promise<string | null> => {
+    const phone = (invitePhone.trim() || workRequest.customerPhone || '').trim();
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/owner-provisioning/invites`,
+        {
+          method: 'POST',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({
+            name: workRequest.customerName || workRequest.customerEmail,
+            email: workRequest.customerEmail,
+            phone,
+            portalType: 'customer',
+            fullAccess: true,
+            sendEmail: true,
+            sendSms: inviteBySms && !!phone,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => null);
+      if (res.status === 409) return 'already has an account/invite';
+      if (!res.ok || !data?.success) {
+        console.error('[QuoteToContractEditor] invite failed:', res.status, data);
+        toast.error(data?.error || `Could not send app invite (${res.status}).`);
+        return null;
+      }
+      const inv = data.invite || {};
+      const parts: string[] = [];
+      if (inv.invitationSent) parts.push('email');
+      if (inv.smsSent) parts.push('SMS');
+      if (parts.length) return `invite sent by ${parts.join(' + ')}`;
+      const why = inv.inviteNotice || inv.smsNotice || 'no channel delivered';
+      toast.warning(`Quote sent, but the app invite did not deliver: ${why}`);
+      return null;
+    } catch (err: any) {
+      console.error('[QuoteToContractEditor] invite error:', err);
+      toast.error(err.message || 'Could not send the app invite.');
+      return null;
+    }
+  };
+
   // Send quote to customer for approval
   const handleSendToCustomer = async () => {
+    if (inviteToApp && !(invitePhone.trim() || workRequest.customerPhone)) {
+      toast.error('A phone number is required to invite this customer to the app.');
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch(
@@ -795,14 +848,18 @@ export function QuoteToContractEditor({
 
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
+        // Optionally invite the customer to join the app (customer portal).
+        let inviteStatus: string | null = null;
+        if (inviteToApp) inviteStatus = await sendAppInvite();
+        const inviteSuffix = inviteToApp && inviteStatus ? ` · ${inviteStatus}` : '';
         if (data?.approvalToken) {
           const link = `${window.location.origin}${window.location.pathname}?token=${data.approvalToken}`;
           try { await navigator.clipboard.writeText(link); } catch {}
-          toast.success('Quote sent — approval link copied', {
+          toast.success(`Quote sent — approval link copied${inviteSuffix}`, {
             description: `Share this link with ${workRequest.customerEmail}: ${link}`,
           });
         } else {
-          toast.success('Quote sent to customer', {
+          toast.success(`Quote sent to customer${inviteSuffix}`, {
             description: `Sent to ${workRequest.customerEmail}`,
           });
         }
@@ -1879,6 +1936,59 @@ export function QuoteToContractEditor({
                   )}
                 </div>
 
+                {/* Invite customer to the app (only relevant before sending) */}
+                {currentQuote.approvalStatus === 'pending' && (
+                  <div className="mb-4 bg-gradient-to-br from-[#0A0A0A] to-[#1a1a1a] border border-gray-700 rounded-lg overflow-hidden">
+                    <label className="flex items-start gap-3 p-4 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={inviteToApp}
+                        onChange={(e) => {
+                          setInviteToApp(e.target.checked);
+                          if (e.target.checked && !invitePhone) setInvitePhone(workRequest.customerPhone || '');
+                        }}
+                        disabled={loading}
+                        className="mt-0.5 w-4 h-4 accent-[#ea580c] cursor-pointer disabled:opacity-50"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 text-white font-semibold">
+                          <UserPlus className="w-4 h-4 text-[#ea580c]" /> Also invite this customer to join the app
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Sends {workRequest.customerName || 'them'} a secure link to create their own customer portal — where they can view quotes, approve, pay, and track work.
+                        </p>
+                      </div>
+                    </label>
+                    {inviteToApp && (
+                      <div className="px-4 pb-4 space-y-3 border-t border-gray-700 pt-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1.5">Customer phone (required for the invite)</label>
+                          <input
+                            type="tel"
+                            value={invitePhone}
+                            onChange={(e) => setInvitePhone(e.target.value)}
+                            disabled={loading}
+                            placeholder="+1 555 123 4567"
+                            className="w-full px-4 py-2.5 bg-black border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] disabled:opacity-50"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={inviteBySms}
+                            onChange={(e) => setInviteBySms(e.target.checked)}
+                            disabled={loading}
+                            className="w-4 h-4 accent-[#ea580c] cursor-pointer disabled:opacity-50"
+                          />
+                          <span className="flex items-center gap-1.5 text-sm text-gray-300">
+                            <Smartphone className="w-3.5 h-3.5 text-[#ea580c]" /> Also text them the invite link (SMS)
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Actions */}
                 {currentQuote.approvalStatus === 'pending' && (
                   <div className="flex items-center gap-3">
@@ -1892,7 +2002,7 @@ export function QuoteToContractEditor({
                       ) : (
                         <Send className="w-5 h-5" />
                       )}
-                      Send to Customer
+                      {inviteToApp ? 'Send to Customer & Invite' : 'Send to Customer'}
                     </button>
                   </div>
                 )}
