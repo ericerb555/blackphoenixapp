@@ -8,6 +8,8 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fetchAccountContacts, type CrmContact } from '../utils/crmContactsApi';
 import { materialsHubService, type Material } from '../lib/services/materialsHubService';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
+import * as CompanyStore from '../lib/simpleCompanyStore';
+import { pickMainAppCompany, setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
 import { DEFAULT_TECH_TIERS } from '../components/TierPicker';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -152,6 +154,20 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
   // Shared canonical fallback — the live source of truth is the server config,
   // fetched in openLaborPicker(). This only applies if that request fails.
   const DEFAULT_LABOR_TIERS = DEFAULT_TECH_TIERS;
+
+  // Quotes/invoices here always represent the main app business (Black Phoenix
+  // Builds), never the ecommerce store — resolve and apply it on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const companies = await CompanyStore.getAllCompanies(user?.id);
+        const mainApp = pickMainAppCompany(companies);
+        if (mainApp) setActiveCompanyInfoFromStore(mainApp);
+      } catch (err) {
+        console.error('[InvoiceBuilder] Could not resolve main-app company:', err);
+      }
+    })();
+  }, []);
 
   // ── Load quotes from the server on mount ────────────────────────────────────
   useEffect(() => {

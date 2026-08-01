@@ -69,6 +69,8 @@ import {
 } from '../lib/services/materialsHubService';
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
 import WorkRequestFullView from './WorkRequestFullView';
+import * as CompanyStore from '../lib/simpleCompanyStore';
+import { pickMainAppCompany, setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
 
 interface MaterialItem {
   id: string;
@@ -188,25 +190,31 @@ export function QuoteToContractEditor({
   const [companyName, setCompanyName] = useState<string>('');
 
   useEffect(() => {
-    // Load company logo from localStorage
-    try {
-      const logoVariants = localStorage.getItem('company_logo_variants');
-      if (logoVariants) {
-        const parsed = JSON.parse(logoVariants);
-        setCompanyLogo(parsed.logo_primary || parsed.logo_secondary || '');
-      }
-
-      // Load company name
-      const companyData = localStorage.getItem('companies_cache');
-      if (companyData) {
-        const companies = JSON.parse(companyData);
-        if (companies && companies.length > 0) {
-          setCompanyName(companies[0].dba_name || companies[0].legal_name || 'Company Name');
+    (async () => {
+      try {
+        // Quotes/contracts always represent the main app business (Black Phoenix
+        // Builds), never the ecommerce store. Resolve it and use it for both the
+        // header display and the global company info the documents read.
+        const companies = await CompanyStore.getAllCompanies();
+        const mainApp = pickMainAppCompany(companies);
+        if (mainApp) {
+          setActiveCompanyInfoFromStore(mainApp);
+          setCompanyName(mainApp.dba || mainApp.name || 'Company Name');
+          setCompanyLogo(mainApp.logo_url || '');
         }
+
+        // Fall back to the logo-variants cache only if the company had no logo.
+        if (!mainApp?.logo_url) {
+          const logoVariants = localStorage.getItem('company_logo_variants');
+          if (logoVariants) {
+            const parsed = JSON.parse(logoVariants);
+            setCompanyLogo(parsed.logo_primary || parsed.logo_secondary || '');
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load company info:', error);
       }
-    } catch (error) {
-      console.error('Failed to load company info:', error);
-    }
+    })();
   }, []);
 
   // Normalize materials and labor from Materials Hub format

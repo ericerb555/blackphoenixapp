@@ -20,6 +20,7 @@
 
 import { useState, useEffect } from 'react';
 import * as CompanyStore from '../lib/simpleCompanyStore';
+import { setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
 import {
   Crown, TrendingUp, DollarSign, Users, Briefcase, Target,
   ArrowUp, ArrowDown, Activity, BarChart3, PieChart, Calendar,
@@ -118,6 +119,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
         const active = await CompanyStore.getActiveCompany(user.id);
         setActiveCompany(active);
+        if (active) {
+          setSelectedCompany(active.id);
+          setActiveCompanyInfoFromStore(active);
+        }
 
         console.log('[OwnersDashboard] Loaded:', companies.length, 'companies');
       })();
@@ -351,7 +356,16 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
   const handleCompanySwitch = (companyId: string) => {
     setSelectedCompany(companyId);
-    toast.success(`Switched to ${userCompanies.find(c => c.id === companyId)?.name}`);
+    const company = userCompanies.find(c => c.id === companyId) || null;
+    // Persist the active company AND sync the global company info that invoices,
+    // quotes, and other documents read — otherwise switching here has no effect
+    // on what those documents display.
+    if (company) {
+      CompanyStore.setActiveCompany(companyId, user?.id);
+      setActiveCompany(company);
+      setActiveCompanyInfoFromStore(company);
+    }
+    toast.success(`Switched to ${company?.name || 'company'}`);
   };
 
   const sendFreePortalInvite = async (event: React.FormEvent) => {

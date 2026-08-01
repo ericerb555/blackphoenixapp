@@ -93,6 +93,82 @@ export const defaultCompanyInfo: CompanyInfo = {
 export let companyInfo: CompanyInfo = { ...defaultCompanyInfo };
 
 /**
+ * Pick the "main app" company (the construction business — Black Phoenix Builds)
+ * out of a list of `simpleCompanyStore` companies. Invoices, quotes, and other
+ * documents in the main app always use this company, regardless of any manual
+ * switcher. Resolution order:
+ *   1. a company whose name/dba mentions "build" (the construction business),
+ *   2. otherwise the company flagged `is_primary`,
+ *   3. otherwise the first company.
+ * The ecommerce store uses its own branding, so it is intentionally NOT chosen.
+ */
+export function pickMainAppCompany(companies: any[]): any | null {
+  if (!Array.isArray(companies) || companies.length === 0) return null;
+  const nameOf = (c: any) => `${c?.name || ''} ${c?.dba || ''}`.toLowerCase();
+  const byBuild = companies.find((c) => /build/.test(nameOf(c)));
+  if (byBuild) return byBuild;
+  const primary = companies.find((c) => c?.is_primary);
+  if (primary) return primary;
+  return companies[0];
+}
+
+/**
+ * Sync the global company info from a `simpleCompanyStore` Company record (the
+ * shape used by the owner's-dashboard Companies tab). That store uses different
+ * field names than the branding profile (e.g. a single `address` string,
+ * `business_license`, a `bank_accounts` array), so it needs its own mapping.
+ */
+export function setActiveCompanyInfoFromStore(company: any | null): CompanyInfo {
+  if (!company || !company.name) {
+    companyInfo = { ...defaultCompanyInfo };
+    return companyInfo;
+  }
+  const bank = Array.isArray(company.bank_accounts) ? company.bank_accounts[0] : undefined;
+  companyInfo = {
+    name: company.dba || company.name,
+    legalName: company.name,
+    tagline: company.description || defaultCompanyInfo.tagline,
+    logo: company.logo_url,
+    address: {
+      line1: company.address || '',
+      line2: undefined,
+      city: company.city || '',
+      state: company.state || '',
+      zipCode: company.zip_code || '',
+      country: company.country || 'United States',
+    },
+    contact: {
+      phone: company.phone || '',
+      email: company.email || '',
+      website: company.website || '',
+      fax: undefined,
+    },
+    tax: {
+      taxId: company.tax_id || '',
+      taxLabel: 'EIN',
+    },
+    branding: {
+      primaryColor: defaultCompanyInfo.branding.primaryColor,
+      secondaryColor: defaultCompanyInfo.branding.secondaryColor,
+      accentColor: defaultCompanyInfo.branding.accentColor,
+      logoUrl: company.logo_url,
+    },
+    banking: bank ? {
+      bankName: bank.bank_name || bank.bankName || '',
+      accountName: bank.account_name || bank.accountName || company.name,
+      accountNumber: bank.account_number || bank.accountNumber || '',
+      routingNumber: bank.routing_number || bank.routingNumber || '',
+    } : undefined,
+    legal: {
+      licenseNumber: company.business_license,
+      insuranceNumber: undefined,
+      terms: company.profile?.payment_terms || defaultCompanyInfo.legal.terms,
+    },
+  };
+  return companyInfo;
+}
+
+/**
  * Load company info from database
  */
 export async function loadCompanyInfo(): Promise<CompanyInfo> {
