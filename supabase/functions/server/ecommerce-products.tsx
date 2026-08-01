@@ -3,6 +3,47 @@
 import { Hono } from 'npm:hono';
 import * as kv from './kv_store.tsx';
 
+/**
+ * Short-lived, single-flight cache for the full product list.
+ *
+ * Reading every product means two `getByPrefix` scans (`product_` +
+ * `live_product_`) over the shared KV table. As the table has grown those
+ * scans started hitting Postgres' statement timeout under concurrent load
+ * (storefront + admin all calling /products at once). Since the KV internals
+ * and DB indexes are off-limits, we cut the load here: cache the scan result
+ * for a few seconds and collapse concurrent callers onto one in-flight scan,
+ * so a burst of requests costs one query instead of dozens. Writes bust it.
+ */
+const PRODUCTS_CACHE_TTL_MS = 15_000;
+let productsCache: { at: number; data: any[] } | null = null;
+let productsInFlight: Promise<any[]> | null = null;
+
+async function loadAllProducts(): Promise<any[]> {
+  if (productsCache && Date.now() - productsCache.at < PRODUCTS_CACHE_TTL_MS) {
+    return productsCache.data;
+  }
+  if (productsInFlight) return productsInFlight;
+  productsInFlight = (async () => {
+    try {
+      const [canonical, live] = await Promise.all([
+        kv.getByPrefix('product_').catch(() => []),
+        kv.getByPrefix('live_product_').catch(() => []),
+      ]);
+      const merged = [...(canonical || []), ...(live || [])].filter(Boolean);
+      const data = [...new Map(merged.map((p: any) => [p.id, p])).values()];
+      productsCache = { at: Date.now(), data };
+      return data;
+    } finally {
+      productsInFlight = null;
+    }
+  })();
+  return productsInFlight;
+}
+
+export function invalidateProductsCache() {
+  productsCache = null;
+}
+
 // Type definitions
 interface Product {
   id: string;
@@ -105,6 +146,7 @@ productsRouter.post('/products', async (c) => {
 
     // Save product
     await kv.set(`product_${product.id}`, product);
+    invalidateProductsCache();
 
     // Add to vendor's product list
     const vendorProductsKey = `vendor_products_${vendorId}`;
@@ -162,9 +204,9 @@ productsRouter.get('/products', async (c) => {
     const maxPrice = url.searchParams.get('maxPrice');
 
     // Canonical vendor products and imported dropship products use different
-    // KV prefixes. Read both so imported products immediately become sellable.
-    let products = [...((await kv.getByPrefix('product_')) || []), ...((await kv.getByPrefix('live_product_')) || [])] as Product[];
-    products = [...new Map(products.filter(Boolean).map((product: any) => [product.id, product])).values()] as Product[];
+    // KV prefixes. Read both (cached + de-duped) so imported products are
+    // immediately sellable without re-scanning the table on every request.
+    let products = (await loadAllProducts()) as Product[];
     if (vendorId) products = products.filter((product: any) => product.vendorId === vendorId);
     if (category) products = products.filter((product: any) => product.category === category);
 
@@ -274,6 +316,7 @@ productsRouter.put('/products/:id', async (c) => {
     }
 
     await kv.set(productKey, updatedProduct);
+    invalidateProductsCache();
 
     return c.json({ success: true, product: updatedProduct });
   } catch (error) {
@@ -306,6 +349,8 @@ productsRouter.delete('/products/:id', async (c) => {
 
     // Delete product
     await kv.del(`product_${id}`);
+    await kv.del(`live_product_${id}`);
+    invalidateProductsCache();
 
     return c.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {
@@ -339,6 +384,7 @@ productsRouter.post('/products/bulk-inventory', async (c) => {
       }
     }
 
+    invalidateProductsCache();
     return c.json({ success: true, results });
   } catch (error) {
     console.error('Error bulk updating inventory:', error);

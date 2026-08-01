@@ -168,6 +168,7 @@ function applyMarkup(price: number, markupPercentage?: number): number {
 async function saveInventoryItem(product: DropshipperProduct): Promise<void> {
   const key = `${INVENTORY_KEY_PREFIX}:${product.sku}`;
   await kv.set(key, JSON.stringify(product));
+  invalidateInventoryCache();
 }
 
 /**
@@ -182,9 +183,29 @@ export async function getInventoryItem(sku: string): Promise<DropshipperProduct 
 /**
  * Get all inventory items
  */
+let inventoryCache: { at: number; data: DropshipperProduct[] } | null = null;
+let inventoryInFlight: Promise<DropshipperProduct[]> | null = null;
+const INVENTORY_CACHE_TTL_MS = 15_000;
+
+export function invalidateInventoryCache() { inventoryCache = null; }
+
 export async function getAllInventory(): Promise<DropshipperProduct[]> {
-  const items = await kv.getByPrefix(INVENTORY_KEY_PREFIX);
-  return items.map(item => JSON.parse(item));
+  if (inventoryCache && Date.now() - inventoryCache.at < INVENTORY_CACHE_TTL_MS) return inventoryCache.data;
+  if (inventoryInFlight) return inventoryInFlight;
+  // Collapse concurrent callers onto one prefix scan; cache briefly to keep the
+  // shared KV table from being re-scanned on every dashboard poll (the scans
+  // were hitting Postgres' statement timeout under concurrent load).
+  inventoryInFlight = (async () => {
+    try {
+      const items = await kv.getByPrefix(INVENTORY_KEY_PREFIX);
+      const data = items.map(item => (typeof item === 'string' ? JSON.parse(item) : item));
+      inventoryCache = { at: Date.now(), data };
+      return data;
+    } finally {
+      inventoryInFlight = null;
+    }
+  })();
+  return inventoryInFlight;
 }
 
 /**

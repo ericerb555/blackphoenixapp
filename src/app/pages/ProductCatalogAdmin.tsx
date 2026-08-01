@@ -292,6 +292,12 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
             Apply to {query || supplierFilter ? 'results' : 'all'}
           </button>
         </div>
+        <button onClick={() => setAiOpen(true)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white"
+          style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
+          title="Let AI suggest market prices (and estimate shipping) for the selected or visible items">
+          <Sparkles className="w-4 h-4" /> AI price{selectedCount > 0 ? ` (${selectedCount})` : ''}
+        </button>
         <button onClick={refreshLiveShipping} disabled={refreshingShip}
           className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
           style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
@@ -323,7 +329,11 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       </div>
 
       {/* Header row (desktop) */}
-      <div className="hidden md:grid grid-cols-[1fr_92px_92px_92px_92px_120px_92px] gap-3 px-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+      <div className="hidden md:grid grid-cols-[28px_1fr_92px_92px_92px_92px_120px_92px] gap-3 px-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+        <span className="flex items-center">
+          <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+            className="w-4 h-4 accent-orange-500 cursor-pointer" title="Select all visible" />
+        </span>
         <span>Product</span><span>Cost ($)</span><span>Ship ($)</span><span>Price ($)</span><span>Markup %</span><span>Landed / Profit</span><span className="text-right">Save</span>
       </div>
 
@@ -345,9 +355,16 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           return (
             <div key={p.id} className="rounded-2xl overflow-hidden"
               style={{ background: dirty ? 'rgba(234,88,12,0.08)' : 'rgba(255,255,255,0.035)', border: `1px solid ${dirty ? 'rgba(234,88,12,0.35)' : 'rgba(255,255,255,0.08)'}` }}>
-            <div className="grid grid-cols-2 md:grid-cols-[1fr_92px_92px_92px_92px_120px_92px] gap-3 items-center p-3">
+            <div className="grid grid-cols-2 md:grid-cols-[28px_1fr_92px_92px_92px_92px_120px_92px] gap-3 items-center p-3">
+              {/* Select */}
+              <div className="hidden md:flex items-center">
+                <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
+                  className="w-4 h-4 accent-orange-500 cursor-pointer" title="Select for AI pricing" />
+              </div>
               {/* Product */}
               <div className="col-span-2 md:col-span-1 flex items-center gap-3 min-w-0">
+                <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)}
+                  className="w-4 h-4 accent-orange-500 cursor-pointer md:hidden shrink-0" title="Select for AI pricing" />
                 <button onClick={() => setImagesOpen(galleryOpen ? null : p.id)}
                   className="relative w-11 h-11 rounded-lg overflow-hidden bg-white/5 shrink-0 group" title="Manage images">
                   {gallery[0] ? <img src={gallery[0]} alt={p.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-600 m-3" />}
@@ -465,6 +482,93 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           );
         })}
       </div>
+
+      {/* AI pricing modal */}
+      {aiOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={() => !aiRunning && setAiOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl overflow-hidden" style={{ background: '#141414', border: '1px solid rgba(255,255,255,0.12)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
+                <Wand2 className="w-4 h-4 text-white" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-white font-black">AI pricing agent</h2>
+                <p className="text-[11px] text-gray-500">
+                  {selectedCount > 0 ? `${selectedCount} selected item${selectedCount !== 1 ? 's' : ''}` : `All ${filtered.length} visible item${filtered.length !== 1 ? 's' : ''}`} · items with $0 cost are skipped
+                </p>
+              </div>
+              <button onClick={() => !aiRunning && setAiOpen(false)} className="text-gray-500 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {/* Strategy */}
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Pricing strategy</label>
+                <div className="grid grid-cols-3 gap-2 mt-1.5">
+                  {([
+                    { k: 'value', t: 'Value', d: 'Lowest' },
+                    { k: 'competitive', t: 'Competitive', d: 'Market' },
+                    { k: 'premium', t: 'Premium', d: 'Higher' },
+                  ] as const).map(o => (
+                    <button key={o.k} onClick={() => setAiStrategy(o.k)}
+                      className="rounded-xl px-2 py-2 text-center transition-colors"
+                      style={{
+                        background: aiStrategy === o.k ? 'rgba(234,88,12,0.15)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${aiStrategy === o.k ? '#ea580c' : 'rgba(255,255,255,0.08)'}`,
+                      }}>
+                      <div className={`text-sm font-bold ${aiStrategy === o.k ? 'text-orange-400' : 'text-white'}`}>{o.t}</div>
+                      <div className="text-[10px] text-gray-500">{o.d}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Guardrails */}
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Min margin %</span>
+                  <input type="number" value={aiMinMargin} onChange={e => setAiMinMargin(e.target.value)} min="0"
+                    className="w-full mt-1.5 px-3 py-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm focus:outline-none focus:border-[#ea580c]" />
+                  <span className="text-[10px] text-gray-500">Never price below this profit.</span>
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Max markup %</span>
+                  <input type="number" value={aiMaxMarkup} onChange={e => setAiMaxMarkup(e.target.value)} min="0"
+                    className="w-full mt-1.5 px-3 py-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm focus:outline-none focus:border-[#ea580c]" />
+                  <span className="text-[10px] text-gray-500">Never price above this.</span>
+                </label>
+              </div>
+
+              {/* Shipping estimate toggle */}
+              <button onClick={() => setAiEstimateShipping(v => !v)}
+                className="w-full flex items-center gap-3 rounded-xl p-3 text-left"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="w-9 h-5 rounded-full relative transition-colors shrink-0" style={{ background: aiEstimateShipping ? '#ea580c' : 'rgba(255,255,255,0.15)' }}>
+                  <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: aiEstimateShipping ? '18px' : '2px' }} />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm text-white font-bold flex items-center gap-1.5"><Truck className="w-3.5 h-3.5 text-orange-400" /> Also estimate shipping cost</div>
+                  <div className="text-[11px] text-gray-500">Fills in a realistic per-item shipping cost where the supplier gave none.</div>
+                </div>
+              </button>
+
+              <p className="text-[11px] text-gray-500">Suggestions are written into the rows for you to review — nothing is charged or published until you hit <b className="text-gray-300">Save</b>.</p>
+            </div>
+
+            <div className="flex gap-2 p-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <button onClick={() => setAiOpen(false)} disabled={aiRunning}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-300 disabled:opacity-40" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                Cancel
+              </button>
+              <button onClick={runAiPricing} disabled={aiRunning}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
+                {aiRunning ? <><Loader2 className="w-4 h-4 animate-spin" /> Pricing…</> : <><Sparkles className="w-4 h-4" /> Generate prices</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -40,6 +40,7 @@ import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
 import tierFeaturesRouter from "./tier-features.tsx";
 import shippingRatesRouter from "./shipping-rates.tsx";
+import storeAiPricingRouter from "./store-ai-pricing.tsx";
 // ── Authoritative store pricing helpers (inlined so the function always bundles) ──
 // Server independently derives item prices, shipping, and tax so a tampered
 // checkout request cannot zero out the charged total.
@@ -244,6 +245,7 @@ app.route("/", fulfillmentRouter);
 app.route("/", hotProductsRouter);
 app.route("/", tierFeaturesRouter);
 app.route("/", shippingRatesRouter);
+app.route("/", storeAiPricingRouter);
 app.route("/make-server-3eae23a6", cartRouter);
 app.route("/make-server-3eae23a6", ordersRouter);
 app.route("/", crmContentRouter);
@@ -533,10 +535,20 @@ app.post('/make-server-3eae23a6/logo/upload', async (c) => {
   }
 });
 
+// Short-lived cache for the public business-profiles read. This endpoint is
+// polled by the storefront; caching it keeps a burst of requests from each
+// issuing a KV query while the shared DB is under load. Writes bust it below.
+let businessProfilesCache: { at: number; data: any } | null = null;
+const BUSINESS_PROFILES_TTL_MS = 20_000;
+
 // Get business profiles (public - no auth required)
 app.get('/make-server-3eae23a6/business-profiles', async (c) => {
   try {
+    if (businessProfilesCache && Date.now() - businessProfilesCache.at < BUSINESS_PROFILES_TTL_MS) {
+      return c.json(businessProfilesCache.data);
+    }
     const profiles = await kv.get('business_profiles') || [];
+    businessProfilesCache = { at: Date.now(), data: profiles };
     return c.json(profiles);
   } catch (error: any) {
     console.error('Error fetching business profiles:', error);
@@ -571,6 +583,7 @@ app.post('/make-server-3eae23a6/business-profiles', async (c) => {
     }
 
     await kv.set('business_profiles', profiles);
+    businessProfilesCache = { at: Date.now(), data: profiles };
     return c.json({ success: true, profiles });
   } catch (error: any) {
     console.error('Error saving business profile:', error);

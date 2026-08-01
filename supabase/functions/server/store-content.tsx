@@ -17,6 +17,28 @@ export const storeContentRouter = new Hono();
 const REEL_PREFIX = 'reel:';
 const POST_PREFIX = 'store_post:';
 
+// Short-lived cache + single-flight for the reel scan. The public storefront
+// polls /reels frequently; without this each poll re-scans the shared KV table,
+// which was contributing to Postgres statement timeouts under load. Writes bust it.
+let reelsCache: { at: number; data: any[] } | null = null;
+let reelsInFlight: Promise<any[]> | null = null;
+const REELS_CACHE_TTL_MS = 20_000;
+function invalidateReelsCache() { reelsCache = null; }
+async function loadReels(): Promise<any[]> {
+  if (reelsCache && Date.now() - reelsCache.at < REELS_CACHE_TTL_MS) return reelsCache.data;
+  if (reelsInFlight) return reelsInFlight;
+  reelsInFlight = (async () => {
+    try {
+      const data = ((await kv.getByPrefix(REEL_PREFIX)) || []).filter(Boolean);
+      reelsCache = { at: Date.now(), data };
+      return data;
+    } finally {
+      reelsInFlight = null;
+    }
+  })();
+  return reelsInFlight;
+}
+
 // Verify the caller is an authenticated admin/owner for write operations.
 async function requireAdmin(c: any): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -45,7 +67,7 @@ async function requireAdmin(c: any): Promise<{ ok: boolean; error?: string }> {
 // Public: active reels for the storefront (sorted by order then newest).
 storeContentRouter.get('/reels', async (c) => {
   try {
-    const reels = ((await kv.getByPrefix(REEL_PREFIX)) || []).filter((r: any) => r && r.active !== false);
+    const reels = (await loadReels()).filter((r: any) => r && r.active !== false);
     reels.sort((a: any, b: any) => (a.order ?? 999) - (b.order ?? 999) || (b.createdAt || '').localeCompare(a.createdAt || ''));
     return c.json({ success: true, reels });
   } catch (error) {
@@ -59,7 +81,7 @@ storeContentRouter.get('/reels/all', async (c) => {
   const auth = await requireAdmin(c);
   if (!auth.ok) return c.json({ success: false, error: auth.error }, 401);
   try {
-    const reels = ((await kv.getByPrefix(REEL_PREFIX)) || []).filter(Boolean);
+    const reels = (await loadReels()).slice();
     reels.sort((a: any, b: any) => (a.order ?? 999) - (b.order ?? 999) || (b.createdAt || '').localeCompare(a.createdAt || ''));
     return c.json({ success: true, reels });
   } catch (error) {
@@ -91,6 +113,7 @@ storeContentRouter.post('/reels', async (c) => {
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
     await kv.set(`${REEL_PREFIX}${reelId}`, record);
+    invalidateReelsCache();
     return c.json({ success: true, reel: record });
   } catch (error) {
     console.error('[StoreContent] Failed to save reel:', error);
@@ -103,6 +126,7 @@ storeContentRouter.delete('/reels/:id', async (c) => {
   if (!auth.ok) return c.json({ success: false, error: auth.error }, 401);
   try {
     await kv.del(`${REEL_PREFIX}${c.req.param('id')}`);
+    invalidateReelsCache();
     return c.json({ success: true });
   } catch (error) {
     console.error('[StoreContent] Failed to delete reel:', error);
