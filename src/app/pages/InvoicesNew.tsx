@@ -761,6 +761,13 @@ export default function InvoicesNew() {
             setInvoiceToPreview(null);
           }}
           invoice={invoiceToPreview}
+          onEdit={() => {
+            // Close the preview and open the full editor pre-loaded with this invoice.
+            setInvoiceToEdit(invoiceToPreview);
+            setShowPreviewModal(false);
+            setInvoiceToPreview(null);
+            setShowCreateModal(true);
+          }}
         />
       )}
     </div>
