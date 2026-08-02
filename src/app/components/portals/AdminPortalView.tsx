@@ -18,6 +18,7 @@ import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import PlansRecordsPanel from './PlansRecordsPanel';
 import CreatePortalPanel from './CreatePortalPanel';
+import SentInvitesPanel from './SentInvitesPanel';
 
 interface Alert {
   id: string;
@@ -55,7 +56,7 @@ interface AdminPortalViewProps {
 }
 
 export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'guide'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'sent-invites' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'guide'>('overview');
 
   // ── Dispatch Center Data ───────────────────────────────────────────────────
   const [workOrders, setWorkOrders] = useState([
@@ -341,6 +342,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
             {[
               { id: 'overview', label: 'Overview', icon: Activity },
               { id: 'create-portal', label: 'Create Portal', icon: UserCheck },
+              { id: 'sent-invites', label: 'Sent Invites', icon: Send },
               { id: 'dispatch', label: 'Dispatch Center', icon: ClipboardList, badge: workOrders.filter(w => w.status === 'unassigned').length },
               { id: 'plans', label: 'Maintenance Plans', icon: Wrench },
               { id: 'alerts', label: 'System Alerts', icon: Bell },
@@ -375,6 +377,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Create Portal Tab — provision any portal + optional full-access trial */}
         {activeTab === 'create-portal' && <CreatePortalPanel />}
+        {activeTab === 'sent-invites' && <SentInvitesPanel />}
 
         {/* Maintenance Plans Tab — searchable records tied to hours, gift cards, promos & offers */}
         {activeTab === 'plans' && <PlansRecordsPanel />}

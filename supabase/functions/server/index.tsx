@@ -7386,9 +7386,20 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     const sendSms = body.sendSms === true;
     const wantQr = body.generateQr === true;
     const existingId = await kv.get(`intake:email:${email}`) as string | null;
-    if (existingId) return c.json({ success: false, error: 'This email already has an onboarding or portal record. Use access control to change their access.' }, 409);
-    const now = new Date().toISOString(); const applicationId = `OWNER-INVITE-${crypto.randomUUID()}`;
-    const intake = { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
+    // Re-inviting is allowed: if a record already exists but the person hasn't
+    // finished onboarding, we RESEND to the same record instead of erroring.
+    // Only block when they've already completed onboarding (status 'active') —
+    // in that case use access control, not a fresh invite.
+    let existingIntake: any = existingId ? await kv.get(`intake:onboarding:${existingId}`) : null;
+    if (existingIntake?.status === 'active') {
+      return c.json({ success: false, error: 'This email has already completed onboarding. Use access control to change their access.' }, 409);
+    }
+    const isResend = !!existingId;
+    const now = new Date().toISOString(); const applicationId = existingId || `OWNER-INVITE-${crypto.randomUUID()}`;
+    const priorProv = isResend ? (await kv.get(`owner_provision:${applicationId}`)) as any : null;
+    const intake = existingIntake
+      ? { ...existingIntake, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, updatedAt: now }
+      : { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
     const access = { id: `ACCESS-${crypto.randomUUID()}`, applicationId, email, portalType, applicantName: name, status: 'onboarding', onboardingStatus: intake.status, freeProvisioned: true, provisionedBy: actor.user.email, createdAt: now, updatedAt: now };
     await kv.set(`intake:onboarding:${applicationId}`, intake); await kv.set(`intake:email:${email}`, applicationId); await kv.set(`portal_access:${email}:${portalType}`, access); await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: 'pending' });
     // Feature grant: full access for the trial window, then requires a plan.
@@ -7499,9 +7510,144 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       } catch (e: any) { console.log(`ℹ️ [PortalInvite] QR generation failed: ${e?.message || e}`); }
     }
 
-    await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: invitationSent ? 'sent' : 'account_exists_or_email_failed', inviteNotice, emailProvider, smsSent, smsNotice, updatedAt: new Date().toISOString() });
-    return c.json({ success: true, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink, freeProvisioned: true } }, 201);
+    const sentAt = new Date().toISOString();
+    const priorAccepted = priorProv?.inviteStatus === 'accepted';
+    await kv.set(`owner_provision:${applicationId}`, {
+      ...intake, name, email, phone, portalType, grantFullAccess, trialMonths,
+      inviteStatus: priorAccepted ? 'accepted' : (invitationSent || smsSent ? 'sent' : 'account_exists_or_email_failed'),
+      inviteNotice, emailProvider, smsSent, smsNotice,
+      sentCount: (Number(priorProv?.sentCount) || 0) + 1,
+      lastSentAt: sentAt,
+      acceptedAt: priorProv?.acceptedAt || null,
+      createdAt: priorProv?.createdAt || intake.createdAt || sentAt,
+      updatedAt: sentAt,
+    });
+    return c.json({ success: true, resent: isResend, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink, freeProvisioned: true } }, isResend ? 200 : 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
+});
+
+/**
+ * Shared delivery routine used by the resend route. Generates the secure sign-in
+ * link and pushes it over the requested channels (email / SMS / QR). Mirrors the
+ * inline logic in the POST /invites create route.
+ */
+async function deliverPortalInvite(opts: { name: string; email: string; phone: string; portalType: string; grantFullAccess: boolean; trialMonths: number; sendEmail: boolean; sendSms: boolean; wantQr: boolean; }) {
+  const { name, email, phone, portalType, grantFullAccess, trialMonths, sendEmail, sendSms, wantQr } = opts;
+  let invitationSent = false; let inviteNotice = ''; let emailProvider = '';
+  let smsSent = false; let smsNotice = ''; let qrDataUrl: string | null = null; let inviteLink: string | null = null;
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+  const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+  const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
+  const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
+  const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
+  const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
+  const inviteRedirectTo = `${APP_URL.replace(/\/$/, '')}/portal-onboarding`;
+  try {
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { data: metadata, redirectTo: inviteRedirectTo } });
+    const actionLink = linkData?.properties?.action_link || linkData?.action_link;
+    if (!linkError && actionLink) { inviteLink = actionLink; }
+    else if (linkError) {
+      const { data: magicData, error: magicError } = await supabase.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo: inviteRedirectTo } });
+      const magicLink = magicData?.properties?.action_link || magicData?.action_link;
+      if (!magicError && magicLink) inviteLink = magicLink;
+    }
+  } catch (e: any) { console.log(`ℹ️ [PortalInvite:resend] Link generation failed: ${e?.message || e}`); }
+  if (sendEmail) {
+    try {
+      if (RESEND_API_KEY && inviteLink) {
+        const { subject, html, text } = buildPortalInviteEmail({ name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+        const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }) });
+        if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
+        invitationSent = true; emailProvider = 'resend';
+      } else { throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.'); }
+    } catch (brandedError: any) {
+      console.log(`ℹ️ [PortalInvite:resend] Branded Resend unavailable, falling back to Supabase: ${brandedError?.message || brandedError}`);
+      try { const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata }); if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; } }
+      catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+    }
+  }
+  if (sendSms) {
+    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || ''; const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || ''; const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
+    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) { smsNotice = 'SMS is not configured (Twilio env vars missing).'; }
+    else if (!phone) { smsNotice = 'No phone number provided for SMS.'; }
+    else if (!toE164(phone)) { smsNotice = `The phone number "${phone}" is not a valid number for SMS.`; }
+    else {
+      try {
+        const toNumber = toE164(phone);
+        const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ From: TWILIO_FROM, To: toNumber, Body: smsBody }) });
+        if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = `Twilio rejected the message: ${err}`; } else { smsSent = true; }
+      } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
+    }
+  }
+  if (wantQr && inviteLink) {
+    try { const QRCode = (await import('npm:qrcode')).default; qrDataUrl = await QRCode.toDataURL(inviteLink, { width: 512, margin: 2 }); }
+    catch (e: any) { console.log(`ℹ️ [PortalInvite:resend] QR generation failed: ${e?.message || e}`); }
+  }
+  return { invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink };
+}
+
+/**
+ * Lists every owner-provisioned portal invite for the Sent Invites page. Reads
+ * all `owner_provision:` records and maps them to a stable shape the UI expects.
+ */
+app.get('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const records = (await kv.getByPrefix('owner_provision:')) as any[];
+    const invites = (records || []).map((r) => ({
+      applicationId: r.applicationId || r.id || '',
+      name: r.name || r.applicantName || '',
+      email: r.email || r.applicantEmail || '',
+      phone: r.phone || r.applicantPhone || '',
+      portalType: r.portalType || '',
+      inviteStatus: r.inviteStatus || 'pending',
+      emailProvider: r.emailProvider || '',
+      smsSent: !!r.smsSent,
+      inviteNotice: r.inviteNotice || '',
+      smsNotice: r.smsNotice || '',
+      sentCount: Number(r.sentCount) || (r.lastSentAt ? 1 : 0),
+      lastSentAt: r.lastSentAt || r.updatedAt || r.createdAt || null,
+      acceptedAt: r.acceptedAt || null,
+      createdAt: r.createdAt || null,
+    }));
+    invites.sort((a, b) => new Date(b.lastSentAt || 0).getTime() - new Date(a.lastSentAt || 0).getTime());
+    return c.json({ success: true, invites });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load sent invites.' }, 500); }
+});
+
+/**
+ * Resends an existing invite over the requested channels and bumps its send count.
+ */
+app.post('/make-server-3eae23a6/owner-provisioning/invites/:id/resend', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    const applicationId = c.req.param('id');
+    const prov = (await kv.get(`owner_provision:${applicationId}`)) as any;
+    if (!prov) return c.json({ success: false, error: 'Invite record not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const sendEmail = body.sendEmail !== false;
+    const sendSms = body.sendSms === true;
+    const wantQr = body.generateQr === true;
+    const name = prov.name || prov.applicantName || '';
+    const email = prov.email || prov.applicantEmail || '';
+    const phone = prov.phone || prov.applicantPhone || '';
+    const portalType = prov.portalType || '';
+    const grantFullAccess = prov.grantFullAccess !== false;
+    const trialMonths = Math.min(24, Math.max(1, Number(prov.trialMonths) || 6));
+    const result = await deliverPortalInvite({ name, email, phone, portalType, grantFullAccess, trialMonths, sendEmail, sendSms, wantQr });
+    const sentAt = new Date().toISOString();
+    const alreadyAccepted = prov.inviteStatus === 'accepted';
+    await kv.set(`owner_provision:${applicationId}`, {
+      ...prov, name, email, phone, portalType,
+      inviteStatus: alreadyAccepted ? 'accepted' : (result.invitationSent || result.smsSent ? 'sent' : 'account_exists_or_email_failed'),
+      inviteNotice: result.inviteNotice, emailProvider: result.emailProvider, smsSent: result.smsSent, smsNotice: result.smsNotice,
+      sentCount: (Number(prov.sentCount) || 0) + 1, lastSentAt: sentAt, updatedAt: sentAt,
+    });
+    return c.json({ success: true, invite: { applicationId, ...result } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to resend invite.' }, 500); }
 });
 
 /**
@@ -7727,6 +7873,8 @@ app.post('/make-server-3eae23a6/intake/my-onboarding/profile', async (c) => {
     if (!fullName || !phone) return c.json({ success: false, error: 'Full name and phone number are required.' }, 400);
     const now = new Date().toISOString(); intake.applicantName = fullName; intake.applicantPhone = phone; intake.profile = { fullName, email: String(user.email).toLowerCase(), phone, company, address, completed: true, completedAt: now }; intake.planInterest = planInterest; intake.status = 'active'; intake.updatedAt = now;
     await kv.set(`intake:onboarding:${applicationId}`, intake);
+    // Mark the owner-provisioned invite as ACCEPTED so the Sent Invites page flips to "Accepted".
+    try { const prov = await kv.get(`owner_provision:${applicationId}`) as any; if (prov) await kv.set(`owner_provision:${applicationId}`, { ...prov, inviteStatus: 'accepted', acceptedAt: now, updatedAt: now }); } catch (_e) { /* non-fatal */ }
     const accessKey = `portal_access:${String(user.email).toLowerCase()}:${intake.portalType}`; const prior = await kv.get(accessKey) as any; const access = { ...(prior || {}), applicationId, email: String(user.email).toLowerCase(), portalType: intake.portalType, applicantName: fullName, status: 'active', onboardingStatus: 'active', freeProvisioned: Boolean(intake.ownerProvisioned), updatedAt: now, createdAt: prior?.createdAt || now }; await kv.set(accessKey, access);
     if (['subscription', 'maintenance', 'both'].includes(planInterest)) await kv.set(`plan_interest:${String(user.email).toLowerCase()}`, { email: String(user.email).toLowerCase(), name: fullName, phone, company, address, portalType: intake.portalType, planInterest, source: 'owner-provisioned-onboarding', status: 'requested', applicationId, requestedAt: now });
     return c.json({ success: true, intake: stripBase64(intake), access, next: 'portal' });

@@ -1,5 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
-import { useState, useEffect, Component, ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, Component, ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   Home, DollarSign, Users, Wrench, Settings, Bell,
@@ -112,6 +112,23 @@ export default function LandlordPortalView() {
   const accountEmail = user?.email || '';
   const { unread: unreadMessages, clearUnread } = usePortalMessages(user?.id || '', accountEmail);
   const [tab, setTab] = useState<Tab>('dashboard');
+  // Tab strip scroll affordance — show edge fades + a nudge so users know there
+  // are more tabs off-screen to scroll to.
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  const [tabScroll, setTabScroll] = useState({ atStart: true, atEnd: false });
+  const updateTabScroll = useCallback(() => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    const atStart = el.scrollLeft <= 2;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
+    setTabScroll(prev => (prev.atStart === atStart && prev.atEnd === atEnd ? prev : { atStart, atEnd }));
+  }, []);
+  useEffect(() => {
+    updateTabScroll();
+    window.addEventListener('resize', updateTabScroll);
+    return () => window.removeEventListener('resize', updateTabScroll);
+  }, [updateTabScroll]);
+  const nudgeTabs = () => { tabScrollRef.current?.scrollBy({ left: 240, behavior: 'smooth' }); };
   const [maintenance, setMaintenance] = useState<any[]>([]);
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [decisionId, setDecisionId] = useState<string | null>(null);
@@ -381,22 +398,41 @@ export default function LandlordPortalView() {
             </div>
             <NotificationBell session={session} accent="teal" />
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {TABS.map(t => {
-              const Icon = t.icon;
-              return (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition flex-shrink-0 ${
-                    tab === t.id
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-teal-500/30'
-                  }`}>
-                  <Icon className="w-4 h-4" />{t.label}
-                  {t.badge && <span className="text-[8px] font-black px-1 py-0.5 rounded bg-yellow-500 text-black ml-1">{t.badge}</span>}
-                </button>
-              );
-            })}
+          <div className="relative">
+            <div
+              ref={tabScrollRef}
+              onScroll={updateTabScroll}
+              className="flex gap-2 overflow-x-auto pb-2 landlord-tab-scroll"
+            >
+              {TABS.map(t => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.id} onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition flex-shrink-0 ${
+                      tab === t.id
+                        ? 'bg-teal-600 text-white'
+                        : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-teal-500/30'
+                    }`}>
+                    <Icon className="w-4 h-4" />{t.label}
+                    {t.badge && <span className="text-[8px] font-black px-1 py-0.5 rounded bg-yellow-500 text-black ml-1">{t.badge}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Left fade — appears once you've scrolled right */}
+            <div className={`pointer-events-none absolute left-0 top-0 bottom-2 w-10 bg-gradient-to-r from-[#1A1A1A] to-transparent transition-opacity ${tabScroll.atStart ? 'opacity-0' : 'opacity-100'}`} />
+            {/* Right fade + clickable nudge — signals there are more tabs */}
+            <div className={`pointer-events-none absolute right-0 top-0 bottom-2 w-16 bg-gradient-to-l from-[#1A1A1A] to-transparent transition-opacity ${tabScroll.atEnd ? 'opacity-0' : 'opacity-100'}`} />
+            <button
+              type="button"
+              onClick={nudgeTabs}
+              aria-label="Scroll for more tabs"
+              className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center h-8 w-8 rounded-full bg-teal-600 text-white shadow-lg shadow-black/40 ring-2 ring-[#1A1A1A] transition-all hover:bg-teal-500 ${tabScroll.atEnd ? 'opacity-0 pointer-events-none' : 'opacity-100 animate-pulse'}`}
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
+          <p className={`text-[11px] text-gray-500 mt-1 transition-opacity ${tabScroll.atEnd ? 'opacity-0' : 'opacity-100'}`}>Scroll for more →</p>
         </div>
       </div>
 
@@ -406,7 +442,7 @@ export default function LandlordPortalView() {
 
         {tab === 'dashboard' && (
           <div className="space-y-6">
-            <Safe label="Dashboard metrics"><div className="rounded-2xl bg-white p-4"><LandlordDashboardMetrics session={session} /></div></Safe>
+            <Safe label="Dashboard metrics"><LandlordDashboardMetrics session={session} /></Safe>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Properties', value: String(properties.length), icon: Building2 },
@@ -612,26 +648,26 @@ export default function LandlordPortalView() {
         )}
 
         {tab === 'rent' && (
-          <div className="rounded-2xl bg-white p-4 sm:p-6">
+          <div>
             <Safe label="Rent collection"><LandlordRentCollection session={session} tenants={tenants} stripeReady={!!stripeStatus?.chargesEnabled} /></Safe>
           </div>
         )}
 
         {tab === 'applications' && (
-          <div className="rounded-2xl bg-white p-4 sm:p-6">
+          <div>
             <Safe label="Applications"><LandlordApplications session={session} onTenantAdded={(t: any) => setTenants(cur => [t, ...cur])} /></Safe>
           </div>
         )}
 
         {tab === 'renewals' && (
-          <div className="rounded-2xl bg-white p-4 sm:p-6">
+          <div>
             <Safe label="Renewals"><LandlordRenewals session={session} tenants={tenants} onTenantsChange={setTenants} /></Safe>
           </div>
         )}
 
         {tab === 'documents' && (
           <FeatureGate feature="Document Vault">
-            <div className="rounded-2xl bg-white p-4 sm:p-6">
+            <div>
               <Safe label="Document vault"><LandlordDocumentVault session={session} /></Safe>
             </div>
           </FeatureGate>

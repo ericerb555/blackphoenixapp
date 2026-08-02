@@ -19,11 +19,11 @@ function jsonAuth(session: any) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` };
 }
 
-const card = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
+const card = 'rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] shadow-sm';
 const btnTeal = 'inline-flex items-center gap-2 rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50';
-const btnGhost = 'inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50';
-const inputCls = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
-const labelCls = 'mb-1 block text-xs font-medium text-slate-500';
+const btnGhost = 'inline-flex items-center gap-2 rounded-lg border border-[#2A2A2A] px-3 py-2 text-sm font-medium text-gray-300 transition hover:bg-[#2A2A2A] disabled:opacity-50';
+const inputCls = 'w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] text-white px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20';
+const labelCls = 'mb-1 block text-xs font-medium text-gray-400';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Dashboard metrics
@@ -53,13 +53,13 @@ export function LandlordDashboardMetrics({ session }: { session: any }) {
     return () => { live = false; };
   }, [session]);
 
-  if (loading) return <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading dashboard…</div>;
-  if (error) return <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</div>;
+  if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading dashboard…</div>;
+  if (error) return <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">{error}</div>;
   if (!metrics) return null;
 
   const stats = [
-    { label: 'Occupancy', value: `${metrics.occupancyRate}%`, sub: `${metrics.occupiedUnits}/${metrics.totalUnits} units`, icon: Home, tone: 'text-teal-600 bg-teal-50' },
-    { label: 'Monthly rent roll', value: `$${money(metrics.monthlyRentRoll)}`, sub: `${metrics.totalTenants} tenants`, icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-50' },
+    { label: 'Occupancy', value: `${metrics.occupancyRate}%`, sub: `${metrics.occupiedUnits}/${metrics.totalUnits} units`, icon: Home, tone: 'text-teal-400 bg-teal-500/10' },
+    { label: 'Monthly rent roll', value: `$${money(metrics.monthlyRentRoll)}`, sub: `${metrics.totalTenants} tenants`, icon: TrendingUp, tone: 'text-emerald-400 bg-emerald-50' },
     { label: 'Collected this month', value: `$${money(metrics.collectedThisMonth)}`, sub: 'received', icon: DollarSign, tone: 'text-indigo-600 bg-indigo-50' },
     { label: 'Outstanding', value: `$${money(metrics.outstanding)}`, sub: 'unpaid charges', icon: AlertTriangle, tone: 'text-rose-600 bg-rose-50' },
   ];
@@ -72,9 +72,9 @@ export function LandlordDashboardMetrics({ session }: { session: any }) {
           return (
             <div key={s.label} className={`${card} p-4`}>
               <div className={`mb-2 inline-flex h-9 w-9 items-center justify-center rounded-lg ${s.tone}`}><Icon className="h-5 w-5" /></div>
-              <div className="text-2xl font-semibold text-slate-900">{s.value}</div>
-              <div className="text-xs text-slate-500">{s.label}</div>
-              <div className="mt-1 text-xs text-slate-400">{s.sub}</div>
+              <div className="text-2xl font-semibold text-white">{s.value}</div>
+              <div className="text-xs text-gray-400">{s.label}</div>
+              <div className="mt-1 text-xs text-gray-500">{s.sub}</div>
             </div>
           );
         })}
@@ -82,35 +82,35 @@ export function LandlordDashboardMetrics({ session }: { session: any }) {
       {(metrics.vacantUnits > 0 || metrics.rentDueAlerts?.length > 0 || metrics.leaseExpirations?.length > 0) && (
         <div className="grid gap-3 lg:grid-cols-3">
           <div className={`${card} p-4`}>
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800"><Home className="h-4 w-4 text-slate-400" /> Vacancies</div>
-            <div className="text-3xl font-semibold text-slate-900">{metrics.vacantUnits}</div>
-            <div className="text-xs text-slate-500">vacant unit{metrics.vacantUnits === 1 ? '' : 's'} to fill</div>
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><Home className="h-4 w-4 text-gray-500" /> Vacancies</div>
+            <div className="text-3xl font-semibold text-white">{metrics.vacantUnits}</div>
+            <div className="text-xs text-gray-400">vacant unit{metrics.vacantUnits === 1 ? '' : 's'} to fill</div>
           </div>
           <div className={`${card} p-4`}>
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800"><CalendarClock className="h-4 w-4 text-slate-400" /> Lease expirations (90d)</div>
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><CalendarClock className="h-4 w-4 text-gray-500" /> Lease expirations (90d)</div>
             {metrics.leaseExpirations?.length ? (
               <ul className="space-y-1 text-sm">
                 {metrics.leaseExpirations.slice(0, 4).map((l: any) => (
                   <li key={l.tenantId} className="flex justify-between">
-                    <span className="text-slate-700">{l.name}{l.unit ? ` · ${l.unit}` : ''}</span>
-                    <span className={l.daysLeft <= 30 ? 'font-medium text-rose-600' : 'text-slate-500'}>{l.daysLeft}d</span>
+                    <span className="text-gray-300">{l.name}{l.unit ? ` · ${l.unit}` : ''}</span>
+                    <span className={l.daysLeft <= 30 ? 'font-medium text-rose-600' : 'text-gray-400'}>{l.daysLeft}d</span>
                   </li>
                 ))}
               </ul>
-            ) : <div className="text-xs text-slate-400">None upcoming</div>}
+            ) : <div className="text-xs text-gray-500">None upcoming</div>}
           </div>
           <div className={`${card} p-4`}>
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800"><AlertTriangle className="h-4 w-4 text-slate-400" /> Rent-due alerts</div>
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><AlertTriangle className="h-4 w-4 text-gray-500" /> Rent-due alerts</div>
             {metrics.rentDueAlerts?.length ? (
               <ul className="space-y-1 text-sm">
                 {metrics.rentDueAlerts.slice(0, 4).map((a: any) => (
                   <li key={a.tenantId} className="flex justify-between">
-                    <span className="text-slate-700">{a.name}{a.unit ? ` · ${a.unit}` : ''}</span>
+                    <span className="text-gray-300">{a.name}{a.unit ? ` · ${a.unit}` : ''}</span>
                     <span className="font-medium text-rose-600">${money(a.rent)}</span>
                   </li>
                 ))}
               </ul>
-            ) : <div className="text-xs text-slate-400">All current</div>}
+            ) : <div className="text-xs text-gray-500">All current</div>}
           </div>
         </div>
       )}
@@ -149,33 +149,33 @@ export function LandlordRentCollection({ session, tenants = [], stripeReady }: {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Rent collection</h3>
-          <p className="text-sm text-slate-500">Charge tenants, record payments, and set up automatic monthly rent.</p>
+          <h3 className="text-lg font-semibold text-white">Rent collection</h3>
+          <p className="text-sm text-gray-400">Charge tenants, record payments, and set up automatic monthly rent.</p>
         </div>
         <button className={btnGhost} onClick={load}><RefreshCw className="h-4 w-4" /> Refresh</button>
       </div>
 
       {!stripeReady && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
           Connect Stripe (in the Payments tab) to charge tenants online and enable auto-pay. You can still record manual payments below.
         </div>
       )}
 
       {/* Tenant roster with charge / auto-pay actions */}
       <div className={`${card} overflow-hidden`}>
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Tenants</div>
+        <div className="border-b border-[#2A2A2A] px-4 py-3 text-sm font-semibold text-white">Tenants</div>
         {roster.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-400">No tenants yet. Add tenants from the Tenants tab.</div>
+          <div className="px-4 py-6 text-sm text-gray-500">No tenants yet. Add tenants from the Tenants tab.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#2A2A2A]">
             {roster.map((t) => (
               <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div>
-                  <div className="text-sm font-medium text-slate-900">{t.name}{t.unit ? <span className="text-slate-400"> · {t.unit}</span> : null}</div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-sm font-medium text-white">{t.name}{t.unit ? <span className="text-gray-500"> · {t.unit}</span> : null}</div>
+                  <div className="text-xs text-gray-400">
                     ${money(t.rent)}/mo
-                    {t.autopay?.status === 'active' && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"><Repeat className="h-3 w-3" /> Auto-pay on</span>}
-                    {t.autopay?.status === 'pending' && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Auto-pay pending</span>}
+                    {t.autopay?.status === 'active' && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-400"><Repeat className="h-3 w-3" /> Auto-pay on</span>}
+                    {t.autopay?.status === 'pending' && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700">Auto-pay pending</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -190,15 +190,15 @@ export function LandlordRentCollection({ session, tenants = [], stripeReady }: {
 
       {/* Payment history */}
       <div className={`${card} overflow-hidden`}>
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Payment activity</div>
+        <div className="border-b border-[#2A2A2A] px-4 py-3 text-sm font-semibold text-white">Payment activity</div>
         {loading ? (
-          <div className="flex items-center gap-2 px-4 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          <div className="flex items-center gap-2 px-4 py-6 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : error ? (
           <div className="px-4 py-4 text-sm text-rose-600">{error}</div>
         ) : payments.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-400">No charges yet.</div>
+          <div className="px-4 py-6 text-sm text-gray-500">No charges yet.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#2A2A2A]">
             {payments.map((p) => (
               <PaymentRow key={p.id} p={p} session={session} onChange={load} />
             ))}
@@ -215,9 +215,9 @@ export function LandlordRentCollection({ session, tenants = [], stripeReady }: {
 function PaymentRow({ p, session, onChange }: { p: any; session: any; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const statusBadge: Record<string, string> = {
-    paid: 'bg-emerald-50 text-emerald-700',
-    pending: 'bg-amber-50 text-amber-700',
-    pending_confirmation: 'bg-amber-50 text-amber-700',
+    paid: 'bg-emerald-50 text-emerald-400',
+    pending: 'bg-amber-500/10 text-amber-700',
+    pending_confirmation: 'bg-amber-500/10 text-amber-700',
   };
   const markPaid = async (method: string) => {
     try {
@@ -232,17 +232,17 @@ function PaymentRow({ p, session, onChange }: { p: any; session: any; onChange: 
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div>
-        <div className="text-sm font-medium text-slate-900">
-          {p.tenantName || p.customerEmail}{p.unit ? <span className="text-slate-400"> · {p.unit}</span> : null}
+        <div className="text-sm font-medium text-white">
+          {p.tenantName || p.customerEmail}{p.unit ? <span className="text-gray-500"> · {p.unit}</span> : null}
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-gray-400">
           {p.chargeType || 'rent'}{p.memo ? ` — ${p.memo}` : ''}{p.dueDate ? ` · due ${p.dueDate}` : ''}
           {p.lateFee > 0 ? ` · incl. $${money(p.lateFee)} late fee` : ''}
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold text-slate-900">${money(p.amount)}</span>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge[p.status] || 'bg-slate-100 text-slate-600'}`}>{p.status.replace('_', ' ')}</span>
+        <span className="text-sm font-semibold text-white">${money(p.amount)}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge[p.status] || 'bg-[#0A0A0A] text-gray-400'}`}>{p.status.replace('_', ' ')}</span>
         {p.status !== 'paid' && (
           <div className="flex gap-1">
             {p.checkoutUrl && <a href={p.checkoutUrl} target="_blank" rel="noreferrer" className={btnGhost}><ExternalLink className="h-3.5 w-3.5" /> Link</a>}
@@ -282,7 +282,7 @@ function ChargeModal({ session, tenant, onClose, onDone }: { session: any; tenan
     <Modal onClose={onClose} title={`Charge ${tenant.name}`}>
       {result ? (
         <div className="space-y-3">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-300">
             Charge created for ${money(result.payment.amount)}.
             {result.onlineEnabled ? ' A secure pay link was emailed to the tenant.' : ' Online charging is not set up — record the payment when received.'}
           </div>
@@ -382,12 +382,12 @@ function AutoPayModal({ session, tenant, onClose, onUpdated }: { session: any; t
     <Modal onClose={onClose} title={`Auto-pay · ${tenant.name}`}>
       <div className="space-y-3">
         {status === 'active' ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-300">
             Auto-pay is active — ${money(tenant.autopay.amount)}/mo is charged automatically.
           </div>
         ) : (
           <>
-            <p className="text-sm text-slate-500">Invite {tenant.name} to enroll in automatic monthly rent. They complete a one-time secure setup, then Stripe charges rent every month.</p>
+            <p className="text-sm text-gray-400">Invite {tenant.name} to enroll in automatic monthly rent. They complete a one-time secure setup, then Stripe charges rent every month.</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Monthly amount ($)</label>
@@ -451,24 +451,24 @@ export function LandlordRenewals({ session, tenants = [], onTenantsChange }: { s
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Lease renewals</h3>
-        <p className="text-sm text-slate-500">Track lease terms and send renewal offers before they expire.</p>
+        <h3 className="text-lg font-semibold text-white">Lease renewals</h3>
+        <p className="text-sm text-gray-400">Track lease terms and send renewal offers before they expire.</p>
       </div>
       <div className={`${card} overflow-hidden`}>
         {sorted.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-400">No tenants yet.</div>
+          <div className="px-4 py-6 text-sm text-gray-500">No tenants yet.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#2A2A2A]">
             {sorted.map((t) => {
               const dl = daysLeft(t.leaseEnd);
               return (
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                   <div>
-                    <div className="text-sm font-medium text-slate-900">{t.name}{t.unit ? <span className="text-slate-400"> · {t.unit}</span> : null}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-sm font-medium text-white">{t.name}{t.unit ? <span className="text-gray-500"> · {t.unit}</span> : null}</div>
+                    <div className="text-xs text-gray-400">
                       {t.leaseEnd ? `Lease ends ${t.leaseEnd}` : 'No lease term set'}
-                      {dl != null && <span className={`ml-2 font-medium ${dl <= 30 ? 'text-rose-600' : dl <= 90 ? 'text-amber-600' : 'text-slate-400'}`}>{dl < 0 ? `${Math.abs(dl)}d overdue` : `${dl}d left`}</span>}
-                      {t.renewalOffer && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-700">Offer sent</span>}
+                      {dl != null && <span className={`ml-2 font-medium ${dl <= 30 ? 'text-rose-600' : dl <= 90 ? 'text-amber-600' : 'text-gray-500'}`}>{dl < 0 ? `${Math.abs(dl)}d overdue` : `${dl}d left`}</span>}
+                      {t.renewalOffer && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2 py-0.5 text-[11px] font-medium text-teal-400">Offer sent</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -579,8 +579,8 @@ export function LandlordApplications({ session, onTenantAdded }: { session: any;
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Applications</h3>
-          <p className="text-sm text-slate-500">Collect and review rental applications, then approve to create a tenant.</p>
+          <h3 className="text-lg font-semibold text-white">Applications</h3>
+          <p className="text-sm text-gray-400">Collect and review rental applications, then approve to create a tenant.</p>
         </div>
         <div className="flex gap-2">
           <button className={btnGhost} onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add manually</button>
@@ -599,7 +599,7 @@ export function LandlordApplications({ session, onTenantAdded }: { session: any;
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
       ) : error ? (
         <div className="text-sm text-rose-600">{error}</div>
       ) : (
@@ -622,12 +622,12 @@ export function LandlordApplications({ session, onTenantAdded }: { session: any;
 }
 
 function AppRow({ a, onReview }: { a: any; onReview?: () => void }) {
-  const badge: Record<string, string> = { pending: 'bg-amber-50 text-amber-700', approved: 'bg-emerald-50 text-emerald-700', rejected: 'bg-slate-100 text-slate-500' };
+  const badge: Record<string, string> = { pending: 'bg-amber-500/10 text-amber-700', approved: 'bg-emerald-50 text-emerald-400', rejected: 'bg-[#0A0A0A] text-gray-400' };
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-0">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2A2A2A] px-4 py-3 last:border-0">
       <div>
-        <div className="text-sm font-medium text-slate-900">{a.name} <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${badge[a.status] || ''}`}>{a.status}</span></div>
-        <div className="text-xs text-slate-500">{a.email}{a.phone ? ` · ${a.phone}` : ''}{a.income ? ` · $${Number(a.income).toLocaleString()}/yr` : ''}{a.desiredUnit ? ` · wants ${a.desiredUnit}` : ''}</div>
+        <div className="text-sm font-medium text-white">{a.name} <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${badge[a.status] || ''}`}>{a.status}</span></div>
+        <div className="text-xs text-gray-400">{a.email}{a.phone ? ` · ${a.phone}` : ''}{a.income ? ` · $${Number(a.income).toLocaleString()}/yr` : ''}{a.desiredUnit ? ` · wants ${a.desiredUnit}` : ''}</div>
       </div>
       {onReview && <button className={btnTeal} onClick={onReview}>Review</button>}
     </div>
@@ -693,7 +693,7 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
     <Modal onClose={onClose} title={`Review · ${app.name}`}>
       {result ? (
         <div className="space-y-3">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-300">
             {app.name} was approved and added as a tenant.
             {result.invite?.created && ' A portal login was created.'}
             {result.invite?.alreadyHadAccount && ' They already had a portal login.'}
@@ -712,7 +712,7 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          <div className="rounded-lg bg-[#0A0A0A] p-3 text-xs text-gray-400">
             <div><b>Email:</b> {app.email}</div>
             {app.phone && <div><b>Phone:</b> {app.phone}</div>}
             {app.employer && <div><b>Employer:</b> {app.employer}</div>}
@@ -729,8 +729,8 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
             <div><label className={labelCls}>Assign unit</label><input className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)} /></div>
             <div><label className={labelCls}>Monthly rent ($)</label><input className={inputCls} type="number" value={rent} onChange={(e) => setRent(e.target.value)} /></div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-teal-600" />
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} className="h-4 w-4 rounded border-[#2A2A2A] text-teal-400" />
             Create a tenant portal login on approval (Approve &amp; Invite)
           </label>
           <div><label className={labelCls}>Decision note</label><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></div>
@@ -797,8 +797,8 @@ export function LandlordDocumentVault({ session }: { session: any }) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Document vault</h3>
-        <p className="text-sm text-slate-500">Securely store leases, receipts, insurance, and property records.</p>
+        <h3 className="text-lg font-semibold text-white">Document vault</h3>
+        <p className="text-sm text-gray-400">Securely store leases, receipts, insurance, and property records.</p>
       </div>
       <div className={`${card} p-4`}>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -813,21 +813,21 @@ export function LandlordDocumentVault({ session }: { session: any }) {
             <button className={btnTeal} disabled={uploading} onClick={() => fileRef.current?.click()}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload file</button>
           </div>
         </div>
-        <p className="mt-2 text-xs text-slate-400">Max 25MB per file.</p>
+        <p className="mt-2 text-xs text-gray-500">Max 25MB per file.</p>
       </div>
       {error && <div className="text-sm text-rose-600">{error}</div>}
       <div className={`${card} overflow-hidden`}>
         {loading ? (
-          <div className="flex items-center gap-2 px-4 py-6 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          <div className="flex items-center gap-2 px-4 py-6 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : docs.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-400">No documents yet.</div>
+          <div className="px-4 py-6 text-sm text-gray-500">No documents yet.</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-[#2A2A2A]">
             {docs.map((d) => (
               <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-900">{d.name}</div>
-                  <div className="text-xs text-slate-500">{d.category}{d.relatedTo ? ` · ${d.relatedTo}` : ''} · {(d.size / 1024).toFixed(0)} KB</div>
+                  <div className="truncate text-sm font-medium text-white">{d.name}</div>
+                  <div className="text-xs text-gray-400">{d.category}{d.relatedTo ? ` · ${d.relatedTo}` : ''} · {(d.size / 1024).toFixed(0)} KB</div>
                 </div>
                 <div className="flex items-center gap-2">
                   {d.url && <a href={d.url} target="_blank" rel="noreferrer" className={btnGhost}><Download className="h-4 w-4" /></a>}
@@ -847,11 +847,11 @@ export function LandlordDocumentVault({ session }: { session: any }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function Modal({ title, children, onClose }: { title: string; children: any; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[#1A1A1A] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h4 className="text-base font-semibold text-slate-900">{title}</h4>
-          <button className="rounded-lg p-1 text-slate-400 hover:bg-slate-100" onClick={onClose}><X className="h-5 w-5" /></button>
+          <h4 className="text-base font-semibold text-white">{title}</h4>
+          <button className="rounded-lg p-1 text-gray-500 hover:bg-[#0A0A0A]" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
         {children}
       </div>
@@ -861,11 +861,11 @@ function Modal({ title, children, onClose }: { title: string; children: any; onC
 function Section({ title, children }: { title: string; children: any }) {
   return (
     <div className={`${card} overflow-hidden`}>
-      <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">{title}</div>
+      <div className="border-b border-[#2A2A2A] px-4 py-3 text-sm font-semibold text-white">{title}</div>
       <div>{children}</div>
     </div>
   );
 }
 function Empty({ children }: { children: any }) {
-  return <div className="px-4 py-6 text-sm text-slate-400">{children}</div>;
+  return <div className="px-4 py-6 text-sm text-gray-500">{children}</div>;
 }
