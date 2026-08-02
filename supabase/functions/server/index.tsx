@@ -5580,6 +5580,48 @@ function toE164(raw: string): string {
   if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
   return '+' + digits;
 }
+
+/**
+ * Reads and validates the Twilio credentials from env, trimming stray
+ * whitespace/newlines that break Basic auth. Supports BOTH auth styles:
+ *   • Account SID (AC…) + Auth Token
+ *   • API Key SID (SK…) + API Key Secret  (Account SID still used in the URL)
+ * Returns a normalized shape or a human-readable `error`.
+ */
+function resolveTwilioCreds(): { accountSid: string; authUser: string; authPass: string; from: string; error?: string } {
+  const sid = (Deno.env.get('TWILIO_ACCOUNT_SID') || '').trim();
+  const token = (Deno.env.get('TWILIO_AUTH_TOKEN') || '').trim();
+  const from = (Deno.env.get('TWILIO_PHONE_NUMBER') || '').trim();
+  const apiKeySid = (Deno.env.get('TWILIO_API_KEY_SID') || '').trim();
+  const apiKeySecret = (Deno.env.get('TWILIO_API_KEY_SECRET') || '').trim();
+  const empty = { accountSid: '', authUser: '', authPass: '', from: '' };
+  if (!sid || !token || !from) return { ...empty, error: 'SMS is not configured (Twilio env vars missing: need TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER).' };
+  if (!sid.startsWith('AC')) {
+    // The Account SID must be the AC… identifier. An API Key (SK…) or anything
+    // else here is the #1 cause of Twilio error 20003.
+    if (sid.startsWith('SK')) return { ...empty, error: 'TWILIO_ACCOUNT_SID looks like an API Key SID (starts with "SK"). It must be your Account SID (starts with "AC"). Put the API Key in TWILIO_API_KEY_SID / TWILIO_API_KEY_SECRET instead, and set TWILIO_ACCOUNT_SID to the AC… value.' };
+    return { ...empty, error: `TWILIO_ACCOUNT_SID is invalid — it must start with "AC" but starts with "${sid.slice(0, 2)}".` };
+  }
+  // Prefer API Key auth when provided; otherwise use the Account SID + token.
+  if (apiKeySid && apiKeySecret) {
+    return { accountSid: sid, authUser: apiKeySid, authPass: apiKeySecret, from };
+  }
+  return { accountSid: sid, authUser: sid, authPass: token, from };
+}
+
+/** Turns a raw Twilio error body into an actionable message. */
+function describeTwilioError(status: number, body: string, twilio: { authUser: string; accountSid: string }): string {
+  let code = 0; let message = body;
+  try { const parsed = JSON.parse(body); code = Number(parsed.code) || 0; message = parsed.message || body; } catch { /* keep raw */ }
+  if (code === 20003 || status === 401) {
+    const using = twilio.authUser.startsWith('SK') ? 'API Key (SK…) + secret' : 'Account SID (AC…) + Auth Token';
+    return `Twilio authentication failed (20003). The credentials were rejected. You're authenticating with your ${using}. Double-check for typos or extra spaces, confirm the Auth Token matches this exact Account SID (${twilio.accountSid.slice(0, 6)}…), and make sure the token hasn't been rotated in the Twilio console.`;
+  }
+  if (code === 21211) return `Twilio rejected the destination number as invalid (21211). Check the recipient's phone number.`;
+  if (code === 21608 || code === 21610) return `This number isn't verified on your Twilio trial account (${code}). Trial accounts can only text verified numbers — verify it in the Twilio console or upgrade the account.`;
+  if (code === 21606 || code === 21659) return `Your Twilio "From" number (${code}) can't send SMS — confirm TWILIO_PHONE_NUMBER is an SMS-capable Twilio number in E.164 format.`;
+  return `Twilio rejected the message${code ? ` (${code})` : ''}: ${message}`;
+}
 // OAuth providers must redirect back to the server route that actually handles the
 // token exchange (GET /social/callback below), NOT a frontend path. Register this
 // exact URL in your Facebook/TikTok app settings as an allowed redirect URI.
@@ -7478,11 +7520,9 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
 
     // SMS: same template, delivered via Twilio to the invitee's phone.
     if (sendSms) {
-      const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-      const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-      const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-      if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) {
-        smsNotice = 'SMS is not configured (Twilio env vars missing).';
+      const twilio = resolveTwilioCreds();
+      if (twilio.error) {
+        smsNotice = twilio.error;
       } else if (!phone) {
         smsNotice = 'No phone number provided for SMS.';
       } else if (!toE164(phone)) {
@@ -7491,12 +7531,12 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
         try {
           const toNumber = toE164(phone);
           const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
-          const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+          const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
             method: 'POST',
-            headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ From: TWILIO_FROM, To: toNumber, Body: smsBody }),
+            headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ From: twilio.from, To: toNumber, Body: smsBody }),
           });
-          if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = `Twilio rejected the message: ${err}`; } else { smsSent = true; }
+          if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = describeTwilioError(res.status, err, twilio); } else { smsSent = true; }
         } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
       }
     }
@@ -7567,16 +7607,16 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
     }
   }
   if (sendSms) {
-    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || ''; const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || ''; const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) { smsNotice = 'SMS is not configured (Twilio env vars missing).'; }
+    const twilio = resolveTwilioCreds();
+    if (twilio.error) { smsNotice = twilio.error; }
     else if (!phone) { smsNotice = 'No phone number provided for SMS.'; }
     else if (!toE164(phone)) { smsNotice = `The phone number "${phone}" is not a valid number for SMS.`; }
     else {
       try {
         const toNumber = toE164(phone);
         const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
-        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ From: TWILIO_FROM, To: toNumber, Body: smsBody }) });
-        if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = `Twilio rejected the message: ${err}`; } else { smsSent = true; }
+        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ From: twilio.from, To: toNumber, Body: smsBody }) });
+        if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = describeTwilioError(res.status, err, twilio); } else { smsSent = true; }
       } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
     }
   }
