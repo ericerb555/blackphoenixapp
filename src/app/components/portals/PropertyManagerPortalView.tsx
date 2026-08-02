@@ -15,6 +15,7 @@ import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 
@@ -55,7 +56,7 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'investments' | 'revenue-ai' | 'messages' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'investments' | 'revenue-ai' | 'messages' | 'documents' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -69,6 +70,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'investments', label: 'Investments', icon: DollarSign },
   { id: 'revenue-ai', label: 'Revenue AI', icon: TrendingUp, badge: 'NEW' },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
+  { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
 ];
@@ -470,6 +472,7 @@ export default function PropertyManagerPortalView() {
             <MessagesTab userId="" userEmail={email} userName={name} onTabOpen={clearUnread} />
           </div>
         )}
+        {tab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {tab === 'settings' && (
           <div className="space-y-4 max-w-lg">
             <h2 className="text-xl font-bold">Settings</h2>

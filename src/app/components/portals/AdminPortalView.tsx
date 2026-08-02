@@ -11,7 +11,7 @@ import {
   HeadphonesIcon, TrendingUp, DollarSign, Activity, Bell, UserCheck,
   Mail, Phone, ArrowRight, Filter, Search, MoreVertical, AlertCircle,
   Zap, Wrench, Send, ChevronDown, MapPin, Calendar, Plus, X,
-  HardHat, Briefcase, ClipboardList, Star, Shield, ArrowLeft, LayoutDashboard,
+  HardHat, Briefcase, ClipboardList, Star, Shield, ArrowLeft, LayoutDashboard, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
@@ -19,6 +19,8 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import PlansRecordsPanel from './PlansRecordsPanel';
 import CreatePortalPanel from './CreatePortalPanel';
 import SentInvitesPanel from './SentInvitesPanel';
+import { PortalDocumentVault } from './PortalDocumentVault';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Alert {
   id: string;
@@ -56,7 +58,8 @@ interface AdminPortalViewProps {
 }
 
 export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'sent-invites' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'guide'>('overview');
+  const { session } = useAuth();
+  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'sent-invites' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'documents' | 'guide'>('overview');
 
   // ── Dispatch Center Data ───────────────────────────────────────────────────
   const [workOrders, setWorkOrders] = useState([
@@ -349,6 +352,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               { id: 'customer-service', label: 'Customer Service', icon: MessageSquare },
               { id: 'employee-support', label: 'Employee Support', icon: HeadphonesIcon },
               { id: 'investments', label: 'Investments', icon: DollarSign },
+              { id: 'documents', label: 'Documents', icon: FileText },
               { id: 'guide', label: 'Portal Guide', icon: ClipboardList },
             ].map(tab => (
               <button
@@ -386,6 +390,8 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'guide' && <PortalFeatureGuide portal="admin" />}
 
         {activeTab === 'investments' && <InvestmentTab portalType="admin" />}
+
+        {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
 
         {activeTab === 'overview' && (
           <div className="space-y-6">

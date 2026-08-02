@@ -40,6 +40,7 @@ import { ConfirmModal } from '../ui/modal/ConfirmModal';
 import CustomerMarketplace from '../CustomerMarketplace';
 // VideoCapture removed — file path was broken (causes module crash)
 import ClientWorkRequestForm from '../forms/ClientWorkRequestForm';
+import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { publicAnonKey, projectId } from '../../utils/supabase/info';
@@ -59,9 +60,9 @@ interface Message {
 }
 
 export default function CustomerPortalView() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'guide'>('dashboard');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -658,6 +659,7 @@ export default function CustomerPortalView() {
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
     { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referrals', icon: Star },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
@@ -825,6 +827,7 @@ export default function CustomerPortalView() {
           </div>
         )}
 
+        {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'guide' && <PortalFeatureGuide portal="customer" />}
 
         {activeTab === 'dashboard' && (

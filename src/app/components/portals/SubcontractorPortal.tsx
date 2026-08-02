@@ -10,6 +10,8 @@ import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import phoenixLogo from '../../../imports/BPB_phoenix_full_color_logo.png';
+import { PortalDocumentVault } from './PortalDocumentVault';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
 
@@ -76,13 +78,14 @@ function badge(s: string) {
   return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
 
-type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'guide';
+type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'documents' | 'guide';
 
 function getDemoProfile() {
   try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
 }
 
 export default function SubcontractorPortal() {
+  const { session } = useAuth();
   const demoProfile = getDemoProfile();
   const subName = demoProfile?.name || 'Carlos Rivera';
   const subCompany = demoProfile?.company || 'Elite Construction LLC';
@@ -209,6 +212,7 @@ export default function SubcontractorPortal() {
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
@@ -275,6 +279,7 @@ export default function SubcontractorPortal() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {/* DASHBOARD */}
+        {tab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {tab === 'guide' && <PortalFeatureGuide portal="subcontractor" />}
 
         {tab === 'dashboard' && (

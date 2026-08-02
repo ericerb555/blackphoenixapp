@@ -21,27 +21,54 @@ const authRouter = new Hono();
 const PROFILE_PREFIX = "auth_profile:";
 const PERMS_PREFIX = "user_permissions:";
 
+/**
+ * The KV store is backed by Postgres, which under load can throw a transient
+ * "canceling statement due to statement timeout". These retries make single-key
+ * reads/writes resilient to those blips instead of hard-failing user flows.
+ */
+function isTransientDbError(e: any): boolean {
+  return /timeout|canceling statement|statement timeout|deadlock|connection/i.test(String(e?.message || e));
+}
+
+async function kvGetRetry(key: string, attempts = 4): Promise<any> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try { return await kv.get(key); }
+    catch (e: any) { lastErr = e; if (!isTransientDbError(e)) throw e; await new Promise((r) => setTimeout(r, 200 * (i + 1))); }
+  }
+  throw lastErr;
+}
+
+async function kvSetRetry(key: string, value: any, attempts = 4): Promise<void> {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try { await kv.set(key, value); return; }
+    catch (e: any) { lastErr = e; if (!isTransientDbError(e)) throw e; await new Promise((r) => setTimeout(r, 200 * (i + 1))); }
+  }
+  throw lastErr;
+}
+
 async function getProfile(userId: string): Promise<any | null> {
   if (!userId) return null;
-  return (await kv.get(`${PROFILE_PREFIX}${userId}`)) || null;
+  return (await kvGetRetry(`${PROFILE_PREFIX}${userId}`)) || null;
 }
 
 async function setProfile(userId: string, patch: Record<string, any>): Promise<any> {
   const current = (await getProfile(userId)) || {};
   const next = { ...current, ...patch, user_id: userId };
-  await kv.set(`${PROFILE_PREFIX}${userId}`, next);
+  await kvSetRetry(`${PROFILE_PREFIX}${userId}`, next);
   return next;
 }
 
 async function getPermissions(userId: string): Promise<any | null> {
   if (!userId) return null;
-  return (await kv.get(`${PERMS_PREFIX}${userId}`)) || null;
+  return (await kvGetRetry(`${PERMS_PREFIX}${userId}`)) || null;
 }
 
 async function setPermissions(userId: string, patch: Record<string, any>): Promise<any> {
   const current = (await getPermissions(userId)) || {};
   const next = { ...current, ...patch, user_id: userId };
-  await kv.set(`${PERMS_PREFIX}${userId}`, next);
+  await kvSetRetry(`${PERMS_PREFIX}${userId}`, next);
   return next;
 }
 
@@ -452,21 +479,30 @@ authRouter.post("/make-server-3eae23a6/auth/complete-onboarding", async (c) => {
     // Complete the matching approved-application activation trail, if this
     // account originated from portal intake. Existing users without an
     // application are unaffected.
-    let requirementsComplete = false;
-    const portalAccessRecords = await kv.getByPrefix('portal_access:');
-    const matchingAccess = portalAccessRecords.find((access: any) => access?.userId === user.id);
-    if (matchingAccess?.applicationId) {
-      const now = new Date().toISOString();
-      const intakeKey = `portal_onboarding:${matchingAccess.applicationId}`;
-      const intake = await kv.get(intakeKey);
-      await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active_pending_requirements', activatedAt: now, updatedAt: now });
-      if (intake) {
-        const checklist = (intake.checklist || []).map((item: any) => item.id === 'first_login' ? { ...item, completed: true, completedAt: now } : item);
-        requirementsComplete = (intake.requiredTasks || []).every((task: any) => !task.required || task.status === 'complete');
-        await kv.set(intakeKey, { ...intake, status: requirementsComplete ? 'active' : 'active_pending_requirements', activatedAt: now, checklist, updatedAt: now });
-        if (requirementsComplete) await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active', activatedAt: now, updatedAt: now });
+    //
+    // This is best-effort: it runs a `getByPrefix('portal_access:')` scan that
+    // grows with the number of portal accounts and can hit a Postgres statement
+    // timeout. The core profile write above has ALREADY succeeded, so a failure
+    // here must NOT fail onboarding — we log it and still return success.
+    try {
+      const portalAccessRecords = await kv.getByPrefix('portal_access:');
+      const matchingAccess = portalAccessRecords.find((access: any) => access?.userId === user.id);
+      if (matchingAccess?.applicationId) {
+        const now = new Date().toISOString();
+        const intakeKey = `portal_onboarding:${matchingAccess.applicationId}`;
+        const intake = await kv.get(intakeKey);
+        await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active_pending_requirements', activatedAt: now, updatedAt: now });
+        let requirementsComplete = false;
+        if (intake) {
+          const checklist = (intake.checklist || []).map((item: any) => item.id === 'first_login' ? { ...item, completed: true, completedAt: now } : item);
+          requirementsComplete = (intake.requiredTasks || []).every((task: any) => !task.required || task.status === 'complete');
+          await kv.set(intakeKey, { ...intake, status: requirementsComplete ? 'active' : 'active_pending_requirements', activatedAt: now, checklist, updatedAt: now });
+          if (requirementsComplete) await kv.set(`portal_access:${matchingAccess.applicationId}`, { ...matchingAccess, status: 'active', activatedAt: now, updatedAt: now });
+        }
+        await kv.set(`application:${matchingAccess.applicationId}`, { ...(await kv.get(`application:${matchingAccess.applicationId}`)), onboardingStatus: requirementsComplete ? 'active' : 'active_pending_requirements', updatedAt: now });
       }
-      await kv.set(`application:${matchingAccess.applicationId}`, { ...(await kv.get(`application:${matchingAccess.applicationId}`)), onboardingStatus: requirementsComplete ? 'active' : 'active_pending_requirements', updatedAt: now });
+    } catch (activationError) {
+      console.error("Onboarding activation-trail update failed (non-fatal, profile already saved):", activationError);
     }
 
     return c.json({ success: true, message: "Onboarding completed" });

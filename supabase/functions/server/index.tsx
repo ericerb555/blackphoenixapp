@@ -4383,17 +4383,32 @@ function landlordStripeKey(email: string) { return `landlord_stripe:${String(ema
 function rentPaymentKey(id: string) { return `payment:${id}`; }
 function tenantRentIndexKey(email: string) { return `rent_payments_tenant:${String(email).toLowerCase()}`; }
 
-async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' | 'DELETE' = 'POST') {
+async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' | 'DELETE' = 'POST', connectedAccount?: string) {
   const key = stripeKeyFor('services');
   if (!key) throw new Error('Stripe is not configured on the platform account.');
+  const headers: Record<string, string> = { Authorization: `Basic ${btoa(`${key}:`)}` };
+  if (method === 'POST') headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  // When a connected account id is supplied, the request runs AS that account
+  // (Stripe Connect "direct charge"). Funds settle directly to the landlord —
+  // the platform is never the merchant of record and never holds the money.
+  if (connectedAccount) headers['Stripe-Account'] = connectedAccount;
   const resp = await fetch(`${STRIPE_API}/${path}`, {
     method,
-    headers: { Authorization: `Basic ${btoa(`${key}:`)}`, ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+    headers,
     body: method === 'POST' && params ? params.toString() : undefined,
   });
   const payload = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(payload?.error?.message || 'Stripe request failed.');
   return payload;
+}
+
+// Adds ACH (us_bank_account) alongside card to a Checkout params object so
+// tenants can pay rent by low-fee bank transfer. Kept in one place so every
+// rent flow stays consistent.
+function addRentPaymentMethods(params: URLSearchParams, opts?: { includeAch?: boolean }) {
+  params.set('payment_method_types[]', 'card');
+  if (opts?.includeAch !== false) params.append('payment_method_types[]', 'us_bank_account');
+  return params;
 }
 
 function rentAppUrl() { return (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, ''); }
@@ -4412,6 +4427,8 @@ app.post('/make-server-3eae23a6/landlord/stripe/connect', async (c) => {
         type: 'express', email,
         'capabilities[transfers][requested]': 'true',
         'capabilities[card_payments][requested]': 'true',
+        // ACH direct-debit so tenants can pay rent by bank transfer (low fees).
+        'capabilities[us_bank_account_ach_payments][requested]': 'true',
         'business_type': 'individual',
       }));
       rec = { accountId: acct.id, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, createdAt: now, updatedAt: now };
@@ -4496,21 +4513,24 @@ app.post('/make-server-3eae23a6/tenant/rent/pay', async (c) => {
     const applicationFee = feePercent > 0 ? Math.round(amount * 100 * (feePercent / 100)) : 0;
 
     const params = new URLSearchParams({
-      'payment_method_types[]': 'card', mode: 'payment', customer_email: email,
+      mode: 'payment', customer_email: email,
       success_url: `${appUrl}/tenant-portal?tab=rent&rent_payment=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/tenant-portal?tab=rent&rent_cancelled=1`,
       'line_items[0][price_data][currency]': 'usd',
       'line_items[0][price_data][product_data][name]': `Rent${me?.unit ? ` · Unit ${me.unit}` : ''}`,
       'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
       'line_items[0][quantity]': '1',
-      'payment_intent_data[transfer_data][destination]': stripeRec.accountId,
       'metadata[rent_payment_id]': paymentId,
       'metadata[tenant_email]': email,
       'metadata[landlord_email]': landlordEmail,
     });
+    addRentPaymentMethods(params, { includeAch: body.method !== 'card' });
+    // DIRECT CHARGE: created on the landlord's connected account, so the money
+    // settles straight to them. Any platform fee (default 0) is collected via
+    // application_fee_amount rather than routing funds through the platform.
     if (applicationFee > 0) params.set('payment_intent_data[application_fee_amount]', String(applicationFee));
 
-    const session = await stripeReq('checkout/sessions', params);
+    const session = await stripeReq('checkout/sessions', params, 'POST', stripeRec.accountId);
     const now = new Date().toISOString();
     const payment = {
       id: paymentId, type: 'rent', amount, status: 'pending_confirmation',
@@ -4537,9 +4557,14 @@ app.post('/make-server-3eae23a6/tenant/rent/confirm', async (c) => {
     if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
     if (String(payment.customerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'This payment is not yours.' }, 403);
     if (payment.status === 'paid') return c.json({ success: true, payment });
-    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(payment.stripeCheckoutSessionId)}`, undefined, 'GET');
-    const paid = session?.payment_status === 'paid';
-    const updated = { ...payment, status: paid ? 'paid' : 'pending_confirmation', paidAt: paid ? new Date().toISOString() : payment.paidAt, stripePaymentIntentId: session?.payment_intent || payment.stripePaymentIntentId, updatedAt: new Date().toISOString() };
+    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(payment.stripeCheckoutSessionId)}`, undefined, 'GET', payment.connectedAccountId || undefined);
+    // ACH (bank transfer) settles asynchronously: Stripe reports 'processing'
+    // for a few business days before it becomes 'paid'. Surface that state so
+    // the tenant sees "processing" instead of a scary failure.
+    const paid = session?.payment_status === 'paid' || session?.payment_status === 'no_payment_required';
+    const processing = !paid && session?.payment_status === 'processing';
+    const nextStatus = paid ? 'paid' : processing ? 'processing' : 'pending_confirmation';
+    const updated = { ...payment, status: nextStatus, paidAt: paid ? new Date().toISOString() : payment.paidAt, stripePaymentIntentId: session?.payment_intent || payment.stripePaymentIntentId, updatedAt: new Date().toISOString() };
     await kv.set(rentPaymentKey(paymentId), updated);
     // Notify the landlord when a rent payment clears (only fire once, on first paid).
     if (paid && payment.status !== 'paid' && updated.landlordEmail) {
@@ -4605,20 +4630,22 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/charge', async (c) => {
       const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
       const applicationFee = feePercent > 0 ? Math.round(total * 100 * (feePercent / 100)) : 0;
       const params = new URLSearchParams({
-        'payment_method_types[]': 'card', mode: 'payment', customer_email: tenantEmail,
+        mode: 'payment', customer_email: tenantEmail,
         success_url: `${appUrl}/tenant-portal?tab=rent&rent_payment=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${appUrl}/tenant-portal?tab=rent&rent_cancelled=1`,
         'line_items[0][price_data][currency]': 'usd',
         'line_items[0][price_data][product_data][name]': `${chargeType === 'rent' ? 'Rent' : chargeType === 'deposit' ? 'Deposit' : 'Charge'}${tenant.unit ? ` · Unit ${tenant.unit}` : ''}${memo ? ` — ${memo}` : ''}`,
         'line_items[0][price_data][unit_amount]': String(Math.round(total * 100)),
         'line_items[0][quantity]': '1',
-        'payment_intent_data[transfer_data][destination]': stripeRec.accountId,
         'metadata[rent_payment_id]': paymentId,
         'metadata[tenant_email]': tenantEmail,
         'metadata[landlord_email]': landlordEmail,
       });
+      // Deposits typically need instant funds, so allow card-only if requested.
+      addRentPaymentMethods(params, { includeAch: body.method !== 'card' });
       if (applicationFee > 0) params.set('payment_intent_data[application_fee_amount]', String(applicationFee));
-      const session = await stripeReq('checkout/sessions', params);
+      // Direct charge on the landlord's connected account — funds go to them.
+      const session = await stripeReq('checkout/sessions', params, 'POST', stripeRec.accountId);
       checkoutUrl = session.url;
       stripeCheckoutSessionId = session.id;
     }
@@ -4721,7 +4748,7 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay', async (c) => {
     const appUrl = rentAppUrl();
     const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
     const params = new URLSearchParams({
-      mode: 'subscription', customer_email: tenantEmail, 'payment_method_types[]': 'card',
+      mode: 'subscription', customer_email: tenantEmail,
       success_url: `${appUrl}/tenant-portal?tab=rent&autopay=active&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/tenant-portal?tab=rent&autopay=cancelled`,
       'line_items[0][price_data][currency]': 'usd',
@@ -4729,11 +4756,13 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay', async (c) => {
       'line_items[0][price_data][recurring][interval]': 'month',
       'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
       'line_items[0][quantity]': '1',
-      'subscription_data[transfer_data][destination]': stripeRec.accountId,
       'metadata[tenant_email]': tenantEmail, 'metadata[landlord_email]': landlordEmail, 'metadata[autopay]': 'true',
     });
+    // Recurring rent can be auto-drafted from a bank account (ACH) or card.
+    addRentPaymentMethods(params, { includeAch: body.method !== 'card' });
     if (feePercent > 0) params.set('subscription_data[application_fee_percent]', String(feePercent));
-    const session = await stripeReq('checkout/sessions', params);
+    // Direct-charge subscription on the landlord's connected account.
+    const session = await stripeReq('checkout/sessions', params, 'POST', stripeRec.accountId);
 
     const now = new Date().toISOString();
     roster[idx] = { ...tenant, autopay: { status: 'pending', amount, dayOfMonth, checkoutSessionId: session.id, setupUrl: session.url, subscriptionId: '', updatedAt: now } };
@@ -4760,11 +4789,15 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay/status', async (c) 
     if (idx < 0) return c.json({ success: false, error: 'Tenant not found.' }, 404);
     const ap = roster[idx].autopay;
     if (!ap?.checkoutSessionId) return c.json({ success: true, tenant: stripBase64(roster[idx]) });
-    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(ap.checkoutSessionId)}`, undefined, 'GET');
+    // The subscription lives on the landlord's connected account (direct charge),
+    // so every retrieval must be made AS that account.
+    const apStripeRec = await kv.get(landlordStripeKey(actor.user.email)) as any;
+    const apAccount = apStripeRec?.accountId || undefined;
+    const session = await stripeReq(`checkout/sessions/${encodeURIComponent(ap.checkoutSessionId)}`, undefined, 'GET', apAccount);
     let status = ap.status; let subscriptionId = ap.subscriptionId || '';
     if (session?.subscription) {
       subscriptionId = session.subscription;
-      const sub = await stripeReq(`subscriptions/${encodeURIComponent(subscriptionId)}`, undefined, 'GET');
+      const sub = await stripeReq(`subscriptions/${encodeURIComponent(subscriptionId)}`, undefined, 'GET', apAccount);
       status = ['active', 'trialing'].includes(sub?.status) ? 'active' : sub?.status === 'canceled' ? 'canceled' : 'pending';
     }
     roster[idx] = { ...roster[idx], autopay: { ...ap, status, subscriptionId, updatedAt: new Date().toISOString() } };
@@ -4783,7 +4816,10 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay/cancel', async (c) 
     const idx = roster.findIndex((t: any) => t.id === c.req.param('id'));
     if (idx < 0) return c.json({ success: false, error: 'Tenant not found.' }, 404);
     const ap = roster[idx].autopay;
-    if (ap?.subscriptionId) { try { await stripeReq(`subscriptions/${encodeURIComponent(ap.subscriptionId)}`, undefined, 'DELETE'); } catch (e) { console.log('Autopay cancel stripe error:', e); } }
+    if (ap?.subscriptionId) {
+      const cxStripeRec = await kv.get(landlordStripeKey(actor.user.email)) as any;
+      try { await stripeReq(`subscriptions/${encodeURIComponent(ap.subscriptionId)}`, undefined, 'DELETE', cxStripeRec?.accountId || undefined); } catch (e) { console.log('Autopay cancel stripe error:', e); }
+    }
     roster[idx] = { ...roster[idx], autopay: { ...(ap || {}), status: 'canceled', updatedAt: new Date().toISOString() } };
     await kv.set(key, roster);
     return c.json({ success: true, tenant: stripBase64(roster[idx]) });
@@ -5110,6 +5146,81 @@ app.delete('/make-server-3eae23a6/landlord/documents/:id', async (c) => {
     const doc = docs.find((d: any) => d.id === c.req.param('id'));
     if (!doc) return c.json({ success: false, error: 'Document not found.' }, 404);
     if (doc.path) { try { await supabase.storage.from(LANDLORD_DOCS_BUCKET).remove([doc.path]); } catch { /* best effort */ } }
+    await kv.set(key, docs.filter((d: any) => d.id !== doc.id));
+    return c.json({ success: true });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete the document.' }, 500); }
+});
+
+// ── Generic portal document vault ────────────────────────────────────────────
+// Available to any authenticated user across every portal. Documents are scoped
+// to the signed-in user's email so each account only sees its own files.
+const PORTAL_DOCS_BUCKET = 'make-57095a78-portal-docs';
+function portalDocsKey(email: string) { return `portal_documents:${String(email).toLowerCase()}`; }
+async function ensurePortalDocsBucket() {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some((b: any) => b.name === PORTAL_DOCS_BUCKET)) {
+    const created = await supabase.storage.createBucket(PORTAL_DOCS_BUCKET, { public: false });
+    if (created.error && !String(created.error.message || '').toLowerCase().includes('already exists')) throw created.error;
+  }
+}
+
+app.get('/make-server-3eae23a6/portal/documents', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view documents.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const docs = (await kv.get(portalDocsKey(email)) as any[]) || [];
+    const signed = await Promise.all(docs.map(async (d: any) => {
+      if (!d.path) return d;
+      try {
+        const { data } = await supabase.storage.from(PORTAL_DOCS_BUCKET).createSignedUrl(d.path, 60 * 60 * 24 * 7);
+        return { ...d, url: data?.signedUrl || '' };
+      } catch { return { ...d, url: '' }; }
+    }));
+    return c.json({ success: true, documents: signed });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load documents.' }, 500); }
+});
+
+app.post('/make-server-3eae23a6/portal/documents', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to upload documents.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!(file instanceof File)) return c.json({ success: false, error: 'A file is required.' }, 400);
+    if (file.size > 25 * 1024 * 1024) return c.json({ success: false, error: 'Documents must be 25MB or smaller.' }, 400);
+    await ensurePortalDocsBucket();
+    const id = `doc_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-140) || 'document';
+    const path = `${email}/${id}-${safeName}`;
+    const upload = await supabase.storage.from(PORTAL_DOCS_BUCKET).upload(path, await file.arrayBuffer(), { contentType: file.type || 'application/octet-stream', upsert: false });
+    if (upload.error) throw upload.error;
+    const now = new Date().toISOString();
+    const doc = {
+      id, name: String(body.name || file.name).slice(0, 200), fileName: file.name,
+      category: String(body.category || 'General').slice(0, 60),
+      relatedTo: String(body.relatedTo || '').slice(0, 200),
+      size: file.size, contentType: file.type || 'application/octet-stream', path, createdAt: now,
+    };
+    const key = portalDocsKey(email);
+    const existing = (await kv.get(key) as any[]) || [];
+    await kv.set(key, [doc, ...existing]);
+    const { data: signed } = await supabase.storage.from(PORTAL_DOCS_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
+    return c.json({ success: true, document: { ...doc, url: signed?.signedUrl || '' } }, 201);
+  } catch (error: any) { console.log('Portal document upload error:', error); return c.json({ success: false, error: error.message || 'Unable to upload the document.' }, 500); }
+});
+
+app.delete('/make-server-3eae23a6/portal/documents/:id', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to delete documents.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const key = portalDocsKey(email);
+    const docs = (await kv.get(key) as any[]) || [];
+    const doc = docs.find((d: any) => d.id === c.req.param('id'));
+    if (!doc) return c.json({ success: false, error: 'Document not found.' }, 404);
+    if (doc.path) { try { await supabase.storage.from(PORTAL_DOCS_BUCKET).remove([doc.path]); } catch { /* best effort */ } }
     await kv.set(key, docs.filter((d: any) => d.id !== doc.id));
     return c.json({ success: true });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete the document.' }, 500); }

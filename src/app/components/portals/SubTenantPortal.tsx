@@ -18,6 +18,7 @@ import InvestmentTab from './InvestmentTab';
 import SubTenantForms from './SubTenantForms';
 import NotificationBell from './NotificationBell';
 import NotificationPreferences from './NotificationPreferences';
+import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 
@@ -28,7 +29,7 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   render() { return this.state.err ? null : this.props.children; }
 }
 
-type Tab = 'dashboard' | 'work-requests' | 'lease' | 'rent' | 'deals' | 'shop' | 'investments' | 'referrals' | 'messages' | 'settings';
+type Tab = 'dashboard' | 'work-requests' | 'lease' | 'rent' | 'deals' | 'shop' | 'investments' | 'referrals' | 'messages' | 'documents' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard',     label: 'Dashboard',     icon: Home },
@@ -40,6 +41,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'investments',   label: 'Investments',     icon: DollarSign },
   { id: 'referrals',     label: 'Referrals',       icon: Gift, badge: 'EARN' },
   { id: 'messages',      label: 'Messages',        icon: MessageSquare },
+  { id: 'documents',     label: 'Documents',       icon: FileText },
   { id: 'settings',      label: 'Settings',        icon: Settings },
 ];
 
@@ -202,7 +204,11 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
           { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId }) }
         );
         const payload = await response.json().catch(() => ({}));
-        if (response.ok && payload?.success && payload.payment?.status === 'paid') { toast.success('Rent payment received. Thank you!'); void loadRent(); }
+        if (response.ok && payload?.success) {
+          const st = payload.payment?.status;
+          if (st === 'paid') { toast.success('Rent payment received. Thank you!'); void loadRent(); }
+          else if (st === 'processing') { toast.success('Bank transfer started — ACH payments take a few business days to clear. We\'ll mark it paid once it settles.'); void loadRent(); }
+        }
       } catch { /* ignore */ }
       finally { const url = new URL(window.location.href); url.searchParams.delete('rent_payment'); url.searchParams.delete('session_id'); window.history.replaceState({}, '', url.toString()); }
     })();
@@ -810,6 +816,8 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
 
         {/* SETTINGS */}
         {tab === 'investments' && <InvestmentTab portalType="tenant" ownerName={tenantName} />}
+
+        {tab === 'documents' && <PortalDocumentVault session={session} accent="indigo" />}
 
         {tab === 'settings' && (
           <div className="space-y-4 max-w-lg">

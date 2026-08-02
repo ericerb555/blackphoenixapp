@@ -29,6 +29,8 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
+import { PortalDocumentVault } from './PortalDocumentVault';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Order {
   id: string;
@@ -50,10 +52,11 @@ interface Product {
 }
 
 export default function VendorPortalView() {
-  
+  const { session } = useAuth();
+
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'investments' | 'messages' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'investments' | 'messages' | 'documents' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -185,6 +188,7 @@ export default function VendorPortalView() {
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'api-settings', label: 'API Settings', icon: Code },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
@@ -248,6 +252,7 @@ export default function VendorPortalView() {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'guide' && <PortalFeatureGuide portal="vendor" />}
 
         {activeTab === 'dashboard' && (

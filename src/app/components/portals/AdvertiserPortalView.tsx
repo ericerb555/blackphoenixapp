@@ -30,12 +30,15 @@ import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
+import { PortalDocumentVault } from './PortalDocumentVault';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function AdvertiserPortalView() {
-  
+  const { session } = useAuth();
+
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'investments' | 'messages' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'investments' | 'messages' | 'documents' | 'guide'>('dashboard');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -213,6 +216,7 @@ export default function AdvertiserPortalView() {
     { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
@@ -275,6 +279,7 @@ export default function AdvertiserPortalView() {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'guide' && <PortalFeatureGuide portal="advertiser" />}
 
         {activeTab === 'dashboard' && (

@@ -428,12 +428,31 @@ export default function MultiDropshipperManager() {
   }
 
   async function syncAllToStore() {
-    const items = filteredInventory.filter(i => i.inStock);
-    if (items.length === 0) { toast.error('No in-stock products to publish.'); return; }
+    // Push the ENTIRE priced, in-stock inventory to the store — not just the
+    // currently filtered view — so "Sync All" really means all. Give a precise
+    // reason whenever there's nothing to push instead of a vague failure.
+    const all = inventory.filter(i => i.sku);
+    if (all.length === 0) {
+      toast.error('Your inventory is empty. Sync your supplier catalog first, then push prices to the store.');
+      return;
+    }
+    const inStock = all.filter(i => i.inStock);
+    if (inStock.length === 0) {
+      toast.error('None of your products are in stock, so there’s nothing to list on the store.');
+      return;
+    }
+    const priced = inStock.filter(i => {
+      const p = Number(listPriceFor(i));
+      return Number.isFinite(p) && p > 0;
+    });
+    if (priced.length === 0) {
+      toast.error('Set a valid list price on your products before pushing them to the store.');
+      return;
+    }
     setPushingAll(true);
-    toast.message(`Publishing ${items.length} in-stock products to your store…`);
-    const ok = await publishItems(items);
-    if (ok) toast.success(`Store updated — ${items.length} dropship products are now live with your list prices.`);
+    toast.message(`Pushing ${priced.length} product${priced.length === 1 ? '' : 's'} to your store with your list prices…`);
+    const ok = await publishItems(priced);
+    if (ok) toast.success(`Store updated — ${priced.length} product${priced.length === 1 ? '' : 's'} now live with your list prices.`);
     setPushingAll(false);
   }
 
@@ -514,9 +533,9 @@ export default function MultiDropshipperManager() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={syncAllToStore}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-sm font-semibold transition">
-            <ShoppingBag className="w-4 h-4" /> Sync All to Store
+          <button onClick={syncAllToStore} disabled={pushingAll}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 disabled:opacity-60 rounded-lg text-sm font-semibold transition">
+            {pushingAll ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />} Push Prices to Store
           </button>
           <button onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">

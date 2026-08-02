@@ -17,6 +17,7 @@ import InvestmentTab from './InvestmentTab';
 import ReferralRewards from '../ReferralRewards';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
+import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
@@ -38,7 +39,7 @@ const DEMO_REVENUE = [
   { month: 'Apr', revenue: 22100 }, { month: 'May', revenue: 28400 }, { month: 'Jun', revenue: 34800 },
 ];
 
-type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'investments' | 'referrals' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'investments' | 'referrals' | 'documents' | 'settings' | 'guide';
 
 interface Props { onNavigate: (page: string) => void; }
 
@@ -77,7 +78,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
   const [showAddSub, setShowAddSub] = useState(false);
   const [cForm, setCForm] = useState({ name: '', email: '', phone: '', serviceType: '' });
   const [sForm, setSForm] = useState({ name: '', trade: '', email: '', phone: '' });
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { unread: unreadCount } = usePortalMessages(user?.id || '', user?.email || '');
   const territoryName = territorySettings.territoryName;
   const ownerName = territorySettings.ownerName;
@@ -273,6 +274,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
     { id: 'deals', label: 'Deals & Reels', icon: Star },
     { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referrals', icon: Award },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
@@ -711,6 +713,8 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
             <Safe><ReferralRewards /></Safe>
           </div>
         )}
+
+        {tab === 'documents' && <PortalDocumentVault session={session} accent="teal" />}
 
         {/* SETTINGS */}
         {tab === 'settings' && (

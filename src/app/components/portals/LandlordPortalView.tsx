@@ -863,7 +863,7 @@ export default function LandlordPortalView() {
                 </div>
                 <div>
                   <p className="font-bold">Online Rent Collection</p>
-                  <p className="text-xs text-gray-400">Powered by Stripe — funds go straight to your bank.</p>
+                  <p className="text-xs text-gray-400">Your own Stripe account — card & bank transfer (ACH) go straight to your bank.</p>
                 </div>
               </div>
 
@@ -872,7 +872,7 @@ export default function LandlordPortalView() {
               ) : stripeStatus?.chargesEnabled ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-3 py-2.5 text-sm text-green-300">
-                    <CheckCircle className="w-4 h-4 flex-shrink-0" /> Connected — you're ready to accept rent payments online.
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" /> Connected — tenants can pay by card or bank transfer (ACH), and funds go directly to your account.
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <span className={`px-2 py-0.5 rounded border ${stripeStatus.payoutsEnabled ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>Payouts {stripeStatus.payoutsEnabled ? 'enabled' : 'pending'}</span>
@@ -887,7 +887,7 @@ export default function LandlordPortalView() {
                   <p className="text-sm text-gray-300 leading-relaxed">
                     {stripeStatus?.connected
                       ? 'Your Stripe account needs a few more details before you can accept payments. Finish onboarding to go live.'
-                      : 'Connect a Stripe account to let your tenants pay rent by card. You keep 100% of the rent — payouts land directly in your bank account.'}
+                      : 'Set up your own Stripe account to let tenants pay rent by card or bank transfer (ACH). It\'s your independent account — you keep 100% of the rent and payouts land directly in your bank, never routed through us.'}
                   </p>
                   <button onClick={connectStripe} disabled={stripeConnecting} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:opacity-60">
                     {stripeConnecting ? <><LoaderCircle className="w-4 h-4 animate-spin" /> Opening Stripe…</> : <><CreditCard className="w-4 h-4" /> {stripeStatus?.connected ? 'Finish Stripe setup' : 'Connect Stripe'}</>}
