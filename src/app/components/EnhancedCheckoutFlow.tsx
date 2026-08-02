@@ -152,26 +152,26 @@ export default function EnhancedCheckoutFlow({
         <div className="absolute w-96 h-96 bg-purple-500/10 rounded-full blur-3xl -bottom-48 -right-48"></div>
       </div>
 
-      <div className="relative z-10 max-w-6xl mx-auto px-6 py-12">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 py-6 sm:px-6 sm:py-12">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-12"
+          className="text-center mb-6 sm:mb-12"
         >
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center">
-              <ShoppingCart className="w-6 h-6 text-white" />
+          <div className="flex items-center justify-center gap-2 sm:gap-3 mb-2 sm:mb-4">
+            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center">
+              <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
-            <h1 className="text-4xl font-black bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-4xl font-black bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
               Secure Checkout
             </h1>
           </div>
-          <p className="text-slate-400">Complete your purchase in just a few steps</p>
+          <p className="text-sm sm:text-base text-slate-400">Complete your purchase in just a few steps</p>
         </motion.div>
 
         {/* Progress Indicator */}
-        <div className="mb-12">
+        <div className="mb-8 sm:mb-12">
           <div className="flex items-center justify-between max-w-3xl mx-auto">
             {steps.map((step, index) => {
               const Icon = step.icon;
@@ -186,7 +186,7 @@ export default function EnhancedCheckoutFlow({
                       animate={{
                         scale: isCurrent ? 1.1 : 1,
                       }}
-                      className={`relative w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${
+                      className={`relative w-11 h-11 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl flex items-center justify-center transition-all ${
                         isCompleted
                           ? 'bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/50'
                           : isCurrent
@@ -195,13 +195,13 @@ export default function EnhancedCheckoutFlow({
                       }`}
                     >
                       {isCompleted ? (
-                        <Check className="w-8 h-8 text-white" />
+                        <Check className="w-5 h-5 sm:w-8 sm:h-8 text-white" />
                       ) : (
-                        <Icon className={`w-7 h-7 ${isCurrent ? 'text-white' : 'text-slate-500'}`} />
+                        <Icon className={`w-5 h-5 sm:w-7 sm:h-7 ${isCurrent ? 'text-white' : 'text-slate-500'}`} />
                       )}
                     </motion.div>
-                    <div className="mt-3 text-center">
-                      <div className={`text-sm font-semibold ${
+                    <div className="mt-2 sm:mt-3 text-center">
+                      <div className={`text-xs sm:text-sm font-semibold ${
                         isCurrent ? 'text-cyan-400' : isCompleted ? 'text-green-400' : 'text-slate-500'
                       }`}>
                         {step.label}
@@ -211,7 +211,7 @@ export default function EnhancedCheckoutFlow({
 
                   {/* Connector Line */}
                   {index < steps.length - 1 && (
-                    <div className="flex-1 h-1 mx-4 rounded-full overflow-hidden bg-slate-800">
+                    <div className="flex-1 h-1 mx-2 sm:mx-4 rounded-full overflow-hidden bg-slate-800">
                       <motion.div
                         initial={{ width: '0%' }}
                         animate={{
@@ -229,7 +229,7 @@ export default function EnhancedCheckoutFlow({
         </div>
 
         {/* Step Content */}
-        <div className="grid grid-cols-12 gap-8">
+        <div className="grid grid-cols-12 gap-4 sm:gap-8">
           {/* Main Content */}
           <div className="col-span-12 lg:col-span-7">
             <AnimatePresence mode="wait">
@@ -755,7 +755,7 @@ export default function EnhancedCheckoutFlow({
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="sticky top-6 bg-slate-900/50 backdrop-blur-xl border border-cyan-500/20 rounded-2xl p-6"
+              className="lg:sticky lg:top-6 bg-slate-900/50 backdrop-blur-xl border border-cyan-500/20 rounded-2xl p-4 sm:p-6"
             >
               <h3 className="text-xl font-black text-white mb-4">Order Summary</h3>
 
@@ -811,7 +811,7 @@ export default function EnhancedCheckoutFlow({
               <div className="pt-4 border-t border-slate-800">
                 <div className="flex justify-between items-center">
                   <span className="text-lg font-bold text-white">Total</span>
-                  <span className="text-3xl font-black bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                  <span className="text-2xl sm:text-3xl font-black bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
                     ${calculateTotal().toFixed(2)}
                   </span>
                 </div>
@@ -855,15 +855,15 @@ function StepCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.3 }}
-      className="bg-slate-900/50 backdrop-blur-xl border border-cyan-500/20 rounded-2xl p-8"
+      className="bg-slate-900/50 backdrop-blur-xl border border-cyan-500/20 rounded-2xl p-4 sm:p-8"
     >
-      <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-          <Icon className="w-6 h-6 text-white" />
+      <div className="flex items-start gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+          <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
         </div>
         <div>
-          <h3 className="text-2xl font-black text-white">{title}</h3>
-          <p className="text-slate-400 mt-1">{description}</p>
+          <h3 className="text-lg sm:text-2xl font-black text-white">{title}</h3>
+          <p className="text-sm sm:text-base text-slate-400 mt-1">{description}</p>
         </div>
       </div>
       {children}

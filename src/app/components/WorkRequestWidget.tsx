@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Wrench, X, ChevronDown, Flame, Send, Check, Phone, Mail, MapPin, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -28,7 +28,38 @@ const URGENCY = [
 
 const EMPTY = { name: '', phone: '', email: '', address: '', service: '', details: '', urgency: 'flexible' };
 
+// Detect whether any full-screen modal/drawer backdrop is currently mounted.
+// Every cart, checkout, and product overlay in the app renders a `fixed inset-0`
+// element with a `bg-black/NN` darkening layer, so we can reliably tell when the
+// user is inside one and get the floating "Request Service" button out of the way
+// (it must never cover a checkout's Continue/Pay button).
+function useOverlayOpen() {
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const nodes = document.querySelectorAll('div.fixed.inset-0');
+      let found = false;
+      nodes.forEach(el => {
+        const cls = (el as HTMLElement).className;
+        if (typeof cls === 'string' && /bg-black\//.test(cls)) found = true;
+      });
+      setOverlayOpen(found);
+    };
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, []);
+  return overlayOpen;
+}
+
 export default function WorkRequestWidget() {
+  const overlayOpen           = useOverlayOpen();
   const [open, setOpen]       = useState(false);
   const [form, setForm]       = useState({ ...EMPTY });
   const [step, setStep]       = useState<'form' | 'done'>('form');
@@ -71,7 +102,7 @@ export default function WorkRequestWidget() {
     <>
       {/* Floating trigger */}
       <AnimatePresence>
-        {!open && (
+        {!open && !overlayOpen && (
           <motion.button
             initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
             onClick={() => setOpen(true)}

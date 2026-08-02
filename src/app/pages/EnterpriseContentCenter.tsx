@@ -42,6 +42,7 @@ import AdStudio from '../components/adstudio/AdStudio';
 import MarketingCommandCenter from '../components/adstudio/MarketingCommandCenter';
 import EcommerceStoreHub from '../components/adstudio/EcommerceStoreHub';
 import MarketplaceAdmin from './MarketplaceAdmin';
+import { AD_STUDIO_OPEN_EVENT } from '../lib/adStudioHandoff';
 import {
   UserContext,
   getMockUserContext,
@@ -195,6 +196,14 @@ export default function EnterpriseContentCenter() {
         setActiveTab('command');
       }
     } catch { /* ignore */ }
+  }, []);
+
+  // A product list fired "Create Ad" — jump to the Ad Studio tab. Ad Studio
+  // itself consumes the handed-off product from storage on mount.
+  useEffect(() => {
+    const open = () => setActiveTab('ad-studio');
+    window.addEventListener(AD_STUDIO_OPEN_EVENT, open);
+    return () => window.removeEventListener(AD_STUDIO_OPEN_EVENT, open);
   }, []);
 
   // Navigation that also handles self-links back into this hub's tabs.

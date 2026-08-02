@@ -171,7 +171,7 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[10000] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             setShowCheckout(false);
@@ -183,7 +183,7 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl w-full max-w-6xl max-h-[95vh] overflow-y-auto my-8"
+          className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-none sm:rounded-2xl w-full max-w-6xl min-h-screen sm:min-h-0 sm:max-h-[95vh] overflow-y-auto sm:my-8"
         >
           <EnhancedCheckoutFlow
             cartItems={cartItems}
@@ -205,7 +205,7 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[10000] flex items-center justify-center p-4 overflow-y-auto"
       onClick={onClose}
     >
       <motion.div

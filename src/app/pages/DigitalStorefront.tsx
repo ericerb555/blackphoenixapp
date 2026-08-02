@@ -256,10 +256,10 @@ export default function DigitalStorefront() {
         {showCart && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 z-40" onClick={() => setShowCart(false)} />
+              className="fixed inset-0 bg-black/70 z-[9999]" onClick={() => setShowCart(false)} />
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-              className="fixed right-0 top-0 h-full w-full max-w-md bg-[#111] border-l border-[#2A2A2A] z-50 flex flex-col">
+              className="fixed right-0 top-0 h-full w-full max-w-md bg-[#111] border-l border-[#2A2A2A] z-[10000] flex flex-col">
               {/* Cart Header */}
               <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A2A]">
                 <h2 className="font-bold text-lg text-white flex items-center gap-2">
@@ -481,10 +481,10 @@ export default function DigitalStorefront() {
         {selected && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 z-40" onClick={() => setSelected(null)} />
+              className="fixed inset-0 bg-black/70 z-[9999]" onClick={() => setSelected(null)} />
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-              className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#111] border-l border-[#2A2A2A] z-50 overflow-y-auto">
+              className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#111] border-l border-[#2A2A2A] z-[10000] overflow-y-auto">
               <div className="sticky top-0 bg-[#111] border-b border-[#2A2A2A] px-6 py-4 flex items-center justify-between">
                 <span className={`text-xs font-semibold ${CAT_CONFIG[selected.category].color}`}>{CAT_CONFIG[selected.category].label}</span>
                 <button onClick={() => setSelected(null)} className="p-1.5 hover:bg-[#2A2A2A] rounded-lg text-gray-400 hover:text-white transition">

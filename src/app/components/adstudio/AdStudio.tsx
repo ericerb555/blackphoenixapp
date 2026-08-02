@@ -13,7 +13,7 @@
  * the standalone Ad Creator without coupling to that page, so neither can break
  * the other.
  */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Megaphone, Package, Sparkles, ShoppingBag, Wand2, RefreshCw,
   Copy, Save, Send, Image as ImageIcon, Smartphone, Mail, Layout,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { consumePendingAdProduct, type PendingAdProduct } from '../../lib/adStudioHandoff';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const AUTH = { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' };
@@ -206,6 +207,16 @@ export default function AdStudio({
   const [products, setProducts] = useState<AdProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Id of a product handed off from a store list, so we can badge it as "from Store".
+  const [handoffId, setHandoffId] = useState<string | null>(null);
+
+  // A product handed off from a product list ("Create Ad" button). Consumed once
+  // on mount; merged into the picker and pre-selected after products load.
+  const pendingRef = useRef<PendingAdProduct | null>(null);
+  useEffect(() => {
+    const pending = consumePendingAdProduct();
+    if (pending) { pendingRef.current = pending; setMode('product'); }
+  }, []);
 
   const [formatId, setFormatId] = useState<AdFormat>('social_square');
   const [themeId, setThemeId] = useState<AdTheme>('dark');
@@ -270,24 +281,46 @@ export default function AdStudio({
         console.error('[AdStudio] Failed to load digital products:', err);
       }
 
-      const combined = [...physical.map(normalize), ...digital];
-      if (combined.length > 0) {
-        setProducts(combined);
-      } else {
+      let combined = [...physical.map(normalize), ...digital];
+      if (combined.length === 0) {
         // Fallback: locally staged marketing products, if any.
         try {
           const local = JSON.parse(localStorage.getItem('bp_mkt_products') || '[]');
-          setProducts((Array.isArray(local) ? local : []).map(normalizeDigital));
+          combined = (Array.isArray(local) ? local : []).map(normalizeDigital);
         } catch {
-          setProducts([]);
+          combined = [];
         }
       }
+      setProducts(mergePending(combined));
     } catch (err) {
       console.error('[AdStudio] Failed to load products:', err);
-      setProducts([]);
+      setProducts(mergePending([]));
     } finally {
       setLoadingProducts(false);
     }
+  }, []);
+
+  // Merge a product handed off from a "Create Ad" button into the loaded list
+  // (deduped by id) and pre-select it, so it's ready even if it isn't in the
+  // fetched catalog yet.
+  const mergePending = useCallback((list: AdProduct[]): AdProduct[] => {
+    const pending = pendingRef.current;
+    if (!pending) return list;
+    pendingRef.current = null;
+    const handoff: AdProduct = {
+      id: pending.id,
+      title: pending.title,
+      subtitle: pending.subtitle || '',
+      price: pending.price,
+      originalPrice: pending.originalPrice,
+      image: pending.image,
+      badge: pending.badge,
+      features: Array.isArray(pending.features) ? pending.features : [],
+    };
+    const deduped = list.filter(p => p.id !== handoff.id);
+    setSelectedId(handoff.id);
+    setHandoffId(handoff.id);
+    return [handoff, ...deduped];
   }, []);
 
   useEffect(() => { if (mode === 'product') loadProducts(); }, [mode, loadProducts]);
@@ -342,6 +375,20 @@ export default function AdStudio({
   };
 
   // ── AI image generation (optional) ──
+  // Build an on-brand image prompt from the selected product's own details so
+  // AI art stays true to what's actually being advertised.
+  const buildImagePrompt = () => {
+    const title = draft.headline || selectedProduct?.title || 'Featured offer';
+    const context = draft.tagline || selectedProduct?.subtitle || '';
+    const feats = (selectedProduct?.features || []).slice(0, 3).join(', ');
+    return [
+      `Professional marketing hero image for "${title}".`,
+      context && context,
+      feats && `Highlights: ${feats}.`,
+      'Clean, high-detail e-commerce product shot with studio lighting, tasteful background, space for text overlay.',
+    ].filter(Boolean).join(' ');
+  };
+
   const generateImage = async () => {
     setGeneratingImage(true);
     try {
@@ -351,10 +398,10 @@ export default function AdStudio({
         body: JSON.stringify({
           productId: selectedId || undefined,
           productName: draft.headline || selectedProduct?.title || 'Featured offer',
-          productDescription: draft.tagline || '',
+          productDescription: draft.tagline || selectedProduct?.subtitle || '',
           assetType: 'social-ad',
           platforms: ['instagram'],
-          customPrompt: `${draft.headline}. ${draft.tagline}`,
+          customPrompt: buildImagePrompt(),
         }),
       });
       if (res.ok) {
@@ -520,7 +567,14 @@ export default function AdStudio({
                         {p.image ? <img src={p.image} alt="" className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-600" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-white font-medium truncate">{p.title}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm text-white font-medium truncate">{p.title}</p>
+                          {p.id === handoffId && (
+                            <span className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-[#ea580c]/20 text-[#ea580c] border border-[#ea580c]/30">
+                              <Store className="w-2.5 h-2.5" /> from Store
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 truncate">{p.subtitle}</p>
                       </div>
                       {p.price !== undefined && <span className="text-sm font-bold text-[#ea580c]">{money(p.price)}</span>}

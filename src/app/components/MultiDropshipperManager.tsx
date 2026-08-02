@@ -10,9 +10,10 @@ import {
   DollarSign, ShoppingBag, Truck, Link2, Settings, Eye, EyeOff,
   ChevronDown, ChevronUp, Search, Filter, ArrowUpRight, Zap,
   AlertTriangle, BarChart3, Globe, X, Save, Edit2,
-  Sparkles, Wand2, TrendingUp, Check,
+  Sparkles, Wand2, TrendingUp, Check, Megaphone,
 } from 'lucide-react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { sendProductToAdStudio } from '../lib/adStudioHandoff';
 import { useAuth } from '../contexts/AuthContext';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -208,6 +209,9 @@ export default function MultiDropshipperManager() {
   // Per-SKU list-price overrides (what the product is listed for on the site).
   const [listPrices, setListPrices] = useState<Record<string, number>>({});
   const listPriceFor = (item: InventoryItem) => (listPrices[item.id] ?? item.price);
+  // Review/approval gate — only approved products get pushed to the store.
+  const [approved, setApproved] = useState<Record<string, boolean>>({});
+  const toggleApproved = (id: string) => setApproved(prev => ({ ...prev, [id]: !prev[id] }));
 
   // ── Smart (AI) bulk pricing ──────────────────────────────────────────────
   interface PriceSuggestion { sku: string; cost: number; currentPrice: number; suggestedPrice: number; margin: number; confidence: number; rationale: string; }
@@ -427,18 +431,17 @@ export default function MultiDropshipperManager() {
     setImportingToStore(null);
   }
 
-  async function syncAllToStore() {
-    // Push the ENTIRE priced, in-stock inventory to the store — not just the
-    // currently filtered view — so "Sync All" really means all. Give a precise
+  async function pushApprovedToStore() {
+    // Only products you've reviewed and approved get pushed live. Give a precise
     // reason whenever there's nothing to push instead of a vague failure.
-    const all = inventory.filter(i => i.sku);
-    if (all.length === 0) {
-      toast.error('Your inventory is empty. Sync your supplier catalog first, then push prices to the store.');
+    const approvedItems = inventory.filter(i => i.sku && approved[i.id]);
+    if (approvedItems.length === 0) {
+      toast.error('Approve the products you want to publish first (check the Approve box on each reviewed item).');
       return;
     }
-    const inStock = all.filter(i => i.inStock);
+    const inStock = approvedItems.filter(i => i.inStock);
     if (inStock.length === 0) {
-      toast.error('None of your products are in stock, so there’s nothing to list on the store.');
+      toast.error('None of your approved products are in stock, so there’s nothing to list on the store.');
       return;
     }
     const priced = inStock.filter(i => {
@@ -446,13 +449,13 @@ export default function MultiDropshipperManager() {
       return Number.isFinite(p) && p > 0;
     });
     if (priced.length === 0) {
-      toast.error('Set a valid list price on your products before pushing them to the store.');
+      toast.error('Set a valid list price on your approved products before pushing them to the store.');
       return;
     }
     setPushingAll(true);
-    toast.message(`Pushing ${priced.length} product${priced.length === 1 ? '' : 's'} to your store with your list prices…`);
+    toast.message(`Pushing ${priced.length} approved product${priced.length === 1 ? '' : 's'} to your store…`);
     const ok = await publishItems(priced);
-    if (ok) toast.success(`Store updated — ${priced.length} product${priced.length === 1 ? '' : 's'} now live with your list prices.`);
+    if (ok) toast.success(`Store updated — ${priced.length} approved product${priced.length === 1 ? '' : 's'} now live with your list prices.`);
     setPushingAll(false);
   }
 
@@ -533,9 +536,9 @@ export default function MultiDropshipperManager() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={syncAllToStore} disabled={pushingAll}
+          <button onClick={pushApprovedToStore} disabled={pushingAll}
             className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 disabled:opacity-60 rounded-lg text-sm font-semibold transition">
-            {pushingAll ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />} Push Prices to Store
+            {pushingAll ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />} Push Approved to Store
           </button>
           <button onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
@@ -814,12 +817,37 @@ export default function MultiDropshipperManager() {
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600/25 to-orange-600/25 border border-purple-500/40 text-purple-200 hover:from-purple-600/40 hover:to-orange-600/40 rounded-xl text-xs font-bold transition">
               <Sparkles className="w-3.5 h-3.5" /> Smart Pricing (AI)
             </button>
-            <button onClick={syncAllToStore} disabled={pushingAll}
+            <button onClick={pushApprovedToStore} disabled={pushingAll}
               className="flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-xl text-xs font-bold transition disabled:opacity-50">
               {pushingAll ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
-              Push All to Store
+              Push Approved to Store
             </button>
           </div>
+
+          {/* Review & approve bar — approve products before they go live */}
+          {filteredInventory.length > 0 && (() => {
+            const visible = filteredInventory.filter(i => i.sku);
+            const approvedCount = visible.filter(i => approved[i.id]).length;
+            const allApproved = visible.length > 0 && approvedCount === visible.length;
+            return (
+              <div className="flex items-center justify-between gap-3 flex-wrap bg-[#141414] border border-[#2A2A2A] rounded-xl px-4 py-2.5">
+                <p className="text-xs text-gray-400">
+                  <span className="font-bold text-green-400">{approvedCount}</span> of {visible.length} reviewed &amp; approved for the store
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setApproved(prev => {
+                      const next = { ...prev };
+                      visible.forEach(i => { next[i.id] = !allApproved; });
+                      return next;
+                    })}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 hover:text-white transition">
+                    {allApproved ? 'Unapprove all' : 'Approve all shown'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="space-y-2">
             {filteredInventory.map(item => (
@@ -856,12 +884,40 @@ export default function MultiDropshipperManager() {
                     {marginPct(listPriceFor(item), item.cost)}% margin · ${money(listPriceFor(item) - item.cost)}
                   </p>
                 </div>
+                {/* Approve for the batch push */}
+                <button
+                  onClick={() => toggleApproved(item.id)}
+                  title={approved[item.id] ? 'Approved — will be pushed to the store' : 'Approve this product for the store'}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition flex-shrink-0 border ${
+                    approved[item.id]
+                      ? 'bg-green-600/25 border-green-500/40 text-green-300'
+                      : 'bg-[#1A1A1A] border-[#2A2A2A] text-gray-400 hover:text-white'
+                  }`}>
+                  {approved[item.id] ? <Check className="w-3 h-3" /> : <span className="w-3 h-3 rounded-sm border border-current inline-block" />}
+                  {approved[item.id] ? 'Approved' : 'Approve'}
+                </button>
                 <button
                   onClick={() => importToStore(item)}
                   disabled={importingToStore === item.id || pushingAll}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600/20 border border-orange-500/30 text-orange-400 hover:bg-orange-600/30 rounded-lg text-xs font-bold transition disabled:opacity-50 flex-shrink-0">
                   {importingToStore === item.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ShoppingBag className="w-3 h-3" />}
-                  Add to Store
+                  Publish now
+                </button>
+                <button
+                  onClick={() => {
+                    sendProductToAdStudio({
+                      id: item.id,
+                      title: item.name,
+                      subtitle: item.category || '',
+                      price: Number(listPriceFor(item)) || item.price,
+                      image: item.image,
+                    });
+                    toast.success(`Opening Ad Studio for "${item.name}"`);
+                  }}
+                  title="Create an ad for this product"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 hover:text-orange-400 hover:border-orange-500/40 rounded-lg text-xs font-bold transition flex-shrink-0">
+                  <Megaphone className="w-3 h-3" />
+                  Create Ad
                 </button>
               </div>
             ))}

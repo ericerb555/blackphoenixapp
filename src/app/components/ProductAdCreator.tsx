@@ -39,6 +39,7 @@ interface Product {
   sku: string;
   brand?: string;
   stock: number;
+  productType?: string;
 }
 
 interface AdTemplate {
@@ -281,261 +282,100 @@ function ProductSelector({ onSelect }: { onSelect: (products: Product[]) => void
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'physical' | 'digital'>('all');
+  const [inStockOnly, setInStockOnly] = useState(false);
 
   useEffect(() => {
     loadProducts();
   }, []);
 
+  // Normalize any product shape (store catalog OR dropshipper staging) into the
+  // shape this ad creator expects. Store products key on `id`; staging on
+  // `stagingId`. Works for both physical and digital products.
+  const normalizeProduct = (p: any): Product & { productType: string } => ({
+    stagingId: p.stagingId || p.id,
+    name: p.name || 'Untitled Product',
+    description: p.description || '',
+    price: Number(p.price) || 0,
+    compareAtPrice: p.compareAtPrice ?? p.compare_at_price ?? undefined,
+    images: (Array.isArray(p.images) && p.images.length ? p.images : (p.primaryImage ? [p.primaryImage] : [])),
+    primaryImage: p.primaryImage || (Array.isArray(p.images) ? p.images[0] : '') || '',
+    category: p.category || 'Uncategorized',
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    sku: p.sku || p.id || p.stagingId || '',
+    brand: p.brand || p.vendorName || undefined,
+    stock: Number(p.inventoryQuantity ?? p.stock ?? 0),
+    productType: String(p.productType || (p.isDigital ? 'digital' : 'physical')),
+  });
+
   const loadProducts = async () => {
+    setLoading(true);
+    const headers = {
+      Authorization: `Bearer ${publicAnonKey}`,
+      'Content-Type': 'application/json',
+    };
     try {
-      console.log('🔍 API Configuration:');
-      console.log('  - Project ID:', projectId);
-      console.log('  - Base URL:', BASE_URL);
-      console.log('  - API Prefix:', API_PREFIX);
-      console.log('  - Anon Key (first 20 chars):', publicAnonKey?.substring(0, 20) + '...');
-      
-      // STEP 1: Test if Edge Function is deployed at all
-      console.log('\n📡 STEP 1: Testing if Edge Function exists...');
-      const rootTestUrl = `https://${projectId}.supabase.co/functions/v1/server`;
-      let edgeFunctionExists = false;
-      
+      // De-dupe across sources by stagingId; the live store catalog wins.
+      const collected = new Map<string, Product & { productType: string }>();
+
+      // 1) The FULL ecommerce store catalog — every product you sell, physical
+      //    AND digital. This is the primary source so the generator can pull any
+      //    product that exists in the store.
       try {
-        console.log('  Testing root endpoint:', rootTestUrl);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const rootTest = await fetch(rootTestUrl, {
-          method: 'GET',
-          headers: { 
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        console.log('  Response status:', rootTest.status, rootTest.statusText);
-        
-        if (rootTest.ok || rootTest.status === 404) {
-          // 404 is OK - means function exists but no route handler for /
-          const text = await rootTest.text();
-          console.log('  Response:', text.substring(0, 200));
-          edgeFunctionExists = true;
-          console.log('  ✅ Edge Function is deployed and responding!\n');
-        }
-      } catch (rootError: any) {
-        console.error('  ❌ Edge Function test failed:', rootError.message);
-        console.error('  This means the Edge Function "server" is NOT deployed\n');
-      }
-      
-      if (!edgeFunctionExists) {
-        console.error('╔════════════════════════════════════════════════════════════╗');
-        console.error('║  CRITICAL: Edge Function "server" is NOT DEPLOYED         ║');
-        console.error('╚════════════════════════════════════════════════════════════╝');
-        console.error('');
-        console.error('🔴 PROBLEM: The Supabase Edge Function cannot be reached.');
-        console.error('');
-        console.error('✅ SOLUTION - Please do this NOW:');
-        console.error('   1. Open Supabase Dashboard in a new tab:');
-        console.error('      https://supabase.com/dashboard/project/' + projectId + '/functions');
-        console.error('');
-        console.error('   2. Check if "server" function is listed');
-        console.error('      - If YES but shows error: Click to view logs');
-        console.error('      - If NO: The function needs to be deployed');
-        console.error('');
-        console.error('   3. If you have Supabase CLI:');
-        console.error('      cd to your project directory');
-        console.error('      Run: supabase functions deploy server');
-        console.error('');
-        console.error('   4. In Figma Make:');
-        console.error('      - This app should auto-deploy Edge Functions');
-        console.error('      - If not working, save this conversation');
-        console.error('      - Contact Figma Make support with this error');
-        console.error('');
-        console.error('🎨 MEANWHILE: Switching to client-side demo mode...');
-        console.error('═══════════════════════════════════════════════════════════');
-        
-        toast.info(
-          'Server unavailable - switching to demo mode with sample products',
-          { duration: 5000 }
-        );
-        
-        // Set loading to false so we don't get stuck
-        setLoading(false);
-        return;
-      }
-      
-      // STEP 2: Edge Function exists, try to fetch products
-      console.log('📡 STEP 2: Fetching products from API...');
-      let serverAvailable = false;
-      const productUrl = buildApiUrl('/product-ads/available-products');
-      
-      try {
-        console.log('  Product URL:', productUrl);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch(productUrl, {
-          method: 'GET',
-          headers: { 
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        console.log('  Response:', response.status, response.statusText);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('  ✅ Success:', data);
-          
-          if (data.success && Array.isArray(data.products)) {
-            setProducts(data.products);
-            serverAvailable = true;
-            toast.success(`Loaded ${data.products.length} products from server`);
-          }
+        const res = await fetch(buildApiUrl('/products?limit=1000'), { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data.products) ? data.products : [];
+          list.forEach((p: any) => { const n = normalizeProduct(p); collected.set(n.stagingId, n); });
+          console.log(`Loaded ${list.length} products from the store catalog.`);
         } else {
-          const errorText = await response.text();
-          console.warn('  ⚠️ Server error:', errorText.substring(0, 200));
+          console.warn('Store catalog request failed:', res.status, await res.text().catch(() => ''));
         }
-      } catch (fetchError: any) {
-        console.warn('  ⚠️ Fetch failed:', fetchError.message);
+      } catch (e: any) {
+        console.warn('Store catalog load failed:', e?.message || e);
       }
-      
-      // If server is not available, use local KV store fallback
-      if (!serverAvailable) {
-        console.log('\n🔄 Server unavailable - using local KV store fallback mode');
-        console.log('📝 Fetching products directly from KV store...\n');
-        
-        try {
-          // Fetch from KV store using client-side approach
-          const kvUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/dropshipper/catalog/staging`;
-          console.log('  Trying KV endpoint:', kvUrl);
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          
-          const kvResponse = await fetch(kvUrl, {
-            method: 'GET',
-            headers: { 
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            },
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (kvResponse.ok) {
-            const kvData = await kvResponse.json();
-            console.log('✅ KV store responded:', kvData);
-            
-            if (kvData.success && Array.isArray(kvData.products)) {
-              // Transform KV products to ad-creator format
-              const transformedProducts = kvData.products.map((p: any) => ({
-                id: p.stagingId || p.id,
-                name: p.name,
-                description: p.description || '',
-                price: p.price,
-                compareAtPrice: p.compareAtPrice,
-                images: p.images || [],
-                category: p.category || 'Uncategorized',
-                source: {
-                  provider: p.provider || 'Unknown',
-                  lastSynced: p.importedAt || new Date().toISOString()
-                }
-              }));
-              
-              setProducts(transformedProducts);
-              toast.success(`Loaded ${transformedProducts.length} products (fallback mode)`, {
-                description: 'Using KV store while server deploys'
-              });
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (kvError: any) {
-          console.error('❌ KV store also failed:', kvError.message);
+
+      // 2) Dropshipper staging — imported products not yet published to the
+      //    store. Added only if not already present from the store catalog.
+      try {
+        const res = await fetch(buildApiUrl('/dropshipper/catalog/staging'), { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data.products) ? data.products : [];
+          list.forEach((p: any) => { const n = normalizeProduct(p); if (!collected.has(n.stagingId)) collected.set(n.stagingId, n); });
         }
-        
-        // If both server and KV failed, show error with helpful message
-        console.error('\n❌ ========================================');
-        console.error('❌  BOTH SERVER AND KV STORE FAILED');
-        console.error('❌ ========================================\n');
-        console.error('🔧 The Edge Function "server" is not responding.');
-        console.error('📝 This is likely a deployment issue.\n');
-        console.error('✅ SOLUTION:');
-        console.error('   1. Go to Supabase Dashboard: https://supabase.com/dashboard/project/' + projectId);
-        console.error('   2. Navigate to Edge Functions section');
-        console.error('   3. Look for a function named "server"');
-        console.error('   4. If missing or in error state, it needs deployment\n');
-        console.error('🔄 IN FIGMA MAKE:');
-        console.error('   - Files have been saved and should auto-deploy');
-        console.error('   - Try refreshing the entire Figma Make app');
-        console.error('   - Check for any error notifications in Figma Make UI');
-        console.error('========================================\n');
-        
-        toast.error(
-          'Cannot connect to backend. Please check Supabase Dashboard to verify Edge Function deployment.',
-          { duration: 15000 }
-        );
-        
-        setProducts([]);
-        setLoading(false);
-        return;
+      } catch (e: any) {
+        console.warn('Staging catalog load failed:', e?.message || e);
       }
-      
-      // Load products using helper function
-      const productsUrl = buildApiUrl('/product-ads/available-products');
-      console.log('📦 Loading products from:', productsUrl);
-      
-      const response = await fetch(productsUrl, {
-        headers: { 
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('✅ Response status:', response.status, response.statusText);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Server error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log('📊 Products loaded:', data);
-      
-      if (data.success && Array.isArray(data.products)) {
-        setProducts(data.products);
-        toast.success(`Loaded ${data.products.length} products`);
+
+      const all = Array.from(collected.values());
+      setProducts(all);
+      if (all.length > 0) {
+        const digital = all.filter(p => p.productType === 'digital').length;
+        const physical = all.length - digital;
+        toast.success(`Loaded ${all.length} products (${physical} physical, ${digital} digital)`);
       } else {
-        console.error('❌ Invalid data format:', data);
-        setProducts([]);
-        toast.error('Invalid product data received');
+        toast.info('No products found in your store yet. Add products to the store, then come back to generate ads.');
       }
     } catch (error) {
-      console.error('❌ Failed to load products - Full error:', error);
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        toast.error('Network error: Unable to connect to server. The Supabase Edge Function may not be deployed or is unreachable.');
-      } else {
-        toast.error(`Failed to load products: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      console.error('Failed to load products:', error);
+      toast.error(`Failed to load products: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setProducts([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    const matchesSearch =
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const type = (p as any).productType === 'digital' ? 'digital' : 'physical';
+    const matchesType = typeFilter === 'all' || type === typeFilter;
+    // Digital products are always available; only gate physical items on stock.
+    const matchesStock = !inStockOnly || type === 'digital' || (p.stock ?? 0) > 0;
+    return matchesSearch && matchesType && matchesStock;
+  });
 
   const toggleProduct = (id: string) => {
     const newSelected = new Set(selected);
@@ -593,6 +433,39 @@ function ProductSelector({ onSelect }: { onSelect: (products: Product[]) => void
             </button>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-0.5">
+            {(['all', 'physical', 'digital'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`px-3 py-1.5 text-sm rounded-md capitalize transition-all ${
+                  typeFilter === t
+                    ? 'bg-[#ea580c] text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {t === 'all' ? 'All' : t}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setInStockOnly((v) => !v)}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-all ${
+              inStockOnly
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                : 'bg-[#0A0A0A] border-[#2A2A2A] text-gray-400 hover:text-white'
+            }`}
+          >
+            In stock only
+          </button>
+
+          <span className="text-xs text-gray-500 ml-auto">
+            Showing {filteredProducts.length} of {products.length}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -620,6 +493,16 @@ function ProductSelector({ onSelect }: { onSelect: (products: Product[]) => void
                   <Check className="w-5 h-5 text-white" />
                 </div>
               )}
+
+              <span
+                className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                  product.productType === 'digital'
+                    ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                }`}
+              >
+                {product.productType === 'digital' ? 'Digital' : 'Physical'}
+              </span>
             </div>
 
             <div className="p-4">

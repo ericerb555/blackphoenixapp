@@ -212,7 +212,7 @@ export default function PersistentCartWishlistWidget({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowMiniCart(false)}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999]"
             />
 
             {/* Panel */}
@@ -221,7 +221,7 @@ export default function PersistentCartWishlistWidget({
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 400, opacity: 0 }}
               transition={{ type: "spring", damping: 25 }}
-              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-slate-950 border-l border-cyan-500/20 shadow-2xl z-50 flex flex-col"
+              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-slate-950 border-l border-cyan-500/20 shadow-2xl z-[10000] flex flex-col"
             >
               {/* Header */}
               <div className="p-6 border-b border-slate-800">
@@ -377,7 +377,7 @@ export default function PersistentCartWishlistWidget({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowMiniWishlist(false)}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999]"
             />
 
             {/* Panel */}
@@ -386,7 +386,7 @@ export default function PersistentCartWishlistWidget({
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 400, opacity: 0 }}
               transition={{ type: "spring", damping: 25 }}
-              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-slate-950 border-l border-pink-500/20 shadow-2xl z-50 flex flex-col"
+              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-slate-950 border-l border-pink-500/20 shadow-2xl z-[10000] flex flex-col"
             >
               {/* Header */}
               <div className="p-6 border-b border-slate-800">

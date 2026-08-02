@@ -4,7 +4,6 @@ import {
   Calendar, CheckCircle, Upload, Download, X, AlertCircle, Shield,
   Briefcase, TrendingUp, Info
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
 import { SecondaryButton } from '../ui/button/SecondaryButton';
 
@@ -75,31 +74,10 @@ export default function InvestmentApplication({
     updateField(field, file);
   };
 
-  const validateStep = (step: number): boolean => {
-    switch (step) {
-      case 1:
-        return !!(formData.fullName && formData.email && formData.phone && formData.dateOfBirth);
-      case 2:
-        return !!(formData.street && formData.city && formData.state && formData.zipCode);
-      case 3:
-        return !!(formData.investmentAmount && formData.fundingSource && formData.accreditedInvestor);
-      case 4:
-        return !!(formData.annualIncome && formData.netWorth && formData.employmentStatus);
-      case 5:
-        return !!(formData.idDocument && formData.proofOfFunds);
-      case 6:
-        return !!(formData.termsAccepted && formData.riskAcknowledged);
-      default:
-        return true;
-    }
-  };
-
+  // Fields are optional by design — applicants may fill out whatever they want
+  // and submit even with blank fields. Nothing blocks progression or submission.
   const nextStep = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, 6));
-    } else {
-      toast.error('Please complete all required fields');
-    }
+    setCurrentStep(prev => Math.min(prev + 1, 6));
   };
 
   const prevStep = () => {
@@ -107,11 +85,6 @@ export default function InvestmentApplication({
   };
 
   const handleSubmit = () => {
-    if (!validateStep(6)) {
-      toast.error('Please accept all required agreements');
-      return;
-    }
-
     const applicationData = {
       ...formData,
       opportunityId: opportunity.id,
