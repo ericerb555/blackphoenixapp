@@ -430,19 +430,19 @@ export default function CreateInvoiceModal({
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="Recipient name" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                    <input required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="Recipient name" style={{ paddingLeft: '2.75rem' }} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
                   </div>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input required type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="Portal sign-in email" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                    <input required type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="Portal sign-in email" style={{ paddingLeft: '2.75rem' }} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
                   </div>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input type="tel" value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} placeholder="Phone number" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                    <input type="tel" value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} placeholder="Phone number" style={{ paddingLeft: '2.75rem' }} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
                   </div>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input value={formData.customer_address} onChange={(e) => setFormData({ ...formData, customer_address: e.target.value })} placeholder="Billing address" className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pl-10 pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
+                    <input value={formData.customer_address} onChange={(e) => setFormData({ ...formData, customer_address: e.target.value })} placeholder="Billing address" style={{ paddingLeft: '2.75rem' }} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50" />
                   </div>
                   <select value={formData.recipient_portal} onChange={(e) => setFormData({ ...formData, recipient_portal: e.target.value as NonNullable<InvoiceFormData['recipient_portal']> })} className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50">
                     <option value="customer">Customer portal</option><option value="vendor">Vendor portal</option><option value="advertiser">Advertiser portal</option><option value="subcontractor">Subcontractor portal</option><option value="employee">Employee / technician portal</option><option value="investor">Investor portal</option><option value="property_manager">Property manager portal</option><option value="condo_manager">Condo manager portal</option><option value="landlord">Landlord portal</option><option value="territory_owner">Territory owner portal</option>

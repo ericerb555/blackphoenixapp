@@ -1391,6 +1391,17 @@ export default function UnifiedProjectPipeline() {
                             </button>
                           )}
 
+                          {/* Contract Stage — also allow creating a standalone quote */}
+                          {stage === 'contract' && (
+                            <button
+                              onClick={() => handleEditQuote(item)}
+                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-fuchsia-600 hover:from-fuchsia-600 hover:to-purple-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              Create Quote
+                            </button>
+                          )}
+
                           {/* Invoice Stage */}
                           {stage === 'invoice' && (
                             <div className="w-full px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-center">
