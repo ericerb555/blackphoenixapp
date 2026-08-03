@@ -27,6 +27,7 @@ interface InviteResult {
   invitationSent: boolean; inviteNotice?: string;
   smsSent?: boolean; smsNotice?: string;
   emailProvider?: string; inviteLink?: string | null;
+  emailFallbackReason?: string;
   qrDataUrl?: string | null;
 }
 
@@ -101,6 +102,14 @@ export default function CreatePortalPanel() {
       if (!sendEmail && !sendSms && generateQr) {
         if (qrOk) toast.success(`Portal created — scan the QR code below to onboard ${invite.name}.`);
         else toast.error('Portal created, but the QR code could not be generated. Try again.');
+      } else if (sendEmail && emailOk && invite.emailProvider === 'supabase') {
+        // The email "sent", but only via Supabase's built-in fallback — that means
+        // the branded Resend send was REJECTED, so it came from the numbered
+        // no-reply and the link may not work. Surface the exact Resend error.
+        toast.error(
+          `Invite went out via Supabase's fallback sender, NOT your team address. Resend rejected the branded send: ${invite.emailFallbackReason || 'reason not reported (redeploy the server for details)'}`,
+          { duration: 16000 },
+        );
       } else if ((sendEmail && emailOk || !sendEmail) && (sendSms && smsOk || !sendSms) && (emailOk || smsOk)) {
         const channels = [emailOk && 'email', smsOk && 'SMS', qrOk && 'QR code'].filter(Boolean).join(' + ');
         toast.success(`Portal created — invite sent via ${channels} to ${invite.name}.`);

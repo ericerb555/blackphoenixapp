@@ -262,11 +262,20 @@ app.route("/make-server-3eae23a6", companyConfigRouter);
 
 // Health check
 app.get("/make-server-3eae23a6/health", (c) => {
+  // `emailConfig` lets us confirm a deploy picked up the latest code + secrets
+  // without exposing anything sensitive: it reports the (public) sender/reply-to
+  // addresses and only booleans for the presence of API keys.
   return c.json({
     status: "ok",
     message: "Black Phoenix Server Running",
     timestamp: new Date().toISOString(),
-    version: "2.0.0"
+    version: "2.1.0-invite-fix",
+    emailConfig: {
+      from: Deno.env.get('NOTIFICATION_FROM_EMAIL') || '(unset → onboarding@resend.dev)',
+      replyTo: Deno.env.get('REPLY_TO_EMAIL') || '(unset → blackphoenixbuilds@proton.me)',
+      resendKeyPresent: Boolean(Deno.env.get('RESEND_API_KEY')),
+      appUrl: Deno.env.get('APP_URL') || '(unset → https://www.theblackphoenixcompany.com)',
+    },
   });
 });
 
@@ -7549,9 +7558,46 @@ const PORTAL_APPLICATION_ROUTE: Record<string, string> = {
 // (so Supabase's Redirect URL allowlist still matches) and passes the target
 // application route as a query param the app reads on load to deep-link there.
 function buildInviteRedirect(appUrl: string, portalType: string): string {
-  const base = `${appUrl.replace(/\/$/, '')}/portal-onboarding`;
+  // Normalize APP_URL to its ORIGIN only. If someone sets APP_URL to a full path
+  // (e.g. "https://site.com/portal-onboarding"), naively appending would produce
+  // ".../portal-onboarding/portal-onboarding" and the link would 404. Strip any
+  // path/query so we always build exactly one clean /portal-onboarding URL.
+  let origin = appUrl.trim();
+  try { origin = new URL(appUrl).origin; } catch { origin = appUrl.replace(/\/+$/, '').replace(/\/portal-onboarding.*$/i, ''); }
+  const base = `${origin}/portal-onboarding`;
   const route = PORTAL_APPLICATION_ROUTE[portalType];
   return route ? `${base}?apply=${encodeURIComponent(route)}` : base;
+}
+
+// Produces a sign-in link that ALWAYS resolves to something usable. Tries each
+// Supabase link type in order — "invite" (new users set a password on first
+// click), then "magiclink" and "recovery" (existing users) — and if every type
+// fails, returns the direct onboarding URL so the email button still opens the
+// app rather than doing nothing.
+async function generateInviteActionLink(
+  supabase: any,
+  email: string,
+  metadata: Record<string, unknown>,
+  redirectTo: string,
+): Promise<string> {
+  const attempts: Array<{ type: string; options: Record<string, unknown> }> = [
+    { type: 'invite',    options: { data: metadata, redirectTo } },
+    { type: 'magiclink', options: { redirectTo } },
+    { type: 'recovery',  options: { redirectTo } },
+  ];
+  for (const attempt of attempts) {
+    try {
+      const { data, error } = await supabase.auth.admin.generateLink({ type: attempt.type, email, options: attempt.options });
+      const link = data?.properties?.action_link || data?.action_link;
+      if (!error && link) return link;
+      if (error) console.log(`ℹ️ [PortalInvite] generateLink(${attempt.type}) failed: ${error.message}`);
+    } catch (e: any) {
+      console.log(`ℹ️ [PortalInvite] generateLink(${attempt.type}) threw: ${e?.message || e}`);
+    }
+  }
+  // Last resort: send them straight to the app's onboarding page.
+  console.log('ℹ️ [PortalInvite] All Supabase link types failed; using direct onboarding URL.');
+  return redirectTo;
 }
 app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
   try {
@@ -7612,31 +7658,20 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     // Note: the redirect target must be listed in the Supabase dashboard under
     // Authentication → URL Configuration → Redirect URLs, or Supabase ignores it.
     const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
-    try {
-      // New invitees: an "invite" link sets their password on first click.
-      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-        type: 'invite', email, options: { data: metadata, redirectTo: inviteRedirectTo },
-      });
-      const actionLink = linkData?.properties?.action_link || linkData?.action_link;
-      if (!linkError && actionLink) {
-        inviteLink = actionLink;
-      } else if (linkError) {
-        // The account already exists (e.g. re-inviting an employee). Fall back to
-        // a magic-link so the returning user still gets a working sign-in link.
-        console.log(`ℹ️ [PortalInvite] invite link failed (${linkError.message}); trying magiclink.`);
-        const { data: magicData, error: magicError } = await supabase.auth.admin.generateLink({
-          type: 'magiclink', email, options: { redirectTo: inviteRedirectTo },
-        });
-        const magicLink = magicData?.properties?.action_link || magicData?.action_link;
-        if (!magicError && magicLink) inviteLink = magicLink;
-      }
-    } catch (e: any) { console.log(`ℹ️ [PortalInvite] Link generation failed: ${e?.message || e}`); }
+    // Build a guaranteed-working sign-in link. Try each Supabase link type in turn
+    // (invite works for brand-new users; magiclink/recovery work for existing ones)
+    // and, if every one fails, fall back to a direct link into the app's onboarding
+    // page so the "Access your portal" button ALWAYS goes somewhere real.
+    inviteLink = await generateInviteActionLink(supabase, email, metadata, inviteRedirectTo);
 
-    // EMAIL: branded Resend using the shared template; falls back to Supabase's
-    // built-in invite email if link generation or Resend is unavailable.
+    // EMAIL: ALWAYS send the branded email from our verified address whenever a
+    // Resend key is configured. We no longer fall back to Supabase's built-in
+    // invite for a normal send, because that path uses Supabase's default sender
+    // (the "numbered" no-reply) and its own redirect — the exact bug being fixed.
+    // Supabase's invite is only used as a last resort when Resend isn't configured.
     if (sendEmail) {
       try {
-        if (RESEND_API_KEY && inviteLink) {
+        if (RESEND_API_KEY) {
           const { subject, html, text } = buildPortalInviteEmail({
             name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME,
             logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
@@ -7650,11 +7685,11 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
           if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
           invitationSent = true; emailProvider = 'resend';
         } else {
-          throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.');
+          throw new Error('RESEND_API_KEY not configured — using Supabase invite.');
         }
       } catch (brandedError: any) {
         emailFallbackReason = `from="${FROM_EMAIL}" — ${brandedError?.message || brandedError}`;
-        console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${emailFallbackReason}`);
+        console.log(`ℹ️ [PortalInvite] Branded Resend send failed, falling back to Supabase invite: ${emailFallbackReason}`);
         try {
           // Pass redirectTo here too — without it Supabase's built-in invite sends
           // the recipient to the project Site URL (which 404s) instead of the app's
@@ -7729,26 +7764,17 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
   const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
   const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
   const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
-  try {
-    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { data: metadata, redirectTo: inviteRedirectTo } });
-    const actionLink = linkData?.properties?.action_link || linkData?.action_link;
-    if (!linkError && actionLink) { inviteLink = actionLink; }
-    else if (linkError) {
-      const { data: magicData, error: magicError } = await supabase.auth.admin.generateLink({ type: 'magiclink', email, options: { redirectTo: inviteRedirectTo } });
-      const magicLink = magicData?.properties?.action_link || magicData?.action_link;
-      if (!magicError && magicLink) inviteLink = magicLink;
-    }
-  } catch (e: any) { console.log(`ℹ️ [PortalInvite:resend] Link generation failed: ${e?.message || e}`); }
+  inviteLink = await generateInviteActionLink(supabase, email, metadata, inviteRedirectTo);
   if (sendEmail) {
     try {
-      if (RESEND_API_KEY && inviteLink) {
+      if (RESEND_API_KEY) {
         const { subject, html, text } = buildPortalInviteEmail({ name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
         const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [email], subject, html, text }) });
         if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
         invitationSent = true; emailProvider = 'resend';
-      } else { throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.'); }
+      } else { throw new Error('RESEND_API_KEY not configured — using Supabase invite.'); }
     } catch (brandedError: any) {
-      console.log(`ℹ️ [PortalInvite:resend] Branded Resend unavailable, falling back to Supabase: ${brandedError?.message || brandedError}`);
+      console.log(`ℹ️ [PortalInvite:resend] Branded Resend send failed, falling back to Supabase: ${brandedError?.message || brandedError}`);
       try { const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata, redirectTo: inviteRedirectTo }); if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; } }
       catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
     }

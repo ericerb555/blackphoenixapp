@@ -1408,23 +1408,19 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           {/* Quote to Contract - Featured Button (Operations Tab Only) */}
           {activeTab === 'operations' && !searchQuery && (
             <div className="mb-6">
-              <button
-                onClick={() => handleNavigation('/enterprise-quote-workflow', 'quotes')}
-                className="group relative w-full p-6 rounded-2xl border-2 border-orange-500/50 bg-gradient-to-br from-orange-600/20 to-orange-700/10 backdrop-blur-sm hover:border-orange-500 hover:shadow-2xl hover:shadow-orange-500/30 hover:scale-[1.01] transition-all duration-300"
-              >
+              <div className="group relative w-full p-6 rounded-2xl border-2 border-orange-500/50 bg-gradient-to-br from-orange-600/20 to-orange-700/10 backdrop-blur-sm transition-all duration-300">
                 {/* Animated glow effect */}
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-orange-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-xl" />
-                
-                <div className="relative flex items-center justify-between">
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-orange-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-xl pointer-events-none" />
+
+                <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-center gap-4">
                     {/* Icon with pulse animation */}
-                    <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-orange-600 to-orange-700 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-lg shadow-orange-500/50">
+                    <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-orange-600 to-orange-700 flex items-center justify-center shadow-lg shadow-orange-500/50 flex-shrink-0">
                       <FileText className="w-8 h-8 text-white" />
-                      <div className="absolute inset-0 rounded-xl bg-orange-400 opacity-0 group-hover:opacity-20 animate-pulse" />
                     </div>
-                    
+
                     <div className="text-left">
-                      <h3 className="text-xl font-bold text-white mb-1 group-hover:text-orange-300 transition-colors">
+                      <h3 className="text-xl font-bold text-white mb-1">
                         Quote to Contract Workflow
                       </h3>
                       <p className="text-sm text-gray-300">
@@ -1432,16 +1428,23 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
                       </p>
                     </div>
                   </div>
-                  
-                  {/* Arrow indicator */}
-                  <div className="flex items-center gap-2">
-                    <div className="px-4 py-2 rounded-lg bg-orange-600/30 border border-orange-500/50 group-hover:bg-orange-600/50 transition-colors">
-                      <span className="text-sm font-semibold text-orange-200">Open Workflow</span>
-                    </div>
-                    <ChevronRight className="w-6 h-6 text-orange-400 group-hover:translate-x-1 transition-transform duration-300" />
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => handleNavigation('/enterprise-quote-workflow', 'quotes')}
+                      className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-bold text-sm transition-colors shadow-lg shadow-orange-500/30"
+                    >
+                      <Plus className="w-4 h-4" /> Create Quote
+                    </button>
+                    <button
+                      onClick={() => handleNavigation('/enterprise-quote-workflow', 'quotes')}
+                      className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#1A1A1A] border border-orange-500/40 text-orange-400 hover:border-orange-500 font-bold text-sm transition-colors"
+                    >
+                      Open Workflow <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-              </button>
+              </div>
             </div>
           )}
 

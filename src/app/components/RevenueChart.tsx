@@ -21,11 +21,16 @@ export default function RevenueChart({ data }: RevenueChartProps) {
     const maxRevenue = Math.max(...data.map(d => d.revenue));
     const minRevenue = Math.min(...data.map(d => d.revenue));
     const revenueRange = maxRevenue - minRevenue;
-    const yScale = chartHeight / (maxRevenue * 1.1); // 10% padding at top
+    // Guard against all-zero data so yScale never becomes Infinity (0 * Infinity = NaN)
+    const yScale = maxRevenue > 0 ? chartHeight / (maxRevenue * 1.1) : 0;
 
     // Create points for the line
+    const denominator = data.length > 1 ? data.length - 1 : 1;
     const points = data.map((item, index) => {
-      const x = padding.left + (index * chartWidth) / (data.length - 1);
+      // With a single point, center it instead of dividing by zero
+      const x = data.length > 1
+        ? padding.left + (index * chartWidth) / denominator
+        : padding.left + chartWidth / 2;
       const y = padding.top + chartHeight - (item.revenue * yScale);
       return { x, y, ...item };
     });
