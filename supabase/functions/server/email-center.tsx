@@ -18,6 +18,9 @@ const LOG_PREFIX = 'email_log:';
 const FROM_EMAIL =
   Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
 const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+// Where customer replies should land. The verified `send.` subdomain isn't a real
+// mailbox, so replies are routed to a monitored inbox instead.
+const REPLY_TO_EMAIL = Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me';
 
 // ── Default templates (seeded on first read if none exist) ─────────────────
 const DEFAULT_TEMPLATES = [
@@ -159,10 +162,18 @@ emailCenterRouter.post('/send', async (c) => {
       return c.json({ error: 'to, subject, and html are required' }, 400);
     }
     // Optional attachments: [{ filename, content }] where content is base64.
+    // Resend requires PURE base64 for attachment content. Defensively strip any
+    // "data:...;base64," data-URI prefix a caller may send so the delivered PDF
+    // isn't corrupted (which would leave the recipient unable to open/download it).
+    const stripDataUri = (content: string): string => {
+      const marker = 'base64,';
+      const idx = content.indexOf(marker);
+      return idx >= 0 ? content.slice(idx + marker.length) : content;
+    };
     const normalizedAttachments = Array.isArray(attachments)
       ? attachments
           .filter((a: any) => a && a.filename && a.content)
-          .map((a: any) => ({ filename: String(a.filename), content: String(a.content) }))
+          .map((a: any) => ({ filename: String(a.filename), content: stripDataUri(String(a.content)) }))
       : undefined;
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
@@ -195,6 +206,7 @@ emailCenterRouter.post('/send', async (c) => {
         },
         body: JSON.stringify({
           from: `${COMPANY_NAME} <${FROM_EMAIL}>`,
+          reply_to: REPLY_TO_EMAIL,
           to: recipients,
           subject,
           html,

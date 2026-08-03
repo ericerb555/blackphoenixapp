@@ -71,7 +71,8 @@ const sendEmail = async (to: string, subject: string, html: string) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: `${COMPANY_NAME} <onboarding@resend.dev>`, // Update with your verified domain
+        from: `${COMPANY_NAME} <${Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev'}>`,
+        reply_to: Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me',
         to,
         subject,
         html

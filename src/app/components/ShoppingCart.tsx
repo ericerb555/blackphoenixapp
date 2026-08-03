@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
-  Truck, Trash2, X, Store, Plus, Package, Minus,
+  Truck, Trash2, X, Store, Plus, Package, Minus, Lock,
   CreditCard, ArrowRight, AlertCircle, ShoppingCart as ShoppingCartIcon,
 } from 'lucide-react';
 import { StandardButton, CompactStandardButton } from './ui/button/StandardButton';
-import EnhancedCheckoutFlow from './EnhancedCheckoutFlow';
+import UnifiedCheckout from './UnifiedCheckout';
 import * as hybridCart from '../utils/hybridCartApi';
 
 interface CartItem {
@@ -167,36 +167,33 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
 
   if (showCheckout) {
     return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[10000] flex items-start sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setShowCheckout(false);
-          }
+      <UnifiedCheckout
+        open
+        items={cartItems.map(item => ({
+          id: String(item.id),
+          name: item.productName,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.productImage,
+          variant: item.vendorName,
+        }))}
+        subtotal={subtotal}
+        shipping={shipping}
+        tax={tax}
+        requireShipping
+        submitLabel={amt => `Pay $${amt.toFixed(2)}`}
+        onEditCart={() => setShowCheckout(false)}
+        onClose={() => setShowCheckout(false)}
+        onSubmit={async () => {
+          // Simulate payment processing, then clear the cart and close.
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          try { await hybridCart.clearCart(); } catch { /* offline fallback */ }
+          setCartItems([]);
+          window.dispatchEvent(new Event('cart-updated'));
+          onClose();
+          return { success: true, message: 'Order placed! A confirmation has been emailed to you.' };
         }}
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          onClick={(e) => e.stopPropagation()}
-          className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-none sm:rounded-2xl w-full max-w-6xl min-h-screen sm:min-h-0 sm:max-h-[95vh] overflow-y-auto sm:my-8"
-        >
-          <EnhancedCheckoutFlow
-            cartItems={cartItems}
-            cartTotal={subtotal}
-            onCancel={() => setShowCheckout(false)}
-            onComplete={() => {
-              setCartItems([]);
-              setShowCheckout(false);
-              onClose();
-            }}
-          />
-        </motion.div>
-      </motion.div>
+      />
     );
   }
 

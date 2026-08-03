@@ -15,6 +15,14 @@ import * as kv from "./kv_store.tsx";
 const fulfillmentRouter = new Hono();
 
 const COMPANY = Deno.env.get("COMPANY_NAME") || "The Black Phoenix Company";
+// The verified sender address. Set the NOTIFICATION_FROM_EMAIL secret to your
+// verified Resend domain address (e.g. team@theblckphoenixcompany.com).
+// Falls back to Resend's sandbox address, which ONLY delivers to the Resend
+// account owner and shows up as "onboarding@resend.dev" — not a real fix.
+const FROM_EMAIL = Deno.env.get("NOTIFICATION_FROM_EMAIL") || "onboarding@resend.dev";
+// Customer replies route to a monitored inbox (the verified send. subdomain is
+// not a real mailbox).
+const REPLY_TO_EMAIL = Deno.env.get("REPLY_TO_EMAIL") || "blackphoenixbuilds@proton.me";
 
 // ── Notification senders ──────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, html: string) {
@@ -24,7 +32,7 @@ async function sendEmail(to: string, subject: string, html: string) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: `${COMPANY} <onboarding@resend.dev>`, to: [to], subject, html }),
+      body: JSON.stringify({ from: `${COMPANY} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [to], subject, html }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { sent: false, reason: `Resend error: ${JSON.stringify(data)}` };

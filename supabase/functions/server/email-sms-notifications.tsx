@@ -47,6 +47,7 @@ async function sendEmailViaResend(
     },
     body: JSON.stringify({
       from: `${fromName} <${fromEmail}>`,
+      reply_to: Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me',
       to: to,
       subject: subject,
       html: html

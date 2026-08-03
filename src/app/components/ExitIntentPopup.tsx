@@ -88,8 +88,30 @@ export default function ExitIntentPopup() {
 
     let triggered = false;
 
+    // Never interrupt the user while they are inside a cart/checkout overlay or
+    // actively filling out a form field — that is the worst possible moment for a
+    // popup and reads as broken. Cart/checkout overlays render a full-screen
+    // `inset-0` element with a `bg-black/NN` darkening layer.
+    function overlayOpen(): boolean {
+      const nodes = document.querySelectorAll('[class*="inset-0"]');
+      for (let i = 0; i < nodes.length; i++) {
+        const cls = (nodes[i] as HTMLElement).className;
+        if (typeof cls === 'string' && /bg-black\//.test(cls) && /\binset-0\b/.test(cls)) return true;
+      }
+      return false;
+    }
+    function formFocused(): boolean {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    }
+    function isBlocked(): boolean {
+      return overlayOpen() || formFocused();
+    }
+
     function handleMouseOut(e: MouseEvent) {
-      if (triggered) return;
+      if (triggered || isBlocked()) return;
       if (e.clientY <= 5 && e.relatedTarget === null) {
         triggered = true;
         setVisible(true);
@@ -97,12 +119,14 @@ export default function ExitIntentPopup() {
       }
     }
 
-    // Mobile: trigger after 30s of no scroll activity
+    // Mobile: trigger after 30s of inactivity — but typing/tapping counts as
+    // activity too, so filling a form keeps resetting the timer instead of
+    // getting interrupted by a popup.
     let mobileTimer: ReturnType<typeof setTimeout>;
     function resetMobileTimer() {
       clearTimeout(mobileTimer);
       mobileTimer = setTimeout(() => {
-        if (!triggered) {
+        if (!triggered && !isBlocked()) {
           triggered = true;
           setVisible(true);
           recordImpression();
@@ -112,11 +136,17 @@ export default function ExitIntentPopup() {
 
     document.addEventListener('mouseleave', handleMouseOut);
     window.addEventListener('scroll', resetMobileTimer, { passive: true });
+    window.addEventListener('keydown', resetMobileTimer);
+    window.addEventListener('pointerdown', resetMobileTimer);
+    document.addEventListener('input', resetMobileTimer);
     resetMobileTimer();
 
     return () => {
       document.removeEventListener('mouseleave', handleMouseOut);
       window.removeEventListener('scroll', resetMobileTimer);
+      window.removeEventListener('keydown', resetMobileTimer);
+      window.removeEventListener('pointerdown', resetMobileTimer);
+      document.removeEventListener('input', resetMobileTimer);
       clearTimeout(mobileTimer);
     };
   }, []);

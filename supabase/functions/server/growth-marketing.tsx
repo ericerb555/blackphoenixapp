@@ -53,11 +53,12 @@ async function sendEmailViaResend(to: string[], subject: string, html: string) {
   if (!key) throw new Error("RESEND_API_KEY not configured");
   const fromEmail = Deno.env.get("NOTIFICATION_FROM_EMAIL") || "onboarding@resend.dev";
   const fromName = Deno.env.get("NOTIFICATION_FROM_NAME") || Deno.env.get("COMPANY_NAME") || "Black Phoenix Company";
+  const replyTo = Deno.env.get("REPLY_TO_EMAIL") || "blackphoenixbuilds@proton.me";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to, subject, html }),
+    body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, reply_to: replyTo, to, subject, html }),
   });
   if (!res.ok) {
     const err = await res.text();

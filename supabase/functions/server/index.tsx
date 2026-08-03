@@ -2204,7 +2204,8 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+            from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
+            reply_to: REPLY_TO_EMAIL,
             to: ADMIN_EMAILS,
             subject,
             text: msgBody,
@@ -2340,7 +2341,8 @@ async function notifyRecipient(email: string, event: NotifEvent, opts: { subject
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+            from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
+            reply_to: REPLY_TO_EMAIL,
             to: [lower], subject: opts.subject, text: opts.text,
             html: opts.html || `<div style="font-family:sans-serif;max-width:600px;padding:24px;line-height:1.5">${opts.text.replace(/\n/g, '<br/>')}</div>`,
           }),
@@ -2451,7 +2453,8 @@ app.post('/make-server-3eae23a6/auth/forgot-password', async (c) => {
             method: 'POST',
             headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+              from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
+              reply_to: REPLY_TO_EMAIL,
               to: [email], subject: 'Reset your password',
               text: `We received a request to reset your password.\n\nReset it here (expires in 1 hour):\n${link}\n\nIf you didn't request this, you can safely ignore this email.`,
               html: `<div style="font-family:sans-serif;max-width:600px;padding:24px;line-height:1.5">
@@ -2505,7 +2508,8 @@ app.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`,
+        from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
+        reply_to: REPLY_TO_EMAIL,
         to: [email], subject: '✅ Test notification email',
         text: `This is a test email from ${COMPANY_NAME}. If you received this, your email notifications are configured correctly.`,
       }),
@@ -2949,7 +2953,7 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: `${COMPANY_NAME} <noreply@theblackphoenixcompany.com>`, to: prefs.email, subject, text }),
+          body: JSON.stringify({ from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: prefs.email, subject, text }),
         });
         emailSent = res.ok;
         if (!res.ok) console.log('market-alerts email error:', await res.text());
@@ -5679,6 +5683,12 @@ const FACEBOOK_APP_SECRET = Deno.env.get('FACEBOOK_APP_SECRET') || '';
 const TIKTOK_CLIENT_KEY   = Deno.env.get('TIKTOK_CLIENT_KEY')   || '';
 const TIKTOK_CLIENT_SECRET= Deno.env.get('TIKTOK_CLIENT_SECRET')|| '';
 const APP_URL             = Deno.env.get('APP_URL')             || 'https://www.theblackphoenixcompany.com';
+// Customer replies route here. The verified `send.` subdomain is send-only (not
+// a real mailbox), so every outbound email carries this reply-to address.
+const REPLY_TO_EMAIL      = Deno.env.get('REPLY_TO_EMAIL')      || 'blackphoenixbuilds@proton.me';
+// The single verified Resend sender used everywhere. Falls back to the sandbox
+// address only when the secret is unset.
+const NOTIFICATION_FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
 // Normalize a phone number to E.164 (e.g. "(555) 123-4567" -> "+15551234567").
 // Twilio rejects non-E.164 numbers, which is why raw formatted input never sends.
 function toE164(raw: string): string {
@@ -6705,7 +6715,7 @@ app.post('/make-server-3eae23a6/leads/send-email', async (c) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || '';
     const COMPANY_NAME = 'The Black Phoenix Company';
-    const FROM_EMAIL = 'hello@theblackphoenixcompany.com';
+    const FROM_EMAIL = NOTIFICATION_FROM_EMAIL;
     const STORE_URL = 'https://theblackphoenixcompany.com/shop';
 
     if (!RESEND_API_KEY) return c.json({ error: 'RESEND_API_KEY not configured' }, 400);
@@ -6794,6 +6804,7 @@ app.post('/make-server-3eae23a6/leads/send-email', async (c) => {
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: `${COMPANY_NAME} <${FROM_EMAIL}>`,
+        reply_to: REPLY_TO_EMAIL,
         to: [lead.email],
         subject,
         html: brandedHtml,
@@ -7522,6 +7533,26 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
 // initializes a real onboarding record and an access record; no subscription or
 // payment is created until the invited person chooses a plan themselves.
 const OWNER_PROVISION_PORTALS = new Set(['customer', 'vendor', 'subcontractor', 'employee', 'advertiser', 'investor', 'property_manager', 'condo_manager', 'landlord', 'territory_owner']);
+
+// Maps a portal type to the in-app application page the invitee should land on.
+// Portal types without a dedicated application form fall through to the standard
+// onboarding checklist. Used to deep-link the invite so recipients open the
+// application for the exact portal they were invited to.
+const PORTAL_APPLICATION_ROUTE: Record<string, string> = {
+  vendor: 'vendor-application',
+  subcontractor: 'subcontractor-application',
+  investor: 'investor-application',
+  advertiser: 'advertiser-application',
+  territory_owner: 'territory-application',
+};
+// Builds the invite redirect URL. Keeps the allowlisted /portal-onboarding path
+// (so Supabase's Redirect URL allowlist still matches) and passes the target
+// application route as a query param the app reads on load to deep-link there.
+function buildInviteRedirect(appUrl: string, portalType: string): string {
+  const base = `${appUrl.replace(/\/$/, '')}/portal-onboarding`;
+  const route = PORTAL_APPLICATION_ROUTE[portalType];
+  return route ? `${base}?apply=${encodeURIComponent(route)}` : base;
+}
 app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
   try {
     const actor = await financialActor(c);
@@ -7579,7 +7610,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     // project's default Site URL and the link appears to "do nothing".
     // Note: the redirect target must be listed in the Supabase dashboard under
     // Authentication → URL Configuration → Redirect URLs, or Supabase ignores it.
-    const inviteRedirectTo = `${APP_URL.replace(/\/$/, '')}/portal-onboarding`;
+    const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
     try {
       // New invitees: an "invite" link sets their password on first click.
       const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
@@ -7613,7 +7644,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
           const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }),
+            body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [email], subject, html, text }),
           });
           if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
           invitationSent = true; emailProvider = 'resend';
@@ -7692,7 +7723,7 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
   const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
   const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
   const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
-  const inviteRedirectTo = `${APP_URL.replace(/\/$/, '')}/portal-onboarding`;
+  const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
   try {
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { data: metadata, redirectTo: inviteRedirectTo } });
     const actionLink = linkData?.properties?.action_link || linkData?.action_link;
@@ -7707,7 +7738,7 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
     try {
       if (RESEND_API_KEY && inviteLink) {
         const { subject, html, text } = buildPortalInviteEmail({ name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
-        const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [email], subject, html, text }) });
+        const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [email], subject, html, text }) });
         if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
         invitationSent = true; emailProvider = 'resend';
       } else { throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.'); }
@@ -7932,7 +7963,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test', async (c) => {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, to: [to], subject: `[TEST] ${built.subject}`, html: built.html, text: built.text }),
+      body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [to], subject: `[TEST] ${built.subject}`, html: built.html, text: built.text }),
     });
     if (!res.ok) { const errBody = await res.text().catch(() => ''); return c.json({ success: false, error: `Resend send failed (${res.status}): ${errBody}` }, 502); }
     return c.json({ success: true, to });

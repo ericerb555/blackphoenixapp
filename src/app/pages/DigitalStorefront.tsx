@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useStoreConfig, effectiveUnitPrice, volumeDiscountPercent, lineTotal } from '../hooks/useStoreConfig';
+import UnifiedCheckout from '../components/UnifiedCheckout';
 import { Truck } from 'lucide-react';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -109,6 +110,7 @@ export default function DigitalStorefront() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selected, setSelected] = useState<Product | null>(null);
   const [purchased, setPurchased] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -259,9 +261,9 @@ export default function DigitalStorefront() {
               className="fixed inset-0 bg-black/70 z-[9999]" onClick={() => setShowCart(false)} />
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-              className="fixed right-0 top-0 h-full w-full max-w-md bg-[#111] border-l border-[#2A2A2A] z-[10000] flex flex-col">
+              className="fixed right-0 top-0 h-[100dvh] w-full max-w-md bg-[#111] border-l border-[#2A2A2A] z-[10000] flex flex-col">
               {/* Cart Header */}
-              <div className="flex items-center justify-between px-6 py-5 border-b border-[#2A2A2A]">
+              <div className="flex-shrink-0 flex items-center justify-between px-6 py-5 border-b border-[#2A2A2A]">
                 <h2 className="font-bold text-lg text-white flex items-center gap-2">
                   <ShoppingCart className="w-5 h-5 text-orange-400" />
                   {checkoutStep === 'success' ? 'Order Complete!' : checkoutStep === 'processing' ? 'Processing…' : checkoutStep === 'details' ? 'Checkout' : `Cart (${cartCount})`}
@@ -271,7 +273,7 @@ export default function DigitalStorefront() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6">
                 {/* Success */}
                 {checkoutStep === 'success' && (
                   <div className="text-center py-12">
@@ -457,7 +459,7 @@ export default function DigitalStorefront() {
                     <span className="text-gray-400">Subtotal ({cartCount} item{cartCount !== 1 ? 's' : ''})</span>
                     <span className="font-bold text-white">{fmt(cartTotal)}</span>
                   </div>
-                  <button onClick={() => setCheckoutStep('details')}
+                  <button onClick={() => { setShowCart(false); setCheckoutOpen(true); }}
                     className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
                     <CreditCard className="w-4 h-4" /> Proceed to Checkout
                   </button>
@@ -475,6 +477,53 @@ export default function DigitalStorefront() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Unified Checkout */}
+      <UnifiedCheckout
+        open={checkoutOpen}
+        items={cart.map(i => ({
+          id: String(i.product.id),
+          name: i.product.title,
+          price: Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity) / 100,
+          quantity: i.quantity,
+        }))}
+        subtotal={cartTotal / 100}
+        requireShipping={false}
+        submitLabel={amt => `Complete Purchase — $${amt.toFixed(2)}`}
+        initialCustomer={{ name, email }}
+        onEditCart={() => { setCheckoutOpen(false); setShowCart(true); }}
+        onClose={() => setCheckoutOpen(false)}
+        onSubmit={async customer => {
+          setName(customer.name);
+          setEmail(customer.email);
+          try {
+            const res = await fetch(`${SERVER.replace('/make-server-3eae23a6', '')}/make-server-3eae23a6/marketplace/checkout`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+              body: JSON.stringify({
+                items: cart.map(i => {
+                  const unit = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
+                  return { id: i.product.id, title: i.product.title, price: unit, qty: i.quantity };
+                }),
+                email: customer.email,
+                name: customer.name,
+                successUrl: window.location.origin + '/store?checkout=success',
+                cancelUrl: window.location.origin + '/store',
+              }),
+            });
+            const data = await res.json();
+            if (data.url) return { url: data.url };
+          } catch { /* fall through to offline simulation */ }
+          // Fallback simulation (Stripe not yet configured)
+          await new Promise(r => setTimeout(r, 1200));
+          const ids = cart.map(i => i.product.id);
+          const next = new Set([...purchased, ...ids]);
+          setPurchased(next);
+          localStorage.setItem(PURCHASED_KEY, JSON.stringify([...next]));
+          setCart([]);
+          return { success: true, message: 'Purchase complete! Your download links have been emailed.' };
+        }}
+      />
 
       {/* Product Detail Panel */}
       <AnimatePresence>

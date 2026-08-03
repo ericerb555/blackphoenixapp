@@ -35,7 +35,6 @@ import { UserProvider, useUser } from "./lib/user-context";
 import { UserRole } from "./lib/rbac";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
-import WorkRequestWidget from "./components/WorkRequestWidget";
 import StoreAccessButton from "./components/StoreAccessButton";
 import { ThemeManager, ThemeProvider } from "./components/ThemeManager";
 import { RoleSwitcher } from "./components/RoleSwitcher";
@@ -1220,6 +1219,32 @@ function AppContent() {
   // Expose navigate globally so portal components can jump to hub pages
   (window as any).__navigateApp = navigate;
 
+  // Portal invites deep-link recipients to their portal's application form via
+  // an `?apply=<route>` param appended to the allowlisted /portal-onboarding
+  // redirect. On arrival, forward them to that application page and strip the
+  // param so a refresh doesn't loop. Only known application routes are honored.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const apply = params.get('apply');
+      const allowedApplications = new Set([
+        'vendor-application',
+        'subcontractor-application',
+        'investor-application',
+        'advertiser-application',
+        'service-provider-application',
+        'territory-application',
+      ]);
+      if (apply && allowedApplications.has(apply)) {
+        navigate(apply);
+      }
+    } catch (error) {
+      console.log('Could not process invite deep-link (?apply):', error);
+    }
+    // Run once on mount — the invite lands the user here a single time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggleSection = (sectionName: string) => {
     setExpandedSection(
       expandedSection === sectionName ? null : sectionName,
@@ -1548,9 +1573,6 @@ function AppContent() {
 
                     {/* Live Chat Widget — global, config-driven */}
                     <LiveChatWidget />
-
-                    {/* Global Work Request Widget — visible on every page */}
-                    <WorkRequestWidget />
 
                     {/* Global Store Access Button — visible on every page */}
                     <StoreAccessButton />

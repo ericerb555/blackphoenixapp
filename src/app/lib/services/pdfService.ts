@@ -311,7 +311,14 @@ export class PDFService {
    */
   static getInvoicePDFBase64(data: InvoicePDFData): string {
     const doc = this.generateInvoicePDF(data);
-    return doc.output('dataurlstring');
+    // jsPDF returns a full data URI ("data:application/pdf;...;base64,JVBERi..").
+    // Email providers (Resend) require PURE base64 for attachment content — the
+    // "data:...;base64," prefix corrupts the file so the recipient's PDF won't
+    // open or download. Strip the prefix and return only the base64 payload.
+    const dataUri = doc.output('datauristring');
+    const marker = 'base64,';
+    const idx = dataUri.indexOf(marker);
+    return idx >= 0 ? dataUri.slice(idx + marker.length) : dataUri;
   }
 
   /**

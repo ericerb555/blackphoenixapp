@@ -24,6 +24,7 @@ import { ProductReels } from '../components/ProductReels';
 import { StoreAmbientBackground } from '../components/StoreAmbientBackground';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
+import UnifiedCheckout from '../components/UnifiedCheckout';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -1542,9 +1543,9 @@ export default function PublicStore() {
 
       {/* ── CART SIDEBAR ─────────────────────────────────────────────────────── */}
       {showCart && (
-        <div className="fixed inset-0 z-50 flex items-start justify-end">
+        <div className="fixed inset-0 z-[10000] flex items-start justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCart(false)} />
-          <div className="relative w-full max-w-md h-full overflow-y-auto flex flex-col" style={{ background: '#0d0d0d', borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="relative w-full max-w-md h-[100dvh] overflow-y-auto overscroll-contain flex flex-col" style={{ background: '#0d0d0d', borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
             <div className="sticky top-0 z-10 px-6 py-5" style={{ background: '#0d0d0d', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="flex items-center justify-between">
                 <div>
@@ -1880,159 +1881,86 @@ export default function PublicStore() {
         </div>
       )}
 
-      {/* ── CHECKOUT MODAL ───────────────────────────────────────────────── */}
-      {showCheckout && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl" style={{ background: '#0f0f0f', border: '1px solid rgba(234,88,12,0.25)' }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(234,88,12,0.05)' }}>
-              <div>
-                <p className="font-black text-white">Secure Checkout</p>
-                <p className="text-xs text-gray-500 mt-0.5">{cart.length} item{cart.length !== 1 ? 's' : ''} · ${((qualifiesFreeShip ? cartTotal : cartTotal + flatShipRate) + cartTotal * taxRate).toFixed(2)} total</p>
-              </div>
-              <button onClick={() => setShowCheckout(false)} className="p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                <X className="w-4 h-4" />
+      {/* ── CHECKOUT MODAL (unified) ─────────────────────────────────────── */}
+      <UnifiedCheckout
+        open={showCheckout}
+        items={cart.map(item => ({
+          id: String(item.id),
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.image,
+          variant: [item.selectedSize, item.selectedColor].filter(Boolean).join(' · ') || undefined,
+        }))}
+        subtotal={cartTotal}
+        shipping={checkoutShipping}
+        tax={checkoutTax}
+        requireShipping
+        initialCustomer={{
+          name: checkoutForm.name,
+          email: checkoutForm.email,
+          phone: checkoutForm.phone,
+          address: checkoutForm.address,
+          city: checkoutForm.city,
+          zip: checkoutForm.zip,
+        }}
+        submitLabel={() =>
+          amountDueAfterGiftCard === 0 && giftCardBalance !== null
+            ? 'Complete Gift Card Order'
+            : `Pay $${amountDueAfterGiftCard.toFixed(2)} — Powered by Stripe`
+        }
+        onEditCart={() => { setShowCheckout(false); setShowCart(true); }}
+        onClose={() => setShowCheckout(false)}
+        extraContent={
+          <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Gift card</p>
+            <div className="flex gap-2">
+              <input
+                value={checkoutForm.giftCardCode}
+                onChange={event => { setCheckoutForm(form => ({ ...form, giftCardCode: event.target.value })); setGiftCardBalance(null); }}
+                placeholder="BPB-XXXX-XXXX-XXXX"
+                className="min-w-0 flex-1 px-3 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
+                style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
+              />
+              <button type="button" onClick={applyGiftCard} disabled={checkingGiftCard} className="px-4 py-2 rounded-xl text-xs font-black text-orange-300 disabled:opacity-50" style={{ border: '1px solid rgba(234,88,12,0.4)', background: 'rgba(234,88,12,0.1)' }}>
+                {checkingGiftCard ? 'Checking…' : 'Apply'}
               </button>
             </div>
-
-            {checkoutStep === 'info' && (
-              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-                {/* Order summary */}
-                <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Order Summary</p>
-                  {cart.map(item => {
-                    const variant = [item.selectedSize, item.selectedColor].filter(Boolean).join(' · ');
-                    return (
-                    <div key={`${item.id}|${item.selectedSize || ''}|${item.selectedColor || ''}`} className="flex justify-between text-sm">
-                      <span className="text-gray-400 truncate mr-2">{item.name}{variant ? ` (${variant})` : ''} × {item.quantity}</span>
-                      <span className="text-white font-bold flex-shrink-0">${(item.price * item.quantity).toFixed(2)}</span>
-                    </div>
-                    );
-                  })}
-                  <div className="border-t pt-2 mt-2 flex justify-between text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                    <span className="text-gray-500">Shipping</span>
-                    <span className="text-white">{checkoutShipping === 0 ? 'FREE' : `$${checkoutShipping.toFixed(2)}`}</span>
-                  </div>
-                  {taxRate > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Tax</span>
-                      <span className="text-white">${checkoutTax.toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="border-t pt-2 flex justify-between font-black" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                    <span className="text-white">Total</span>
-                    <span style={{ color: '#ea580c' }}>${checkoutTotal.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Gift card</p>
-                  <div className="flex gap-2">
-                    <input
-                      value={checkoutForm.giftCardCode}
-                      onChange={event => { setCheckoutForm(form => ({ ...form, giftCardCode: event.target.value })); setGiftCardBalance(null); }}
-                      placeholder="BPB-XXXX-XXXX-XXXX"
-                      className="min-w-0 flex-1 px-3 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
-                      style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
-                    />
-                    <button type="button" onClick={applyGiftCard} disabled={checkingGiftCard} className="px-4 py-2 rounded-xl text-xs font-black text-orange-300 disabled:opacity-50" style={{ border: '1px solid rgba(234,88,12,0.4)', background: 'rgba(234,88,12,0.1)' }}>
-                      {checkingGiftCard ? 'Checking…' : 'Apply'}
-                    </button>
-                  </div>
-                  {giftCardBalance !== null && <div className="flex justify-between text-xs"><span className="text-green-400">Gift card credit reserved at payment</span><span className="font-black text-green-400">−${giftCardCredit.toFixed(2)}</span></div>}
-                  {giftCardBalance !== null && <p className="text-[10px] text-gray-500">Available card balance: ${giftCardBalance.toFixed(2)} · Amount due: ${amountDueAfterGiftCard.toFixed(2)}</p>}
-                </div>
-
-                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Your Information</p>
-                {[
-                  { key: 'name',    label: 'Full Name *',     type: 'text',  placeholder: 'John Smith' },
-                  { key: 'email',   label: 'Email *',         type: 'email', placeholder: 'you@example.com' },
-                  { key: 'phone',   label: 'Phone',           type: 'tel',   placeholder: '(614) 555-0000' },
-                  { key: 'address', label: 'Shipping Address *', type: 'text', placeholder: '123 Main St' },
-                  { key: 'city',    label: 'City *',          type: 'text',  placeholder: 'Columbus' },
-                  { key: 'zip',     label: 'ZIP Code *',      type: 'text',  placeholder: '43215' },
-                ].map(field => (
-                  <div key={field.key}>
-                    <label className="text-xs font-bold text-gray-500 block mb-1">{field.label}</label>
-                    <input
-                      type={field.type}
-                      value={(checkoutForm as any)[field.key]}
-                      onChange={e => setCheckoutForm(f => ({ ...f, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
-                      style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.08)' }}
-                    />
-                  </div>
-                ))}
-
-                {checkoutError && (
-                  <p className="text-sm text-red-400 font-bold">{checkoutError}</p>
-                )}
-
-                <button
-                  className="w-full py-4 rounded-2xl font-black text-base text-white flex items-center justify-center gap-2 hover:brightness-110 transition"
-                  style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)', boxShadow: '0 4px 20px rgba(234,88,12,0.35)' }}
-                  onClick={async () => {
-                    if (!checkoutForm.name.trim()) { setCheckoutError('Name is required'); return; }
-                    if (!checkoutForm.email.trim()) { setCheckoutError('Email is required'); return; }
-                    if (!checkoutForm.address.trim() || !checkoutForm.city.trim() || !checkoutForm.zip.trim()) { setCheckoutError('Full shipping address is required'); return; }
-                    setCheckoutError('');
-                    setCheckoutStep('processing');
-
-                    // Save email for lead tracking
-                    localStorage.setItem('bp_lead_email', checkoutForm.email);
-                    localStorage.setItem('bp_lead_name', checkoutForm.name);
-
-                    try {
-                      const res = await fetch(`${SERVER}/store/checkout`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
-                        body: JSON.stringify({
-                          items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity, quantity: item.quantity, image: item.image, size: item.selectedSize || undefined, color: item.selectedColor || undefined })),
-                          customer: { name: checkoutForm.name, email: checkoutForm.email, phone: checkoutForm.phone, address: `${checkoutForm.address}, ${checkoutForm.city} ${checkoutForm.zip}` },
-                          shipping: checkoutShipping,
-                          tax: checkoutTax,
-                          giftCardCode: giftCardBalance !== null ? checkoutForm.giftCardCode.trim() : null,
-                          coupon: null,
-                        }),
-                      });
-                      const data = await res.json();
-                      if (data.zeroBalanceOrder && data.order) {
-                        attributePurchase(data.order);
-                        setCart([]); setShowCart(false); setShowCheckout(false); setCheckoutStep('info');
-                        setGiftCardBalance(null); setCheckoutForm(form => ({ ...form, giftCardCode: '' }));
-                        toast.success(`Order ${data.order.id} confirmed — your gift card covered the total.`);
-                      } else if (data.url) {
-                        window.location.href = data.url;
-                      } else {
-                        setCheckoutError(data.error || 'Payment setup failed. Please try again.');
-                        setCheckoutStep('info');
-                      }
-                    } catch {
-                      setCheckoutError('Could not connect to payment processor. Please try again.');
-                      setCheckoutStep('info');
-                    }
-                  }}
-                >
-                  <Lock className="w-4 h-4" /> {amountDueAfterGiftCard === 0 && giftCardBalance !== null ? 'Complete Gift Card Order' : `Pay $${amountDueAfterGiftCard.toFixed(2)} — Powered by Stripe`}
-                </button>
-                <p className="text-center text-[10px] text-gray-700">256-bit SSL encrypted · You will be redirected to Stripe's secure payment page</p>
-              </div>
-            )}
-
-            {checkoutStep === 'processing' && (
-              <div className="flex flex-col items-center justify-center py-16 px-6">
-                <div className="w-12 h-12 rounded-full border-2 border-orange-500 border-t-transparent animate-spin mb-4" />
-                <p className="font-black text-white">Setting up secure payment…</p>
-                <p className="text-sm text-gray-500 mt-1">Redirecting to Stripe</p>
-              </div>
-            )}
+            {giftCardBalance !== null && <div className="flex justify-between text-xs"><span className="text-green-400">Gift card credit reserved at payment</span><span className="font-black text-green-400">−${giftCardCredit.toFixed(2)}</span></div>}
+            {giftCardBalance !== null && <p className="text-[10px] text-gray-500">Available card balance: ${giftCardBalance.toFixed(2)} · Amount due: ${amountDueAfterGiftCard.toFixed(2)}</p>}
           </div>
-        </div>
-      )}
+        }
+        onSubmit={async customer => {
+          // Save email for lead tracking
+          localStorage.setItem('bp_lead_email', customer.email);
+          localStorage.setItem('bp_lead_name', customer.name);
+
+          const res = await fetch(`${SERVER}/store/checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+            body: JSON.stringify({
+              items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity, quantity: item.quantity, image: item.image, size: item.selectedSize || undefined, color: item.selectedColor || undefined })),
+              customer: { name: customer.name, email: customer.email, phone: customer.phone, address: `${customer.address}, ${customer.city} ${customer.zip}` },
+              shipping: checkoutShipping,
+              tax: checkoutTax,
+              giftCardCode: giftCardBalance !== null ? checkoutForm.giftCardCode.trim() : null,
+              coupon: null,
+            }),
+          });
+          const data = await res.json();
+          if (data.zeroBalanceOrder && data.order) {
+            attributePurchase(data.order);
+            setCart([]); setShowCart(false);
+            setGiftCardBalance(null); setCheckoutForm(form => ({ ...form, giftCardCode: '' }));
+            return { success: true, message: `Order ${data.order.id} confirmed — your gift card covered the total.` };
+          }
+          if (data.url) return { url: data.url };
+          return { error: data.error || 'Payment setup failed. Please try again.' };
+        }}
+      />
 
       {/* ── LEAD CAPTURE POPUP ───────────────────────────────────────────── */}
-      {showLeadCapture && (
+      {showLeadCapture && !showCheckout && !showCart && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#111] border border-[#2A2A2A] rounded-2xl w-full max-w-sm p-6 relative shadow-2xl">
             <button onClick={() => setShowLeadCapture(false)}

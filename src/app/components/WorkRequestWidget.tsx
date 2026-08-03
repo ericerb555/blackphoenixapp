@@ -29,19 +29,20 @@ const URGENCY = [
 const EMPTY = { name: '', phone: '', email: '', address: '', service: '', details: '', urgency: 'flexible' };
 
 // Detect whether any full-screen modal/drawer backdrop is currently mounted.
-// Every cart, checkout, and product overlay in the app renders a `fixed inset-0`
-// element with a `bg-black/NN` darkening layer, so we can reliably tell when the
-// user is inside one and get the floating "Request Service" button out of the way
-// (it must never cover a checkout's Continue/Pay button).
+// Cart, checkout, and product overlays render a full-screen `inset-0` element with
+// a `bg-black/NN` darkening layer (sometimes on a `fixed` wrapper, sometimes on an
+// `absolute` backdrop child). Whenever one is present we get the floating "Request
+// Service" button out of the way — it must never cover a checkout's Continue/Pay
+// button, nor sit on top of the cart.
 function useOverlayOpen() {
   const [overlayOpen, setOverlayOpen] = useState(false);
   useEffect(() => {
     const check = () => {
-      const nodes = document.querySelectorAll('div.fixed.inset-0');
+      const nodes = document.querySelectorAll('[class*="inset-0"]');
       let found = false;
       nodes.forEach(el => {
         const cls = (el as HTMLElement).className;
-        if (typeof cls === 'string' && /bg-black\//.test(cls)) found = true;
+        if (typeof cls === 'string' && /bg-black\//.test(cls) && /\binset-0\b/.test(cls)) found = true;
       });
       setOverlayOpen(found);
     };
