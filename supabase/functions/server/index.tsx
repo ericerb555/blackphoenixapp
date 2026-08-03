@@ -7594,6 +7594,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     let invitationSent = false; let inviteNotice = ''; let emailProvider = '';
     let smsSent = false; let smsNotice = ''; let qrDataUrl: string | null = null;
     let inviteLink: string | null = null;
+    let emailFallbackReason = ''; // captured so the admin can see WHY branded send fell back
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
@@ -7652,9 +7653,13 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
           throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.');
         }
       } catch (brandedError: any) {
-        console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${brandedError?.message || brandedError}`);
+        emailFallbackReason = `from="${FROM_EMAIL}" — ${brandedError?.message || brandedError}`;
+        console.log(`ℹ️ [PortalInvite] Branded Resend path unavailable, falling back to Supabase invite: ${emailFallbackReason}`);
         try {
-          const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
+          // Pass redirectTo here too — without it Supabase's built-in invite sends
+          // the recipient to the project Site URL (which 404s) instead of the app's
+          // onboarding page. This keeps the link working even on the fallback path.
+          const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata, redirectTo: inviteRedirectTo });
           if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; }
         } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
       }
@@ -7704,7 +7709,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       createdAt: priorProv?.createdAt || intake.createdAt || sentAt,
       updatedAt: sentAt,
     });
-    return c.json({ success: true, resent: isResend, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink, freeProvisioned: true } }, isResend ? 200 : 201);
+    return c.json({ success: true, resent: isResend, invite: { applicationId, name, email, phone, portalType, invitationSent, inviteNotice, emailProvider, emailFallbackReason, smsSent, smsNotice, qrDataUrl, inviteLink, freeProvisioned: true } }, isResend ? 200 : 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to create portal invite.' }, 500); }
 });
 
@@ -7744,7 +7749,7 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
       } else { throw new Error('RESEND_API_KEY not configured or link unavailable — using Supabase invite.'); }
     } catch (brandedError: any) {
       console.log(`ℹ️ [PortalInvite:resend] Branded Resend unavailable, falling back to Supabase: ${brandedError?.message || brandedError}`);
-      try { const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata }); if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; } }
+      try { const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata, redirectTo: inviteRedirectTo }); if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; } }
       catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
     }
   }
