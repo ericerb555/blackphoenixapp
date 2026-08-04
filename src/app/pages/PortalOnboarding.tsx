@@ -3,7 +3,7 @@ import { ArrowRight, Building2, CheckCircle2, CircleDashed, FileUp, Loader2, Loc
 import { toast } from "sonner@2.0.3";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { projectId } from "../utils/supabase/info";
+import { projectId, publicAnonKey } from "../utils/supabase/info";
 
 const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -75,11 +75,16 @@ export default function PortalOnboarding() {
       // 1) Exchange the one-time invite token for the chosen password.
       const res = await fetch(`${BASE}/intake/set-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
         body: JSON.stringify({ token: setupToken, password: pw }),
       });
-      const result = await res.json().catch(() => ({}));
-      if (!res.ok || !result.success) throw new Error(result.error || 'Could not set your password.');
+      const rawText = await res.text();
+      let result: any = {};
+      try { result = JSON.parse(rawText); } catch { /* non-JSON (gateway/HTML error) */ }
+      console.log(`[set-password] status=${res.status} body=`, rawText);
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || `Set-password failed (HTTP ${res.status}): ${rawText.slice(0, 200) || 'no response body'}`);
+      }
 
       // 2) Sign them in immediately with the password they just created.
       const email = (result.email || setupEmail).trim().toLowerCase();

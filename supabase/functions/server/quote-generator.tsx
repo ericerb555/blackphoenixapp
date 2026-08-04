@@ -256,7 +256,7 @@ function heuristicEstimate(input: EstimatorInput) {
   }, input);
 }
 
-async function runEstimator(input: EstimatorInput) {
+export async function runEstimator(input: EstimatorInput) {
   if (!Deno.env.get('OPENAI_API_KEY')) {
     console.log('[AI Quote Generator] No OPENAI_API_KEY — using heuristic fallback.');
     return { estimate: heuristicEstimate(input), usedAI: false };

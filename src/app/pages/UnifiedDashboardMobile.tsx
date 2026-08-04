@@ -25,6 +25,7 @@ import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { isAdminOrHigher } from '../lib/utils/roleUtils';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
+import { StartQuoteModal } from '../components/quotes/StartQuoteModal';
 
 interface ModuleCard {
   label: string;
@@ -74,6 +75,7 @@ export default function UnifiedDashboardMobile({
   const [activeTab, setActiveTab] = useState('operations');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
   const [alertCount, setAlertCount] = useState(8);
+  const [showStartQuote, setShowStartQuote] = useState(false);
 
   const handleNavigation = (path: string, tab?: string) => {
     try {
@@ -381,6 +383,14 @@ export default function UnifiedDashboardMobile({
                 <ChevronRight className="w-7 h-7 text-orange-400 flex-shrink-0" />
               </div>
             </button>
+
+            {/* Create a brand-new quote directly from mobile */}
+            <button
+              onClick={() => setShowStartQuote(true)}
+              className="mt-3 w-full flex items-center justify-center gap-2 px-5 py-4 rounded-2xl bg-orange-500 active:bg-orange-400 active:scale-[0.98] text-white font-bold text-sm transition-all shadow-lg shadow-orange-500/30"
+            >
+              <Plus className="w-5 h-5" /> Create Quote
+            </button>
           </div>
         )}
 
@@ -482,6 +492,8 @@ export default function UnifiedDashboardMobile({
           })}
         </div>
       </div>
+
+      {showStartQuote && <StartQuoteModal onClose={() => setShowStartQuote(false)} />}
     </div>
   );
 }
