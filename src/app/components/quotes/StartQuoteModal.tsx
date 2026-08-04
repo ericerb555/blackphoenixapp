@@ -211,6 +211,39 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         console.error('Could not persist new quote to backend (continuing with local editor):', persistErr);
       }
 
+      // Also create a Pipeline item so the quote shows up on the Project Pipeline
+      // board (stage: quote-draft) where it can be viewed and edited further.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const now = new Date().toISOString();
+        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: request.id,
+            itemNumber: request.requestNumber,
+            stage: 'quote-draft',
+            customerName: request.customerName,
+            customerEmail: request.customerEmail,
+            customerPhone: request.customerPhone,
+            location: request.location,
+            serviceType: request.serviceType,
+            title: request.title,
+            description: request.description,
+            estimatedValue: quote.totalCost,
+            priority: 'medium',
+            createdDate: now,
+            lastModified: now,
+            quote,
+          }),
+        });
+      } catch (pipelineErr) {
+        console.error('Could not add new quote to the pipeline (continuing with local editor):', pipelineErr);
+      }
+
       setWorkRequest(request);
       setPhase('editor');
       toast.success(

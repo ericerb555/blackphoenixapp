@@ -32,7 +32,7 @@ import {
   Building2, Phone, Mail, Wrench, ChevronRight, Star, CircleDot,
   Maximize2, Image, Video, FileCheck, ChevronDown, ChevronUp,
   XCircle, MoveRight, ExternalLink, Settings, Percent, Database,
-  Loader2, RefreshCw, Zap, Camera, PenTool, Layers, X, Download
+  Loader2, RefreshCw, Zap, Camera, PenTool, Layers, X, Download, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
@@ -207,6 +207,39 @@ export default function UnifiedProjectPipeline() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasTriedAutoGenerate, setHasTriedAutoGenerate] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  // Wipe all test/demo records (work requests, pipeline items, quotes) so the
+  // board starts clean. Admin-only; enforced again on the server.
+  const handleClearPipeline = async () => {
+    const confirmed = window.confirm(
+      'Clear ALL pipeline data?\n\nThis permanently deletes every work request, quote, and pipeline item currently stored. This cannot be undone. Use this to remove test/demo data.'
+    );
+    if (!confirmed) return;
+    setIsClearing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('Please sign in as an owner/admin to clear the pipeline.');
+        return;
+      }
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/clear-all`,
+        { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' } }
+      );
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) throw new Error(result.error || `Failed to clear (HTTP ${res.status})`);
+      const d = result.deleted || {};
+      toast.success(`Pipeline cleared — removed ${d.workRequests || 0} work requests, ${d.pipelineItems || 0} pipeline items, ${d.quotes || 0} quotes.`);
+      setItems([]);
+      setTimeout(() => window.location.reload(), 800);
+    } catch (error: any) {
+      console.error('[Pipeline] Clear-all failed:', error);
+      toast.error(error?.message || 'Could not clear pipeline data.');
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   const [filterStage, setFilterStage] = useState<'all' | PipelineStage>('all');
   const [filterSource, setFilterSource] = useState<'all' | 'camera' | 'design-studio' | 'other'>('all');
@@ -1001,7 +1034,18 @@ export default function UnifiedProjectPipeline() {
               <RefreshCw className="w-5 h-5" />
               Refresh
             </button>
-            
+
+            {/* Clear all pipeline data (owner/admin) — removes test/demo records */}
+            <button
+              onClick={handleClearPipeline}
+              disabled={isClearing}
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 border border-red-500/40 hover:border-red-400 text-red-300 hover:text-white font-semibold rounded-lg transition-all disabled:opacity-50"
+              title="Delete all work requests, quotes, and pipeline items"
+            >
+              {isClearing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+              {isClearing ? 'Clearing…' : 'Clear Pipeline'}
+            </button>
+
             {/* Design Center bridge */}
             <button
               onClick={() => { loadDesignProjects(); setShowDesignPanel(true); }}

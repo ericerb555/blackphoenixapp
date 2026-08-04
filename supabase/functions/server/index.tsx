@@ -283,7 +283,7 @@ app.get("/make-server-3eae23a6/health", (c) => {
     status: "ok",
     message: "Black Phoenix Server Running",
     timestamp: new Date().toISOString(),
-    version: "2.7.0-ai-quote-wired",
+    version: "2.9.0-command-center-resilient",
     emailConfig: {
       from: Deno.env.get('NOTIFICATION_FROM_EMAIL') || '(unset → onboarding@resend.dev)',
       replyTo: Deno.env.get('REPLY_TO_EMAIL') || '(unset → blackphoenixbuilds@proton.me)',
@@ -3348,6 +3348,57 @@ app.put('/make-server-3eae23a6/work-requests/:id', async (c) => {
     await persistWorkRequest(record);
     return c.json({ success: true, workRequest: stripBase64(record) });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to update work request.' }, 500); }
+});
+
+// Clear ALL pipeline data — work requests, pipeline items, and quotes.
+// Admin-only. Used to wipe test/demo records so the pipeline starts clean.
+app.post('/make-server-3eae23a6/pipeline/clear-all', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required to clear pipeline data.' }, 403);
+
+    let deleted = { pipelineItems: 0, workRequests: 0, quotes: 0 };
+
+    // 1) Pipeline items (pipeline_{id})
+    try {
+      const items = (await kv.getByPrefix('pipeline_')) as any[];
+      for (const it of items || []) {
+        if (it?.id) { await kv.del(`pipeline_${it.id}`); deleted.pipelineItems++; }
+      }
+    } catch (e) { console.log('[clear-all] pipeline items error:', e); }
+
+    // 2) Work requests (wr:{id} + indexes + legacy list + optional DB table)
+    try {
+      const index: string[] = (await kv.get('wr_index') as string[]) || [];
+      for (const id of index) { await kv.del(`wr:${id}`); deleted.workRequests++; }
+      const legacy = (await kv.get('all_work_requests') as any[]) || [];
+      for (const rec of legacy) { if (rec?.id) await kv.del(`wr:${rec.id}`).catch(() => {}); }
+      await kv.set('wr_index', []);
+      await kv.set('all_work_requests', []);
+      try { await supabase.from('work_requests').delete().neq('id', ''); } catch (_) { /* optional table */ }
+    } catch (e) { console.log('[clear-all] work requests error:', e); }
+
+    // 3) Saved quotes (quote:{id})
+    try {
+      const quotes = (await kv.getByPrefix('quote:')) as any[];
+      for (const q of quotes || []) {
+        if (q?.id) { await kv.del(`quote:${q.id}`); deleted.quotes++; }
+      }
+    } catch (e) { console.log('[clear-all] quotes error:', e); }
+
+    // 4) Clear work-request admin alerts so they don't repopulate the board
+    try {
+      const alerts = (await kv.get('admin_alerts') as any[]) || [];
+      const kept = alerts.filter((a: any) => a?.category !== 'Work Requests');
+      await kv.set('admin_alerts', kept);
+    } catch (_) { /* non-fatal */ }
+
+    console.log('[clear-all] Pipeline cleared:', deleted);
+    return c.json({ success: true, deleted });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to clear pipeline data.' }, 500);
+  }
 });
 
 // ── PROJECT SCHEDULES + INTERNAL FIELD NOTES ────────────────────────────────
@@ -8409,7 +8460,18 @@ app.get('/make-server-3eae23a6/work-orders/completion-reports', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load completion reports.' }, 500); }
 });
 
-app.get('/make-server-3eae23a6/command-center/summary', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const [invoices, payments, contacts, applications, requests] = await Promise.all([kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'), kv.get(CRM_CONTACTS_KEY), kv.get(APPLICATIONS_KEY), kv.get('work_requests')]); const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())); const totalRevenue = paidPayments.reduce((sum: number, payment: any) => sum + money(payment.amount), 0); const openInvoiceTotal = (invoices as any[] || []).filter((invoice: any) => !['paid','completed','cancelled','void'].includes(String(invoice.status || '').toLowerCase())).reduce((sum: number, invoice: any) => sum + money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total), 0); const months: Record<string, number> = {}; for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; } for (const payment of paidPayments) { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += money(payment.amount); } const chartData = Object.entries(months).map(([month, revenue]) => ({ month, revenue })); const appRows = applications as any[] || []; const workRows = requests as any[] || []; const employeeCount = appRows.filter((application: any) => ['employee','field_technician','technician','maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved','active'].includes(String(application.status || '').toLowerCase())).length; return c.json({ success: true, summary: { totalRevenue, openInvoiceTotal, customersCount: ((contacts as any[]) || []).filter((item: any) => item.email).length, activeJobsCount: workRows.filter((item: any) => ['assigned','in-progress','approved'].includes(String(item.status || '').toLowerCase())).length, teamCount: employeeCount, pendingApplications: appRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending').length, pendingWorkRequests: workRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending_approval').length, chartData } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.get('/make-server-3eae23a6/command-center/summary', async (c) => { try { if (!await customerAdmin(c)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  // Fetch each source independently so one slow prefix scan (which can hit the
+  // Postgres statement timeout) degrades that metric to empty instead of failing
+  // the whole summary. Every source falls back to a safe default on error.
+  const safe = async <T,>(load: () => Promise<T>, fallback: T, label: string): Promise<T> => { try { return await load(); } catch (err: any) { console.log(`[command-center/summary] ${label} unavailable, using fallback: ${err?.message || err}`); return fallback; } };
+  const [invoices, payments, contacts, applications, requests] = await Promise.all([
+    safe(() => kv.getByPrefix('invoice:'), [] as any[], 'invoices'),
+    safe(() => kv.getByPrefix('payment:'), [] as any[], 'payments'),
+    safe(() => kv.get(CRM_CONTACTS_KEY), [] as any[], 'contacts'),
+    safe(() => kv.get(APPLICATIONS_KEY), [] as any[], 'applications'),
+    safe(() => kv.get('work_requests'), [] as any[], 'work_requests'),
+  ]); const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())); const totalRevenue = paidPayments.reduce((sum: number, payment: any) => sum + money(payment.amount), 0); const openInvoiceTotal = (invoices as any[] || []).filter((invoice: any) => !['paid','completed','cancelled','void'].includes(String(invoice.status || '').toLowerCase())).reduce((sum: number, invoice: any) => sum + money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total), 0); const months: Record<string, number> = {}; for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; } for (const payment of paidPayments) { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += money(payment.amount); } const chartData = Object.entries(months).map(([month, revenue]) => ({ month, revenue })); const appRows = applications as any[] || []; const workRows = requests as any[] || []; const employeeCount = appRows.filter((application: any) => ['employee','field_technician','technician','maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved','active'].includes(String(application.status || '').toLowerCase())).length; return c.json({ success: true, summary: { totalRevenue, openInvoiceTotal, customersCount: ((contacts as any[]) || []).filter((item: any) => item.email).length, activeJobsCount: workRows.filter((item: any) => ['assigned','in-progress','approved'].includes(String(item.status || '').toLowerCase())).length, teamCount: employeeCount, pendingApplications: appRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending').length, pendingWorkRequests: workRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending_approval').length, chartData } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 
 app.get('/make-server-3eae23a6/invoices', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('invoice:')) || []; return c.json({ success: true, invoices: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }

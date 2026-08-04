@@ -294,3 +294,30 @@ input::placeholder, textarea::placeholder {
     transition-duration: 0.01ms !important;
   }
 }
+/* ============================================
+   MOBILE EDGE SAFE-AREA PADDING
+   Keeps content clear of the phone's rounded
+   corners, notch, and home indicator so nothing
+   gets clipped by the screen edges. Applies on
+   phones only (<= 640px); desktop is untouched.
+   ============================================ */
+@media (max-width: 640px) {
+  #root {
+    /* Honor iOS/Android safe-area insets, plus a small
+       baseline gutter so content never kisses the edge. */
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
+  }
+
+  /* Full-bleed overlays (checkout, modals, drawers) render
+     via fixed positioning outside #root's flow — give them
+     their own inset padding so their inner content is safe
+     while their backdrop still covers the whole screen. */
+  .fixed.inset-0 {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
