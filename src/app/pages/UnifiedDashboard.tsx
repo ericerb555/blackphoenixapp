@@ -43,6 +43,7 @@ import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { StartQuoteModal } from '../components/quotes/StartQuoteModal';
 
 interface ModuleCard {
   label: string;
@@ -113,6 +114,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
   const [alertCount, setAlertCount] = useState(8);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
+  const [showStartQuote, setShowStartQuote] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
   const [zendropStatus, setZendropStatus] = useState<{ connected: boolean; products: number } | null>(null);
 
@@ -1431,7 +1433,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
 
                   <div className="flex items-center gap-3 shrink-0">
                     <button
-                      onClick={() => handleNavigation('/enterprise-quote-workflow', 'quotes')}
+                      onClick={() => setShowStartQuote(true)}
                       className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-white font-bold text-sm transition-colors shadow-lg shadow-orange-500/30"
                     >
                       <Plus className="w-4 h-4" /> Create Quote
@@ -1588,6 +1590,8 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           ) : null}
         </div>
       </div>
+
+      {showStartQuote && <StartQuoteModal onClose={() => setShowStartQuote(false)} />}
 
     </div>
   );

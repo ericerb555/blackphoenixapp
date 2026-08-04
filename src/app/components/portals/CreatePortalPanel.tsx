@@ -261,6 +261,25 @@ export default function CreatePortalPanel() {
             )}
           </div>
 
+          {/* If the invite fell back to Supabase's numbered sender, show exactly why. */}
+          {emailAttempted && result.invitationSent && result.emailProvider === 'supabase' && (
+            <div className="mt-3 rounded-lg border border-red-300 bg-red-50 p-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-red-800">
+                <Mail className="h-4 w-4" /> Sent from Supabase's numbered address — NOT your team address
+              </div>
+              <p className="mt-1 text-xs text-red-700">Resend rejected the branded send. Exact reason:</p>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-100 p-2 text-xs text-red-900">
+{result.emailFallbackReason || 'Reason not reported by the server (older deploy).'}
+              </pre>
+              <button
+                onClick={() => { navigator.clipboard?.writeText(result.emailFallbackReason || ''); toast.success('Reason copied.'); }}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-red-800 hover:underline"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copy reason
+              </button>
+            </div>
+          )}
+
           {generateQr && (
             <div className="mt-3 flex items-start gap-2">
               <QrCode className="mt-0.5 h-4 w-4 flex-shrink-0" />

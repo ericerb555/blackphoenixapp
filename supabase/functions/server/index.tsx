@@ -279,6 +279,73 @@ app.get("/make-server-3eae23a6/health", (c) => {
   });
 });
 
+// Browser-clickable email diagnostic. Visit this URL directly to see (a) which
+// domains Resend considers verified for this API key, and (b) the EXACT error
+// Resend returns when we try to send from the configured NOTIFICATION_FROM_EMAIL.
+// Pass ?to=you@example.com to actually attempt a real send to that address.
+app.get("/make-server-3eae23a6/email-diagnostic", async (c) => {
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+  const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
+  const REPLY_TO = Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me';
+  const fromDomain = (FROM_EMAIL.split('@')[1] || '').toLowerCase();
+
+  const result: any = {
+    from: FROM_EMAIL,
+    fromDomain,
+    replyTo: REPLY_TO,
+    resendKeyPresent: Boolean(RESEND_API_KEY),
+  };
+
+  if (!RESEND_API_KEY) {
+    return c.json({ ...result, error: 'RESEND_API_KEY is not set on the server.' }, 200);
+  }
+
+  // 1) What domains does this Resend account/key consider verified?
+  try {
+    const domRes = await fetch('https://api.resend.com/domains', {
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+    });
+    const domBody = await domRes.json().catch(() => ({}));
+    const domains = (domBody?.data || domBody || []) as any[];
+    result.domainsInResendAccount = Array.isArray(domains)
+      ? domains.map((d: any) => ({ name: d.name, status: d.status, region: d.region }))
+      : domBody;
+    const match = Array.isArray(domains)
+      ? domains.find((d: any) => String(d.name).toLowerCase() === fromDomain)
+      : null;
+    result.fromDomainFound = Boolean(match);
+    result.fromDomainStatus = match?.status || '(not present in this Resend account)';
+  } catch (e: any) {
+    result.domainsLookupError = e?.message || String(e);
+  }
+
+  // 2) Optionally attempt a real send so we capture the precise Resend error.
+  const to = c.req.query('to');
+  if (to) {
+    try {
+      const sendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: FROM_EMAIL,
+          reply_to: REPLY_TO,
+          to: [to],
+          subject: 'Black Phoenix email diagnostic',
+          text: 'If you received this, branded sending from your domain works.',
+        }),
+      });
+      const sendBody = await sendRes.text().catch(() => '');
+      result.testSend = { attemptedTo: to, status: sendRes.status, ok: sendRes.ok, response: sendBody };
+    } catch (e: any) {
+      result.testSend = { attemptedTo: to, error: e?.message || String(e) };
+    }
+  } else {
+    result.testSendHint = 'Add ?to=you@example.com to this URL to attempt a real send and see the exact Resend error.';
+  }
+
+  return c.json(result, 200);
+});
+
 // ============================================
 // HELPERS
 // ============================================

@@ -318,9 +318,18 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         // on any device; fall back to the local cache if the server is unreachable.
         let accessRequests: any[] = [];
         try {
+          // This route is admin-protected, so send the signed-in owner's access
+          // token (not the anon key, which returns 403). Fall back to cache if
+          // there's no active session yet.
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            const cached = JSON.parse(localStorage.getItem('accessRequests') || '[]');
+            setPendingAccessRequests(cached.filter((req: any) => req.status === 'pending').length);
+            return;
+          }
           const res = await fetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/access-requests`,
-            { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+            { headers: { Authorization: `Bearer ${session.access_token}` } },
           );
           const json = await res.json();
           if (json.success && Array.isArray(json.requests)) {

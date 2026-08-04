@@ -873,14 +873,21 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
 
   useEffect(() => {
     let active = true;
-    if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setState("allowed"); return; }
-    if (!session?.access_token) { setState("blocked"); return; }
-    setState("checking");
+    // Flipping to "allowed" synchronously mounts the lazy page chunk. If that
+    // chunk isn't loaded yet, suspending on an urgent update (while content is
+    // already on screen) throws "A component suspended while responding to
+    // synchronous input". Marking these state flips as transitions lets React
+    // keep the current UI and stream in the lazy chunk instead of erroring.
+    const setStateSafe = (next: "checking" | "allowed" | "blocked") =>
+      startTransition(() => setState(next));
+    if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setStateSafe("allowed"); return; }
+    if (!session?.access_token) { setStateSafe("blocked"); return; }
+    setStateSafe("checking");
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     }).then(async response => ({ response, data: await response.json() }))
-      .then(({ data }) => { if (active) setState(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
-      .catch(() => { if (active) setState("blocked"); });
+      .then(({ data }) => { if (active) setStateSafe(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
+      .catch(() => { if (active) setStateSafe("blocked"); });
     return () => { active = false; };
   }, [needsGate, session?.access_token, isAdmin, isOwner, isOwnerRolePreview, page]);
 

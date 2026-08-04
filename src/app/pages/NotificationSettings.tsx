@@ -34,6 +34,10 @@ export default function NotificationSettings() {
   const [testPhone, setTestPhone] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  // Persist the exact result of the last email test so the raw provider error
+  // (e.g. Resend's rejection) stays on screen and can be copied, instead of
+  // vanishing with the toast.
+  const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   
   // New state for notification triggers
   const [triggers, setTriggers] = useState<NotificationTriggers>({
@@ -123,16 +127,18 @@ export default function NotificationSettings() {
       );
 
       if (response.ok) {
+        setEmailTestResult({ ok: true, message: `Test email sent to ${testEmail}. Check the inbox — note the sender address.` });
         toast.success('Test email sent!', {
           description: `Check ${testEmail} for the test message`
         });
       } else {
-        const error = await response.json();
-        toast.error('Email test failed', {
-          description: error.error || 'Please check your email provider configuration'
-        });
+        const error = await response.json().catch(() => ({}));
+        const raw = error.error || `HTTP ${response.status} — please check your email provider configuration.`;
+        setEmailTestResult({ ok: false, message: raw });
+        toast.error('Email test failed', { description: raw });
       }
     } catch (error: any) {
+      setEmailTestResult({ ok: false, message: error?.message || 'Request failed before reaching the server.' });
       toast.error('Email test failed', {
         description: error.message
       });
@@ -383,6 +389,23 @@ export default function NotificationSettings() {
                   Send Test
                 </button>
               </div>
+
+              {emailTestResult && (
+                <div className={`mt-3 rounded-lg border p-3 ${emailTestResult.ok ? 'border-green-500/40 bg-green-500/10' : 'border-red-500/40 bg-red-500/10'}`}>
+                  <div className={`text-sm font-semibold ${emailTestResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {emailTestResult.ok ? '✅ Email accepted by provider' : '❌ Provider rejected the send — exact reason:'}
+                  </div>
+                  <pre className={`mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded p-2 text-xs ${emailTestResult.ok ? 'bg-green-950/40 text-green-200' : 'bg-red-950/40 text-red-200'}`}>
+{emailTestResult.message}
+                  </pre>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(emailTestResult.message); toast.success('Copied.'); }}
+                    className="mt-2 text-xs font-semibold text-gray-300 hover:underline"
+                  >
+                    Copy message
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
