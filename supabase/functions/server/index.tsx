@@ -269,7 +269,7 @@ app.get("/make-server-3eae23a6/health", (c) => {
     status: "ok",
     message: "Black Phoenix Server Running",
     timestamp: new Date().toISOString(),
-    version: "2.1.0-invite-fix",
+    version: "2.2.0-invite-www-nomentfallback-aiquote",
     emailConfig: {
       from: Deno.env.get('NOTIFICATION_FROM_EMAIL') || '(unset → onboarding@resend.dev)',
       replyTo: Deno.env.get('REPLY_TO_EMAIL') || '(unset → blackphoenixbuilds@proton.me)',
@@ -7631,6 +7631,12 @@ function buildInviteRedirect(appUrl: string, portalType: string): string {
   // path/query so we always build exactly one clean /portal-onboarding URL.
   let origin = appUrl.trim();
   try { origin = new URL(appUrl).origin; } catch { origin = appUrl.replace(/\/+$/, '').replace(/\/portal-onboarding.*$/i, ''); }
+  // The live app is served at the WWW host. APP_URL has been set without the
+  // "www." prefix, which sends invite recipients to a host that doesn't serve
+  // the app (the "Access your portal" button appears to do nothing). Force the
+  // canonical www host for our domain so the link always lands on the real app,
+  // regardless of how the APP_URL env var is configured.
+  origin = origin.replace(/^https?:\/\/theblackphoenixcompany\.com/i, 'https://www.theblackphoenixcompany.com');
   const base = `${origin}/portal-onboarding`;
   const route = PORTAL_APPLICATION_ROUTE[portalType];
   return route ? `${base}?apply=${encodeURIComponent(route)}` : base;

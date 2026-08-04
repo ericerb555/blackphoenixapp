@@ -72,17 +72,81 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
     }
 
     setGenerating(true);
-    toast.loading('🤖 AI is building a detailed estimate...', { id: 'start-quote' });
+    toast.loading('🤖 AI estimator is building a detailed, itemized quote...', { id: 'start-quote' });
 
+    const requestId = `wr-${Date.now()}`;
     try {
-      // Generate a comprehensive, itemized quote from the project details.
-      const generated = generateDemoQuote({
-        id: `wr-${Date.now()}`,
-        title: form.title,
-        description: form.description,
-        serviceType: form.serviceType,
-        estimatedValue: Number(form.estimatedValue) || 10000,
-      });
+      // 1) Try the estimator-grade AI engine on the server (real takeoff, waste
+      //    factors, trade-based labor, permits/disposal, overhead/profit/tax).
+      // 2) Fall back to the local demo generator only if the server is
+      //    unreachable, so the button always produces something usable.
+      let generated: any = null;
+      let generatedByAI = false;
+      let aiMeta: { confidence?: string; summary?: string; assumptions?: string[]; regionalNote?: string } = {};
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auto-generate-quote`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              workRequest: {
+                id: requestId,
+                title: form.title,
+                serviceType: form.serviceType,
+                description: form.description,
+                location: form.location,
+                estimatedValue: Number(form.estimatedValue) || undefined,
+              },
+            }),
+          },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.success && (data.materials?.length || data.labor?.length)) {
+            generated = {
+              materials: data.materials,
+              labor: data.labor,
+              processSteps: data.processSteps || [],
+              additionalCosts: data.additionalCosts || [],
+              materialsSubtotal: data.materialsSubtotal,
+              laborSubtotal: data.laborSubtotal,
+              taxRate: data.taxRate,
+              taxAmount: data.taxAmount,
+              totalCost: data.totalCost,
+              overheadAmount: data.overheadAmount,
+              profitAmount: data.profitAmount,
+              contingencyAmount: data.contingencyAmount,
+            };
+            generatedByAI = !!data.usedAI;
+            aiMeta = {
+              confidence: data.confidence,
+              summary: data.projectSummary,
+              assumptions: data.assumptions,
+              regionalNote: data.regionalNote,
+            };
+          }
+        } else {
+          console.error('AI quote endpoint returned non-OK status:', res.status, await res.text().catch(() => ''));
+        }
+      } catch (aiErr) {
+        console.error('AI quote endpoint unreachable, using local demo generator:', aiErr);
+      }
+
+      if (!generated) {
+        generated = generateDemoQuote({
+          id: requestId,
+          title: form.title,
+          description: form.description,
+          serviceType: form.serviceType,
+          estimatedValue: Number(form.estimatedValue) || 10000,
+        });
+      }
 
       const quote = {
         id: `qt-${Date.now()}`,
@@ -92,17 +156,22 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         materials: generated.materials,
         labor: generated.labor,
         processSteps: generated.processSteps,
+        additionalCosts: generated.additionalCosts || [],
         materialsSubtotal: generated.materialsSubtotal,
         laborSubtotal: generated.laborSubtotal,
         taxRate: generated.taxRate,
         taxAmount: generated.taxAmount,
         totalCost: generated.totalCost,
+        aiConfidence: aiMeta.confidence,
+        aiSummary: aiMeta.summary,
+        aiAssumptions: aiMeta.assumptions,
+        aiRegionalNote: aiMeta.regionalNote,
         generatedAt: new Date().toISOString(),
         approvalStatus: 'pending' as const,
       };
 
       const request = {
-        id: `wr-${Date.now()}`,
+        id: requestId,
         requestNumber: `WR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(
           Math.floor(Math.random() * 9999),
         ).padStart(4, '0')}`,
@@ -144,10 +213,15 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
 
       setWorkRequest(request);
       setPhase('editor');
-      toast.success('Quote generated — review and refine it below.', {
-        id: 'start-quote',
-        description: `${quote.materials.length} materials and ${quote.labor.length} labor items ready.`,
-      });
+      toast.success(
+        generatedByAI ? 'AI estimate ready — review and refine it below.' : 'Estimate ready (offline mode) — review below.',
+        {
+          id: 'start-quote',
+          description: `${quote.materials.length} materials · ${quote.labor.length} labor items${
+            aiMeta.confidence ? ` · confidence: ${aiMeta.confidence}` : ''
+          }.`,
+        },
+      );
     } catch (error: any) {
       console.error('Failed to generate quote in StartQuoteModal:', error);
       toast.error(error?.message || 'Could not generate the quote. Please try again.', { id: 'start-quote' });
