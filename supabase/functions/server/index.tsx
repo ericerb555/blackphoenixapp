@@ -261,6 +261,19 @@ app.route("/", brandsRouter);
 app.route("/make-server-3eae23a6", companyConfigRouter);
 
 // Health check
+// Resolve a human-friendly company name. The COMPANY_NAME secret was set to a
+// random ID (e.g. "YFAeZ3ZfzSyU35D"), which then showed up as the email SENDER
+// NAME and inside the invite body. A `|| 'default'` doesn't help because the
+// env var IS set — just to garbage. This detects a random-looking token (no
+// spaces, mixed letters + digits, 10+ chars) and falls back to the real name.
+function resolveCompanyName(): string {
+  const fallback = 'The Black Phoenix Company';
+  const raw = (Deno.env.get('COMPANY_NAME') || '').trim();
+  if (!raw) return fallback;
+  const looksLikeRandomId = !/\s/.test(raw) && /[A-Za-z]/.test(raw) && /[0-9]/.test(raw) && raw.length >= 10 && !/[.\-_&]/.test(raw);
+  return looksLikeRandomId ? fallback : raw;
+}
+
 app.get("/make-server-3eae23a6/health", (c) => {
   // `emailConfig` lets us confirm a deploy picked up the latest code + secrets
   // without exposing anything sensitive: it reports the (public) sender/reply-to
@@ -269,12 +282,14 @@ app.get("/make-server-3eae23a6/health", (c) => {
     status: "ok",
     message: "Black Phoenix Server Running",
     timestamp: new Date().toISOString(),
-    version: "2.2.0-invite-www-nomentfallback-aiquote",
+    version: "2.5.0-invite-token-password",
     emailConfig: {
       from: Deno.env.get('NOTIFICATION_FROM_EMAIL') || '(unset → onboarding@resend.dev)',
       replyTo: Deno.env.get('REPLY_TO_EMAIL') || '(unset → blackphoenixbuilds@proton.me)',
       resendKeyPresent: Boolean(Deno.env.get('RESEND_API_KEY')),
       appUrl: Deno.env.get('APP_URL') || '(unset → https://www.theblackphoenixcompany.com)',
+      companyNameRaw: Deno.env.get('COMPANY_NAME') || '(unset)',
+      companyNameResolved: resolveCompanyName(),
     },
   });
 });
@@ -2258,7 +2273,7 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
     const TWILIO_AUTH       = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
     const TWILIO_FROM       = Deno.env.get('TWILIO_PHONE_NUMBER')|| '';
     const ADMIN_PHONES      = Deno.env.get('ADMIN_NOTIFICATION_PHONES') || '';
-    const COMPANY_NAME      = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const COMPANY_NAME      = resolveCompanyName();
     // Comma-separated list in ADMIN_NOTIFICATION_EMAILS; falls back to the owner address.
     const ADMIN_EMAILS      = (Deno.env.get('ADMIN_NOTIFICATION_EMAILS') || 'ericerb555@proton.me')
       .split(',').map((e: string) => e.trim()).filter(Boolean);
@@ -2405,7 +2420,7 @@ async function notifyRecipient(email: string, event: NotifEvent, opts: { subject
     if (!lower) return;
     const prefs = await loadNotifPrefs(lower);
     const evt = (prefs?.events?.[event]) || { email: true, sms: true, inApp: true };
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const COMPANY_NAME = resolveCompanyName();
 
     // Always record an in-app notification (unless the user muted this event in-app).
     if (evt.inApp !== false) { await pushInAppNotification(lower, event, opts.subject, opts.text); }
@@ -2521,7 +2536,7 @@ app.post('/make-server-3eae23a6/auth/forgot-password', async (c) => {
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
       await kv.set(`pwreset:${token}`, { email, userId: account.id, expiresAt, createdAt: new Date().toISOString() });
       const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-      const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+      const COMPANY_NAME = resolveCompanyName();
       const link = `${rentAppUrl()}/reset-password?token=${token}`;
       if (RESEND_API_KEY) {
         try {
@@ -2578,7 +2593,7 @@ app.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
     const email = String(body.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const COMPANY_NAME = resolveCompanyName();
     if (!RESEND_API_KEY) return c.json({ success: false, error: 'Email is not configured (RESEND_API_KEY missing).' }, 400);
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -2603,7 +2618,7 @@ app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
     const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
     const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
     const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+    const COMPANY_NAME = resolveCompanyName();
     if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
       method: 'POST',
@@ -3010,7 +3025,7 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const prefs = (await kv.get('market_alert_prefs:global')) as any || {};
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     const product = String(body.product || 'a trending product');
     const subject = `📈 Trending: ${product} (${body.spike || ''})`;
     const lines = [
@@ -7642,6 +7657,50 @@ function buildInviteRedirect(appUrl: string, portalType: string): string {
   return route ? `${base}?apply=${encodeURIComponent(route)}` : base;
 }
 
+// Build the link that goes in the invite email/SMS button. Points DIRECTLY at
+// the app's onboarding page (not a Supabase verify link) with the recipient's
+// email prefilled and a one-time invite TOKEN, so the button always lands on
+// the real app and the recipient can immediately create their password —
+// regardless of any Supabase redirect-allowlist configuration.
+function buildDirectOnboardingLink(appUrl: string, portalType: string, email: string, token: string): string {
+  const redirect = buildInviteRedirect(appUrl, portalType);
+  const sep = redirect.includes('?') ? '&' : '?';
+  return `${redirect}${sep}email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
+}
+
+// Ensure a Supabase auth user exists for this email and return its id. Works
+// whether the account is brand-new or already exists (re-invite). Does NOT send
+// any email — account-setup email is sent by us via Resend.
+async function ensureAuthUser(supabase: any, email: string, metadata: Record<string, unknown>): Promise<string | null> {
+  try {
+    const tempPassword = `Bpx-${crypto.randomUUID()}`;
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      user_metadata: metadata,
+      // Confirm immediately — no email server round-trip needed; they set their
+      // real password via our invite-token flow.
+      email_confirm: true,
+    });
+    if (!error && data?.user?.id) return data.user.id;
+  } catch (_) { /* fall through to lookup */ }
+  // Already exists — recover the user id via generateLink (returns the user
+  // record without sending an email).
+  try {
+    const { data } = await supabase.auth.admin.generateLink({ type: 'recovery', email });
+    if (data?.user?.id) return data.user.id;
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+// Mint and store a one-time invite token the recipient exchanges for a password.
+async function mintInviteToken(email: string, userId: string | null, applicationId: string, portalType: string): Promise<string> {
+  const token = `invtok_${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(); // 14 days
+  await kv.set(`invite_token:${token}`, { token, email, userId, applicationId, portalType, used: false, createdAt: new Date().toISOString(), expiresAt });
+  return token;
+}
+
 // Produces a sign-in link that ALWAYS resolves to something usable. Tries each
 // Supabase link type in order — "invite" (new users set a password on first
 // click), then "magiclink" and "recovery" (existing users) — and if every type
@@ -7715,7 +7774,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     let inviteLink: string | null = null;
     let emailFallbackReason = ''; // captured so the admin can see WHY branded send fell back
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
@@ -7731,11 +7790,15 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     // Note: the redirect target must be listed in the Supabase dashboard under
     // Authentication → URL Configuration → Redirect URLs, or Supabase ignores it.
     const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
-    // Build a guaranteed-working sign-in link. Try each Supabase link type in turn
-    // (invite works for brand-new users; magiclink/recovery work for existing ones)
-    // and, if every one fails, fall back to a direct link into the app's onboarding
-    // page so the "Access your portal" button ALWAYS goes somewhere real.
     inviteLink = await generateInviteActionLink(supabase, email, metadata, inviteRedirectTo);
+
+    // Account-setup flow: ensure the auth account exists now, mint a one-time
+    // invite token, and point the button at the onboarding page so the recipient
+    // creates their password on arrival. Store the token id on the intake so we
+    // can correlate.
+    const provisionedUserId = await ensureAuthUser(supabase, email, metadata);
+    const inviteToken = await mintInviteToken(email, provisionedUserId, applicationId, portalType);
+    const buttonLink = buildDirectOnboardingLink(APP_URL, portalType, email, inviteToken);
 
     // EMAIL: ALWAYS send the branded email from our verified address whenever a
     // Resend key is configured. We no longer fall back to Supabase's built-in
@@ -7746,7 +7809,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       try {
         if (RESEND_API_KEY) {
           const { subject, html, text } = buildPortalInviteEmail({
-            name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME,
+            name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME,
             logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths,
             overrides: inviteOverrides || undefined,
           });
@@ -7784,7 +7847,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       } else {
         try {
           const toNumber = toE164(phone);
-          const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+          const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
           const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
             method: 'POST',
             headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -7830,17 +7893,23 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
   let invitationSent = false; let inviteNotice = ''; let emailProvider = '';
   let smsSent = false; let smsNotice = ''; let qrDataUrl: string | null = null; let inviteLink: string | null = null;
   const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-  const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+  const COMPANY_NAME = resolveCompanyName();
   const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
   const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
   const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
   const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
   const inviteRedirectTo = buildInviteRedirect(APP_URL, portalType);
   inviteLink = await generateInviteActionLink(supabase, email, metadata, inviteRedirectTo);
+  // Account-setup: ensure account exists + mint a one-time token so the button
+  // takes the recipient straight to the "create your password" step.
+  const resendApplicationId = (await kv.get(`intake:email:${email}`) as string | null) || `OWNER-INVITE-${crypto.randomUUID()}`;
+  const provisionedUserId = await ensureAuthUser(supabase, email, metadata);
+  const inviteToken = await mintInviteToken(email, provisionedUserId, resendApplicationId, portalType);
+  const buttonLink = buildDirectOnboardingLink(APP_URL, portalType, email, inviteToken);
   if (sendEmail) {
     try {
       if (RESEND_API_KEY) {
-        const { subject, html, text } = buildPortalInviteEmail({ name, portalType, signInUrl: inviteLink, companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+        const { subject, html, text } = buildPortalInviteEmail({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, logoUrl: LOGO_URL, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
         const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: `${COMPANY_NAME} <${FROM_EMAIL}>`, reply_to: REPLY_TO_EMAIL, to: [email], subject, html, text }) });
         if (!res.ok) { const errBody = await res.text().catch(() => ''); throw new Error(`Resend send failed (${res.status}): ${errBody}`); }
         invitationSent = true; emailProvider = 'resend';
@@ -7860,7 +7929,7 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
     else {
       try {
         const toNumber = toE164(phone);
-        const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: inviteLink || `${APP_URL.replace(/\/$/, '')}/portal-onboarding`, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
+        const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
         const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ From: twilio.from, To: toNumber, Body: smsBody }) });
         if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = describeTwilioError(res.status, err, twilio); } else { smsSent = true; }
       } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
@@ -7949,7 +8018,7 @@ app.get('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) => 
     const portalType = String(c.req.query('portalType') || 'customer').trim().toLowerCase();
     const fullAccess = c.req.query('fullAccess') !== 'false';
     const trialMonths = Math.min(24, Math.max(1, Number(c.req.query('trialMonths')) || 6));
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
     const { subject, html } = buildPortalInviteEmail({
@@ -8000,7 +8069,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-preview', async (c) =>
     const fullAccess = body.fullAccess !== false;
     const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
     const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
     const sampleLink = 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link';
     const { subject, html } = buildPortalInviteEmail({
@@ -8055,7 +8124,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test', async (c) => {
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     if (!RESEND_API_KEY) return c.json({ success: false, error: 'RESEND_API_KEY is not configured, so test emails cannot be sent.' }, 500);
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
 
@@ -8092,7 +8161,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test-sms', async (c) =
     const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
     const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
     const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-    const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'Black Phoenix';
+    const COMPANY_NAME = resolveCompanyName();
     if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
 
     const sms = buildPortalInviteSms({
@@ -8126,6 +8195,44 @@ app.get('/make-server-3eae23a6/me/entitlements', async (c) => {
     const trialActive = nowMs < end; const daysLeft = Math.max(0, Math.ceil((end - nowMs) / (24 * 60 * 60 * 1000)));
     return c.json({ success: true, entitlements: { level: (trialActive || hasPlan) ? grant.level || 'full' : 'standard', trialActive, hasGrant: true, needsPlan: !trialActive && !hasPlan, daysLeft, trialEnd: grant.trialEnd, trialMonths: grant.trialMonths, portalType: grant.portalType } });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load entitlements.' }, 500); }
+});
+
+// Exchange a one-time invite token for a set password. The recipient arrives on
+// the onboarding page from the invite link (which carries the token), creates a
+// password, and this endpoint sets it on their pre-provisioned account. No prior
+// session is required — the token itself proves they received the invite email.
+app.post('/make-server-3eae23a6/intake/set-password', async (c) => {
+  try {
+    const { token, password } = await c.req.json();
+    if (!token || typeof token !== 'string') return c.json({ success: false, error: 'Missing invite token. Please use the link from your invitation email.' }, 400);
+    if (!password || String(password).length < 8) return c.json({ success: false, error: 'Password must be at least 8 characters.' }, 400);
+
+    const record = await kv.get(`invite_token:${token}`) as any;
+    if (!record) return c.json({ success: false, error: 'This invitation link is invalid or has already been used. Ask for a new invite.' }, 400);
+    if (record.used) return c.json({ success: false, error: 'This invitation link was already used. Please sign in with the password you created.' }, 409);
+    if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) return c.json({ success: false, error: 'This invitation link has expired. Ask for a new invite.' }, 410);
+
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    // Resolve the user id (mint-time id, or look it up / create now as a safety net).
+    let userId = record.userId as string | null;
+    if (!userId) userId = await ensureAuthUser(supabase, record.email, { role: record.portalType, accountType: record.portalType });
+    if (!userId) return c.json({ success: false, error: 'Could not locate your account. Please contact support.' }, 500);
+
+    const { error: updErr } = await supabase.auth.admin.updateUserById(userId, {
+      password: String(password),
+      email_confirm: true,
+    });
+    if (updErr) return c.json({ success: false, error: `Could not set your password: ${updErr.message}` }, 500);
+
+    // Burn the token so the link can't be reused.
+    await kv.set(`invite_token:${token}`, { ...record, used: true, usedAt: new Date().toISOString() });
+
+    return c.json({ success: true, email: record.email });
+  } catch (error: any) {
+    console.log(`❌ [set-password] ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not set your password.' }, 500);
+  }
 });
 
 app.get('/make-server-3eae23a6/intake/my-onboarding', async (c) => {

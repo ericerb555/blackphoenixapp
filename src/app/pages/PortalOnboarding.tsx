@@ -19,13 +19,30 @@ export default function PortalOnboarding() {
   const [uploadingTask, setUploadingTask] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({ fullName: '', phone: '', company: '', address: '', planInterest: 'not_selected' });
+  // Account setup: when a recipient arrives from an invite link (which carries a
+  // one-time ?token= and their ?email=), we show a "Create your password" step
+  // before the checklist. The account is already provisioned server-side.
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupToken, setSetupToken] = useState('');
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [settingPassword, setSettingPassword] = useState(false);
 
   const token = async () => (await supabase.auth.getSession()).data.session?.access_token;
   const load = async () => {
     setLoading(true);
     try {
       const accessToken = await token();
-      if (!accessToken) throw new Error("Sign in to view your onboarding checklist.");
+      if (!accessToken) {
+        // Not signed in. If the URL carries an invite token, show the
+        // create-password step; otherwise there's nothing to onboard.
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get('token') || '';
+        const e = (params.get('email') || '').trim().toLowerCase();
+        if (t) { setSetupToken(t); setSetupEmail(e); setNeedsPassword(true); return; }
+        throw new Error("Open the link from your invitation email to set up your portal.");
+      }
       const response = await fetch(`${BASE}/intake/my-onboarding`, { headers: { Authorization: `Bearer ${accessToken}` } });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || "Could not load onboarding.");
@@ -48,6 +65,39 @@ export default function PortalOnboarding() {
   }, [isOwner, user?.id]);
 
   useEffect(() => { load(); }, []);
+
+  const submitPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (pw.length < 8) { toast.error('Password must be at least 8 characters.'); return; }
+    if (pw !== pw2) { toast.error('Passwords do not match.'); return; }
+    setSettingPassword(true);
+    try {
+      // 1) Exchange the one-time invite token for the chosen password.
+      const res = await fetch(`${BASE}/intake/set-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: setupToken, password: pw }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) throw new Error(result.error || 'Could not set your password.');
+
+      // 2) Sign them in immediately with the password they just created.
+      const email = (result.email || setupEmail).trim().toLowerCase();
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password: pw });
+      if (signInErr) throw new Error(`Password set, but sign-in failed: ${signInErr.message}. Try signing in with your new password.`);
+
+      toast.success('Password created — welcome!');
+      // 3) Clear the token from the URL and load their onboarding.
+      window.history.replaceState({}, '', `/portal-onboarding${window.location.search.replace(/[?&]token=[^&]*/,'').replace(/^&/,'?') || ''}`);
+      setNeedsPassword(false);
+      setPw(''); setPw2('');
+      await load();
+    } catch (error: any) {
+      toast.error(error.message || 'Could not set your password.');
+    } finally {
+      setSettingPassword(false);
+    }
+  };
 
   const required = useMemo(() => intake?.requiredTasks?.filter(task => task.required) || [], [intake]);
   const complete = required.filter(task => task.status === "complete").length;
@@ -115,6 +165,29 @@ export default function PortalOnboarding() {
   };
 
   if (loading) return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center text-white"><Loader2 className="w-8 h-8 animate-spin text-orange-500" /></div>;
+
+  if (needsPassword) return (
+    <main className="min-h-screen bg-[#0a0a0a] px-5 py-10 text-white grid place-items-center">
+      <form onSubmit={submitPassword} className="w-full max-w-md border border-white/10 bg-[#111111] p-7 shadow-2xl shadow-black/30 md:p-9">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-300"><LockKeyhole className="h-4 w-4" /> Portal account setup</p>
+        <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] md:text-3xl">Create your password</h1>
+        <p className="mt-3 text-sm leading-6 text-gray-400">Your portal account is ready. Set a password to finish setting up and go straight to your portal.</p>
+
+        <label className="mt-6 block text-sm font-medium text-gray-300">Email
+          <input type="email" value={setupEmail} onChange={(e) => setSetupEmail(e.target.value)} readOnly={!!setupEmail} className="mt-2 w-full border border-white/10 bg-[#080808] px-3 py-3 text-white outline-none transition focus:border-orange-400 read-only:text-gray-400" />
+        </label>
+        <label className="mt-4 block text-sm font-medium text-gray-300">Create password
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" className="mt-2 w-full border border-white/10 bg-[#080808] px-3 py-3 text-white outline-none transition focus:border-orange-400" />
+        </label>
+        <label className="mt-4 block text-sm font-medium text-gray-300">Confirm password
+          <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="Re-enter password" autoComplete="new-password" className="mt-2 w-full border border-white/10 bg-[#080808] px-3 py-3 text-white outline-none transition focus:border-orange-400" />
+        </label>
+
+        <button type="submit" disabled={settingPassword} className="mt-6 inline-flex w-full items-center justify-center gap-2 bg-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50">{settingPassword ? <><Loader2 className="h-4 w-4 animate-spin" /> Setting up…</> : <>Create password & continue <ArrowRight className="h-4 w-4" /></>}</button>
+      </form>
+    </main>
+  );
+
   if (!intake) return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center px-6 text-center text-gray-300">No portal onboarding record is available for this account.</div>;
 
   if (intake.ownerProvisioned && !intake.profile?.completed) return (
