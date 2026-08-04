@@ -7755,15 +7755,14 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
           throw new Error('RESEND_API_KEY not configured — using Supabase invite.');
         }
       } catch (brandedError: any) {
+        // NO Supabase fallback: sending via supabase.auth.admin.inviteUserByEmail
+        // uses Supabase's default "numbered" no-reply sender, which is the exact bug
+        // we're eliminating. If the branded Resend send fails, we surface the real
+        // error to the admin instead of silently emailing from the wrong address.
         emailFallbackReason = `from="${FROM_EMAIL}" — ${brandedError?.message || brandedError}`;
-        console.log(`ℹ️ [PortalInvite] Branded Resend send failed, falling back to Supabase invite: ${emailFallbackReason}`);
-        try {
-          // Pass redirectTo here too — without it Supabase's built-in invite sends
-          // the recipient to the project Site URL (which 404s) instead of the app's
-          // onboarding page. This keeps the link working even on the fallback path.
-          const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata, redirectTo: inviteRedirectTo });
-          if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; }
-        } catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+        inviteNotice = `Invite email could NOT be sent from ${FROM_EMAIL}. Resend error: ${brandedError?.message || brandedError}`;
+        invitationSent = false; emailProvider = '';
+        console.log(`❌ [PortalInvite] Branded Resend send failed (NO numbered fallback): ${emailFallbackReason}`);
       }
     }
 
@@ -7841,9 +7840,10 @@ async function deliverPortalInvite(opts: { name: string; email: string; phone: s
         invitationSent = true; emailProvider = 'resend';
       } else { throw new Error('RESEND_API_KEY not configured — using Supabase invite.'); }
     } catch (brandedError: any) {
-      console.log(`ℹ️ [PortalInvite:resend] Branded Resend send failed, falling back to Supabase: ${brandedError?.message || brandedError}`);
-      try { const { error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata, redirectTo: inviteRedirectTo }); if (error) { inviteNotice = error.message || 'The account may already exist.'; } else { invitationSent = true; emailProvider = 'supabase'; } }
-      catch (error: any) { inviteNotice = error?.message || 'Invitation email could not be sent.'; }
+      // NO Supabase fallback — see note in the primary invite route. Surface the real error.
+      inviteNotice = `Invite email could NOT be sent from ${FROM_EMAIL}. Resend error: ${brandedError?.message || brandedError}`;
+      invitationSent = false; emailProvider = '';
+      console.log(`❌ [PortalInvite:resend] Branded Resend send failed (NO numbered fallback): ${brandedError?.message || brandedError}`);
     }
   }
   if (sendSms) {
