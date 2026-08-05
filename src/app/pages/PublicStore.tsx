@@ -1937,7 +1937,7 @@ export default function PublicStore() {
 
           const res = await fetch(`${SERVER}/store/checkout`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+            headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
             body: JSON.stringify({
               items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity, quantity: item.quantity, image: item.image, size: item.selectedSize || undefined, color: item.selectedColor || undefined })),
               customer: { name: customer.name, email: customer.email, phone: customer.phone, address: `${customer.address}, ${customer.city} ${customer.zip}` },

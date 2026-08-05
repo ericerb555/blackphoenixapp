@@ -6180,7 +6180,12 @@ type StripeAccount = 'services' | 'tbpco_ecommerce';
 // Services, invoices, subscriptions, maintenance, and gift cards remain on Black
 // Phoenix Builds. Store merchandise uses the TBPCO e-commerce account.
 function stripeKeyFor(account: StripeAccount = 'services') {
-  if (account === 'tbpco_ecommerce') return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY') || '';
+  if (account === 'tbpco_ecommerce') {
+    return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY')
+      || Deno.env.get('STRIPE_SECRET_KEY_SERVICES')
+      || Deno.env.get('STRIPE_SECRET_KEY')
+      || '';
+  }
   return Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
 }
 
