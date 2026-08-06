@@ -6930,7 +6930,12 @@ type StripeAccount = 'services' | 'tbpco_ecommerce';
 // Services, invoices, subscriptions, maintenance, and gift cards remain on Black
 // Phoenix Builds. Store merchandise uses the TBPCO e-commerce account.
 function stripeKeyFor(account: StripeAccount = 'services') {
-  if (account === 'tbpco_ecommerce') return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY') || '';
+  if (account === 'tbpco_ecommerce') {
+    return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY')
+      || Deno.env.get('STRIPE_SECRET_KEY_SERVICES')
+      || Deno.env.get('STRIPE_SECRET_KEY')
+      || '';
+  }
   return Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
 }
 
@@ -8814,6 +8819,8 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
       });
       order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
       order.fulfillment_forwarded_at = now;
+      order.fulfillment_forwarded_count = result.forwarded ?? 0;
+      if (Array.isArray(result.skipped) && result.skipped.length > 0) order.fulfillment_skipped = result.skipped;
       if (!result.success && result.error) order.fulfillment_error = result.error;
       await kv.set(storeOrderKey(order.id), order);
     }
@@ -8884,7 +8891,7 @@ app.post('/make-server-3eae23a6/store/checkout', async (c) => {
     }
     const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
     const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
-    const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/store?checkout=cancelled`, expires_at: String(expiresAt), 'metadata[store_checkout_id]': checkoutId, 'metadata[commerce_account]': 'TBPCO_ECOMMERCE', 'metadata[gift_card_amount]': String(money(giftCardReservation?.amount)) });
+    const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/public-store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/public-store?checkout=cancelled`, expires_at: String(expiresAt), 'metadata[store_checkout_id]': checkoutId, 'metadata[commerce_account]': 'TBPCO_ECOMMERCE', 'metadata[gift_card_amount]': String(money(giftCardReservation?.amount)) });
     let remainingCredit = money(giftCardReservation?.amount);
     let lineIndex = 0;
     for (const item of items) {

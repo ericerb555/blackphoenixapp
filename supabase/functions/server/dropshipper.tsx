@@ -228,7 +228,7 @@ export async function forwardOrder(order: {
   orderId: string;
   items: { sku: string; quantity: number; price: number }[];
   shippingAddress: any;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; forwarded?: number; skipped?: string[] }> {
   const enabled = await config.isEnabled();
   if (!enabled) {
     return { success: false, error: 'Dropshipper module is disabled' };
@@ -237,11 +237,27 @@ export async function forwardOrder(order: {
   try {
     // Group items by provider
     const itemsByProvider = await groupItemsByProvider(order.items);
-    
+
+    // Track what actually reached a provider. `success` must only be true when at
+    // least one provider accepted the order — otherwise the store order would be
+    // marked "forwarded" while nothing was ever sent, hiding it from fulfillment.
+    let forwarded = 0;
+    const skipped: string[] = [];
+
+    const matchedSkus = new Set(
+      Object.values(itemsByProvider).flat().map((item: any) => String(item.sku)),
+    );
+    for (const item of order.items) {
+      if (!matchedSkus.has(String(item.sku))) {
+        skipped.push(`${item.sku} (no dropshipper inventory match)`);
+      }
+    }
+
     // Forward to each provider
     for (const [providerId, items] of Object.entries(itemsByProvider)) {
       const provider = await config.getProvider(providerId);
-      if (!provider || !provider.autoForwardOrders) continue;
+      if (!provider) { skipped.push(`${providerId} (provider not configured)`); continue; }
+      if (!provider.autoForwardOrders) { skipped.push(`${provider.name} (auto-forward disabled)`); continue; }
 
       try {
         const providerOrderId = await sendOrderToProvider(provider, {
@@ -260,15 +276,24 @@ export async function forwardOrder(order: {
         };
 
         await saveOrder(dropshipperOrder);
-        console.log(`[Dropshipper] Order ${order.orderId} forwarded to ${provider.name}`);
+        forwarded += 1;
+        console.log(`[Dropshipper] Order ${order.orderId} forwarded to ${provider.name} as ${providerOrderId}`);
       } catch (error) {
         const errorMsg = `Failed to forward order to ${provider.name}: ${error}`;
+        skipped.push(`${provider.name} (send failed)`);
         await logError('ORDER_FORWARD', errorMsg, providerId, order.orderId);
         console.error(`[Dropshipper Error] ${errorMsg}`);
       }
     }
 
-    return { success: true };
+    if (forwarded === 0) {
+      const reason = skipped.length > 0
+        ? `No items were forwarded: ${skipped.join('; ')}`
+        : 'No items matched a dropshipper provider.';
+      await logError('ORDER_FORWARD', reason, undefined, order.orderId);
+      return { success: false, error: reason, forwarded, skipped };
+    }
+    return { success: true, forwarded, skipped };
   } catch (error) {
     const errorMsg = `Order forwarding failed: ${error}`;
     await logError('ORDER_FORWARD', errorMsg, undefined, order.orderId);

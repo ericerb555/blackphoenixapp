@@ -131,64 +131,64 @@ export default function UnifiedCheckout({
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[10000] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
-        className="w-full max-w-lg h-[100dvh] sm:h-auto sm:max-h-[90dvh] flex flex-col rounded-none sm:rounded-3xl overflow-hidden shadow-2xl"
+        className="w-full sm:max-w-lg h-[100dvh] sm:h-auto sm:max-h-[90dvh] flex flex-col rounded-none sm:rounded-3xl overflow-hidden shadow-2xl"
         style={{ background: '#0f0f0f', border: '1px solid rgba(234,88,12,0.25)' }}
       >
         {/* Header */}
         <div
-          className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b"
+          className="flex-shrink-0 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b"
           style={{ borderColor: 'rgba(255,255,255,0.07)', background: 'rgba(234,88,12,0.05)' }}
         >
-          <div>
-            <p className="font-black text-white">Secure Checkout</p>
-            <p className="text-xs text-gray-500 mt-0.5">
+          <div className="min-w-0 flex-1 pr-3">
+            <p className="text-sm font-black text-white truncate">Secure Checkout</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">
               {items.reduce((n, i) => n + i.quantity, 0)} item{items.reduce((n, i) => n + i.quantity, 0) !== 1 ? 's' : ''} · ${total.toFixed(2)} total
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
+          <button onClick={onClose} className="flex-shrink-0 p-2 rounded-xl text-gray-600 hover:text-white transition" style={{ background: 'rgba(255,255,255,0.05)' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {processing ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-16 px-6">
-            <div className="w-12 h-12 rounded-full border-2 border-orange-500 border-t-transparent animate-spin mb-4" />
-            <p className="font-black text-white">Setting up secure payment…</p>
-            <p className="text-sm text-gray-500 mt-1">One moment</p>
+          <div className="flex-1 flex flex-col items-center justify-center py-12 px-6">
+            <div className="w-10 h-10 rounded-full border-2 border-orange-500 border-t-transparent animate-spin mb-4" />
+            <p className="text-sm font-black text-white">Setting up secure payment…</p>
+            <p className="text-xs text-gray-500 mt-1">One moment</p>
           </div>
         ) : (
-          <div className="flex-1 min-h-0 p-6 space-y-4 overflow-y-auto overscroll-contain">
+          <div className="flex-1 min-h-0 px-4 sm:px-6 py-4 space-y-3 overflow-y-auto overscroll-contain">
             {/* Order summary */}
-            <div className="rounded-2xl p-4 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Order Summary</p>
+            <div className="rounded-xl p-3 space-y-2" style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-[10px] sm:text-xs font-black text-gray-500 uppercase tracking-wider sm:tracking-widest truncate">Order Summary</p>
                 {onEditCart && (
-                  <button onClick={onEditCart} className="text-xs font-bold text-orange-400 hover:text-orange-300 transition">
+                  <button onClick={onEditCart} className="flex-shrink-0 whitespace-nowrap text-xs font-bold text-orange-400 hover:text-orange-300 transition">
                     Edit cart
                   </button>
                 )}
               </div>
               {items.map(item => (
-                <div key={`${item.id}|${item.variant || ''}`} className="flex justify-between text-sm">
-                  <span className="text-gray-400 truncate mr-2">
+                <div key={`${item.id}|${item.variant || ''}`} className="flex justify-between gap-2 text-xs sm:text-sm">
+                  <span className="text-gray-400 truncate min-w-0">
                     {item.name}{item.variant ? ` (${item.variant})` : ''} × {item.quantity}
                   </span>
                   <span className="text-white font-bold flex-shrink-0">${(item.price * item.quantity).toFixed(2)}</span>
                 </div>
               ))}
               {requireShipping && (
-                <div className="border-t pt-2 mt-2 flex justify-between text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                <div className="border-t pt-2 mt-2 flex justify-between gap-2 text-xs sm:text-sm" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                   <span className="text-gray-500">Shipping</span>
                   <span className="text-white">{shipping === 0 ? 'FREE' : `$${shipping.toFixed(2)}`}</span>
                 </div>
               )}
               {tax > 0 && (
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between gap-2 text-xs sm:text-sm">
                   <span className="text-gray-500">Tax</span>
                   <span className="text-white">${tax.toFixed(2)}</span>
                 </div>
               )}
-              <div className="border-t pt-2 flex justify-between font-black" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+              <div className="border-t pt-2 flex justify-between gap-2 text-sm sm:text-base font-black" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                 <span className="text-white">Total</span>
                 <span style={{ color: '#ea580c' }}>${total.toFixed(2)}</span>
               </div>
@@ -196,7 +196,7 @@ export default function UnifiedCheckout({
 
             {extraContent}
 
-            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Your Information</p>
+            <p className="text-[10px] font-black text-gray-500 uppercase tracking-wider sm:tracking-widest">Your Information</p>
             {visibleFields.map(field => (
               <div key={field.key}>
                 <label className="text-xs font-bold text-gray-500 block mb-1">{field.label}</label>
@@ -205,23 +205,26 @@ export default function UnifiedCheckout({
                   value={customer[field.key]}
                   onChange={e => set(field.key, e.target.value)}
                   placeholder={field.placeholder}
-                  className="w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
+                  /* 16px on mobile: iOS Safari force-zooms the page when a focused
+                     input is under 16px, and that zoom is what pushes the modal's
+                     text past the edge of the screen. text-sm again on desktop. */
+                  className="w-full px-3 py-2.5 rounded-xl text-base sm:text-sm text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50"
                   style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.08)' }}
                 />
               </div>
             ))}
 
-            {error && <p className="text-sm text-red-400 font-bold">{error}</p>}
+            {error && <p className="text-xs sm:text-sm text-red-400 font-bold break-words">{error}</p>}
 
             <button
               onClick={handleSubmit}
-              className="w-full py-4 rounded-2xl font-black text-base text-white flex items-center justify-center gap-2 hover:brightness-110 transition"
+              className="w-full py-3.5 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 hover:brightness-110 transition"
               style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)', boxShadow: '0 4px 20px rgba(234,88,12,0.35)' }}
             >
-              <Lock className="w-4 h-4" /> {label}
+              <Lock className="w-4 h-4 flex-shrink-0" /> <span className="truncate">{label}</span>
             </button>
-            <div className="flex items-center justify-center gap-1.5 text-[10px] text-gray-600">
-              <Shield className="w-3 h-3 text-green-500" /> 256-bit SSL encrypted secure checkout
+            <div className="flex items-center justify-center gap-1.5 text-[10px] text-gray-600 text-center">
+              <Shield className="w-3 h-3 flex-shrink-0 text-green-500" /> 256-bit SSL encrypted secure checkout
             </div>
           </div>
         )}

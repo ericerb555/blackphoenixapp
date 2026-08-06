@@ -1545,14 +1545,14 @@ export default function PublicStore() {
       {showCart && (
         <div className="fixed inset-0 z-[10000] flex items-start justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCart(false)} />
-          <div className="relative w-full max-w-md h-[100dvh] overflow-y-auto overscroll-contain flex flex-col" style={{ background: '#0d0d0d', borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
-            <div className="sticky top-0 z-10 px-6 py-5" style={{ background: '#0d0d0d', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-black text-white">Your Cart</h3>
+          <div className="relative w-full sm:max-w-sm md:max-w-md h-[100dvh] overflow-y-auto overscroll-contain flex flex-col" style={{ background: '#0d0d0d', borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="sticky top-0 z-10 px-4 sm:px-6 py-4" style={{ background: '#0d0d0d', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-base sm:text-lg font-black text-white truncate">Your Cart</h3>
                   <p className="text-xs text-gray-500">{cartCount} item{cartCount !== 1 ? 's' : ''}</p>
                 </div>
-                <button onClick={() => setShowCart(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition"><X className="w-5 h-5" /></button>
+                <button onClick={() => setShowCart(false)} className="flex-shrink-0 p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition"><X className="w-5 h-5" /></button>
               </div>
               {freeShipEnabled && cartTotal > 0 && !qualifiesFreeShip && (
                 <div className="mt-3 rounded-xl p-3" style={{ background: 'rgba(234,88,12,0.1)', border: '1px solid rgba(234,88,12,0.2)' }}>
@@ -1568,14 +1568,14 @@ export default function PublicStore() {
                 </div>
               )}
               {boosters.urgency?.enabled && urgencyLabel && (
-                <div className="mt-3 rounded-xl p-3 flex items-center justify-between" style={{ background: 'rgba(220,38,38,0.12)', border: '1px solid rgba(220,38,38,0.28)' }}>
-                  <p className="text-xs text-red-300 pr-3">{boosters.urgency.message}</p>
+                <div className="mt-3 rounded-xl p-3 flex items-center justify-between gap-2" style={{ background: 'rgba(220,38,38,0.12)', border: '1px solid rgba(220,38,38,0.28)' }}>
+                  <p className="text-[11px] sm:text-xs text-red-300 min-w-0 break-words">{boosters.urgency.message}</p>
                   <span className="text-sm font-black text-red-400 tabular-nums whitespace-nowrap">{urgencyLabel}</span>
                 </div>
               )}
             </div>
 
-            <div className="flex-1 p-6 space-y-4">
+            <div className="flex-1 p-4 sm:p-6 space-y-3 sm:space-y-4">
               {cart.length === 0 ? (
                 <div className="text-center py-20">
                   <ShoppingCart className="w-14 h-14 mx-auto mb-4 text-gray-700" />
@@ -1589,15 +1589,15 @@ export default function PublicStore() {
                 const sameLine = (i: CartItem) => i.id === item.id && i.selectedSize === item.selectedSize && i.selectedColor === item.selectedColor;
                 const variant = [item.selectedSize, item.selectedColor].filter(Boolean).join(' · ');
                 return (
-                <div key={lineKey} className="flex gap-4 p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                <div key={lineKey} className="flex gap-3 sm:gap-4 p-3 sm:p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                     {item.image && item.image !== '/placeholder-product.jpg'
                       ? <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                       : <Package className="w-8 h-8 text-gray-700" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white line-clamp-1">{item.name}</p>
-                    {variant && <p className="text-[11px] font-semibold text-orange-400 mb-0.5">{variant}</p>}
+                    <p className="text-xs sm:text-sm font-bold text-white line-clamp-2 break-words">{item.name}</p>
+                    {variant && <p className="text-[11px] font-semibold text-orange-400 mb-0.5 truncate">{variant}</p>}
                     <p className="text-xs text-gray-500 mb-2">${item.price.toFixed(2)}</p>
                     <div className="flex items-center gap-2">
                       <button onClick={() => setCart(item.quantity > 1 ? cart.map(i => sameLine(i) ? { ...i, quantity: i.quantity - 1 } : i) : cart.filter(i => !sameLine(i)))}
@@ -1612,7 +1612,7 @@ export default function PublicStore() {
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="font-black text-white text-sm">${(item.price * item.quantity).toFixed(2)}</p>
+                    <p className="font-black text-white text-xs sm:text-sm whitespace-nowrap">${(item.price * item.quantity).toFixed(2)}</p>
                     <button onClick={() => setCart(cart.filter(i => !sameLine(i)))} className="text-xs text-gray-600 hover:text-red-400 transition mt-2">Remove</button>
                   </div>
                 </div>
@@ -1626,7 +1626,7 @@ export default function PublicStore() {
               const upsells = allProducts.filter(p => !cartIds.has(p.id) && p.inStock).slice(0, 3);
               if (upsells.length === 0) return null;
               return (
-                <div className="px-6 pb-4">
+                <div className="px-4 sm:px-6 pb-4">
                   <p className="text-[10px] font-black tracking-widest uppercase text-gray-600 mb-2">You Might Also Like</p>
                   <div className="flex flex-col gap-2">
                     {upsells.map(p => (
@@ -1655,7 +1655,7 @@ export default function PublicStore() {
             })()}
 
             {cart.length > 0 && (
-              <div className="sticky bottom-0 p-6" style={{ background: '#0d0d0d', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="sticky bottom-0 p-4 sm:p-6" style={{ background: '#0d0d0d', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                 {/* ZIP / Tax calculator */}
                 <div className="mb-4">
                   <p className="text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-widest">Calculate Tax</p>
@@ -1671,10 +1671,10 @@ export default function PublicStore() {
                         setZipCode(v);
                         applyZip(v);
                       }}
-                      className="flex-1 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500/50 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none"
+                      className="flex-1 min-w-0 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500/50 rounded-xl px-3 py-2.5 text-base sm:text-sm text-white placeholder-gray-600 focus:outline-none"
                     />
                     {taxState && (
-                      <span className="flex items-center px-3 rounded-xl text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 whitespace-nowrap">
+                      <span className="flex flex-shrink-0 items-center px-2.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 whitespace-nowrap">
                         {taxState} · {(taxRate * 100).toFixed(2)}%
                       </span>
                     )}
@@ -1684,30 +1684,30 @@ export default function PublicStore() {
                   )}
                 </div>
 
-                <div className="space-y-2 mb-5">
-                  <div className="flex justify-between text-sm text-gray-500">
+                <div className="space-y-2 mb-4 sm:mb-5">
+                  <div className="flex justify-between gap-2 text-xs sm:text-sm text-gray-500">
                     <span>Subtotal</span>
                     <span className="text-white font-semibold">${cartTotal.toFixed(2)}</span>
                   </div>
                   {cartVolumeSavings > 0 && (
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between gap-2 text-xs sm:text-sm">
                       <span className="text-green-400">Volume savings</span>
                       <span className="text-green-400 font-semibold">−${cartVolumeSavings.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm text-gray-500">
+                  <div className="flex justify-between gap-2 text-xs sm:text-sm text-gray-500">
                     <span>Shipping</span>
                     <span className={qualifiesFreeShip ? 'text-green-400 font-semibold' : 'text-white font-semibold'}>
                       {qualifiesFreeShip ? '✓ FREE' : `$${flatShipRate.toFixed(2)}`}
                     </span>
                   </div>
                   {taxRate > 0 && (
-                    <div className="flex justify-between text-sm text-gray-500">
-                      <span>Tax ({(taxRate * 100).toFixed(2)}%)</span>
+                    <div className="flex justify-between gap-2 text-xs sm:text-sm text-gray-500">
+                      <span className="truncate">Tax ({(taxRate * 100).toFixed(2)}%)</span>
                       <span className="text-white font-semibold">${(cartTotal * taxRate).toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-base font-black text-white pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <div className="flex justify-between gap-2 text-sm sm:text-base font-black text-white pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                     <span>Total</span>
                     <span style={{ color: '#ea580c' }}>
                       ${((qualifiesFreeShip ? cartTotal : cartTotal + flatShipRate) + cartTotal * taxRate).toFixed(2)}
@@ -1719,7 +1719,7 @@ export default function PublicStore() {
                 </div>
 
                 <button
-                  className="w-full py-4 rounded-2xl font-black text-base transition hover:scale-105 flex items-center justify-center gap-2"
+                  className="w-full py-3 sm:py-3.5 rounded-2xl font-black text-sm transition hover:scale-105 flex items-center justify-center gap-2"
                   style={{ background: '#ea580c' }}
                   onClick={() => {
                     localStorage.removeItem('bp_cart_recovered');
@@ -1732,7 +1732,7 @@ export default function PublicStore() {
                     setShowCheckout(true);
                   }}
                 >
-                  <Lock className="w-4 h-4" /> Secure Checkout
+                  <Lock className="w-4 h-4 flex-shrink-0" /> Secure Checkout
                 </button>
                 <button onClick={() => setShowCart(false)} className="w-full mt-2 py-3 text-sm text-gray-500 hover:text-gray-300 transition">Continue Shopping</button>
               </div>
@@ -1743,11 +1743,11 @@ export default function PublicStore() {
 
       {/* ── QUICK VIEW MODAL ─────────────────────────────────────────────────── */}
       {showQuickView && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setShowQuickView(null)} />
-          <div className="relative w-full max-w-md sm:max-w-3xl rounded-3xl max-h-[80dvh] sm:max-h-[88vh] overflow-y-auto overscroll-contain mb-2 sm:my-8" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
-            <button onClick={() => setShowQuickView(null)} className="absolute top-3 right-3 z-[60] w-10 h-10 rounded-full flex items-center justify-center text-white shadow-lg transition hover:scale-105" style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(6px)' }} aria-label="Close and return to store">
-              <X className="w-5 h-5" />
+          <div className="relative w-full max-w-full sm:max-w-3xl rounded-t-2xl sm:rounded-3xl max-h-[92dvh] sm:max-h-[88vh] overflow-y-auto overscroll-contain" style={{ background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.09)' }}>
+            <button onClick={() => setShowQuickView(null)} className="absolute top-3 right-3 z-[60] w-9 h-9 rounded-full flex items-center justify-center text-white shadow-lg transition hover:scale-105" style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(6px)' }} aria-label="Close and return to store">
+              <X className="w-4 h-4" />
             </button>
             <div className="flex flex-col md:flex-row">
               {(() => {
@@ -1760,8 +1760,8 @@ export default function PublicStore() {
                 const active = gallery[idx];
                 const hasMany = gallery.length > 1;
                 return (
-                  <div className="md:w-80 flex-shrink-0 flex flex-col">
-                    <div className="relative aspect-square flex items-center justify-center overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                  <div className="md:w-72 flex-shrink-0 flex flex-col">
+                    <div className="relative aspect-[4/3] sm:aspect-square flex items-center justify-center overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
                       {active
                         ? <img src={active} alt={showQuickView.name} className="w-full h-full object-cover" />
                         : <Package className="w-28 h-28 text-gray-700" />}
@@ -1799,27 +1799,27 @@ export default function PublicStore() {
                   </div>
                 );
               })()}
-              <div className="flex-1 p-5 sm:p-8">
-                <div className="flex items-center gap-2 mb-2">
-                  {showQuickView.badge && <span className="px-3 py-1 rounded-full text-xs font-black" style={{ background: '#ea580c' }}>{showQuickView.badge}</span>}
-                  <span className="text-xs text-gray-500">{showQuickView.category}</span>
+              <div className="flex-1 p-4 sm:p-6">
+                <div className="flex items-center flex-wrap gap-2 mb-2 pr-10">
+                  {showQuickView.badge && <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black" style={{ background: '#ea580c' }}>{showQuickView.badge}</span>}
+                  <span className="text-xs text-gray-500 truncate">{showQuickView.category}</span>
                 </div>
-                <h2 className="text-2xl font-black text-white mb-2">{showQuickView.name}</h2>
-                <p className="text-sm text-gray-400 mb-4 leading-relaxed">{showQuickView.description}</p>
-                <div className="flex items-center gap-2 mb-6">
-                  <div className="flex">{[1,2,3,4,5].map(s => <Star key={s} className={`w-4 h-4 ${s <= Math.floor(showQuickView.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-700'}`} />)}</div>
+                <h2 className="text-base sm:text-2xl font-black text-white mb-1.5 break-words">{showQuickView.name}</h2>
+                <p className="text-xs sm:text-sm text-gray-400 mb-3 leading-relaxed break-words">{showQuickView.description}</p>
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mb-3">
+                  <div className="flex flex-shrink-0">{[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= Math.floor(showQuickView.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-700'}`} />)}</div>
                   <span className="text-xs text-gray-500">{showQuickView.rating} ({showQuickView.reviews} reviews)</span>
                 </div>
-                <div className="flex items-end gap-3 mb-6">
-                  <span className="text-4xl font-black text-white">${showQuickView.price.toFixed(2)}</span>
-                  {showQuickView.originalPrice && <span className="text-lg text-gray-600 line-through pb-1">${showQuickView.originalPrice.toFixed(2)}</span>}
+                <div className="flex items-end flex-wrap gap-2 mb-4">
+                  <span className="text-xl sm:text-4xl font-black text-white">${showQuickView.price.toFixed(2)}</span>
+                  {showQuickView.originalPrice && <span className="text-sm sm:text-lg text-gray-600 line-through pb-0.5">${showQuickView.originalPrice.toFixed(2)}</span>}
                 </div>
                 {showQuickView.colors && showQuickView.colors.length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Color</p>
-                    <div className="flex flex-wrap gap-2">{showQuickView.colors.map(c => (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-gray-400 mb-1.5">Color</p>
+                    <div className="flex flex-wrap gap-1.5">{showQuickView.colors.map(c => (
                       <button key={c} onClick={() => setQvColor(c)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium transition"
                         style={qvColor === c
                           ? { background: '#ea580c', color: '#fff', border: '1px solid #ea580c' }
                           : { background: 'rgba(255,255,255,0.07)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)' }}>{c}</button>
@@ -1827,13 +1827,13 @@ export default function PublicStore() {
                   </div>
                 )}
                 {showQuickView.sizes && showQuickView.sizes.length > 0 && (
-                  <div className="mb-6">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold text-gray-400 mb-1.5">
                       Size {qvSize ? <span className="text-orange-400">· {qvSize}</span> : <span className="text-gray-600">· select one</span>}
                     </p>
-                    <div className="flex flex-wrap gap-2">{showQuickView.sizes.map(s => (
+                    <div className="flex flex-wrap gap-1.5">{showQuickView.sizes.map(s => (
                       <button key={s} onClick={() => setQvSize(s)}
-                        className="min-w-[44px] px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        className="min-w-[40px] px-2.5 py-1 rounded-lg text-xs font-bold transition"
                         style={qvSize === s
                           ? { background: '#ea580c', color: '#fff', border: '1px solid #ea580c' }
                           : { background: 'rgba(255,255,255,0.07)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.1)' }}>{s}</button>
@@ -1847,22 +1847,22 @@ export default function PublicStore() {
                       setQvAdded(true);
                     }}
                     disabled={!showQuickView.inStock}
-                    className="w-full py-4 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition hover:scale-105 disabled:opacity-40" style={{ background: '#ea580c' }}>
-                    <ShoppingCart className="w-5 h-5" /> {showQuickView.inStock ? 'Add to Cart' : 'Out of Stock'}
+                    className="w-full py-3 sm:py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 disabled:opacity-40" style={{ background: '#ea580c' }}>
+                    <ShoppingCart className="w-4 h-4 flex-shrink-0" /> {showQuickView.inStock ? 'Add to Cart' : 'Out of Stock'}
                   </button>
                 ) : (
                   <div className="space-y-3">
                     <div className="flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-bold text-green-400" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)' }}>
                       <Check className="w-4 h-4" /> Added to cart
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2 sm:gap-3">
                       <button onClick={() => { setShowQuickView(null); setShowCart(true); }}
-                        className="w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                        <ShoppingCart className="w-4 h-4" /> View Cart
+                        className="w-full py-3 sm:py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                        <ShoppingCart className="w-4 h-4 flex-shrink-0" /> View Cart
                       </button>
                       <button onClick={() => { setShowQuickView(null); setShowCart(false); setShowCheckout(true); setCheckoutStep('info'); }}
-                        className="w-full py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: '#ea580c' }}>
-                        <Lock className="w-4 h-4" /> Checkout
+                        className="w-full py-3 sm:py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition hover:scale-105 text-white" style={{ background: '#ea580c' }}>
+                        <Lock className="w-4 h-4 flex-shrink-0" /> Checkout
                       </button>
                     </div>
                     <button onClick={() => setQvAdded(false)}
@@ -1937,7 +1937,7 @@ export default function PublicStore() {
 
           const res = await fetch(`${SERVER}/store/checkout`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: publicAnonKey },
+            headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
             body: JSON.stringify({
               items: cart.map(item => ({ id: item.id, name: item.name, price: item.price, qty: item.quantity, quantity: item.quantity, image: item.image, size: item.selectedSize || undefined, color: item.selectedColor || undefined })),
               customer: { name: customer.name, email: customer.email, phone: customer.phone, address: `${customer.address}, ${customer.city} ${customer.zip}` },
@@ -1961,8 +1961,8 @@ export default function PublicStore() {
 
       {/* ── LEAD CAPTURE POPUP ───────────────────────────────────────────── */}
       {showLeadCapture && !showCheckout && !showCart && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#111] border border-[#2A2A2A] rounded-2xl w-full max-w-sm p-6 relative shadow-2xl">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#111] border border-[#2A2A2A] rounded-2xl w-full max-w-sm p-4 sm:p-6 relative shadow-2xl max-h-[85dvh] overflow-y-auto">
             <button onClick={() => setShowLeadCapture(false)}
               className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-[#2A2A2A] transition text-gray-500">
               <X className="w-4 h-4" />
@@ -1978,19 +1978,19 @@ export default function PublicStore() {
               </div>
             ) : (
               <>
-                <div className="text-center mb-5">
-                  <p className="text-2xl mb-2">🎁</p>
-                  <h3 className="font-black text-white text-lg leading-tight">Get 10% Off Your First Order</h3>
-                  <p className="text-gray-400 text-sm mt-1">Join thousands of happy shoppers. No spam, ever.</p>
+                <div className="text-center mb-5 px-6">
+                  <p className="text-xl mb-1.5">🎁</p>
+                  <h3 className="font-black text-white text-sm sm:text-base leading-tight break-words">Get 10% Off Your First Order</h3>
+                  <p className="text-gray-400 text-xs sm:text-sm mt-1">Join thousands of happy shoppers. No spam, ever.</p>
                 </div>
                 <div className="space-y-3">
                   <input value={leadName} onChange={e => setLeadName(e.target.value)}
                     placeholder="Your first name"
-                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
+                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-base sm:text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
                   <input type="email" value={leadEmail} onChange={e => setLeadEmail(e.target.value)}
                     placeholder="Your email address"
                     onKeyDown={e => e.key === 'Enter' && submitLead()}
-                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
+                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-base sm:text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50" />
                   <button onClick={() => submitLead()} disabled={!leadEmail}
                     className="w-full py-3.5 rounded-2xl font-black text-white text-sm transition disabled:opacity-40"
                     style={{ background: '#ea580c' }}>
@@ -2005,39 +2005,37 @@ export default function PublicStore() {
       )}
       {/* ── REVIEW REQUEST MODAL ─────────────────────────────────────────── */}
       {showReviewRequest && (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
-          <div className="w-full max-w-sm rounded-3xl overflow-hidden" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-3 sm:p-4" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)' }}>
+          <div className="w-full max-w-sm rounded-2xl sm:rounded-3xl overflow-hidden max-h-[85dvh] overflow-y-auto" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}>
             {reviewStep === 'rate' ? (
               <>
-                <div className="px-6 pt-8 pb-4 text-center">
-                  <div className="text-5xl mb-3">🎉</div>
-                  <h3 className="text-xl font-black text-white mb-1">Thank You for Your Order!</h3>
+                <div className="px-5 pt-6 pb-3 text-center">
+                  <div className="text-4xl mb-2">🎉</div>
+                  <h3 className="text-base font-black text-white mb-1">Thank You for Your Order!</h3>
                   <p className="text-sm text-gray-400 leading-relaxed">
                     As a family-owned business, every review means the world to us. Would you take 60 seconds to share your experience?
                   </p>
                 </div>
 
                 {/* Star rating */}
-                <div className="flex justify-center gap-2 py-3">
+                <div className="flex justify-center gap-2 py-2">
                   {[1,2,3,4,5].map(s => (
                     <button key={s}
                       onClick={() => {
                         if (s >= 4) {
-                          // High rating → send to Google
                           window.open('https://g.page/r/your-google-review-link/review', '_blank');
                           setReviewStep('thanks');
                         } else {
-                          // Low rating → collect feedback privately
                           setReviewStep('thanks');
                         }
                       }}
                       className="transition hover:scale-125 active:scale-95">
-                      <Star className="w-9 h-9 fill-yellow-400 text-yellow-400" />
+                      <Star className="w-8 h-8 fill-yellow-400 text-yellow-400" />
                     </button>
                   ))}
                 </div>
 
-                <div className="px-6 pb-6 space-y-2 mt-2">
+                <div className="px-5 pb-5 space-y-2 mt-1">
                   <a href="https://g.page/r/your-google-review-link/review" target="_blank" rel="noreferrer"
                     onClick={() => setReviewStep('thanks')}
                     className="flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl font-black text-white text-sm transition hover:brightness-110"
@@ -2051,9 +2049,9 @@ export default function PublicStore() {
                 </div>
               </>
             ) : (
-              <div className="px-6 py-10 text-center">
-                <div className="text-5xl mb-4">🧡</div>
-                <h3 className="text-xl font-black text-white mb-2">You're Amazing!</h3>
+              <div className="px-5 py-8 text-center">
+                <div className="text-4xl mb-3">🧡</div>
+                <h3 className="text-base font-black text-white mb-2">You're Amazing!</h3>
                 <p className="text-sm text-gray-400 mb-6">Your support keeps this family business going. We'll also send a reminder to your email — no pressure.</p>
                 <button onClick={() => { setShowReviewRequest(false); setReviewStep('rate'); }}
                   className="w-full py-3.5 rounded-2xl font-black text-white text-sm transition hover:brightness-110"
@@ -2071,15 +2069,15 @@ export default function PublicStore() {
 
       {/* ── ORDER TRACKING MODAL ──────────────────────────────────────────── */}
       {showTrackOrder && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={() => setShowTrackOrder(false)}>
-          <div className="w-full max-w-md rounded-2xl overflow-hidden" style={{ background: '#0d0d0d', border: '1px solid rgba(234,88,12,0.25)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4" style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}>
-              <div className="flex items-center gap-2 text-white font-black"><Truck className="w-5 h-5" /> Track Your Order</div>
-              <button onClick={() => setShowTrackOrder(false)} className="text-white/80 hover:text-white"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 z-[9997] flex items-end sm:items-center justify-center p-3 sm:p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={() => setShowTrackOrder(false)}>
+          <div className="w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden max-h-[85dvh] overflow-y-auto" style={{ background: '#0d0d0d', border: '1px solid rgba(234,88,12,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-4" style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}>
+              <div className="flex items-center gap-2 min-w-0 text-white font-black text-sm sm:text-base"><Truck className="w-5 h-5 flex-shrink-0" /> <span className="truncate">Track Your Order</span></div>
+              <button onClick={() => setShowTrackOrder(false)} className="flex-shrink-0 text-white/80 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-5 space-y-3">
-              <input className="w-full px-3 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Order number (e.g. ORD-2603-0001)" value={trackForm.order} onChange={e => setTrackForm(f => ({ ...f, order: e.target.value }))} />
-              <input className="w-full px-3 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Email used at checkout" value={trackForm.email} onChange={e => setTrackForm(f => ({ ...f, email: e.target.value }))} />
+              <input className="w-full px-3 py-2.5 rounded-xl text-base sm:text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Order number (e.g. ORD-2603-0001)" value={trackForm.order} onChange={e => setTrackForm(f => ({ ...f, order: e.target.value }))} />
+              <input className="w-full px-3 py-2.5 rounded-xl text-base sm:text-sm bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50" placeholder="Email used at checkout" value={trackForm.email} onChange={e => setTrackForm(f => ({ ...f, email: e.target.value }))} />
               {trackError && <p className="text-xs text-red-400">{trackError}</p>}
               <button onClick={lookupOrder} disabled={trackLoading} className="w-full py-2.5 rounded-xl text-sm font-black text-white transition" style={{ background: '#ea580c' }}>
                 {trackLoading ? 'Looking up…' : 'Track Order'}

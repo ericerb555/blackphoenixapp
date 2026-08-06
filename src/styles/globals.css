@@ -320,4 +320,32 @@ input::placeholder, textarea::placeholder {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
+
+  /* ── NOTHING MAY EXCEED THE SCREEN WIDTH ──────────────────
+     A single over-wide element (a long product name, a flex
+     child that refuses to shrink) drags the whole page
+     sideways, which is what makes text look like it is
+     bleeding off the edge. `clip` rather than `hidden`, because
+     `hidden` would break the sticky header/footer in the cart. */
+  html,
+  body {
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
+  /* Long unbroken strings — SKUs, emails, order numbers, URLs —
+     wrap instead of forcing their container wider. */
+  h1, h2, h3, h4, h5, h6,
+  p, span, a, li, label, button {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Flex children default to min-width:auto and refuse to shrink
+     below their content. That single default is the mechanism
+     behind both the sideways overflow and buttons colliding in a
+     row. Opt every flex row inside an overlay into shrinking. */
+  .fixed.inset-0 .flex > * {
+    min-width: 0;
+  }
 }
