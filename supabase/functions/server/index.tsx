@@ -6929,18 +6929,52 @@ type StripeAccount = 'services' | 'tbpco_ecommerce';
 // Separate Stripe accounts are intentionally selected server-side by workflow.
 // Services, invoices, subscriptions, maintenance, and gift cards remain on Black
 // Phoenix Builds. Store merchandise uses the TBPCO e-commerce account.
-function stripeKeyFor(account: StripeAccount = 'services') {
-  if (account === 'tbpco_ecommerce') {
-    return Deno.env.get('TBPCO_ECOMMERCE_STRIPE_SECRET_KEY')
-      || Deno.env.get('STRIPE_SECRET_KEY_SERVICES')
-      || Deno.env.get('STRIPE_SECRET_KEY')
-      || '';
-  }
-  return Deno.env.get('STRIPE_SECRET_KEY_SERVICES') || Deno.env.get('STRIPE_SECRET_KEY') || '';
-}
+//
+// STRICT SEPARATION — the two accounts are hard-partitioned and MUST NOT be able
+// to settle each other's transactions:
+//   • Neither account falls back to the other's key. A missing key is a loud
+//     configuration error, never a silent charge into the wrong business.
+//   • If both env vars are set to the SAME secret, that is a misconfiguration
+//     that would merge the books, so it is rejected outright.
+// Construction/services money can therefore only ever reach the Black Phoenix
+// Builds account, and store money only ever reaches the TBPCO account.
+const STRIPE_KEY_ENVS: Record<StripeAccount, string[]> = {
+  services: ['STRIPE_SECRET_KEY_SERVICES', 'STRIPE_SECRET_KEY'],
+  tbpco_ecommerce: ['TBPCO_ECOMMERCE_STRIPE_SECRET_KEY'],
+};
 
 function stripeAccountLabel(account: StripeAccount) {
   return account === 'tbpco_ecommerce' ? 'TBPCO E-commerce' : 'Black Phoenix Builds Services';
+}
+
+function readStripeKey(account: StripeAccount) {
+  for (const name of STRIPE_KEY_ENVS[account]) {
+    const value = (Deno.env.get(name) || '').trim();
+    if (value) return { key: value, env: name };
+  }
+  return { key: '', env: '' };
+}
+
+function stripeKeyFor(account: StripeAccount = 'services') {
+  const mine = readStripeKey(account);
+  if (!mine.key) {
+    const expected = STRIPE_KEY_ENVS[account].join(' or ');
+    throw new Error(
+      `${stripeAccountLabel(account)} Stripe is not configured. Set ${expected} in the Supabase edge function secrets. ` +
+      `This account never falls back to another Stripe account's key, so no payment was attempted.`,
+    );
+  }
+  // Cross-contamination guard: the same secret must not serve both businesses.
+  const other: StripeAccount = account === 'services' ? 'tbpco_ecommerce' : 'services';
+  const theirs = readStripeKey(other);
+  if (theirs.key && theirs.key === mine.key) {
+    throw new Error(
+      `Stripe account separation error: ${mine.env} and ${theirs.env} hold the same secret key, so ` +
+      `${stripeAccountLabel(account)} and ${stripeAccountLabel(other)} would settle into the same Stripe account. ` +
+      `Set each to its own account's key. No payment was attempted.`,
+    );
+  }
+  return mine.key;
 }
 
 async function stripeCheckoutSession(params: URLSearchParams, account: StripeAccount = 'services') {
@@ -6969,6 +7003,36 @@ async function retrieveStripeCheckoutSession(sessionId: string, account: StripeA
   if (!response.ok) throw new Error(payload?.error?.message || 'Unable to verify Stripe payment.');
   return payload;
 }
+
+// Read-only proof of account separation. Reports WHICH env var each business
+// resolves to and whether the two are distinct — never any key material.
+app.get('/make-server-3eae23a6/payments/stripe-separation', (c) => {
+  const describe = (account: StripeAccount) => {
+    const { key, env } = readStripeKey(account);
+    return {
+      account,
+      label: stripeAccountLabel(account),
+      configured: Boolean(key),
+      envVar: env || null,
+      candidates: STRIPE_KEY_ENVS[account],
+      mode: key.startsWith('sk_live') || key.startsWith('rk_live') ? 'live'
+        : key.startsWith('sk_test') || key.startsWith('rk_test') ? 'test'
+        : key ? 'unknown' : null,
+    };
+  };
+  const services = readStripeKey('services');
+  const ecommerce = readStripeKey('tbpco_ecommerce');
+  const collision = Boolean(services.key && ecommerce.key && services.key === ecommerce.key);
+  return c.json({
+    services: describe('services'),
+    tbpco_ecommerce: describe('tbpco_ecommerce'),
+    separated: !collision && Boolean(services.key) && Boolean(ecommerce.key),
+    collision,
+    note: collision
+      ? 'Both env vars hold the SAME secret key. All Stripe charges are blocked until they differ.'
+      : 'Neither account falls back to the other key; a missing key blocks that business only.',
+  });
+});
 
 async function deliverGiftCardEmail(card: any, recipientEmail: string) {
   const resendKey = Deno.env.get('RESEND_API_KEY') || '';
