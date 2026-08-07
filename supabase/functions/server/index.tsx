@@ -133,6 +133,12 @@ import { storeContentRouter } from "./store-content.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "./dropshipper-config.tsx";
 import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
+import {
+  STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
+  loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
+  notifyStaff, notifyStaffInBackground, loadStaffNotificationLog,
+  type StaffRecipient, type StaffNotificationEvent,
+} from "./staff-notifications.tsx";
 
 const app = new Hono();
 
@@ -2167,37 +2173,29 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
 
     const results: Record<string, any> = { emailSent: false, smsSent: false, emailRecipients: [], smsRecipients: [] };
 
-    // ── EMAIL via Resend ──────────────────────────────────────────────
-    if (RESEND_API_KEY) {
-      try {
-        const emailRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
-            reply_to: REPLY_TO_EMAIL,
-            to: ADMIN_EMAILS,
-            subject,
-            text: msgBody,
-            html: `<div style="font-family:sans-serif;max-width:600px;padding:24px">
-              <h2 style="color:#ea580c">🚨 New Work Request</h2>
-              <table style="width:100%;border-collapse:collapse">
-                <tr><td style="padding:8px;color:#666">Client</td><td style="padding:8px;font-weight:bold">${clientName}</td></tr>
-                <tr><td style="padding:8px;color:#666">Email</td><td style="padding:8px">${clientEmail}</td></tr>
-                <tr><td style="padding:8px;color:#666">Phone</td><td style="padding:8px">${clientPhone || 'N/A'}</td></tr>
-                <tr><td style="padding:8px;color:#666">Service</td><td style="padding:8px">${serviceType || title || 'N/A'}</td></tr>
-                <tr><td style="padding:8px;color:#666">Budget</td><td style="padding:8px">${budgetRange || 'N/A'}</td></tr>
-              </table>
-              <a href="https://www.theblackphoenixcompany.com" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#ea580c;color:white;text-decoration:none;border-radius:8px;font-weight:bold">View in Admin Panel →</a>
-            </div>`,
-          }),
-        });
-        if (emailRes.ok) { results.emailSent = true; results.emailRecipients = ADMIN_EMAILS; }
-        else { const e = await emailRes.json(); console.error('[Notify] Email error:', e); }
-      } catch (e) { console.error('[Notify] Email exception:', e); }
-    } else {
-      console.log('ℹ️ [Notify] RESEND_API_KEY not set — skipping email');
-    }
+    // ── EMAIL via the staff notification engine ───────────────────────
+    // Goes to the owner-managed recipient list (plus ADMIN_NOTIFICATION_EMAILS)
+    // rather than a hard-coded address. The dedupe key means the intake form
+    // calling both /work-requests and this route only produces one email.
+    const emailResult = await notifyStaff('work_request', {
+      subject: `New work request from ${clientName || clientEmail}`,
+      heading: '🔨 New work request',
+      rows: [
+        ['Client', clientName || '—'],
+        ['Email', clientEmail || '—'],
+        ['Phone', clientPhone || '—'],
+        ['Service', serviceType || title || '—'],
+        ['Budget', budgetRange || '—'],
+        ['Description', String(description || '').slice(0, 400) || '—'],
+        ['Request ID', workRequestId || '—'],
+      ],
+      ctaLabel: 'Review the request',
+      ctaPath: '/work-requests',
+      dedupeKey: workRequestId ? `work_request:${workRequestId}` : undefined,
+    });
+    results.emailSent = emailResult.sent;
+    results.emailRecipients = emailResult.recipients;
+    if (emailResult.error) results.emailError = emailResult.error;
 
     // ── SMS via Twilio ────────────────────────────────────────────────
     if (TWILIO_SID && TWILIO_AUTH && TWILIO_FROM && ADMIN_PHONES) {
@@ -2656,6 +2654,151 @@ app.delete('/make-server-3eae23a6/purchase-orders/:id', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete purchase order.' }, 500); }
 });
 
+// Full update for a purchase order (status-only changes use the PATCH above).
+app.put('/make-server-3eae23a6/purchase-orders/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await kv.get(`purchase_order:${id}`) as any;
+    if (!existing) return c.json({ success: false, error: 'Purchase order not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    // Drop undefined so a partial update can't blank out stored fields.
+    const patch = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
+    const order = stripBase64({ ...existing, ...patch, id, updatedAt: new Date().toISOString() });
+    await kv.set(`purchase_order:${id}`, order);
+    return c.json({ success: true, order });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update purchase order.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPLIERS — the directory behind Supplier Management Hub. Returns only what
+// has actually been entered; no seeded demo vendors.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/make-server-3eae23a6/suppliers', async (c) => {
+  try {
+    const suppliers = ((await kv.getByPrefix('supplier:')) as any[] || []).filter(Boolean);
+    suppliers.sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || '')));
+    return c.json({ success: true, suppliers });
+  } catch (error: any) {
+    console.log('Suppliers list error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to load suppliers.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/suppliers', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    if (!String(body.name || '').trim()) {
+      return c.json({ success: false, error: 'A supplier name is required.' }, 400);
+    }
+    const id = String(body.id || `sup_${crypto.randomUUID()}`);
+    const existing = await kv.get(`supplier:${id}`) as any;
+    const now = new Date().toISOString();
+    const supplier = {
+      rating: 0, totalOrders: 0, totalSpend: 0, status: 'active',
+      ...(existing || {}), ...body, id,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    await kv.set(`supplier:${id}`, supplier);
+    return c.json({ success: true, supplier });
+  } catch (error: any) {
+    console.log('Supplier save error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to save the supplier.' }, 500);
+  }
+});
+
+app.put('/make-server-3eae23a6/suppliers/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await kv.get(`supplier:${id}`) as any;
+    if (!existing) return c.json({ success: false, error: 'Supplier not found.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const patch = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
+    const supplier = { ...existing, ...patch, id, updatedAt: new Date().toISOString() };
+    await kv.set(`supplier:${id}`, supplier);
+    return c.json({ success: true, supplier });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to update the supplier.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/suppliers/:id', async (c) => {
+  try {
+    await kv.del(`supplier:${c.req.param('id')}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to delete the supplier.' }, 500);
+  }
+});
+
+// ── Supplier RFQs ────────────────────────────────────────────────────────────
+// An RFQ goes out to several suppliers; each reply is a quote on the same
+// record, so comparing bids never needs a second lookup.
+registerFieldOpsCollection('supplier-rfqs', 'supplier_rfq:', 'rfq');
+
+app.post('/make-server-3eae23a6/supplier-rfqs/:id/quote', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const rfq = await kv.get(`supplier_rfq:${id}`) as any;
+    if (!rfq) return c.json({ success: false, error: 'That RFQ no longer exists.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const supplierId = String(body.supplierId || '').trim();
+    const amount = Number(body.amount);
+    if (!supplierId) return c.json({ success: false, error: 'A supplier is required to record a quote.' }, 400);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return c.json({ success: false, error: 'Enter a valid quote amount.' }, 400);
+    }
+
+    const quote = {
+      supplierId,
+      supplierName: String(body.supplierName || '').trim(),
+      amount,
+      leadTime: String(body.leadTime || '').trim(),
+      notes: String(body.notes || '').trim(),
+      quotedAt: new Date().toISOString(),
+    };
+    // One quote per supplier — a resubmission replaces the earlier figure.
+    const quotes = [...(rfq.quotes || []).filter((q: any) => q.supplierId !== supplierId), quote];
+    const updated = { ...rfq, quotes, status: 'quoted', updatedAt: new Date().toISOString() };
+    await kv.set(`supplier_rfq:${id}`, updated);
+    return c.json({ success: true, item: updated });
+  } catch (error: any) {
+    console.log('RFQ quote error:', error);
+    return c.json({ success: false, error: error?.message || 'Unable to record the quote.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/supplier-rfqs/:id/award', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const rfq = await kv.get(`supplier_rfq:${id}`) as any;
+    if (!rfq) return c.json({ success: false, error: 'That RFQ no longer exists.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const supplierId = String(body.supplierId || '').trim();
+    const winning = (rfq.quotes || []).find((q: any) => q.supplierId === supplierId);
+    if (!winning) return c.json({ success: false, error: 'That supplier has not submitted a quote on this RFQ.' }, 400);
+
+    const updated = {
+      ...rfq,
+      status: 'awarded',
+      awardedTo: supplierId,
+      awardedSupplierName: winning.supplierName,
+      awardedAmount: winning.amount,
+      awardedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`supplier_rfq:${id}`, updated);
+    return c.json({ success: true, item: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to award the RFQ.' }, 500);
+  }
+});
+
+// ── Supplier Audits ──────────────────────────────────────────────────────────
+registerFieldOpsCollection('supplier-audits', 'supplier_audit:', 'audit', 'auditDate');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STUDIO RECENT PROJECTS — the Project Selector's "recently opened" rail.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3081,6 +3224,383 @@ app.post('/make-server-3eae23a6/marketplace/checkout', async (c) => {
   } catch (error: any) { return c.json({ error: error.message || 'Unable to start secure checkout.' }, 500); }
 });
 
+// MARKETPLACE CHECKOUT COMPLETION — called when Stripe returns the shopper.
+// Verifies the session ON THE TBPCO ACCOUNT before flipping the order to paid,
+// so an order is only ever marked paid when Stripe itself says it was paid.
+app.post('/make-server-3eae23a6/marketplace/checkout/complete', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const sessionId = String(body.sessionId || '').trim();
+    if (!sessionId) return c.json({ error: 'A Stripe session id is required to confirm this order.' }, 400);
+
+    const session = await retrieveStripeCheckoutSession(sessionId, 'tbpco_ecommerce');
+    const paid = session?.payment_status === 'paid' || session?.status === 'complete';
+
+    // Find the pending order recorded at checkout time.
+    const orders = await kv.getByPrefix('store_order:');
+    const order = (orders || []).find((o: any) => o?.stripe_session_id === sessionId);
+    if (!order) {
+      console.log(`Marketplace completion: no order found for Stripe session ${sessionId}. Paid=${paid}.`);
+      return c.json({ error: 'We could not match this payment to an order. Please contact support with your Stripe receipt.', paid }, 404);
+    }
+
+    if (!paid) {
+      return c.json({ success: false, paid: false, order, error: `Stripe reports this session as "${session?.payment_status || session?.status || 'unpaid'}". The order was not marked paid.` }, 402);
+    }
+
+    if (order.payment_status !== 'paid') {
+      order.payment_status = 'paid';
+      order.paid_at = new Date().toISOString();
+      order.stripe_payment_intent = session?.payment_intent || null;
+      order.amount_paid = typeof session?.amount_total === 'number' ? session.amount_total / 100 : order.total;
+      await kv.set(`store_order:${order.id}`, order);
+
+      // Only on the transition to paid, so a page refresh cannot re-alert.
+      notifyStaffInBackground('payment', {
+        subject: `Payment received — $${Number(order.amount_paid || 0).toFixed(2)}`,
+        heading: '💳 Payment received',
+        rows: [
+          ['Amount', `$${Number(order.amount_paid || 0).toFixed(2)}`],
+          ['Stripe account', stripeAccountLabel('tbpco_ecommerce')],
+          ['Customer', order.customer?.name || order.customer_name || '—'],
+          ['Email', order.customer?.email || order.customer_email || session?.customer_details?.email || '—'],
+          ['Items', (Array.isArray(order.items) ? order.items : []).map((i: any) => `${i.name} ×${i.quantity ?? i.qty ?? 1}`).join(', ') || '—'],
+          ['Order ID', order.id],
+        ],
+        ctaLabel: 'View the order',
+        ctaPath: '/orders',
+      });
+    }
+
+    return c.json({ success: true, paid: true, order });
+  } catch (error: any) {
+    console.log(`Marketplace checkout completion error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Unable to confirm this payment with Stripe.' }, 500);
+  }
+});
+
+// STRIPE SESSION LOOKUP — powers the /order-success receipt page. Reads the
+// session from whichever account actually owns it, so a receipt is only ever
+// rendered from real Stripe data, never from client-supplied values.
+app.get('/make-server-3eae23a6/stripe/session/:sessionId', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const accounts: StripeAccount[] = ['tbpco_ecommerce', 'services'];
+  const errors: string[] = [];
+
+  for (const account of accounts) {
+    try {
+      const session = await retrieveStripeCheckoutSession(sessionId, account);
+      if (!session?.id) continue;
+
+      // Line items live on a sub-resource; fetch them for the receipt.
+      let items: any[] = [];
+      try {
+        const key = stripeKeyFor(account);
+        const liRes = await fetch(
+          `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}/line_items?limit=100`,
+          { headers: { Authorization: `Basic ${btoa(`${key}:`)}` } },
+        );
+        const liBody = await liRes.json().catch(() => ({}));
+        if (liRes.ok) {
+          items = (liBody?.data || []).map((li: any) => ({
+            name: li?.description || li?.price?.product || 'Item',
+            quantity: li?.quantity || 1,
+            unitAmount: li?.price?.unit_amount ?? (li?.amount_total && li?.quantity ? Math.round(li.amount_total / li.quantity) : 0),
+          }));
+        }
+      } catch (e: any) {
+        console.log(`Stripe line-item lookup failed for ${sessionId}: ${e?.message || e}`);
+      }
+
+      // Prefer the internal order id if we recorded one for this session.
+      let orderId = session?.metadata?.store_checkout_id || '';
+      if (!orderId) {
+        const orders = await kv.getByPrefix('store_order:');
+        orderId = (orders || []).find((o: any) => o?.stripe_session_id === sessionId)?.id || '';
+      }
+
+      return c.json({
+        sessionId: session.id,
+        customerName: session?.customer_details?.name || session?.metadata?.customer_name || '',
+        customerEmail: session?.customer_details?.email || session?.customer_email || '',
+        total: session?.amount_total ?? 0,
+        currency: session?.currency || 'usd',
+        items,
+        paymentStatus: session?.payment_status || session?.status || 'unknown',
+        orderId: orderId || session.id,
+        createdAt: session?.created ? new Date(session.created * 1000).toISOString() : new Date().toISOString(),
+        account,
+      });
+    } catch (error: any) {
+      errors.push(`${account}: ${error?.message || error}`);
+    }
+  }
+
+  console.log(`Stripe session ${sessionId} not found on any account. ${errors.join(' | ')}`);
+  return c.json({ error: 'That payment session could not be found on either Stripe account.', details: errors }, 404);
+});
+
+// ORDER CONFIRMATION EMAIL — sent from the receipt page after a verified order.
+app.post('/make-server-3eae23a6/email/order-confirmation', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const to = String(body.to || '').trim();
+    if (!to || !to.includes('@')) return c.json({ error: 'A valid recipient email is required.' }, 400);
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    if (!RESEND_API_KEY) {
+      console.log('Order confirmation email skipped: RESEND_API_KEY is not set.');
+      return c.json({ error: 'Email is not configured (RESEND_API_KEY missing), so no confirmation was sent.' }, 503);
+    }
+    const from = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
+    const replyTo = Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me';
+
+    const currency = String(body.currency || 'usd').toUpperCase();
+    const money = (cents: number) => `${currency === 'USD' ? '$' : ''}${((Number(cents) || 0) / 100).toFixed(2)}`;
+    const items = Array.isArray(body.items) ? body.items : [];
+    const rows = items.map((i: any) =>
+      `<tr><td style="padding:8px 0;color:#333">${i?.name || 'Item'} × ${i?.quantity || 1}</td>` +
+      `<td style="padding:8px 0;text-align:right;color:#333">${money((i?.unitAmount || 0) * (i?.quantity || 1))}</td></tr>`,
+    ).join('');
+
+    const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+      <h1 style="color:#ea580c;margin:0 0 8px">Order confirmed</h1>
+      <p style="color:#333">Thanks${body.name ? `, ${String(body.name).split(' ')[0]}` : ''} — we've received your order${body.orderId ? ` <strong>${body.orderId}</strong>` : ''}.</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0">${rows}
+        <tr><td style="padding:12px 0;border-top:1px solid #eee;font-weight:bold">Total</td>
+            <td style="padding:12px 0;border-top:1px solid #eee;text-align:right;font-weight:bold;color:#ea580c">${money(body.total)}</td></tr>
+      </table>
+      <p style="color:#666;font-size:13px">We'll email tracking details as soon as your order ships. Reply to this email with any questions.</p>
+    </div>`;
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, reply_to: replyTo, to: [to], subject: `Order confirmed${body.orderId ? ` — ${body.orderId}` : ''}`, html }),
+    });
+    const payload = await res.text().catch(() => '');
+    if (!res.ok) {
+      console.log(`Order confirmation email to ${to} failed (${res.status}): ${payload}`);
+      return c.json({ error: `Resend rejected the confirmation email (${res.status}): ${payload}` }, 502);
+    }
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log(`Order confirmation email error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Could not send the confirmation email.' }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PORTAL DEALS — the owner publishes offers in Deal Publisher; every portal's
+// Featured Deals rail reads them. Without these routes the rails fall back to
+// placeholder offers, so this is what makes the deals a client sees real.
+// ─────────────────────────────────────────────────────────────────────────────
+function portalDealKey(id: string) { return `portal_deal:${id}`; }
+
+async function loadPortalDeals(): Promise<any[]> {
+  const deals = await kv.getByPrefix('portal_deal:');
+  return (deals || [])
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+}
+
+// Public: deals for one portal (or all). Expired and paused deals are excluded
+// so a client is never shown an offer that can't be redeemed.
+app.get('/make-server-3eae23a6/portal-deals', async (c) => {
+  try {
+    const portal = (c.req.query('portal') || '').trim();
+    const now = Date.now();
+    const deals = (await loadPortalDeals()).filter((d: any) => {
+      if (d?.active === false) return false;
+      if (d?.expiresAt && Date.parse(d.expiresAt) < now) return false;
+      if (!portal) return true;
+      const targets: string[] = Array.isArray(d?.targetPortals) ? d.targetPortals : ['all'];
+      return targets.includes('all') || targets.includes(portal);
+    });
+    return c.json({ success: true, deals });
+  } catch (error: any) {
+    console.log(`Portal deals fetch error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Could not load deals.', deals: [] }, 500);
+  }
+});
+
+// Admin: every deal, including paused and expired ones.
+app.get('/make-server-3eae23a6/portal-deals/all', async (c) => {
+  try {
+    return c.json({ success: true, deals: await loadPortalDeals() });
+  } catch (error: any) {
+    console.log(`Portal deals admin fetch error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Could not load deals.', deals: [] }, 500);
+  }
+});
+
+// Create or update. Requires a signed-in user — deals are owner-published.
+app.post('/make-server-3eae23a6/portal-deals', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1] || '';
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user } } = await supabase.auth.getUser(accessToken);
+    if (!user?.id) {
+      return c.json({ error: 'You must be signed in to publish deals.' }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const deal = body?.deal || {};
+    if (!String(deal.title || '').trim()) return c.json({ error: 'A deal title is required.' }, 400);
+
+    const id = String(deal.id || `deal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const existing = deal.id ? await kv.get(portalDealKey(id)) : null;
+    const record = {
+      ...(existing || {}),
+      ...deal,
+      id,
+      targetPortals: Array.isArray(deal.targetPortals) && deal.targetPortals.length ? deal.targetPortals : ['all'],
+      active: deal.active !== false,
+      createdBy: existing?.createdBy || user.email || 'Black Phoenix',
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(portalDealKey(id), record);
+    return c.json({ success: true, deal: record });
+  } catch (error: any) {
+    console.log(`Portal deal save error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Could not save the deal.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/portal-deals/:id', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1] || '';
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: { user } } = await supabase.auth.getUser(accessToken);
+    if (!user?.id) return c.json({ error: 'You must be signed in to remove deals.' }, 401);
+
+    await kv.del(portalDealKey(c.req.param('id')));
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log(`Portal deal delete error: ${error?.message || error}`);
+    return c.json({ error: error?.message || 'Could not remove the deal.' }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIELD OPS COLLECTIONS — job sites, weather alerts, delays, schedule changes,
+// waste tracking and dump runs. These are all plain owner-managed lists, so
+// they share one CRUD registration instead of six near-identical route blocks.
+// ─────────────────────────────────────────────────────────────────────────────
+function fieldOpsId(prefix: string) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function loadFieldOps(prefix: string, sortKey = 'createdAt'): Promise<any[]> {
+  const rows = (await kv.getByPrefix(prefix)) || [];
+  return rows
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b?.[sortKey] || '').localeCompare(String(a?.[sortKey] || '')));
+}
+
+function registerFieldOpsCollection(route: string, prefix: string, idPrefix: string, sortKey = 'createdAt') {
+  const base = `/make-server-3eae23a6/${route}`;
+
+  app.get(base, async (c) => {
+    try {
+      // Returned as a bare array — that's what every caller of these
+      // collections already expects.
+      return c.json(await loadFieldOps(prefix, sortKey));
+    } catch (error: any) {
+      console.log(`${route} list error:`, error);
+      return c.json({ success: false, error: error?.message || `Could not load ${route}.` }, 500);
+    }
+  });
+
+  app.post(base, async (c) => {
+    try {
+      const body = await c.req.json();
+      const id = String(body.id || fieldOpsId(idPrefix));
+      const existing = (await kv.get(`${prefix}${id}`)) as any;
+      const now = new Date().toISOString();
+      const record = {
+        ...(existing || {}),
+        ...body,
+        id,
+        createdAt: existing?.createdAt || body.createdAt || now,
+        updatedAt: now,
+      };
+      if (!record[sortKey]) record[sortKey] = now;
+      await kv.set(`${prefix}${id}`, record);
+      return c.json({ success: true, item: record });
+    } catch (error: any) {
+      console.log(`${route} save error:`, error);
+      return c.json({ success: false, error: error?.message || `Could not save this ${route} record.` }, 500);
+    }
+  });
+
+  app.put(`${base}/:id`, async (c) => {
+    try {
+      const id = c.req.param('id');
+      const existing = (await kv.get(`${prefix}${id}`)) as any;
+      if (!existing) return c.json({ success: false, error: 'That record no longer exists.' }, 404);
+      const body = await c.req.json();
+      // Ignore undefined fields so a partial update can't blank out real data.
+      const patch = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
+      const record = { ...existing, ...patch, id, updatedAt: new Date().toISOString() };
+      await kv.set(`${prefix}${id}`, record);
+      return c.json({ success: true, item: record });
+    } catch (error: any) {
+      console.log(`${route} update error:`, error);
+      return c.json({ success: false, error: error?.message || `Could not update this ${route} record.` }, 500);
+    }
+  });
+
+  app.delete(`${base}/:id`, async (c) => {
+    try {
+      await kv.del(`${prefix}${c.req.param('id')}`);
+      return c.json({ success: true });
+    } catch (error: any) {
+      console.log(`${route} delete error:`, error);
+      return c.json({ success: false, error: error?.message || `Could not delete this ${route} record.` }, 500);
+    }
+  });
+}
+
+registerFieldOpsCollection('job-sites', 'job_site:', 'site');
+registerFieldOpsCollection('weather-alerts', 'weather_alert:', 'alert', 'issuedAt');
+registerFieldOpsCollection('job-delays', 'job_delay:', 'delay');
+registerFieldOpsCollection('schedule-adjustments', 'schedule_adjustment:', 'adj');
+registerFieldOpsCollection('waste-entries', 'waste_entry:', 'waste');
+registerFieldOpsCollection('dump-runs', 'dump_run:', 'run', 'date');
+
+// Acknowledge a weather alert, recording who cleared it.
+app.post('/make-server-3eae23a6/weather-alerts/:id/acknowledge', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = (await kv.get(`weather_alert:${id}`)) as any;
+    if (!existing) return c.json({ success: false, error: 'That alert no longer exists.' }, 404);
+
+    let acknowledgedBy = 'Unknown user';
+    try {
+      const accessToken = c.req.header('Authorization')?.split(' ')[1];
+      if (accessToken) {
+        const { data: { user } } = await supabase.auth.getUser(accessToken);
+        if (user) acknowledgedBy = user.user_metadata?.full_name || user.user_metadata?.name || user.email || acknowledgedBy;
+      }
+    } catch (_) { /* fall back to Unknown user */ }
+
+    const record = {
+      ...existing,
+      acknowledged: true,
+      acknowledgedBy,
+      acknowledgedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`weather_alert:${id}`, record);
+    return c.json({ success: true, item: record });
+  } catch (error: any) {
+    console.log('Weather alert acknowledge error:', error);
+    return c.json({ success: false, error: error?.message || 'Could not acknowledge the alert.' }, 500);
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AI BID ROUTER — analyze a request and match/route it to providers.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3307,6 +3827,24 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
     alerts.unshift({ id: `wr_alert_${record.id}`, type: 'urgent', category: 'Work Requests', title: `New Work Request: ${clientName || 'Customer'}`,
       description: `${clientName || 'Customer'} submitted a ${record.serviceType || record.project_type || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
     await kv.set('admin_alerts', alerts.slice(0, 200));
+
+    notifyStaffInBackground('work_request', {
+      subject: `New work request from ${clientName || clientEmail}`,
+      heading: '🔨 New work request',
+      rows: [
+        ['Client', clientName || '—'],
+        ['Email', clientEmail],
+        ['Phone', record.client_phone || '—'],
+        ['Service', record.serviceType || record.project_type || record.title || '—'],
+        ['Budget', record.budgetRange || record.budget || '—'],
+        ['Description', String(record.description || record.details || '').slice(0, 400) || '—'],
+        ['Request ID', record.id],
+      ],
+      ctaLabel: 'Review the request',
+      ctaPath: '/work-requests',
+      dedupeKey: `work_request:${record.id}`,
+    });
+
     return c.json({ success: true, workRequest: stripBase64(record) }, 201);
   } catch (error: any) { console.error('[Work Requests] Create error:', error); return c.json({ error: error.message || 'Unable to create work request.' }, 500); }
 });
@@ -8255,6 +8793,22 @@ app.post('/make-server-3eae23a6/intake/set-password', async (c) => {
     step = 'burn-token';
     await kv.set(`invite_token:${token}`, { ...record, used: true, usedAt: new Date().toISOString() });
 
+    // An invited applicant just activated their portal login — same thing the
+    // team wants to hear about as a self-serve sign-up.
+    notifyStaffInBackground('signup', {
+      subject: `Portal activated: ${email}`,
+      heading: '\ud83d\udc64 Portal account activated',
+      rows: [
+        ['Email', email],
+        ['Portal', record.portalType || '\u2014'],
+        ['Application ID', record.applicationId || '\u2014'],
+        ['Activated', new Date().toLocaleString('en-US')],
+      ],
+      ctaLabel: 'View in User Management',
+      ctaPath: '/user-management',
+      dedupeKey: `signup_activation:${email}`,
+    });
+
     return c.json({ success: true, email });
   } catch (error: any) {
     const detail = error?.message || error?.name || String(error) || 'unknown error';
@@ -8422,6 +8976,43 @@ function ownsFinancialRecord(record: any, email: string) { const target = String
 const invoicePortalRoutes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', advertiser: 'advertiser-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal' };
 function invoicePortal(value: any) { return Object.prototype.hasOwnProperty.call(invoicePortalRoutes, String(value || '')) ? String(value) : 'customer'; }
 function invoiceRecipient(body: any) { const customerEmail = String(body.customerEmail || body.customer_email || body.clientEmail || body.client_email || '').trim().toLowerCase(); const customerName = String(body.customerName || body.customer_name || body.clientName || body.client_name || '').trim(); return { customerEmail, customerName, recipientPortal: invoicePortal(body.recipientPortal || body.recipient_portal), paymentRail: String(body.paymentRail || body.payment_rail) === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services' as StripeAccount }; }
+
+// ── PRODUCT FAVOURITES ────────────────────────────────────────────────────────
+// Per-user saved products. Scoped to the signed-in account; a signed-out
+// shopper gets an empty list rather than a shared global one.
+function productFavoritesKey(userId: string) { return `product_favorites:${userId}`; }
+
+app.get('/make-server-3eae23a6/product-favorites', async (c) => {
+  try {
+    const { user } = await financialActor(c);
+    if (!user?.id) return c.json({ success: true, productIds: [], signedIn: false });
+    const saved = (await kv.get(productFavoritesKey(user.id))) as any;
+    return c.json({ success: true, signedIn: true, productIds: Array.isArray(saved?.productIds) ? saved.productIds : [] });
+  } catch (error: any) {
+    console.error('Error loading product favourites:', error);
+    return c.json({ success: false, error: error.message || 'Unable to load favourites.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/product-favorites', async (c) => {
+  try {
+    const { user } = await financialActor(c);
+    if (!user?.id) return c.json({ success: false, error: 'Sign in to save favourites.' }, 401);
+    const body = await c.req.json();
+    const productId = String(body?.productId || '').trim();
+    if (!productId) return c.json({ success: false, error: 'productId is required.' }, 400);
+    const saved = (await kv.get(productFavoritesKey(user.id))) as any;
+    const set = new Set<string>(Array.isArray(saved?.productIds) ? saved.productIds : []);
+    if (body?.favorite === false || (body?.favorite === undefined && set.has(productId))) set.delete(productId);
+    else set.add(productId);
+    const productIds = Array.from(set).slice(0, 500);
+    await kv.set(productFavoritesKey(user.id), { productIds, updatedAt: new Date().toISOString() });
+    return c.json({ success: true, productIds });
+  } catch (error: any) {
+    console.error('Error saving product favourite:', error);
+    return c.json({ success: false, error: error.message || 'Unable to save favourite.' }, 500);
+  }
+});
 
 app.get('/make-server-3eae23a6/contracts', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('contract:')) || []; return c.json({ success: true, contracts: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
@@ -8868,29 +9459,39 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   // failure must never fail the customer's already-paid checkout. Items that
   // aren't dropshipper-sourced are simply skipped by groupItemsByProvider.
   try {
-    const forwardItems = (Array.isArray(order.items) ? order.items : [])
-      .map((it: any) => ({
-        sku: String(it.sku || it.SKU || it.id || it.productId || ''),
-        quantity: Number(it.quantity ?? it.qty ?? 1) || 1,
-        price: Number(it.price ?? it.unitPrice ?? 0) || 0,
-      }))
-      .filter((it: any) => it.sku);
-    if (forwardItems.length > 0) {
-      const result = await forwardDropshipperOrder({
-        orderId: order.id,
-        items: forwardItems,
-        shippingAddress: order.shipping_address,
-      });
-      order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
-      order.fulfillment_forwarded_at = now;
-      order.fulfillment_forwarded_count = result.forwarded ?? 0;
-      if (Array.isArray(result.skipped) && result.skipped.length > 0) order.fulfillment_skipped = result.skipped;
-      if (!result.success && result.error) order.fulfillment_error = result.error;
+    // 'instant' forwards now; 'daily' leaves the order pending for the sweep;
+    // 'manual' waits for the operator. Configured at /store/fulfillment/settings.
+    const fulfillmentSettings = await getFulfillmentSettings();
+    if (fulfillmentSettings.mode === 'instant') {
+      await forwardStoreOrderToSupplier(order);
+    } else {
+      order.fulfillment_status = 'pending';
+      order.fulfillment_hold_reason = fulfillmentSettings.mode === 'daily'
+        ? `Queued for the daily fulfillment run (${String(fulfillmentSettings.dailyHourUtc).padStart(2, '0')}:00 UTC).`
+        : 'Automatic fulfillment is set to manual — send this order from the Orders page.';
       await kv.set(storeOrderKey(order.id), order);
     }
   } catch (error: any) {
     console.log(`Order fulfillment auto-forward error for store order ${order.id} (order remains pending for manual fulfillment): ${error?.message || error}`);
   }
+
+  const account: StripeAccount = checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+  notifyStaffInBackground('payment', {
+    subject: `Payment received — $${Number(order.total || 0).toFixed(2)}`,
+    heading: '💳 Payment received',
+    rows: [
+      ['Amount', `$${Number(order.total || 0).toFixed(2)}`],
+      ['Stripe account', stripeAccountLabel(account)],
+      ['Customer', order.customer?.name || order.customer_name || '—'],
+      ['Email', order.customer?.email || order.customer_email || '—'],
+      ['Items', (Array.isArray(order.items) ? order.items : []).map((i: any) => `${i.name} ×${i.quantity ?? i.qty ?? 1}`).join(', ') || '—'],
+      ['Order ID', order.id],
+      ['Paid at', new Date(now).toLocaleString('en-US')],
+    ],
+    ctaLabel: 'View the order',
+    ctaPath: '/orders',
+  });
+
   return order;
 }
 
@@ -9203,6 +9804,247 @@ app.get('/make-server-3eae23a6/dropshipper/orders', async (c) => { const actor =
 app.get('/make-server-3eae23a6/dropshipper/errors', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); const errors = await getDropshipperErrors(Number(c.req.query('limit') || 100)); return c.json({ success: true, errors, total: errors.length }); });
 app.post('/make-server-3eae23a6/dropshipper/sync-inventory', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperInventory()); });
 app.post('/make-server-3eae23a6/dropshipper/sync-tracking', async (c) => { const actor = await dropshipAdmin(c); if (!actor) return c.json({ error: 'Administrator access is required.' }, 403); return c.json(await syncDropshipperTracking()); });
+// ---------------------------------------------------------------------------
+// Automatic order fulfillment
+//
+// Three modes, stored in the KV settings record below:
+//   instant — forward to the supplier the moment the payment is confirmed
+//   daily   — batch every paid-but-unforwarded order once per day
+//   manual  — never forward automatically; the operator presses the button
+//
+// Honest limitation: this runtime has no cron. "Daily" therefore means "the
+// first sweep invoked after today's window opens" — the Orders page pings
+// /store/fulfillment/tick when it loads, and there is a Run now button.
+// lastRunAt is what makes it once-per-day rather than once-per-page-view.
+// ---------------------------------------------------------------------------
+const FULFILLMENT_SETTINGS_KEY = 'store:fulfillment:settings';
+
+type FulfillmentMode = 'instant' | 'daily' | 'manual';
+
+interface FulfillmentSettings {
+  mode: FulfillmentMode;
+  dailyHourUtc: number;
+  lastRunAt?: string;
+  lastRunReason?: string;
+  lastRunForwarded?: number;
+  lastRunFailed?: number;
+  lastRunErrors?: string[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+const DEFAULT_FULFILLMENT_SETTINGS: FulfillmentSettings = { mode: 'instant', dailyHourUtc: 13 };
+
+async function getFulfillmentSettings(): Promise<FulfillmentSettings> {
+  const stored = (await kv.get(FULFILLMENT_SETTINGS_KEY)) as any;
+  if (!stored || typeof stored !== 'object') return { ...DEFAULT_FULFILLMENT_SETTINGS };
+  const mode: FulfillmentMode = stored.mode === 'daily' || stored.mode === 'manual' ? stored.mode : 'instant';
+  const hour = Number(stored.dailyHourUtc);
+  return {
+    ...stored,
+    mode,
+    dailyHourUtc: Number.isFinite(hour) && hour >= 0 && hour <= 23 ? Math.floor(hour) : DEFAULT_FULFILLMENT_SETTINGS.dailyHourUtc,
+  };
+}
+
+/** Paid, not yet handed to a supplier, and carrying at least one line item. */
+function orderAwaitsFulfillment(order: any): boolean {
+  if (!order || typeof order !== 'object') return false;
+  const paid = order.payment_status === 'paid' || order.payment_status === 'gift_card_paid' || order.status === 'paid';
+  if (!paid) return false;
+  const status = String(order.fulfillment_status || 'pending');
+  if (status !== 'pending' && status !== '') return false;
+  return Array.isArray(order.items) && order.items.length > 0;
+}
+
+/**
+ * Forward one paid order to its dropshipper and persist the outcome.
+ * Shared by the instant path, the daily sweep and the manual retry route so all
+ * three write exactly the same fields.
+ */
+async function forwardStoreOrderToSupplier(order: any): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string }> {
+  const forwardItems = (Array.isArray(order.items) ? order.items : [])
+    .map((it: any) => ({
+      sku: String(it.sku || it.SKU || it.id || it.productId || ''),
+      quantity: Number(it.quantity ?? it.qty ?? 1) || 1,
+      price: Number(it.price ?? it.unitPrice ?? 0) || 0,
+    }))
+    .filter((it: any) => it.sku);
+  if (forwardItems.length === 0) {
+    return { success: false, forwarded: 0, skipped: [], error: 'No line item on this order carries a SKU, so nothing can be matched against dropshipper inventory.' };
+  }
+
+  let result: any;
+  try {
+    result = await forwardDropshipperOrder({ orderId: order.id, items: forwardItems, shippingAddress: order.shipping_address });
+  } catch (error: any) {
+    result = { success: false, forwarded: 0, skipped: [], error: error?.message || String(error) };
+  }
+
+  // 'forwarded_to_doba' is the legacy name for "sent to the supplier" and is the
+  // value OrderManager, ShopperAccountPortal and the manual status route already
+  // recognise, so reuse it rather than inventing a status the UI can't label.
+  order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
+  order.fulfillment_forwarded_at = new Date().toISOString();
+  order.fulfillment_forwarded_count = result.forwarded ?? 0;
+  order.fulfillment_attempts = Number(order.fulfillment_attempts || 0) + 1;
+  order.fulfillment_skipped = Array.isArray(result.skipped) && result.skipped.length > 0 ? result.skipped : undefined;
+  order.fulfillment_error = result.success ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
+  await kv.set(storeOrderKey(order.id), order);
+
+  return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: result.error };
+}
+
+/** Forward every paid order still sitting at pending. */
+async function runFulfillmentSweep(reason: string): Promise<{ examined: number; forwarded: number; failed: number; errors: string[]; orderIds: string[] }> {
+  const orders = (((await kv.getByPrefix('store:order:')) || []) as any[]).filter(orderAwaitsFulfillment);
+  let forwarded = 0;
+  let failed = 0;
+  const errors: string[] = [];
+  const orderIds: string[] = [];
+
+  for (const order of orders) {
+    const outcome = await forwardStoreOrderToSupplier(order);
+    if (outcome.success) {
+      forwarded += 1;
+      orderIds.push(order.id);
+    } else {
+      failed += 1;
+      if (outcome.error) errors.push(`${order.id}: ${outcome.error}`);
+    }
+  }
+
+  const settings = await getFulfillmentSettings();
+  await kv.set(FULFILLMENT_SETTINGS_KEY, {
+    ...settings,
+    lastRunAt: new Date().toISOString(),
+    lastRunReason: reason,
+    lastRunForwarded: forwarded,
+    lastRunFailed: failed,
+    lastRunErrors: errors.slice(0, 10),
+  });
+
+  console.log(`[fulfillment sweep:${reason}] examined=${orders.length} forwarded=${forwarded} failed=${failed}`);
+  return { examined: orders.length, forwarded, failed, errors, orderIds };
+}
+
+/** Has today's daily window opened without a run? */
+function dailySweepIsDue(settings: FulfillmentSettings, now = new Date()): boolean {
+  if (settings.mode !== 'daily') return false;
+  if (now.getUTCHours() < settings.dailyHourUtc) return false;
+  if (!settings.lastRunAt) return true;
+  const last = new Date(settings.lastRunAt);
+  if (Number.isNaN(last.getTime())) return true;
+  // Compare UTC calendar days so repeat visits on one day only sweep once.
+  return last.toISOString().slice(0, 10) !== now.toISOString().slice(0, 10);
+}
+
+app.get('/make-server-3eae23a6/store/fulfillment/settings', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const settings = await getFulfillmentSettings();
+    const pending = (((await kv.getByPrefix('store:order:')) || []) as any[]).filter(orderAwaitsFulfillment);
+    return c.json({ success: true, settings, pendingCount: pending.length, dueNow: dailySweepIsDue(settings) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load fulfillment settings.' }, 500);
+  }
+});
+
+app.put('/make-server-3eae23a6/store/fulfillment/settings', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const body = await c.req.json();
+    const mode = String(body.mode || '');
+    if (mode !== 'instant' && mode !== 'daily' && mode !== 'manual') {
+      return c.json({ success: false, error: `"${mode}" is not a fulfillment mode. Use instant, daily or manual.` }, 400);
+    }
+    const hourRaw = Number(body.dailyHourUtc);
+    if (body.dailyHourUtc !== undefined && (!Number.isFinite(hourRaw) || hourRaw < 0 || hourRaw > 23)) {
+      return c.json({ success: false, error: 'dailyHourUtc must be a whole number between 0 and 23.' }, 400);
+    }
+    const existing = await getFulfillmentSettings();
+    const settings: FulfillmentSettings = {
+      ...existing,
+      mode: mode as FulfillmentMode,
+      dailyHourUtc: body.dailyHourUtc !== undefined ? Math.floor(hourRaw) : existing.dailyHourUtc,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.email,
+    };
+    await kv.set(FULFILLMENT_SETTINGS_KEY, settings);
+    return c.json({ success: true, settings });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to save fulfillment settings.' }, 500);
+  }
+});
+
+// Operator-triggered sweep: forward everything still pending, right now.
+app.post('/make-server-3eae23a6/store/fulfillment/run', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const result = await runFulfillmentSweep(`manual:${user.email}`);
+    return c.json({ success: true, ...result, settings: await getFulfillmentSettings() });
+  } catch (error: any) {
+    console.log(`[store/fulfillment/run] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
+  }
+});
+
+// Heartbeat for daily mode. Cheap and idempotent: does nothing unless the mode
+// is 'daily' and today's window has opened without a run.
+app.post('/make-server-3eae23a6/store/fulfillment/tick', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const settings = await getFulfillmentSettings();
+    if (!dailySweepIsDue(settings)) {
+      const reason = settings.mode === 'daily'
+        ? "Today's daily run has already happened."
+        : `Automatic daily sweeps are off (mode: ${settings.mode}).`;
+      return c.json({ success: true, ran: false, reason, settings });
+    }
+    const result = await runFulfillmentSweep('daily');
+    return c.json({ success: true, ran: true, ...result, settings: await getFulfillmentSettings() });
+  } catch (error: any) {
+    console.log(`[store/fulfillment/tick] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
+  }
+});
+
+// Re-forward one already-paid store order regardless of mode. Backs the
+// per-order "Send to supplier" button, and is how an order stranded by a broken
+// integration gets pushed through without taking a second payment.
+app.post('/make-server-3eae23a6/dropshipper/orders/:orderId/retry', async (c) => {
+  const actor = await dropshipAdmin(c);
+  if (!actor) return c.json({ error: 'Administrator access is required.' }, 403);
+  try {
+    const orderId = c.req.param('orderId');
+    const order = (await kv.get(storeOrderKey(orderId))) as any;
+    if (!order) return c.json({ success: false, error: `No store order found with id ${orderId}.` }, 404);
+    const paid = order.payment_status === 'paid' || order.payment_status === 'gift_card_paid' || order.status === 'paid';
+    if (!paid) {
+      return c.json({
+        success: false,
+        error: `Order ${orderId} is not paid (payment_status="${order.payment_status || 'unknown'}"). Refusing to send an unpaid order to a supplier.`,
+      }, 409);
+    }
+    const result = await forwardStoreOrderToSupplier(order);
+    return c.json({
+      success: result.success,
+      orderId: order.id,
+      forwarded: result.forwarded,
+      skipped: result.skipped,
+      error: result.error || null,
+      fulfillmentStatus: order.fulfillment_status,
+    }, result.success ? 200 : 502);
+  } catch (error: any) {
+    console.log(`[dropshipper/orders/retry] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
+  }
+});
+
 // Publish dropship inventory items to the live storefront catalog with an
 // operator-chosen list price. Body: { items: [{ sku, listPrice }] }.
 // Writes a canonical `product_{sku}` record (GET /products reads this prefix),
@@ -9949,6 +10791,66 @@ app.get('/make-server-3eae23a6/territory/subscriptions', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load territory subscriptions.' }, 500); }
 });
 
+// GET /territory/revenue — real monthly revenue for the signed-in territory owner.
+// Sourced from completed payment records belonging to the territory's own
+// customers. Returns zeroed buckets (never invented figures) when there are none.
+app.get('/make-server-3eae23a6/territory/revenue', async (c) => {
+  try {
+    const actor = await territoryActor(c);
+    if (!actor) return c.json({ success: false, error: 'Sign in to view territory revenue.' }, 401);
+    const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [] };
+    const customerEmails = new Set(
+      (workspace.customers || [])
+        .map((customer: any) => String(customer.email || '').toLowerCase())
+        .filter(Boolean),
+    );
+
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const buckets: { key: string; month: string; revenue: number; jobs: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      buckets.push({ key: `${d.getFullYear()}-${d.getMonth()}`, month: MONTHS[d.getMonth()], revenue: 0, jobs: 0 });
+    }
+    const bucketIndex = new Map(buckets.map((b, i) => [b.key, i]));
+
+    let ytdRevenue = 0;
+    let paidCount = 0;
+    if (customerEmails.size) {
+      const allPayments = (await kv.getByPrefix('payment:')) as any[] || [];
+      const PAID = ['paid', 'succeeded', 'complete', 'completed'];
+      for (const payment of allPayments) {
+        if (!payment || typeof payment !== 'object') continue;
+        const email = String(payment.customerEmail || payment.clientEmail || payment.email || '').toLowerCase();
+        if (!customerEmails.has(email)) continue;
+        if (!PAID.includes(String(payment.status || '').toLowerCase())) continue;
+        const amount = Number(payment.amount ?? payment.amountPaid ?? 0) || 0;
+        const d = new Date(payment.paidAt || payment.createdAt || payment.created_at || 0);
+        if (isNaN(d.getTime())) continue;
+        paidCount += 1;
+        if (d.getFullYear() === now.getFullYear()) ytdRevenue += amount;
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        if (bucketIndex.has(key)) {
+          const b = buckets[bucketIndex.get(key)!];
+          b.revenue += amount;
+          b.jobs += 1;
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      monthly: buckets.map(b => ({ month: b.month, revenue: Math.round(b.revenue), jobs: b.jobs })),
+      ytdRevenue: Math.round(ytdRevenue),
+      paidCount,
+      avgJobValue: paidCount > 0 ? Math.round(ytdRevenue / paidCount) : 0,
+    });
+  } catch (error: any) {
+    console.error('Error loading territory revenue:', error);
+    return c.json({ success: false, error: error.message || 'Unable to load territory revenue.' }, 500);
+  }
+});
+
 // ── PORTAL CRM: CONTACTS & INTERACTIONS ───────────────────────────────────────
 // These records are intentionally account-scoped.  Property, condo, landlord,
 // and territory users may only read and modify their own CRM workspace.
@@ -10035,5 +10937,757 @@ app.get('/make-server-3eae23a6/maintenance-draft/:email', async (c) => { try { c
 app.post('/make-server-3eae23a6/maintenance-draft/:email', async (c) => { try { const { user, admin } = await financialActor(c); const email = String(c.req.param('email')).toLowerCase(); if (email !== 'guest' && (!user?.email || (!admin && String(user.email).toLowerCase() !== email))) return c.json({ success: false, error: 'Sign in to save this plan draft.' }, 403); const draft = stripBase64((await c.req.json()).draft || {}); const previous = await kv.get(maintenanceDraftKey(email)) as any; const items = Array.isArray(draft.customItems) ? draft.customItems.map((item: any) => { const prior = (previous?.customItems || []).find((row: any) => row.id === item.id); return prior?.status && prior.status !== 'pending_pricing' ? { ...item, status: prior.status, price: prior.price, reviewedBy: prior.reviewedBy, reviewedAt: prior.reviewedAt } : { ...item, status: ['approved','rejected'].includes(item.status) ? 'pending_pricing' : (item.status || 'pending_pricing') }; }) : []; const saved = { ...previous, ...draft, customItems: items, ownerEmail: email, updatedAt: new Date().toISOString(), createdAt: previous?.createdAt || new Date().toISOString() }; await kv.set(maintenanceDraftKey(email), saved); return c.json({ success: true, draft: saved }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-3eae23a6/maintenance-drafts', async (c) => { const { admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, drafts: (await kv.getByPrefix('maintenance_draft:')) || [] }); });
 app.patch('/make-server-3eae23a6/maintenance-drafts/:email/custom-items/:id', async (c) => { try { const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const draft = await kv.get(maintenanceDraftKey(c.req.param('email'))) as any; if (!draft) return c.json({ success: false, error: 'Plan draft not found.' }, 404); const body = await c.req.json(); const status = String(body.status); if (!['approved','rejected','pending_pricing'].includes(status)) return c.json({ success: false, error: 'Invalid approval status.' }, 400); if (status === 'approved' && !(Number(body.price) >= 0)) return c.json({ success: false, error: 'Set a price before approving this item.' }, 400); let found = false; draft.customItems = (draft.customItems || []).map((item: any) => { if (item.id !== c.req.param('id')) return item; found = true; return { ...item, status, price: status === 'approved' ? Number(body.price) : item.price, reviewNote: String(body.reviewNote || ''), reviewedAt: new Date().toISOString(), reviewedBy: user.email }; }); if (!found) return c.json({ success: false, error: 'Custom item not found.' }, 404); draft.updatedAt = new Date().toISOString(); await kv.set(maintenanceDraftKey(c.req.param('email')), draft); return c.json({ success: true, draft }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+
+// ── STAFF NOTIFICATION RECIPIENTS ────────────────────────────────────────────
+// Owner-managed list of who gets emailed for sign-ups, payments and work
+// requests. Owner-only: this controls where business-sensitive alerts land.
+async function requireNotificationOwner(c: any) {
+  const user = await intakeActor(c);
+  if (!user?.id) return { ok: false, status: 401 as const, error: 'Sign in to manage notification recipients.' };
+  if (!await intakeIsAdmin(user)) {
+    return { ok: false, status: 403 as const, error: 'Only an owner or administrator can manage notification recipients.' };
+  }
+  return { ok: true as const, user };
+}
+
+app.get('/make-server-3eae23a6/staff-notifications/recipients', async (c) => {
+  try {
+    const auth = await requireNotificationOwner(c);
+    if (!auth.ok) return c.json({ success: false, error: auth.error }, auth.status);
+
+    return c.json({
+      success: true,
+      recipients: await loadStaffRecipients(),
+      // Shown read-only in the UI so it's obvious these always get everything.
+      ownerEmails: ownerEmailsFromEnv(),
+      events: STAFF_NOTIFICATION_EVENTS.map(id => ({
+        id,
+        label: STAFF_NOTIFICATION_EVENT_LABELS[id],
+        description: STAFF_NOTIFICATION_EVENT_DESCRIPTIONS[id],
+      })),
+      emailConfigured: Boolean(Deno.env.get('RESEND_API_KEY')),
+      fromEmail: Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev',
+    });
+  } catch (error: any) {
+    console.log(`Staff notification recipients read error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not load recipients.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/staff-notifications/recipients', async (c) => {
+  try {
+    const auth = await requireNotificationOwner(c);
+    if (!auth.ok) return c.json({ success: false, error: auth.error }, auth.status);
+
+    const body = await c.req.json().catch(() => ({}));
+    const email = String(body?.email || '').trim().toLowerCase();
+    if (!isValidEmail(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
+
+    const events = (Array.isArray(body?.events) ? body.events : [])
+      .map(String)
+      .filter((e: string) => (STAFF_NOTIFICATION_EVENTS as readonly string[]).includes(e)) as StaffNotificationEvent[];
+    if (events.length === 0) {
+      return c.json({ success: false, error: 'Pick at least one alert this person should receive.' }, 400);
+    }
+
+    const role = ['owner', 'admin', 'employee'].includes(String(body?.role)) ? String(body.role) : 'employee';
+    const rows = await loadStaffRecipients();
+    const now = new Date().toISOString();
+
+    // Match on id when editing, otherwise on email so the same person is never
+    // added twice and cannot end up with two conflicting subscription sets.
+    const index = body?.id
+      ? rows.findIndex(r => r.id === String(body.id))
+      : rows.findIndex(r => String(r.email || '').toLowerCase() === email);
+
+    const record: StaffRecipient = {
+      id: index >= 0 ? rows[index].id : `recip_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      email,
+      name: String(body?.name || '').trim().slice(0, 120),
+      role: role as StaffRecipient['role'],
+      events,
+      enabled: body?.enabled !== false,
+      createdAt: index >= 0 ? rows[index].createdAt : now,
+      updatedAt: now,
+    };
+
+    if (index >= 0) rows[index] = record; else rows.push(record);
+    await saveStaffRecipients(rows);
+    return c.json({ success: true, recipient: record, recipients: rows });
+  } catch (error: any) {
+    console.log(`Staff notification recipient save error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not save this recipient.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/staff-notifications/recipients/:id', async (c) => {
+  try {
+    const auth = await requireNotificationOwner(c);
+    if (!auth.ok) return c.json({ success: false, error: auth.error }, auth.status);
+
+    const rows = await loadStaffRecipients();
+    const remaining = rows.filter(r => r.id !== c.req.param('id'));
+    if (remaining.length === rows.length) return c.json({ success: false, error: 'That recipient no longer exists.' }, 404);
+
+    await saveStaffRecipients(remaining);
+    return c.json({ success: true, recipients: remaining });
+  } catch (error: any) {
+    console.log(`Staff notification recipient delete error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not remove this recipient.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/staff-notifications/test', async (c) => {
+  try {
+    const auth = await requireNotificationOwner(c);
+    if (!auth.ok) return c.json({ success: false, error: auth.error }, auth.status);
+
+    const body = await c.req.json().catch(() => ({}));
+    const event = (STAFF_NOTIFICATION_EVENTS as readonly string[]).includes(String(body?.event))
+      ? String(body.event) as StaffNotificationEvent
+      : 'work_request';
+
+    const result = await notifyStaff(event, {
+      subject: `Test alert — ${STAFF_NOTIFICATION_EVENT_LABELS[event]}`,
+      heading: 'This is a test notification',
+      rows: [
+        ['Event', STAFF_NOTIFICATION_EVENT_LABELS[event]],
+        ['Triggered by', auth.user.email || auth.user.id],
+        ['Sent at', new Date().toLocaleString('en-US')],
+      ],
+      note: 'If you received this, real alerts for this event will reach you the same way.',
+      ctaLabel: 'Open the dashboard',
+      ctaPath: '/owners-dashboard',
+    });
+
+    if (!result.sent) return c.json({ success: false, error: result.error, recipients: result.recipients }, 502);
+    return c.json({ success: true, recipients: result.recipients });
+  } catch (error: any) {
+    console.log(`Staff notification test error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not send the test notification.' }, 500);
+  }
+});
+
+app.get('/make-server-3eae23a6/staff-notifications/log', async (c) => {
+  try {
+    const auth = await requireNotificationOwner(c);
+    if (!auth.ok) return c.json({ success: false, error: auth.error }, auth.status);
+    return c.json({ success: true, log: await loadStaffNotificationLog(Math.min(Number(c.req.query('limit')) || 50, 200)) });
+  } catch (error: any) {
+    console.log(`Staff notification log error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not load the notification log.' }, 500);
+  }
+});
+
+// ── STOCK PHOTO SEARCH (Unsplash proxy) ──────────────────────────────────────
+// Proxied through the server so the Unsplash access key never reaches the
+// browser. Returns a 503 with a plain explanation when the key isn't set, so
+// the UI can say "not configured" instead of silently showing nothing.
+app.get('/make-server-3eae23a6/stock-photos/search', async (c) => {
+  try {
+    const query = String(c.req.query('q') || '').trim();
+    if (!query) return c.json({ success: false, error: 'Enter something to search for.' }, 400);
+
+    const accessKey = Deno.env.get('UNSPLASH_ACCESS_KEY') || '';
+    if (!accessKey) {
+      return c.json({
+        success: false,
+        configured: false,
+        error: 'Stock photo search is not configured. Add an UNSPLASH_ACCESS_KEY secret to enable it.',
+      }, 503);
+    }
+
+    const perPage = Math.min(Math.max(parseInt(String(c.req.query('perPage') || '24'), 10) || 24, 1), 30);
+    const page = Math.max(parseInt(String(c.req.query('page') || '1'), 10) || 1, 1);
+
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${perPage}&page=${page}`;
+    const res = await fetch(url, { headers: { Authorization: `Client-ID ${accessKey}`, 'Accept-Version': 'v1' } });
+    const body = await res.text();
+    if (!res.ok) {
+      console.log(`Unsplash search failed (${res.status}) for "${query}": ${body}`);
+      return c.json({ success: false, configured: true, error: `Unsplash rejected the search (${res.status}): ${body.slice(0, 300)}` }, 502);
+    }
+
+    const data = JSON.parse(body);
+    const photos = (data?.results || []).map((p: any) => ({
+      id: p.id,
+      description: p.alt_description || p.description || query,
+      thumb: p.urls?.small,
+      full: p.urls?.regular,
+      download: p.urls?.full,
+      width: p.width,
+      height: p.height,
+      // Unsplash's API terms require crediting the photographer and linking back.
+      photographer: p.user?.name || 'Unknown',
+      photographerUrl: p.user?.links?.html || 'https://unsplash.com',
+      link: p.links?.html,
+    }));
+
+    return c.json({ success: true, configured: true, total: data?.total || photos.length, photos });
+  } catch (error: any) {
+    console.log('Stock photo search error:', error);
+    return c.json({ success: false, error: error?.message || 'Stock photo search failed.' }, 500);
+  }
+});
+
+// ── WORK REQUEST DRAFTS ──────────────────────────────────────────────────────
+// The intake form autosaves here so a client who closes the tab mid-request
+// does not lose the job details they already typed.
+function workRequestDraftKey(id: string) { return `work_request_draft:${id}`; }
+
+app.post('/make-server-3eae23a6/work-request-drafts/save', async (c) => {
+  try {
+    const draft = await c.req.json().catch(() => ({}));
+    const draftId = String(draft?.draftId || '').trim();
+    if (!draftId) return c.json({ success: false, error: 'A draftId is required to save this draft.' }, 400);
+
+    const existing = await kv.get(workRequestDraftKey(draftId)) as any;
+    const record = {
+      ...(existing || {}),
+      ...draft,
+      draftId,
+      lastSaved: new Date().toISOString(),
+      createdAt: existing?.createdAt || draft?.createdAt || new Date().toISOString(),
+    };
+    await kv.set(workRequestDraftKey(draftId), record);
+    return c.json({ success: true, draft: record });
+  } catch (error: any) {
+    console.log(`Work request draft save error: ${error?.message || error}`);
+    return c.json({ success: false, error: `Could not save this draft: ${error?.message || error}` }, 500);
+  }
+});
+
+app.get('/make-server-3eae23a6/work-request-drafts/:draftId', async (c) => {
+  try {
+    const draft = await kv.get(workRequestDraftKey(c.req.param('draftId')));
+    if (!draft) return c.json({ error: 'No saved draft found.' }, 404);
+    return c.json(draft);
+  } catch (error: any) {
+    console.log(`Work request draft read error: ${error?.message || error}`);
+    return c.json({ error: `Could not read this draft: ${error?.message || error}` }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/work-request-drafts/:draftId', async (c) => {
+  try {
+    await kv.del(workRequestDraftKey(c.req.param('draftId')));
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log(`Work request draft delete error: ${error?.message || error}`);
+    return c.json({ success: false, error: `Could not clear this draft: ${error?.message || error}` }, 500);
+  }
+});
+
+// ── TREASURY BALANCES ────────────────────────────────────────────────────────
+// Owner-only. Reads live balances from BOTH Stripe accounts independently, so
+// the separation between construction money and store money stays visible here
+// too — the two are never summed into one account's figures.
+async function stripeBalanceFor(account: StripeAccount) {
+  const { key, env } = readStripeKey(account);
+  const base = {
+    id: account,
+    label: stripeAccountLabel(account),
+    configured: Boolean(key),
+    keyEnv: env || null,
+    expectedKeyEnvs: STRIPE_KEY_ENVS[account],
+  };
+
+  if (!key) {
+    return { ...base, error: `${stripeAccountLabel(account)} Stripe is not configured, so no balance could be read.` };
+  }
+
+  const call = async (path: string) => {
+    const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+      headers: { Authorization: `Basic ${btoa(key + ':')}` },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error?.message || `Stripe ${path} failed with status ${res.status}`);
+    return json;
+  };
+
+  try {
+    const [balance, acct, payouts] = await Promise.all([
+      call('balance'),
+      call('account').catch(() => null),
+      call('payouts?limit=5').catch(() => ({ data: [] })),
+    ]);
+
+    // Stripe returns one entry per currency, in the currency's minor unit.
+    const sumByCurrency = (rows: any[]) => {
+      const out: Record<string, number> = {};
+      for (const row of rows || []) {
+        const currency = String(row?.currency || 'usd').toUpperCase();
+        out[currency] = (out[currency] || 0) + (Number(row?.amount) || 0) / 100;
+      }
+      return out;
+    };
+
+    return {
+      ...base,
+      liveMode: Boolean(balance?.livemode),
+      available: sumByCurrency(balance?.available),
+      pending: sumByCurrency(balance?.pending),
+      reserved: sumByCurrency(balance?.connect_reserved),
+      account: acct ? {
+        id: acct.id,
+        businessName: acct.business_profile?.name || acct.settings?.dashboard?.display_name || null,
+        country: acct.country || null,
+        defaultCurrency: String(acct.default_currency || 'usd').toUpperCase(),
+        chargesEnabled: Boolean(acct.charges_enabled),
+        payoutsEnabled: Boolean(acct.payouts_enabled),
+      } : null,
+      recentPayouts: (payouts?.data || []).map((p: any) => ({
+        id: p.id,
+        amount: (Number(p.amount) || 0) / 100,
+        currency: String(p.currency || 'usd').toUpperCase(),
+        status: p.status,
+        arrivalDate: p.arrival_date ? new Date(p.arrival_date * 1000).toISOString() : null,
+      })),
+    };
+  } catch (error: any) {
+    console.log(`Treasury balance error for ${account}: ${error?.message || error}`);
+    return { ...base, error: error?.message || 'Stripe balance request failed.' };
+  }
+}
+
+async function stellarTreasuryBalance() {
+  const record = await kv.get(stellarWalletKey) as any;
+  const wallet = publicStellarWallet(record);
+  const base = {
+    enabled: wallet.enabled,
+    configured: Boolean(wallet.publicKey),
+    network: wallet.network,
+    publicKey: wallet.publicKey,
+    assetCode: wallet.assetCode || 'XLM',
+    lastModified: record?.updatedAt || null,
+  };
+
+  if (!wallet.publicKey) {
+    return { ...base, error: 'No Stellar receiving wallet has been saved yet.' };
+  }
+
+  const horizon = wallet.network === 'testnet'
+    ? 'https://horizon-testnet.stellar.org'
+    : 'https://horizon.stellar.org';
+
+  try {
+    const res = await fetch(`${horizon}/accounts/${wallet.publicKey}`);
+    if (res.status === 404) {
+      return { ...base, horizon, funded: false, balances: [], trackedBalance: 0 };
+    }
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.detail || `Horizon returned status ${res.status}`);
+
+    const balances = (json.balances || []).map((b: any) => ({
+      assetCode: b.asset_type === 'native' ? 'XLM' : (b.asset_code || ''),
+      assetIssuer: b.asset_issuer || '',
+      balance: Number(b.balance) || 0,
+      native: b.asset_type === 'native',
+    }));
+
+    const tracked = balances.find((b: any) =>
+      b.assetCode === base.assetCode && (!wallet.assetIssuer || b.assetIssuer === wallet.assetIssuer));
+
+    return { ...base, horizon, funded: true, balances, trackedBalance: tracked ? tracked.balance : 0 };
+  } catch (error: any) {
+    console.log(`Stellar treasury balance error: ${error?.message || error}`);
+    return { ...base, horizon, error: error?.message || 'Could not reach Horizon for the Stellar balance.' };
+  }
+}
+
+app.get('/make-server-3eae23a6/treasury/balances', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view treasury balances.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required to view treasury balances.' }, 403);
+
+    const [services, ecommerce, stellar] = await Promise.all([
+      stripeBalanceFor('services'),
+      stripeBalanceFor('tbpco_ecommerce'),
+      stellarTreasuryBalance(),
+    ]);
+
+    const stripeAccounts = [services, ecommerce];
+    const usdOf = (map?: Record<string, number>) => (map?.USD || 0);
+    const totals = {
+      usdAvailable: stripeAccounts.reduce((sum, a: any) => sum + usdOf(a.available), 0),
+      usdPending: stripeAccounts.reduce((sum, a: any) => sum + usdOf(a.pending), 0),
+    };
+
+    return c.json({ success: true, fetchedAt: new Date().toISOString(), stripeAccounts, stellar, totals });
+  } catch (error: any) {
+    console.log(`Treasury balances error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not load treasury balances.' }, 500);
+  }
+});
+
+// ── WEB PUSH NOTIFICATIONS ───────────────────────────────────────────────────
+// Subscriptions are stored here. Actually delivering a push requires a VAPID
+// keypair; without it we say so plainly rather than pretending a send happened.
+function pushSubscriptionKey(endpoint: string) {
+  // Endpoints are long URLs, so key on a stable hash-ish slug of the tail.
+  return `push_subscription:${endpoint.slice(-64).replace(/[^a-zA-Z0-9]/g, '')}`;
+}
+
+app.get('/make-server-3eae23a6/notifications/push/vapid-key', (c) => {
+  const publicKey = (Deno.env.get('VAPID_PUBLIC_KEY') || '').trim();
+  if (!publicKey) {
+    return c.json({
+      error: 'Web push is not configured. Add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to the edge function secrets.',
+    }, 503);
+  }
+  return c.json({ publicKey });
+});
+
+app.post('/make-server-3eae23a6/notifications/push/subscribe', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const endpoint = String(body?.subscription?.endpoint || '').trim();
+    if (!endpoint) return c.json({ success: false, error: 'A push subscription endpoint is required.' }, 400);
+
+    const record = {
+      endpoint,
+      keys: body?.subscription?.keys || null,
+      userId: body?.userId || null,
+      userEmail: body?.userEmail ? String(body.userEmail).toLowerCase() : null,
+      userRole: body?.userRole || 'customer',
+      subscribedAt: new Date().toISOString(),
+    };
+    await kv.set(pushSubscriptionKey(endpoint), record);
+    return c.json({ success: true, subscription: { endpoint: record.endpoint, userRole: record.userRole } });
+  } catch (error: any) {
+    console.log(`Push subscribe error: ${error?.message || error}`);
+    return c.json({ success: false, error: `Could not save this push subscription: ${error?.message || error}` }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/notifications/push/unsubscribe', async (c) => {
+  try {
+    const endpoint = String((await c.req.json().catch(() => ({})))?.endpoint || '').trim();
+    if (!endpoint) return c.json({ success: false, error: 'An endpoint is required to unsubscribe.' }, 400);
+    await kv.del(pushSubscriptionKey(endpoint));
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log(`Push unsubscribe error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not unsubscribe.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/notifications/push/send', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const title = String(body?.title || '').trim();
+    if (!title) return c.json({ success: false, error: 'A notification title is required.' }, 400);
+
+    const all = (await kv.getByPrefix('push_subscription:')) || [];
+    const targets = all.filter((s: any) => {
+      if (!s?.endpoint) return false;
+      if (body?.userId) return s.userId === body.userId;
+      if (body?.userEmail) return s.userEmail === String(body.userEmail).toLowerCase();
+      if (body?.userRole) return s.userRole === body.userRole;
+      return true;
+    });
+
+    // Record the notification either way so it shows up in the in-app feed,
+    // which is what most of these calls actually rely on.
+    const id = `push_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const notification = {
+      id,
+      title,
+      body: String(body?.body || ''),
+      url: body?.url || null,
+      tag: body?.tag || null,
+      requireInteraction: Boolean(body?.requireInteraction),
+      audience: { userId: body?.userId || null, userEmail: body?.userEmail || null, userRole: body?.userRole || null },
+      recipientCount: targets.length,
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(`push_notification:${id}`, notification);
+
+    const vapidPublic = (Deno.env.get('VAPID_PUBLIC_KEY') || '').trim();
+    const vapidPrivate = (Deno.env.get('VAPID_PRIVATE_KEY') || '').trim();
+    if (!vapidPublic || !vapidPrivate) {
+      return c.json({
+        success: false,
+        delivered: 0,
+        recorded: true,
+        notification,
+        error: 'Notification recorded, but no browser push was sent: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set in the edge function secrets.',
+      }, 503);
+    }
+
+    let delivered = 0;
+    const failures: string[] = [];
+    for (const sub of targets) {
+      try {
+        const webpush = await import('npm:web-push@3.6.7');
+        webpush.default.setVapidDetails(
+          Deno.env.get('VAPID_SUBJECT') || 'mailto:support@blackphoenixbuilds.com',
+          vapidPublic,
+          vapidPrivate,
+        );
+        await webpush.default.sendNotification(
+          { endpoint: sub.endpoint, keys: sub.keys },
+          JSON.stringify({ title: notification.title, body: notification.body, url: notification.url, tag: notification.tag }),
+        );
+        delivered++;
+      } catch (err: any) {
+        // 404/410 means the browser dropped the subscription — clean it up.
+        const status = err?.statusCode;
+        if (status === 404 || status === 410) await kv.del(pushSubscriptionKey(sub.endpoint));
+        failures.push(`${sub.endpoint.slice(-16)}: ${err?.message || err}`);
+      }
+    }
+
+    if (failures.length) console.log(`Push send failures: ${failures.join(' | ')}`);
+    return c.json({ success: true, delivered, attempted: targets.length, notification, failures });
+  } catch (error: any) {
+    console.log(`Push send error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not send the notification.' }, 500);
+  }
+});
+
+// ── PRODUCT ADS ──────────────────────────────────────────────────────────────
+function productAdKey(id: string) { return `productad:${id}`; }
+
+// Layout presets the ad creator renders against.
+const PRODUCT_AD_TEMPLATES = [
+  { id: 'square_hero', name: 'Square Hero', type: 'social', layout: 'image_top', size: { width: 1080, height: 1080 },
+    placeholders: { headline: true, subheadline: true, description: true, cta: true, badge: true, image: 1 },
+    style: { background: '#0A0A0A', accent: '#EA580C', text: '#FFFFFF' } },
+  { id: 'story_vertical', name: 'Story / Reel', type: 'social', layout: 'full_bleed', size: { width: 1080, height: 1920 },
+    placeholders: { headline: true, subheadline: true, description: false, cta: true, badge: true, image: 1 },
+    style: { background: '#111111', accent: '#EA580C', text: '#FFFFFF' } },
+  { id: 'landscape_banner', name: 'Landscape Banner', type: 'display', layout: 'image_left', size: { width: 1200, height: 628 },
+    placeholders: { headline: true, subheadline: true, description: true, cta: true, badge: false, image: 1 },
+    style: { background: '#0A0A0A', accent: '#EA580C', text: '#FFFFFF' } },
+  { id: 'carousel_trio', name: 'Carousel (3 up)', type: 'social', layout: 'grid', size: { width: 1080, height: 1080 },
+    placeholders: { headline: true, subheadline: false, description: true, cta: true, badge: true, image: 3 },
+    style: { background: '#0A0A0A', accent: '#EA580C', text: '#FFFFFF' } },
+  { id: 'email_header', name: 'Email Header', type: 'email', layout: 'image_right', size: { width: 1200, height: 400 },
+    placeholders: { headline: true, subheadline: true, description: true, cta: true, badge: false, image: 1 },
+    style: { background: '#FFFFFF', accent: '#EA580C', text: '#111111' } },
+];
+
+app.get('/make-server-3eae23a6/product-ads/templates', (c) =>
+  c.json({ success: true, templates: PRODUCT_AD_TEMPLATES }));
+
+/** The catalog the ad tools advertise from — the same active store products the storefront sells. */
+app.get('/make-server-3eae23a6/product-ads/available-products', async (c) => {
+  try {
+    const products = await loadAdCatalog();
+    const active = products.filter((p: any) => p && p.isActive !== false && p.archived !== true);
+    return c.json({ success: true, products: active });
+  } catch (error: any) {
+    console.log(`Product ad available-products error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not load the product catalog.' }, 500);
+  }
+});
+
+/**
+ * The storefront stores products under `product_` and `live_product_` — the same
+ * two prefixes ecommerce-products.tsx reads — so ads always advertise the exact
+ * catalog customers can actually buy from.
+ */
+async function loadAdCatalog(): Promise<any[]> {
+  const [canonical, live] = await Promise.all([
+    kv.getByPrefix('product_').catch(() => []),
+    kv.getByPrefix('live_product_').catch(() => []),
+  ]);
+  const merged = [...(canonical || []), ...(live || [])].filter(Boolean);
+  return [...new Map(merged.map((p: any) => [p.id, p])).values()];
+}
+
+async function loadProductForAd(productId: string) {
+  const direct = await kv.get(`product_${productId}`) || await kv.get(`live_product_${productId}`);
+  if (direct) return direct;
+  const staged = await kv.get(`dropship_staging:${productId}`);
+  if (staged) return staged;
+  const all = await loadAdCatalog();
+  return all.find((p: any) => String(p?.id) === productId || String(p?.sku) === productId) || null;
+}
+
+/** Writes the ad copy from the real product record — never invented pricing. */
+function composeAdContent(product: any, options: any) {
+  const tone = options?.tone || 'professional';
+  const focusOn = options?.focusOn || 'benefits';
+  const name = product?.name || product?.title || 'This product';
+  const price = Number(product?.price) || 0;
+  const compareAt = Number(product?.compareAtPrice || product?.originalPrice || product?.msrp) || 0;
+  const discount = compareAt > price && compareAt > 0 ? Math.round(((compareAt - price) / compareAt) * 100) : 0;
+
+  const headlines: Record<string, string> = {
+    professional: name,
+    casual: `Meet the ${name}`,
+    exciting: `${name} — you're going to want this`,
+    luxury: `${name}. Considered, and built to last.`,
+    discount: discount > 0 ? `${discount}% off the ${name}` : `${name} — on sale now`,
+  };
+
+  const focusLines: Record<string, string> = {
+    features: product?.description || `Everything the ${name} does, in one place.`,
+    benefits: product?.description || `Why crews reach for the ${name} first.`,
+    price: price > 0 ? `Now $${price.toFixed(2)}${compareAt > price ? ` — was $${compareAt.toFixed(2)}` : ''}.` : `Ask us for current pricing on the ${name}.`,
+    quality: `Built to hold up on real job sites. ${product?.description || ''}`.trim(),
+    uniqueness: `You won't find the ${name} set up quite like this anywhere else.`,
+  };
+
+  const ctas: Record<string, string> = {
+    buy_now: 'Buy Now',
+    learn_more: 'Learn More',
+    limited_time: 'Claim This Deal',
+    shop_now: 'Shop Now',
+  };
+
+  const images: string[] = Array.isArray(product?.images) && product.images.length
+    ? product.images
+    : [product?.primaryImage || product?.image || product?.imageUrl].filter(Boolean);
+
+  return {
+    headline: headlines[tone] || name,
+    subheadline: product?.brand || product?.category || '',
+    description: focusLines[focusOn] || product?.description || '',
+    cta: ctas[options?.ctaStyle] || 'Shop Now',
+    badge: discount > 0 ? `${discount}% OFF` : (product?.badge || ''),
+    selectedImages: images,
+  };
+}
+
+app.post('/make-server-3eae23a6/product-ads/create-bulk', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const productIds: string[] = Array.isArray(body?.productIds) ? body.productIds.map(String) : [];
+    const templateId = String(body?.templateId || '');
+    if (productIds.length === 0) return c.json({ success: false, error: 'Select at least one product.', created: [], failed: [] }, 400);
+    if (!PRODUCT_AD_TEMPLATES.some(t => t.id === templateId)) {
+      return c.json({ success: false, error: `Unknown ad template "${templateId}".`, created: [], failed: [] }, 400);
+    }
+
+    const created: any[] = [];
+    const failed: any[] = [];
+
+    for (const productId of productIds) {
+      try {
+        const product = await loadProductForAd(productId);
+        if (!product) { failed.push({ productId, error: 'Product not found in the catalog.' }); continue; }
+
+        const id = `ad_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const price = Number(product?.price) || 0;
+        const compareAt = Number(product?.compareAtPrice || product?.originalPrice || product?.msrp) || 0;
+        const ad = {
+          id,
+          templateId,
+          productId,
+          productData: product,
+          productName: product?.name || product?.title || '',
+          imageUrl: product?.primaryImage || product?.image || (Array.isArray(product?.images) ? product.images[0] : '') || '',
+          category: product?.category || '',
+          pricing: {
+            originalPrice: compareAt || price,
+            discountedPrice: price,
+            discount: compareAt > price && compareAt > 0 ? Math.round(((compareAt - price) / compareAt) * 100) : 0,
+          },
+          content: composeAdContent(product, body?.options || {}),
+          options: body?.options || {},
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await kv.set(productAdKey(id), ad);
+        created.push(ad);
+      } catch (err: any) {
+        failed.push({ productId, error: err?.message || 'Ad generation failed.' });
+      }
+    }
+
+    return c.json({ success: created.length > 0, created, failed });
+  } catch (error: any) {
+    console.log(`Product ad create-bulk error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not generate ads.', created: [], failed: [] }, 500);
+  }
+});
+
+app.get('/make-server-3eae23a6/product-ads', async (c) => {
+  try {
+    const status = c.req.query('status') || '';
+    const search = (c.req.query('search') || '').toLowerCase().trim();
+    const limit = Math.min(Number(c.req.query('limit')) || 50, 200);
+
+    let ads = ((await kv.getByPrefix('productad:')) || []).filter(Boolean);
+    if (status) ads = ads.filter((a: any) => a.status === status);
+    if (search) {
+      ads = ads.filter((a: any) =>
+        `${a.productName || ''} ${a.content?.headline || ''} ${a.category || ''}`.toLowerCase().includes(search));
+    }
+    ads.sort((a: any, b: any) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+    return c.json({ success: true, ads: ads.slice(0, limit), total: ads.length });
+  } catch (error: any) {
+    console.log(`Product ad list error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not load product ads.', ads: [] }, 500);
+  }
+});
+
+app.put('/make-server-3eae23a6/product-ads/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const ad = await kv.get(productAdKey(id)) as any;
+    if (!ad) return c.json({ success: false, error: `No ad found with id ${id}.` }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const updated = {
+      ...ad,
+      ...(body?.content ? { content: { ...ad.content, ...body.content } } : {}),
+      ...(body?.status ? { status: body.status } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(productAdKey(id), updated);
+    return c.json({ success: true, ad: updated });
+  } catch (error: any) {
+    console.log(`Product ad update error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not update this ad.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/product-ads/:id/refresh', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const ad = await kv.get(productAdKey(id)) as any;
+    if (!ad) return c.json({ success: false, error: `No ad found with id ${id}.` }, 404);
+
+    const product = await loadProductForAd(String(ad.productId));
+    if (!product) return c.json({ success: false, error: 'The product behind this ad is no longer in the catalog.' }, 404);
+
+    const price = Number(product?.price) || 0;
+    const compareAt = Number(product?.compareAtPrice || product?.originalPrice || product?.msrp) || 0;
+    const updated = {
+      ...ad,
+      productData: product,
+      productName: product?.name || product?.title || ad.productName,
+      imageUrl: product?.primaryImage || product?.image || (Array.isArray(product?.images) ? product.images[0] : '') || ad.imageUrl,
+      pricing: {
+        originalPrice: compareAt || price,
+        discountedPrice: price,
+        discount: compareAt > price && compareAt > 0 ? Math.round(((compareAt - price) / compareAt) * 100) : 0,
+      },
+      refreshedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(productAdKey(id), updated);
+    return c.json({ success: true, ad: updated });
+  } catch (error: any) {
+    console.log(`Product ad refresh error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not refresh this ad.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/product-ads/:id', async (c) => {
+  try {
+    await kv.del(productAdKey(c.req.param('id')));
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.log(`Product ad delete error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not remove this ad.' }, 500);
+  }
+});
 
 Deno.serve(app.fetch);

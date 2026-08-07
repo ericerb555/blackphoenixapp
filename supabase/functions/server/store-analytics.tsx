@@ -83,6 +83,10 @@ app.get('/store', async (c) => {
 
     const productAgg = new Map<string, any>();
     const categoryAgg = new Map<string, number>();
+    const customerAgg = new Map<string, { name: string; orders: number; total: number; firstAt: number }>();
+    const supplierAgg = new Map<string, number>();
+    let ratingSum = 0, ratingCount = 0, cancelledOrders = 0;
+    let priorMonthRevenue = 0, priorMonthOrders = 0, priorMonthProfit = 0, thisMonthProfit = 0;
     const unitsThisMonth = new Map<string, number>();
     const unitsPriorMonth = new Map<string, number>();
     let grossRevenue = 0, productCost = 0, thisMonthRevenue = 0, thisMonthOrders = 0, pendingPayout = 0;
@@ -103,6 +107,21 @@ app.get('/store', async (c) => {
         pendingPayout += total;
       }
 
+      const custKey = String(o.customerEmail || o.customer_email || o.customerName || '').toLowerCase();
+      if (custKey) {
+        const cur = customerAgg.get(custKey) || {
+          name: o.customerName || o.customerEmail || 'Customer', orders: 0, total: 0, firstAt: d.getTime(),
+        };
+        cur.orders += 1;
+        cur.total += total;
+        cur.firstAt = Math.min(cur.firstAt, d.getTime());
+        customerAgg.set(custKey, cur);
+      }
+      const rating = num(o.rating ?? o.reviewRating);
+      if (rating > 0) { ratingSum += rating; ratingCount += 1; }
+      if (fStatus === 'cancelled' || fStatus === 'canceled' || fStatus === 'returned' || fStatus === 'refunded') cancelledOrders += 1;
+      if (mKey === priorMonthKey) { priorMonthRevenue += total; priorMonthOrders += 1; }
+
       if (monthIndex.has(mKey)) {
         const idx = monthIndex.get(mKey)!;
         monthBuckets[idx].revenue += total;
@@ -118,6 +137,10 @@ app.get('/store', async (c) => {
         const cost = itemCost(it);
         productCost += cost;
         if (monthIndex.has(mKey)) monthBuckets[monthIndex.get(mKey)!].profit += (rev - cost);
+        if (mKey === thisMonthKey) thisMonthProfit += (rev - cost);
+        else if (mKey === priorMonthKey) priorMonthProfit += (rev - cost);
+        const vend = it.vendorName || it.supplier || o.supplier;
+        if (vend) supplierAgg.set(String(vend), (supplierAgg.get(String(vend)) || 0) + rev);
 
         const pid = it.productId || it.id || it.productName || 'unknown';
         const q = num(it.quantity || 1);
@@ -194,9 +217,49 @@ app.get('/store', async (c) => {
       lastPayout: 0,
     };
 
+    // Month-over-month deltas. null when there is no prior month to compare to —
+    // the UI renders nothing rather than inventing a percentage.
+    const delta = (cur: number, prev: number): number | null =>
+      prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;
+
+    const customers = Array.from(customerAgg.values());
+    const returningCount = customers.filter(x => x.orders > 1).length;
+    const avgOrderValue = orders.length > 0 ? grossRevenue / orders.length : 0;
+    const supplierEntries = Array.from(supplierAgg.entries()).sort((a, b) => b[1] - a[1]);
+
+    const quickStats = {
+      avgOrderValue: Math.round(avgOrderValue),
+      returnRate: orders.length > 0 ? Math.round((cancelledOrders / orders.length) * 1000) / 10 : 0,
+      customerLtv: customers.length > 0 ? Math.round(grossRevenue / customers.length) : 0,
+      topSupplier: supplierEntries[0]?.[0] || null,
+    };
+
+    const customerStats = {
+      totalCustomers: customers.length,
+      returningPct: customers.length > 0 ? Math.round((returningCount / customers.length) * 100) : 0,
+      avgLifetimeValue: quickStats.customerLtv,
+      // null when no order carries a rating — better than showing a made-up score.
+      avgRating: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null,
+      ratingCount,
+    };
+
+    const topCustomers = customers
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+      .map(x => ({ name: x.name, orders: x.orders, total: Math.round(x.total) }));
+
     return c.json({
       success: true,
       hasData: true,
+      quickStats,
+      customerStats,
+      topCustomers,
+      supplierRevenue: supplierEntries.slice(0, 6).map(([name, amount]) => ({ name, amount: Math.round(amount) })),
+      deltas: {
+        revenue: delta(thisMonthRevenue, priorMonthRevenue),
+        orders: delta(thisMonthOrders, priorMonthOrders),
+        profit: delta(thisMonthProfit, priorMonthProfit),
+      },
       orderCount: orders.length,
       kpis: {
         totalRevenue: Math.round(thisMonthRevenue),

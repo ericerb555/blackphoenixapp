@@ -9,6 +9,7 @@
  */
 import { useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner@2.0.3';
+import { useStoreProducts } from '../lib/useStoreProducts';
 import {
   Upload, Play, Pause, SkipForward, Wand2, ShoppingBag, Share2,
   ChevronRight, Check, RefreshCw, Download, Eye, Edit2, X,
@@ -98,7 +99,7 @@ interface RecreatedScript {
 
 type Step = 1 | 2 | 3 | 3.5 | 4;
 
-// ── Demo store products (mirrors PublicStore) ──────────────────────────────────
+// ── Sample products — used ONLY if the live store catalog can't be reached ─────
 
 const DEMO_PRODUCTS: StoreProduct[] = [
   { id: 'p1', name: 'Premium Roofing Kit', description: 'Professional-grade roofing materials for residential projects', price: 299, originalPrice: 399, category: 'Materials', image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=400&q=80', badge: 'BEST SELLER' },
@@ -268,6 +269,14 @@ interface Props {
 export default function VideoRecreationEngine({ onPushToScheduler, onPushToStore, preloadedProduct }: Props) {
   // If a product was passed in from Shop Intelligence, pre-select it and go to step 2
   const initialStep: Step = preloadedProduct ? 2 : 1;
+  // Live store catalog — same products your storefront sells.
+  const {
+    products: storeProducts,
+    loading: productsLoading,
+    live: productsLive,
+    error: productsError,
+    reload: reloadProducts,
+  } = useStoreProducts(DEMO_PRODUCTS as any);
   const [step, setStep] = useState<Step>(initialStep);
   const [referenceVideo, setReferenceVideo] = useState<{ file: File; url: string } | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState('');
@@ -785,9 +794,27 @@ export default function VideoRecreationEngine({ onPushToScheduler, onPushToStore
               <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-orange-400" /> Your Store Products
               </h3>
-              <p className="text-xs text-gray-500 mb-3">{selectedProduct ? 'Product selected ✓ — or pick a different one below' : 'Select the product you want this video to sell'}</p>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <p className="text-xs text-gray-500 min-w-0">
+                  {selectedProduct
+                    ? 'Product selected ✓ — or pick a different one below'
+                    : productsLoading
+                      ? 'Loading your live store catalog…'
+                      : productsLive
+                        ? `Pulled live from your store · ${storeProducts.length} product${storeProducts.length !== 1 ? 's' : ''}`
+                        : `Showing sample products${productsError ? ` — ${productsError}` : ''}`}
+                </p>
+                <button onClick={reloadProducts} title="Refresh from store" className="text-gray-500 hover:text-white flex-shrink-0">
+                  <RefreshCw className={`w-4 h-4 ${productsLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {DEMO_PRODUCTS.map(product => (
+                {storeProducts.length === 0 && !productsLoading && (
+                  <div className="p-6 text-center text-sm text-gray-500 rounded-xl border border-[#2A2A2A]">
+                    Your store has no active products yet. Add one in Product Catalog and it will appear here.
+                  </div>
+                )}
+                {storeProducts.map(product => (
                   <button key={product.id} onClick={() => setSelectedProduct(product)}
                     className={`w-full flex items-center gap-3 p-3 rounded-xl border transition text-left ${
                       selectedProduct?.id === product.id

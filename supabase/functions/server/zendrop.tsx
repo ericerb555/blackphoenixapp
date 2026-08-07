@@ -130,6 +130,174 @@ export async function zendropFetch(
   return mcpCall(apiKey, "tools/call", { name: action, arguments: params });
 }
 
+// ─── Order submission (MCP) ─────────────────────────────────────────────────
+//
+// Zendrop publishes no REST order endpoint, and its developer docs list only
+// catalog tools. Rather than hardcode a guessed tool name, discover it at
+// runtime from tools/list and adapt the arguments to the tool's own schema.
+
+interface McpTool { name: string; description?: string; inputSchema?: any; }
+
+let toolCache: { tools: McpTool[]; at: number } | null = null;
+const TOOL_CACHE_MS = 10 * 60 * 1000;
+
+export async function listZendropTools(apiKey: string, force = false): Promise<{ tools: McpTool[]; error?: string }> {
+  if (!force && toolCache && Date.now() - toolCache.at < TOOL_CACHE_MS) return { tools: toolCache.tools };
+  const res = await mcpCall(apiKey, "tools/list", {});
+  if (!res.ok) return { tools: [], error: res.error || `tools/list failed (HTTP ${res.status}).` };
+  const raw = res.data?.result?.tools ?? res.data?.tools ?? [];
+  const tools: McpTool[] = Array.isArray(raw)
+    ? raw.filter((t: any) => t && typeof t.name === "string")
+        .map((t: any) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema ?? t.input_schema }))
+    : [];
+  toolCache = { tools, at: Date.now() };
+  return { tools };
+}
+
+const ORDER_TOOL_PATTERNS: RegExp[] = [
+  /^create_order$/i,
+  /^place_order$/i,
+  /^submit_order$/i,
+  /^create_orders?$/i,
+  /^order_create$/i,
+  /^fulfill_order$/i,
+  /^(create|place|submit)_.*order/i,
+  /^fulfill_.*order/i,
+  /^trigger_fulfillment$/i,
+  /^(create|place|submit).*order/i,
+];
+
+/** Most specific match wins, so `create_order` beats `create_order_draft`. */
+export function pickOrderTool(tools: McpTool[]): McpTool | null {
+  for (const pattern of ORDER_TOOL_PATTERNS) {
+    const hit = tools.find((t) => pattern.test(t.name));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export interface ZendropOrderInput {
+  orderId: string;
+  items: Array<{ sku: string; quantity: number; price?: number }>;
+  shippingAddress?: any;
+}
+
+/**
+ * Build the tool arguments, sending only keys the tool's own inputSchema
+ * declares. Sending undeclared keys is what most MCP servers reject outright,
+ * and the schema is the only trustworthy description of this tool.
+ */
+export function buildOrderArguments(tool: McpTool, order: ZendropOrderInput): Record<string, unknown> {
+  const properties = tool.inputSchema?.properties;
+  const lineItems = order.items.map((it) => ({
+    sku: it.sku,
+    variant_id: it.sku,
+    quantity: it.quantity,
+    ...(it.price !== undefined ? { price: it.price } : {}),
+  }));
+
+  // No schema to go on — send the most conventional shape and let the server
+  // tell us what it dislikes, which surfaces as an actionable error.
+  if (!properties || typeof properties !== "object") {
+    return { line_items: lineItems, shipping_address: order.shippingAddress, external_id: order.orderId };
+  }
+
+  const args: Record<string, unknown> = {};
+  const put = (aliases: string[], value: unknown) => {
+    if (value === undefined) return;
+    const key = aliases.find((a) => a in properties);
+    if (key) args[key] = value;
+  };
+
+  put(["line_items", "lineItems", "items", "products", "order_items"], lineItems);
+  put(["shipping_address", "shippingAddress", "address", "destination", "shipping"], order.shippingAddress);
+  put(["external_id", "externalId", "reference", "reference_id", "order_id", "orderId", "external_order_id"], order.orderId);
+  return args;
+}
+
+/** Walk an arbitrary MCP response looking for something that names the order. */
+export function extractOrderId(data: any, depth = 0, seen = new Set<any>()): string | null {
+  if (data == null || depth > 6) return null;
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try { return extractOrderId(JSON.parse(trimmed), depth + 1, seen); } catch { return null; }
+    }
+    return null;
+  }
+  if (typeof data !== "object") return null;
+  if (seen.has(data)) return null;
+  seen.add(data);
+
+  if (Array.isArray(data)) {
+    for (const entry of data) {
+      const found = extractOrderId(entry, depth + 1, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const key of ["order_id", "orderId", "id", "order_number", "orderNumber", "number"]) {
+    const value = (data as any)[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  for (const key of ["result", "order", "data", "content", "structuredContent"]) {
+    if (key in data) {
+      const found = extractOrderId((data as any)[key], depth + 1, seen);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Send a paid order to Zendrop. Throws with an actionable message rather than
+ * returning a soft failure, because a silent failure here is exactly what left
+ * paid orders stranded at "pending".
+ */
+export async function submitZendropOrder(
+  apiKey: string | undefined,
+  order: ZendropOrderInput,
+): Promise<{ providerOrderId: string; tool: string; sentArguments: Record<string, unknown>; raw: any }> {
+  // The provider record may predate the secret (or have been saved without a
+  // key), so fall back to the environment rather than failing needlessly.
+  const key = (apiKey && apiKey.trim()) || resolveKey() || "";
+  if (!key) throw new Error("No Zendrop API key is configured (set the ZENDROP_API_KEY secret).");
+
+  const { tools, error } = await listZendropTools(key);
+  if (error) throw new Error(`Could not list Zendrop MCP tools, so the order could not be submitted: ${error}`);
+
+  const tool = pickOrderTool(tools);
+  if (!tool) {
+    const names = tools.map((t) => t.name).join(", ") || "(none returned)";
+    throw new Error(
+      `Zendrop's MCP token does not expose an order-creation tool. Available tools: ${names}. ` +
+      `Regenerate the access token at app.zendrop.com/mcp/v1 with order write access enabled.`,
+    );
+  }
+
+  const sentArguments = buildOrderArguments(tool, order);
+  const res = await zendropFetch(key, tool.name, sentArguments);
+  if (!res.ok) {
+    throw new Error(`Zendrop rejected the order via "${tool.name}": ${res.error || `HTTP ${res.status}`}`);
+  }
+  // MCP reports tool-level failure as a 200 with result.isError.
+  if (res.data?.result?.isError) {
+    const detail = JSON.stringify(res.data.result?.content ?? res.data.result).slice(0, 400);
+    throw new Error(`Zendrop tool "${tool.name}" returned an error: ${detail}`);
+  }
+
+  const providerOrderId = extractOrderId(res.data);
+  if (!providerOrderId) {
+    throw new Error(
+      `Zendrop accepted the "${tool.name}" call but returned no order id, so the order cannot be tracked. ` +
+      `Response: ${JSON.stringify(res.data).slice(0, 400)}`,
+    );
+  }
+  return { providerOrderId, tool: tool.name, sentArguments, raw: res.data };
+}
+
 /**
  * Pull a product array out of whatever shape the Zendrop MCP response uses.
  * MCP servers commonly wrap the real payload in a JSON-RPC-style envelope
@@ -679,6 +847,36 @@ zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
   } catch (error) {
     console.log(`[Zendrop] Debug error: ${error}`);
     return c.json({ success: false, error: `Zendrop debug error: ${error}` }, 500);
+  }
+});
+
+/**
+ * Which MCP tool will an order actually be sent to?
+ *
+ * Order submission discovers the tool at runtime, so this exposes the choice
+ * and its input schema for diagnosis without pushing a real order through.
+ */
+zendropRouter.get(`${PREFIX}/zendrop/order-tool`, async (c) => {
+  try {
+    const apiKey = resolveKey();
+    if (!apiKey) return c.json({ success: false, error: "No ZENDROP_API_KEY configured" }, 400);
+
+    const { tools, error } = await listZendropTools(apiKey, c.req.query("refresh") === "1");
+    if (error) return c.json({ success: false, error, tools: [] }, 502);
+
+    const picked = pickOrderTool(tools);
+    return c.json({
+      success: true,
+      orderToolFound: Boolean(picked),
+      orderTool: picked ? { name: picked.name, description: picked.description, inputSchema: picked.inputSchema } : null,
+      availableTools: tools.map((t) => t.name),
+      message: picked
+        ? `Orders will be submitted via the "${picked.name}" MCP tool.`
+        : `This MCP token exposes no order-creation tool, so orders cannot be sent to Zendrop. Regenerate the token at app.zendrop.com/mcp/v1 with order write access enabled.`,
+    });
+  } catch (error: any) {
+    console.log(`[zendrop/order-tool] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
   }
 });
 

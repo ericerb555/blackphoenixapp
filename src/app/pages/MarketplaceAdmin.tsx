@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Copy,
   ArrowUp, ArrowDown, Shield, Upload, Grid, List,
   TrendingUp, Zap, Gift, RefreshCw, Home, Sparkles, Image as ImageIcon, Loader2,
-  Megaphone,
+  Megaphone, ExternalLink, Link2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -20,9 +20,42 @@ import { sendProductToAdStudio } from '../lib/adStudioHandoff';
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
+/** Public, shareable page for a single product. Every product added here gets one. */
+const productPagePath = (id: string) => `/digital-product?id=${encodeURIComponent(id)}`;
+
+function openProductPage(id: string) {
+  (window as any).__navigateApp?.(productPagePath(id));
+}
+
+async function copyProductLink(id: string, title: string) {
+  const url = `${window.location.origin}${productPagePath(id)}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success(`Link to "${title}" copied.`);
+  } catch {
+    toast.error(`Clipboard blocked. The link is ${url}`);
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ProductCategory = 'ebook' | 'template' | 'calculator' | 'ai_report' | 'maintenance' | 'bundle';
+
+interface ProductFile {
+  id: string;
+  name: string;
+  label: string;
+  path: string;
+  size: number;
+  mime: string;
+  uploadedAt: string;
+}
+
+function formatFileSize(bytes: number): string {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 type PricingModel = 'one_time' | 'subscription';
 type DeliveryMethod = 'download' | 'generated' | 'interactive';
 
@@ -55,6 +88,9 @@ interface AdminProduct {
   // preview; `coverImagePath` is the durable storage path the server re-signs.
   coverImage?: string;
   coverImagePath?: string;
+  // The actual deliverable(s) a buyer downloads. Stored in a private bucket;
+  // only the admin catalog (?admin=true) ever sees the storage paths.
+  files?: ProductFile[];
 }
 
 const STORAGE_KEY = 'bp_mkt_products';
@@ -338,6 +374,53 @@ function ProductForm({ product, onSave, onCancel }: {
   const [imgPrompt, setImgPrompt] = useState('');
   const [imgStyle, setImgStyle] = useState('modern, premium, clean');
   const [generatingImg, setGeneratingImg] = useState(false);
+  // Deliverable files. A product that has never been saved has no id on the
+  // server yet, so there is nothing to attach a file to.
+  const isNewProduct = product.id.startsWith('prod-');
+  const [files, setFiles] = useState<ProductFile[]>(product.files || []);
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  async function uploadFile(file: File) {
+    setUploadingFile(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('label', file.name);
+      const res = await fetch(`${API}/marketplace/products/${encodeURIComponent(product.id)}/files`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        body: fd,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Upload failed (${res.status}).`);
+      setFiles(data.files || []);
+      setForm(f => ({ ...f, files: data.files || [] }));
+      toast.success(`${file.name} attached — buyers can download it after payment.`);
+    } catch (err: any) {
+      console.error('[MarketplaceAdmin] product file upload failed:', err);
+      toast.error(err?.message || 'Could not attach that file.');
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
+  async function removeFile(f: ProductFile) {
+    if (!confirm(`Remove "${f.label}"? Buyers will no longer be able to download it.`)) return;
+    try {
+      const res = await fetch(`${API}/marketplace/products/${encodeURIComponent(product.id)}/files/${encodeURIComponent(f.id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Delete failed (${res.status}).`);
+      setFiles(data.files || []);
+      setForm(prev => ({ ...prev, files: data.files || [] }));
+      toast.success('File removed.');
+    } catch (err: any) {
+      console.error('[MarketplaceAdmin] product file delete failed:', err);
+      toast.error(err?.message || 'Could not remove that file.');
+    }
+  }
 
   function set<K extends keyof AdminProduct>(k: K, v: AdminProduct[K]) {
     setForm(f => ({ ...f, [k]: v }));
@@ -487,6 +570,74 @@ function ProductForm({ product, onSave, onCancel }: {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Deliverable files */}
+          <div className="rounded-xl border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Upload className="w-4 h-4 text-orange-400" />
+              <span className="text-sm font-bold text-white">Downloadable Files</span>
+              {files.length > 0 && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/25">
+                  {files.length} attached
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              What the buyer actually receives. Files sit in a private bucket — a download link is
+              only minted for an email with a verified paid order.
+            </p>
+
+            {isNewProduct ? (
+              <p className="text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+                Save this product first, then reopen it to attach files.
+              </p>
+            ) : (
+              <>
+                <label className={`flex items-center justify-center gap-2 border border-dashed border-[#2A2A2A] hover:border-orange-500/50 rounded-lg py-4 text-sm transition ${uploadingFile ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  {uploadingFile ? <Loader2 className="w-4 h-4 animate-spin text-orange-400" /> : <Upload className="w-4 h-4 text-orange-400" />}
+                  <span className="text-white font-semibold">{uploadingFile ? 'Uploading…' : 'Attach a file'}</span>
+                  <span className="text-gray-500 text-xs">PDF, DOCX, XLSX, EPUB, ZIP · up to 100MB</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    disabled={uploadingFile}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) void uploadFile(file);
+                    }}
+                  />
+                </label>
+
+                {files.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {files.map(f => (
+                      <div key={f.id} className="flex items-center gap-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2">
+                        <FileText className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{f.label}</p>
+                          <p className="text-xs text-gray-500">
+                            {formatFileSize(f.size)} · added {new Date(f.uploadedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => void removeFile(f)}
+                          className="p-1.5 text-gray-500 hover:text-red-400 transition" title="Remove file">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {files.length === 0 && form.deliveryMethod === 'download' && (
+                  <p className="mt-3 text-xs text-amber-300/90">
+                    This product is set to <strong>download</strong> delivery but has no file attached —
+                    buyers will be told to contact support instead of getting an instant download.
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           {/* Price + Original Price */}
@@ -1040,6 +1191,14 @@ export default function MarketplaceAdmin() {
                     title={p.visible ? 'Hide from store' : 'Show in store'}
                     className={`p-2 rounded-lg transition ${p.visible ? 'text-green-400 hover:bg-green-500/10' : 'text-gray-500 hover:text-gray-300 hover:bg-[#2A2A2A]'}`}>
                     {p.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => openProductPage(p.id)} title="Open the public product page"
+                    className="p-2 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 transition">
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => void copyProductLink(p.id, p.title)} title="Copy the shareable product link"
+                    className="p-2 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 transition">
+                    <Link2 className="w-4 h-4" />
                   </button>
                   <button onClick={() => handleDuplicate(p)} title="Duplicate"
                     className="p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-[#2A2A2A] transition">

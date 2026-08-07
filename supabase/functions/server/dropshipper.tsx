@@ -6,6 +6,7 @@
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
+import { submitZendropOrder } from './zendrop.tsx';
 
 // Storage keys
 const INVENTORY_KEY_PREFIX = 'dropshipper_inventory';
@@ -261,6 +262,7 @@ export async function forwardOrder(order: {
 
       try {
         const providerOrderId = await sendOrderToProvider(provider, {
+          orderId: order.orderId,
           items,
           shippingAddress: order.shippingAddress,
         });
@@ -280,7 +282,9 @@ export async function forwardOrder(order: {
         console.log(`[Dropshipper] Order ${order.orderId} forwarded to ${provider.name} as ${providerOrderId}`);
       } catch (error) {
         const errorMsg = `Failed to forward order to ${provider.name}: ${error}`;
-        skipped.push(`${provider.name} (send failed)`);
+        // Carry the real reason. The old opaque placeholder told the operator
+        // nothing, which is how a broken Zendrop endpoint went unnoticed.
+        skipped.push(`${provider.name}: ${(error as any)?.message || error}`);
         await logError('ORDER_FORWARD', errorMsg, providerId, order.orderId);
         console.error(`[Dropshipper Error] ${errorMsg}`);
       }
@@ -325,8 +329,21 @@ async function groupItemsByProvider(items: { sku: string; quantity: number; pric
  */
 async function sendOrderToProvider(
   provider: config.DropshipperProvider,
-  orderData: { items: any[]; shippingAddress: any }
+  orderData: { orderId?: string; items: any[]; shippingAddress: any }
 ): Promise<string> {
+  // Zendrop is NOT a plain REST API — it speaks MCP (JSON-RPC 2.0) at
+  // app.zendrop.com/mcp/v1, the same endpoint the catalog sync already uses.
+  // Posting to `${provider.apiUrl}/orders` never created an order; it just
+  // failed and left the store order sitting at "pending".
+  if (String(provider.id) === 'zendrop' || /zendrop/i.test(String(provider.name || ''))) {
+    const { providerOrderId } = await submitZendropOrder(provider.apiKey, {
+      orderId: orderData.orderId || 'unknown',
+      items: orderData.items,
+      shippingAddress: orderData.shippingAddress,
+    });
+    return providerOrderId;
+  }
+
   const response = await fetch(`${provider.apiUrl}/orders`, {
     method: 'POST',
     headers: {
@@ -339,12 +356,22 @@ async function sendOrderToProvider(
     }),
   });
 
+  const bodyText = await response.text().catch(() => '');
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(`${provider.name} rejected the order (HTTP ${response.status} ${response.statusText}): ${bodyText.slice(0, 300)}`);
   }
 
-  const data = await response.json();
-  return data.order_id;
+  let data: any = {};
+  try { data = bodyText ? JSON.parse(bodyText) : {}; } catch {
+    throw new Error(`${provider.name} returned a non-JSON response to the order post: ${bodyText.slice(0, 200)}`);
+  }
+  const providerOrderId = data.order_id || data.orderId || data.id;
+  if (!providerOrderId) {
+    // Treating a 200 with no id as success is how orders get marked forwarded
+    // when nothing was created.
+    throw new Error(`${provider.name} accepted the order but returned no order id, so it cannot be tracked: ${bodyText.slice(0, 300)}`);
+  }
+  return String(providerOrderId);
 }
 
 /**

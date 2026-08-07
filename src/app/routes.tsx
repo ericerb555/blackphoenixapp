@@ -142,6 +142,7 @@ const PropertyRevenueHub = lazy(() => import("./pages/PropertyRevenueHub"));
 const PropertyAIEnterprise = lazy(() => import("./pages/PropertyAIEnterprise"));
 const OrderSuccess = lazy(() => import("./pages/OrderSuccess"));
 const DigitalStorefront = lazy(() => import("./pages/DigitalStorefront"));
+const DigitalProductPage = lazy(() => import("./pages/DigitalProductPage"));
 const MarketplaceAdmin = lazy(() => import("./pages/MarketplaceAdmin"));
 const AdCreator = lazy(() => import("./pages/AdCreator"));
 const DocumentViewer = lazy(() => import("./pages/DocumentViewer"));
@@ -503,6 +504,9 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "digital-store":         DigitalStorefront,
   "shop":                  DigitalStorefront,
   "digital-products":      DigitalStorefront,
+  // Single-product page, deep-linked as /digital-product?id=<productId>.
+  "digital-product":       DigitalProductPage,
+  "product":               DigitalProductPage,
   "marketplace-admin":     MarketplaceAdmin,
   "digital-products-admin": MarketplaceAdmin,
   "ad-creator":            AdCreator,

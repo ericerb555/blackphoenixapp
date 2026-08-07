@@ -9,20 +9,10 @@ import { Play, Tag, ExternalLink, Star, Clock, ChevronRight, Percent, Gift, Vide
 const SERVER = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTczMTIsImV4cCI6MjA4NTEzMzMxMn0.HcaTHZrVUG1qWfHnKr7ItKOHrDhDWoDaPFG46O1lu6o';
 
-// Static featured deals — shown when no live data
-const DEMO_DEALS = [
-  { id: 'd1', title: '15% Off Any Plumbing Job', business: 'ABC Plumbing Services', discount: '15% OFF', code: 'PLUMB15', expires: '2026-07-31', type: 'percent', category: 'Plumbing' },
-  { id: 'd2', title: '$50 Off Electrical Panel Upgrade', business: 'Elite Electrical', discount: '$50 OFF', code: 'ELEC50', expires: '2026-07-15', type: 'dollar', category: 'Electrical' },
-  { id: 'd3', title: 'Free HVAC Inspection with Any Repair', business: 'Dallas HVAC Pros', discount: 'FREE', code: 'HVACFREE', expires: '2026-07-20', type: 'free-service', category: 'HVAC' },
-  { id: 'd4', title: '20% Off Kitchen Renovation', business: 'Black Phoenix Builds', discount: '20% OFF', code: 'KITCHEN20', expires: '2026-08-01', type: 'percent', category: 'Construction' },
-];
-
-// Static featured reels
-const DEMO_REELS = [
-  { id: 'r1', title: 'Kitchen Transformation', thumbnail: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&q=80', platform: 'youtube', url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', business: 'Black Phoenix Builds' },
-  { id: 'r2', title: 'Bathroom Remodel Before & After', thumbnail: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=400&q=80', platform: 'youtube', url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', business: 'Premier Tile Co.' },
-  { id: 'r3', title: 'HVAC Installation Time-Lapse', thumbnail: 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=400&q=80', platform: 'youtube', url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', business: 'Dallas HVAC Pros' },
-];
+// No placeholder deals or reels. A portal member only ever sees offers the
+// owner actually published in Deal Publisher and reels that were approved —
+// showing invented businesses and promo codes to a real client is worse than
+// showing an honest empty state.
 
 function discountBadgeColor(type: string) {
   if (type === 'percent') return 'bg-orange-500/20 text-orange-400 border border-orange-500/30';
@@ -35,30 +25,33 @@ interface Props {
 }
 
 export default function FeaturedDealsReels({ portalType }: Props = {}) {
-  const [reels, setReels] = useState(DEMO_REELS);
-  const [deals, setDeals] = useState(DEMO_DEALS);
+  const [reels, setReels] = useState<any[]>([]);
+  const [deals, setDeals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [playingReel, setPlayingReel] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [reelsSection, setReelsSection] = useState<'featured' | 'all'>('featured');
 
   useEffect(() => {
-    // Load real reels from server
-    fetch(`${SERVER}/public/reels`, {
+    let cancelled = false;
+    setLoading(true);
+
+    // Approved, featured reels published by the owner.
+    const reelsReq = fetch(`${SERVER}/public/reels`, {
       headers: { Authorization: `Bearer ${ANON_KEY}` }
     }).then(r => r.json()).then(data => {
       const serverReels = (data.reels || []).filter((r: any) => r.featured && r.approved);
-      if (serverReels.length > 0) setReels(serverReels);
-    }).catch(() => {});
+      if (!cancelled) setReels(serverReels);
+    }).catch(err => { console.error('[FeaturedDealsReels] reels load failed:', err); });
 
     // Load portal-targeted deals from owner's Deal Publisher
     const url = new URL(`${SERVER}/portal-deals`);
     if (portalType) url.searchParams.set('portal', portalType);
-    fetch(url.toString(), {
+    const dealsReq = fetch(url.toString(), {
       headers: { Authorization: `Bearer ${ANON_KEY}` }
     }).then(r => r.json()).then(data => {
-      const serverDeals = (data.deals || []).filter((d: any) => d.active);
-      if (serverDeals.length > 0) {
-        // Normalize server deal format to match DEMO_DEALS shape
+      const serverDeals = (data.deals || []).filter((d: any) => d.active !== false);
+      if (!cancelled) {
         const normalized = serverDeals.map((d: any) => ({
           id: d.id,
           title: d.title,
@@ -76,7 +69,10 @@ export default function FeaturedDealsReels({ portalType }: Props = {}) {
         }));
         setDeals(normalized);
       }
-    }).catch(() => {});
+    }).catch(err => { console.error('[FeaturedDealsReels] deals load failed:', err); });
+
+    Promise.allSettled([reelsReq, dealsReq]).then(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [portalType]);
 
   function copyCode(code: string) {
@@ -111,8 +107,16 @@ export default function FeaturedDealsReels({ portalType }: Props = {}) {
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <Tag className="w-5 h-5 text-orange-400" /> Active Featured Deals
           </h3>
-          <span className="text-xs text-gray-500">{deals.length} offers live now</span>
+          <span className="text-xs text-gray-500">
+            {loading ? 'Loading…' : `${deals.length} offer${deals.length !== 1 ? 's' : ''} live now`}
+          </span>
         </div>
+        {!loading && deals.length === 0 && (
+          <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-8 text-center">
+            <Tag className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">No active offers right now. Check back soon.</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {deals.map(deal => (
             <div key={deal.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-hidden hover:border-orange-500/30 transition group">
@@ -154,8 +158,16 @@ export default function FeaturedDealsReels({ portalType }: Props = {}) {
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <Video className="w-5 h-5 text-blue-400" /> Featured Reels
           </h3>
-          <span className="text-xs text-gray-500">{reels.length} reels live</span>
+          <span className="text-xs text-gray-500">
+            {loading ? 'Loading…' : `${reels.length} reel${reels.length !== 1 ? 's' : ''} live`}
+          </span>
         </div>
+        {!loading && reels.length === 0 && (
+          <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-8 text-center">
+            <Video className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">No featured reels published yet.</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {reels.map(reel => {
             const thumb = getThumbnail(reel);

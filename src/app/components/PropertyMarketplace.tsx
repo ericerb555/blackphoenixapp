@@ -348,7 +348,7 @@ function Stars({ rating }: { rating: number }) {
 
 // ─── Checkout flow ─────────────────────────────────────────────────────────────
 
-async function processCheckout(items: CartItem[], email: string, name: string): Promise<boolean> {
+async function processCheckout(items: CartItem[], email: string, name: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const CHECKOUT_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/marketplace/checkout`;
     const res = await fetch(CHECKOUT_URL, {
@@ -362,12 +362,15 @@ async function processCheckout(items: CartItem[], email: string, name: string): 
         cancelUrl: window.location.href,
       }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) { window.location.href = data.url; return true; }
-    }
-  } catch {}
-  return false;
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.url) { window.location.href = data.url; return { ok: true }; }
+    const error = data?.error || `Checkout could not be started (${res.status}).`;
+    console.error('[PropertyMarketplace] checkout failed:', error);
+    return { ok: false, error };
+  } catch (err: any) {
+    console.error('[PropertyMarketplace] checkout request threw:', err);
+    return { ok: false, error: err?.message || 'Could not reach the payment processor.' };
+  }
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -463,15 +466,12 @@ export default function PropertyMarketplace() {
   async function handleCheckout() {
     if (!email.trim() || !name.trim()) { toast.error('Please enter your name and email.'); return; }
     setCheckoutStep('processing');
-    const stripeWorked = await processCheckout(cart, email, name);
-    if (!stripeWorked) {
-      // Simulate purchase locally (Stripe not wired yet)
-      await new Promise(r => setTimeout(r, 2000));
-      const ids = new Set([...purchased, ...cart.map(i => i.product.id)]);
-      setPurchased(ids);
-      try { localStorage.setItem('bp_mkt_purchased', JSON.stringify([...ids])); } catch {}
-      setCart([]);
-      setCheckoutStep('success');
+    const result = await processCheckout(cart, email, name);
+    if (!result.ok) {
+      // Never grant products without a real payment — surface the failure and
+      // return the shopper to their cart with everything intact.
+      toast.error(`${result.error || 'Checkout failed.'} Nothing was charged — please try again.`);
+      setCheckoutStep('cart');
     }
   }
 

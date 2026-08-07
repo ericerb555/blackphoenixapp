@@ -28,17 +28,6 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   render() { return this.state.err ? null : this.props.children; }
 }
 
-const DEMO_PIPELINE = [
-  { id: 'wr1', customer: 'Sarah Johnson', service: 'Bathroom Remodel', status: 'new', priority: 'high', submitted: '2026-06-20', budget: '$4,000–$8,000', description: 'Full bathroom gut and remodel, new tile, vanity, fixtures.' },
-  { id: 'wr2', customer: 'Mike Thompson', service: 'Kitchen Renovation', status: 'quoted', priority: 'medium', submitted: '2026-06-18', budget: '$12,000–$20,000', description: 'Open concept kitchen, new cabinets, countertops, appliances.' },
-  { id: 'wr3', customer: 'Lisa Chen', service: 'Trash Removal', status: 'new', priority: 'low', submitted: '2026-06-22', budget: '$200–$500', description: 'Garage cleanout, approx 2 truckloads.' },
-];
-
-const DEMO_REVENUE = [
-  { month: 'Jan', revenue: 12400 }, { month: 'Feb', revenue: 15200 }, { month: 'Mar', revenue: 18900 },
-  { month: 'Apr', revenue: 22100 }, { month: 'May', revenue: 28400 }, { month: 'Jun', revenue: 34800 },
-];
-
 type Tab = 'dashboard' | 'pipeline' | 'analytics' | 'messages' | 'customers' | 'subcontractors' | 'subscriptions' | 'plan-tracker' | 'crm' | 'deals' | 'investments' | 'referrals' | 'documents' | 'settings' | 'guide';
 
 interface Props { onNavigate: (page: string) => void; }
@@ -73,6 +62,9 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(true);
   const [pipeline, setPipeline] = useState<any[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
+  // Real territory revenue, aggregated server-side from completed payments.
+  const [revenue, setRevenue] = useState<{ monthly: { month: string; revenue: number; jobs: number }[]; ytdRevenue: number; paidCount: number; avgJobValue: number } | null>(null);
+  const [revenueLoading, setRevenueLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showAddSub, setShowAddSub] = useState(false);
@@ -99,6 +91,26 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       finally { if (mounted) setSettingsLoading(false); }
     };
     void loadSettings();
+    return () => { mounted = false; };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRevenue = async () => {
+      if (!user?.id) { if (mounted) { setRevenue(null); setRevenueLoading(false); } return; }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/territory/revenue`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load territory revenue.');
+        if (mounted) setRevenue({ monthly: data.monthly || [], ytdRevenue: data.ytdRevenue || 0, paidCount: data.paidCount || 0, avgJobValue: data.avgJobValue || 0 });
+      } catch (error: any) {
+        console.error('Territory revenue load failed:', error);
+        if (mounted) setRevenue(null);
+      } finally { if (mounted) setRevenueLoading(false); }
+    };
+    void loadRevenue();
     return () => { mounted = false; };
   }, [user?.id]);
 
@@ -484,10 +496,10 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
             <h2 className="text-xl font-bold text-white">Territory Analytics</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Total Revenue YTD', value: '$131,800', change: '+34% vs last year', icon: DollarSign, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+                { label: 'Total Revenue YTD', value: revenueLoading ? '…' : `$${(revenue?.ytdRevenue || 0).toLocaleString()}`, change: 'Completed payments this year', icon: DollarSign, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
                 { label: 'Active Customers', value: String(customers.filter(c => c.status === 'active').length), change: 'In your territory', icon: Users, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-                { label: 'Jobs Completed', value: String(subs.reduce((a, s) => a + s.jobs, 0)), change: 'By your subs', icon: CheckSquare, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
-                { label: 'Avg Job Value', value: '$1,240', change: '+8% this month', icon: TrendingUp, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
+                { label: 'Jobs Completed', value: String(subs.reduce((a, s) => a + (Number(s.jobs) || 0), 0)), change: 'By your subs', icon: CheckSquare, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+                { label: 'Avg Payment Value', value: revenueLoading ? '…' : `$${(revenue?.avgJobValue || 0).toLocaleString()}`, change: `${revenue?.paidCount || 0} payments recorded`, icon: TrendingUp, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -495,7 +507,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
                     <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-3 ${s.color}`}><Icon className="w-5 h-5" /></div>
                     <p className="text-2xl font-bold text-white mb-1">{s.value}</p>
                     <p className="text-sm text-gray-400">{s.label}</p>
-                    <p className="text-xs text-green-400 mt-0.5">{s.change}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{s.change}</p>
                   </div>
                 );
               })}
@@ -504,24 +516,36 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
             {/* Revenue Bar Chart */}
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <h3 className="text-lg font-bold text-white mb-5">Monthly Revenue — {territoryName} Territory</h3>
-              <div className="flex items-end gap-3 h-40">
-                {DEMO_REVENUE.map((r, i) => {
-                  const maxRev = Math.max(...DEMO_REVENUE.map(x => x.revenue));
-                  const pct = Math.round((r.revenue / maxRev) * 100);
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                      <p className="text-xs text-gray-500">${(r.revenue / 1000).toFixed(0)}k</p>
-                      <div className="w-full bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t opacity-80 hover:opacity-100 transition"
-                        style={{ height: `${pct}%` }} />
-                      <span className="text-xs text-gray-500">{r.month}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#2A2A2A]">
-                <span className="text-gray-500 text-sm">6-Month Total</span>
-                <span className="text-cyan-400 text-xl font-black">${DEMO_REVENUE.reduce((a, r) => a + r.revenue, 0).toLocaleString()}</span>
-              </div>
+              {revenueLoading ? (
+                <p className="text-sm text-gray-500 py-12 text-center">Loading revenue…</p>
+              ) : !revenue || revenue.monthly.every(r => r.revenue === 0) ? (
+                <p className="text-sm text-gray-500 py-12 text-center">
+                  No completed payments from your customers yet — this chart fills in as payments come through.
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-end gap-3 h-40">
+                    {revenue.monthly.map(r => {
+                      const maxRev = Math.max(...revenue.monthly.map(x => x.revenue), 1);
+                      const pct = Math.round((r.revenue / maxRev) * 100);
+                      return (
+                        <div key={r.month} className="flex-1 flex flex-col items-center gap-1.5 justify-end">
+                          <p className="text-xs text-gray-500">${(r.revenue / 1000).toFixed(1)}k</p>
+                          <div className="w-full bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t opacity-80 hover:opacity-100 transition"
+                            style={{ height: `${pct}%` }} />
+                          <span className="text-xs text-gray-500">{r.month}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#2A2A2A]">
+                    <span className="text-gray-500 text-sm">6-Month Total</span>
+                    <span className="text-cyan-400 text-xl font-black">
+                      ${revenue.monthly.reduce((a, r) => a + r.revenue, 0).toLocaleString()}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Top Subs */}

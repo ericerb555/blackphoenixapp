@@ -30,6 +30,8 @@ import { CompactStandardButton } from './ui/button/StandardButton';
 import ProductDetailModal from './ProductDetailModal';
 import type { Product } from '../types/ecommerce';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+import { toast } from 'sonner@2.0.3';
 
 interface VendorStorefrontProps {
   vendorId: string;
@@ -66,6 +68,28 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
   useEffect(() => {
     loadVendorData();
   }, [vendorId]);
+
+  // Favourites live on the signed-in account so they follow the shopper across
+  // devices. Signed out, the server returns an empty list and toggling asks
+  // them to sign in rather than silently forgetting the choice.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/product-favorites`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (mounted && res.ok && Array.isArray(data.productIds)) setFavorites(new Set(data.productIds));
+      } catch (error) {
+        console.error('Error loading saved product favourites:', error);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const loadVendorData = async () => {
     try {
@@ -110,15 +134,36 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
     }
   };
 
-  const toggleFavorite = (productId: string) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(productId)) {
-      newFavorites.delete(productId);
-    } else {
-      newFavorites.add(productId);
+  const toggleFavorite = async (productId: string) => {
+    const previous = favorites;
+    const next = new Set(favorites);
+    const nowFavorite = !next.has(productId);
+    if (nowFavorite) next.add(productId); else next.delete(productId);
+    setFavorites(next);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setFavorites(previous);
+        toast.error('Sign in to save products to your favourites.');
+        return;
+      }
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/product-favorites`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId, favorite: nowFavorite }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || `Server responded ${res.status}`);
+      if (Array.isArray(data.productIds)) setFavorites(new Set(data.productIds));
+    } catch (error: any) {
+      console.error('Error saving product favourite:', error);
+      setFavorites(previous);
+      toast.error(`Could not save that favourite: ${error?.message || error}`);
     }
-    setFavorites(newFavorites);
-    // TODO: Persist to user account
   };
 
   const handleShare = (product: Product) => {

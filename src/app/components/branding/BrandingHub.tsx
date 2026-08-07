@@ -35,6 +35,33 @@ export function BrandingHub({ settings, updateSettings, updateAssets }: Branding
     updateSettings('assetLibrary', updates);
   };
 
+  // Stock photos land in the first asset category so they're immediately usable.
+  const handleAddStockAsset = (asset: { name: string; url: string; credit?: string }) => {
+    const categories = settings.assetLibrary?.categories || [];
+    if (categories.length === 0) return;
+    const targetId = categories.some(c => c.id === selectedCategory) ? selectedCategory : categories[0].id;
+    updateSettings('assetLibrary', {
+      categories: categories.map(category =>
+        category.id === targetId
+          ? {
+              ...category,
+              assets: [
+                {
+                  id: `asset_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                  name: asset.credit ? `${asset.name} (${asset.credit})` : asset.name,
+                  url: asset.url,
+                  categoryId: category.id,
+                  usageCount: 0,
+                  uploadedAt: new Date().toISOString(),
+                },
+                ...(category.assets || []),
+              ],
+            }
+          : category,
+      ),
+    });
+  };
+
   // Render active sub-tab content
   const renderContent = () => {
     switch (activeSubTab) {
@@ -60,6 +87,8 @@ export function BrandingHub({ settings, updateSettings, updateAssets }: Branding
         return (
           <ImportExport
             settings={settings.branding}
+            onUpdate={handleBrandingUpdate}
+            onAddAsset={handleAddStockAsset}
           />
         );
 

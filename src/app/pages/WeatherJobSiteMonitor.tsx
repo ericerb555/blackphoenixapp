@@ -159,6 +159,14 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
 
   // Modal states
   const [showDelayModal, setShowDelayModal] = useState(false);
+  const [showSiteModal, setShowSiteModal] = useState(false);
+  const [savingSite, setSavingSite] = useState(false);
+  const [siteForm, setSiteForm] = useState({
+    name: '', address: '', latitude: '', longitude: '', projectType: '',
+    startDate: '', endDate: '', currentWork: '',
+    weatherSensitivity: 'medium' as JobSite['weatherSensitivity'],
+    status: 'active' as JobSite['status'],
+  });
   const [showCalculatorModal, setShowCalculatorModal] = useState(false);
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [showAlertDetailsModal, setShowAlertDetailsModal] = useState(false);
@@ -204,142 +212,53 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
     return () => clearInterval(interval);
   }, []);
 
+  // Every collection here comes from the server. If a fetch fails we surface the
+  // failure instead of substituting invented job sites — a fake site would look
+  // identical to a real one on this screen.
+  const fetchCollection = async <T,>(path: string, label: string): Promise<T[]> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(`Could not load ${label} (${res.status}): ${detail.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data?.items || []);
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Initialize with empty/mock data to ensure component renders
-      // Load job sites - use mock data if API fails
-      try {
-        const sitesRes = await fetch(`${API_BASE}/job-sites`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-        });
-        if (sitesRes.ok) {
-          const sites = await sitesRes.json();
-          setJobSites(sites);
-          calculateStats(sites);
-        } else {
-          // Use mock data for demo
-          const mockSites = generateMockSites();
-          setJobSites(mockSites);
-          calculateStats(mockSites);
-        }
-      } catch (err) {
-        console.log('Using mock job sites data');
-        const mockSites = generateMockSites();
-        setJobSites(mockSites);
-        calculateStats(mockSites);
-      }
+      const [sites, alertsData, delaysData, adjustmentsData] = await Promise.all([
+        fetchCollection<JobSite>('/job-sites', 'job sites'),
+        fetchCollection<WeatherAlert>('/weather-alerts', 'weather alerts'),
+        fetchCollection<JobDelay>('/job-delays', 'job delays'),
+        fetchCollection<ScheduleAdjustment>('/schedule-adjustments', 'schedule adjustments'),
+      ]);
 
-      // Load weather alerts
-      try {
-        const alertsRes = await fetch(`${API_BASE}/weather-alerts`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-        });
-        if (alertsRes.ok) {
-          const alertsData = await alertsRes.json();
-          setAlerts(alertsData);
-        }
-      } catch (err) {
-        console.log('No weather alerts found');
-        setAlerts([]);
-      }
+      setJobSites(sites);
+      setAlerts(alertsData);
+      setDelays(delaysData);
+      setAdjustments(adjustmentsData);
+      calculateStats(sites, alertsData, delaysData);
 
-      // Load job delays
-      try {
-        const delaysRes = await fetch(`${API_BASE}/job-delays`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-        });
-        if (delaysRes.ok) {
-          const delaysData = await delaysRes.json();
-          setDelays(delaysData);
-        }
-      } catch (err) {
-        console.log('No job delays found');
-        setDelays([]);
-      }
-
-      // Load schedule adjustments
-      try {
-        const adjustmentsRes = await fetch(`${API_BASE}/schedule-adjustments`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-        });
-        if (adjustmentsRes.ok) {
-          const adjustmentsData = await adjustmentsRes.json();
-          setAdjustments(adjustmentsData);
-        }
-      } catch (err) {
-        console.log('No schedule adjustments found');
-        setAdjustments([]);
-      }
-
-      // Fetch weather data for all sites
-      await refreshWeatherData();
-
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setError('Failed to load weather data. Using demo data.');
-      // Still set mock data so component renders
-      const mockSites = generateMockSites();
-      setJobSites(mockSites);
-      calculateStats(mockSites);
+      await refreshWeatherData(sites);
+    } catch (err: any) {
+      console.error('Error loading weather monitor data:', err);
+      setError(err?.message || 'Could not load job site data from the server.');
     } finally {
       setLoading(false);
     }
   };
 
-  const generateMockSites = (): JobSite[] => {
-    return [
-      {
-        id: 'site-1',
-        name: 'Downtown Renovation',
-        address: '123 Main St, City, ST 12345',
-        latitude: 40.7128,
-        longitude: -74.0060,
-        projectType: 'Commercial Renovation',
-        crew: ['John', 'Mike', 'Sarah'],
-        startDate: '2024-01-15',
-        endDate: '2024-06-30',
-        status: 'active',
-        weatherSensitivity: 'high',
-        currentWork: 'Exterior siding installation'
-      },
-      {
-        id: 'site-2',
-        name: 'Residential Build - Oak Street',
-        address: '456 Oak Ave, City, ST 12345',
-        latitude: 40.7580,
-        longitude: -73.9855,
-        projectType: 'New Construction',
-        crew: ['Tom', 'Lisa'],
-        startDate: '2024-02-01',
-        endDate: '2024-08-15',
-        status: 'active',
-        weatherSensitivity: 'critical',
-        currentWork: 'Roofing'
-      },
-      {
-        id: 'site-3',
-        name: 'Office Remodel',
-        address: '789 Business Blvd, City, ST 12345',
-        latitude: 40.7489,
-        longitude: -73.9680,
-        projectType: 'Interior Remodel',
-        crew: ['Dave', 'Emma', 'Chris', 'Anna'],
-        startDate: '2024-03-01',
-        endDate: '2024-05-30',
-        status: 'active',
-        weatherSensitivity: 'low',
-        currentWork: 'Interior finishing'
-      }
-    ];
-  };
-
-  const refreshWeatherData = async () => {
+  const refreshWeatherData = async (sitesOverride?: JobSite[]) => {
     setRefreshing(true);
     try {
-      if (!jobSites || jobSites.length === 0) {
+      const sites = Array.isArray(sitesOverride) ? sitesOverride : jobSites;
+      if (!sites || sites.length === 0) {
         console.log('No job sites to refresh weather for');
         return;
       }
@@ -347,7 +266,7 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
       // Fetch real weather for every site in parallel from the server, which
       // proxies Open-Meteo (free, no API key). Each site has lat/long.
       const results = await Promise.all(
-        jobSites.map(async (site) => {
+        sites.map(async (site) => {
           const res = await fetch(`${API_BASE}/weather/site`, {
             method: 'POST',
             headers: {
@@ -387,19 +306,85 @@ export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (pa
     }
   };
 
-  const calculateStats = (sites: JobSite[]) => {
+  const calculateStats = (
+    sites: JobSite[],
+    alertList: WeatherAlert[] = alerts,
+    delayList: JobDelay[] = delays,
+  ) => {
+    const now = new Date();
+
+    // Most-affected site is whichever has lost the most hours, not a fixed name.
+    const hoursBySite = new Map<string, number>();
+    delayList.forEach(d => {
+      const key = d.siteName || d.siteId;
+      if (!key) return;
+      hoursBySite.set(key, (hoursBySite.get(key) || 0) + (Number(d.hoursLost) || 0));
+    });
+    let mostAffectedSite = '—';
+    let worstHours = 0;
+    hoursBySite.forEach((hours, name) => {
+      if (hours > worstHours) { worstHours = hours; mostAffectedSite = name; }
+    });
+
     setStats({
       activeSites: sites.filter(s => s.status === 'active').length,
-      weatherAlerts: alerts.length,
-      delaysThisMonth: delays.filter(d => 
-        new Date(d.delayDate).getMonth() === new Date().getMonth()
-      ).length,
-      totalCostImpact: delays.reduce((sum, d) => sum + d.costImpact, 0),
-      averageDelayHours: delays.length > 0 
-        ? delays.reduce((sum, d) => sum + d.hoursLost, 0) / delays.length 
+      weatherAlerts: alertList.filter(a => !a.acknowledged).length,
+      delaysThisMonth: delayList.filter(d => {
+        const dd = new Date(d.delayDate);
+        return !Number.isNaN(dd.getTime())
+          && dd.getMonth() === now.getMonth()
+          && dd.getFullYear() === now.getFullYear();
+      }).length,
+      totalCostImpact: delayList.reduce((sum, d) => sum + (Number(d.costImpact) || 0), 0),
+      averageDelayHours: delayList.length > 0
+        ? delayList.reduce((sum, d) => sum + (Number(d.hoursLost) || 0), 0) / delayList.length
         : 0,
-      mostAffectedSite: 'Downtown Renovation' // Calculate from delays
+      mostAffectedSite,
     });
+  };
+
+  const resetSiteForm = () => setSiteForm({
+    name: '', address: '', latitude: '', longitude: '', projectType: '',
+    startDate: '', endDate: '', currentWork: '',
+    weatherSensitivity: 'medium', status: 'active',
+  });
+
+  const handleAddSite = async () => {
+    if (!siteForm.name.trim()) {
+      toast.error('Give the job site a name.');
+      return;
+    }
+    const latitude = parseFloat(siteForm.latitude);
+    const longitude = parseFloat(siteForm.longitude);
+    // Weather lookups are useless without valid coordinates, so require them here.
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+      toast.error('Latitude must be a number between -90 and 90.');
+      return;
+    }
+    if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      toast.error('Longitude must be a number between -180 and 180.');
+      return;
+    }
+
+    setSavingSite(true);
+    try {
+      const res = await fetch(`${API_BASE}/job-sites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ ...siteForm, latitude, longitude, crew: [] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      toast.success('Job site added');
+      setShowSiteModal(false);
+      resetSiteForm();
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to add job site:', err);
+      toast.error(`Could not add the job site: ${err?.message || err}`);
+    } finally {
+      setSavingSite(false);
+    }
   };
 
   const calculateDelayCost = () => {
@@ -628,12 +613,19 @@ Created By: ${delay.createdBy}
           </div>
           <div className="flex gap-3">
             <StandardButton
-              onClick={refreshWeatherData}
+              onClick={() => refreshWeatherData()}
               variant="secondary"
               leftIcon={refreshing ? undefined : <RefreshCw className="w-4 h-4" />}
               disabled={refreshing}
             >
               {refreshing ? 'Refreshing...' : 'Refresh Weather'}
+            </StandardButton>
+            <StandardButton
+              onClick={() => { resetSiteForm(); setShowSiteModal(true); }}
+              variant="secondary"
+              leftIcon={<Plus className="w-4 h-4" />}
+            >
+              Add Job Site
             </StandardButton>
             <StandardButton
               onClick={() => setShowDelayModal(true)}
@@ -643,6 +635,16 @@ Created By: ${delay.createdBy}
             </StandardButton>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-6 bg-red-950/40 border border-red-800 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-300 font-semibold">Couldn't load job site data</p>
+              <p className="text-red-400/80 text-sm">{error}</p>
+            </div>
+          </div>
+        )}
 
         {/* Stats Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
@@ -1384,6 +1386,105 @@ Created By: ${delay.createdBy}
         <ModalFooter
           onCancel={() => setShowCalculatorModal(false)}
           cancelText="Close"
+        />
+      </Modal>
+
+      {/* Add Job Site Modal */}
+      <Modal
+        isOpen={showSiteModal}
+        onClose={() => setShowSiteModal(false)}
+        size="lg"
+      >
+        <ModalHeader
+          title="Add Job Site"
+          icon={MapPin}
+          onClose={() => setShowSiteModal(false)}
+        />
+        <ModalBody>
+          <div className="space-y-4">
+            <TextInput
+              label="Site name"
+              value={siteForm.name}
+              onChange={(e: any) => setSiteForm({ ...siteForm, name: e.target.value })}
+              placeholder="e.g. Oak Street Rebuild"
+            />
+            <TextInput
+              label="Address"
+              value={siteForm.address}
+              onChange={(e: any) => setSiteForm({ ...siteForm, address: e.target.value })}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <TextInput
+                label="Latitude"
+                value={siteForm.latitude}
+                onChange={(e: any) => setSiteForm({ ...siteForm, latitude: e.target.value })}
+                placeholder="-90 to 90"
+              />
+              <TextInput
+                label="Longitude"
+                value={siteForm.longitude}
+                onChange={(e: any) => setSiteForm({ ...siteForm, longitude: e.target.value })}
+                placeholder="-180 to 180"
+              />
+            </div>
+            <p className="text-xs text-gray-500 -mt-2">
+              Coordinates drive the weather lookup for this site, so they need to be accurate.
+            </p>
+            <TextInput
+              label="Project type"
+              value={siteForm.projectType}
+              onChange={(e: any) => setSiteForm({ ...siteForm, projectType: e.target.value })}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <TextInput
+                label="Start date"
+                type="date"
+                value={siteForm.startDate}
+                onChange={(e: any) => setSiteForm({ ...siteForm, startDate: e.target.value })}
+              />
+              <TextInput
+                label="End date"
+                type="date"
+                value={siteForm.endDate}
+                onChange={(e: any) => setSiteForm({ ...siteForm, endDate: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Weather sensitivity"
+                value={siteForm.weatherSensitivity}
+                onChange={(e: any) => setSiteForm({ ...siteForm, weatherSensitivity: e.target.value })}
+                options={[
+                  { value: 'low', label: 'Low' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'high', label: 'High' },
+                  { value: 'critical', label: 'Critical' },
+                ]}
+              />
+              <Select
+                label="Status"
+                value={siteForm.status}
+                onChange={(e: any) => setSiteForm({ ...siteForm, status: e.target.value })}
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'paused', label: 'Paused' },
+                  { value: 'completed', label: 'Completed' },
+                ]}
+              />
+            </div>
+            <TextArea
+              label="Current work"
+              value={siteForm.currentWork}
+              onChange={(e: any) => setSiteForm({ ...siteForm, currentWork: e.target.value })}
+              rows={2}
+            />
+          </div>
+        </ModalBody>
+        <ModalFooter
+          onCancel={() => setShowSiteModal(false)}
+          onConfirm={handleAddSite}
+          confirmText={savingSite ? 'Saving...' : 'Add Job Site'}
+          cancelText="Cancel"
         />
       </Modal>
     </div>

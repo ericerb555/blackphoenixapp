@@ -162,6 +162,58 @@ export default function DigitalStorefront() {
     } catch {}
   }, []);
 
+  // ── Return from Stripe ───────────────────────────────────────────────────
+  // Stripe sends the shopper back to /store?checkout=success&session_id=…
+  // We verify the session server-side before marking the order paid or
+  // unlocking any downloads — the URL alone is never treated as proof.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get('checkout');
+    const sessionId = params.get('session_id');
+
+    const clearQuery = () => {
+      try { window.history.replaceState({}, '', window.location.pathname); } catch { /* ignore */ }
+    };
+
+    if (outcome === 'cancelled') {
+      toast.info('Checkout cancelled — nothing was charged. Your cart is still here.');
+      clearQuery();
+      return;
+    }
+    if (outcome !== 'success' || !sessionId) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/marketplace/checkout/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({ sessionId }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.success) {
+          const reason = data?.error || `Could not confirm your payment (${res.status}).`;
+          console.error('[DigitalStorefront] checkout completion failed:', reason);
+          toast.error(`${reason} If you were charged, contact support with your Stripe receipt.`);
+          return;
+        }
+        // Payment confirmed by Stripe — unlock the purchased items.
+        const ids: string[] = (data.order?.items || []).map((i: any) => String(i.id)).filter(Boolean);
+        setPurchased(prev => {
+          const next = new Set([...prev, ...ids]);
+          try { localStorage.setItem(PURCHASED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+          return next;
+        });
+        setCart([]);
+        toast.success(`Payment confirmed — order ${data.order?.id || ''} is complete. A receipt is on its way.`);
+      } catch (err: any) {
+        console.error('[DigitalStorefront] checkout completion threw:', err);
+        toast.error('We could not reach the server to confirm your payment. If you were charged, contact support.');
+      } finally {
+        clearQuery();
+      }
+    })();
+  }, []);
+
   const visible = useMemo(() =>
     products
       .filter(p => p.visible)
@@ -220,31 +272,39 @@ export default function DigitalStorefront() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
+          // Promotion-adjusted unit price, in DOLLARS — the server converts to
+          // Stripe's cents itself. Catalog prices are stored in cents.
           items: cart.map(i => {
-            // Bill the promotion-adjusted unit price so checkout matches the cart.
-            const unit = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
-            return { id: i.product.id, title: i.product.title, price: unit, qty: i.quantity };
+            const unitCents = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
+            return { id: i.product.id, title: i.product.title, price: unitCents / 100, qty: i.quantity };
           }),
           email,
           name,
-          successUrl: window.location.origin + '/store?checkout=success',
-          cancelUrl: window.location.origin + '/store',
+          successUrl: `${window.location.origin}/store?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/store?checkout=cancelled`,
         }),
       });
-      const data = await res.json();
-      if (data.url) { window.location.href = data.url; return; }
-    } catch {}
-    // Fallback simulation (Stripe not yet configured)
-    await new Promise(r => setTimeout(r, 2000));
-    const ids = cart.map(i => i.product.id);
-    const next = new Set([...purchased, ...ids]);
-    setPurchased(next);
-    localStorage.setItem(PURCHASED_KEY, JSON.stringify([...next]));
-    setCart([]);
-    setCheckoutStep('success');
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.url) { window.location.href = data.url; return; }
+      const reason = data?.error || `Checkout could not be started (${res.status}).`;
+      console.error('[DigitalStorefront] checkout failed:', reason);
+      toast.error(reason);
+    } catch (err: any) {
+      console.error('[DigitalStorefront] checkout request threw:', err);
+      toast.error(err?.message || 'Could not reach the payment processor. Nothing was charged.');
+    }
+    // Never grant products without a confirmed Stripe payment — send the shopper
+    // back to the cart so they can retry.
+    setCheckoutStep('cart');
   }
 
   function openCart() { setShowCart(true); setCheckoutStep('cart'); }
+
+  // Every product has its own shareable page at /digital-product?id=<id>. That
+  // page is also where a buyer verifies their purchase and downloads the file.
+  function openProductPage(p: Product) {
+    (window as any).__navigateApp?.(`/digital-product?id=${encodeURIComponent(p.id)}`);
+  }
 
   const CatIcon = ({ cat }: { cat: ProductCategory }) => {
     const Icon = CAT_CONFIG[cat].icon;
@@ -501,27 +561,29 @@ export default function DigitalStorefront() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
               body: JSON.stringify({
+                // The server multiplies by 100 to reach Stripe's cents, so this
+                // must be DOLLARS. Catalog prices are stored in cents.
                 items: cart.map(i => {
-                  const unit = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
-                  return { id: i.product.id, title: i.product.title, price: unit, qty: i.quantity };
+                  const unitCents = Math.round(lineTotal(i.product, i.quantity, activeDiscounts, promotions) / i.quantity);
+                  return { id: i.product.id, title: i.product.title, price: unitCents / 100, qty: i.quantity };
                 }),
                 email: customer.email,
                 name: customer.name,
-                successUrl: window.location.origin + '/store?checkout=success',
-                cancelUrl: window.location.origin + '/store',
+                successUrl: `${window.location.origin}/store?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+                cancelUrl: `${window.location.origin}/store?checkout=cancelled`,
               }),
             });
-            const data = await res.json();
-            if (data.url) return { url: data.url };
-          } catch { /* fall through to offline simulation */ }
-          // Fallback simulation (Stripe not yet configured)
-          await new Promise(r => setTimeout(r, 1200));
-          const ids = cart.map(i => i.product.id);
-          const next = new Set([...purchased, ...ids]);
-          setPurchased(next);
-          localStorage.setItem(PURCHASED_KEY, JSON.stringify([...next]));
-          setCart([]);
-          return { success: true, message: 'Purchase complete! Your download links have been emailed.' };
+            const data = await res.json().catch(() => null);
+            if (res.ok && data?.url) return { url: data.url };
+            // No silent "purchase complete" — an order is only real once Stripe
+            // has actually taken the money.
+            const reason = data?.error || `Checkout could not be started (${res.status}).`;
+            console.error('[DigitalStorefront] checkout failed:', reason);
+            return { error: reason };
+          } catch (err: any) {
+            console.error('[DigitalStorefront] checkout request threw:', err);
+            return { error: err?.message || 'Could not reach the payment processor. Nothing was charged — please try again.' };
+          }
         }}
       />
 
@@ -611,17 +673,23 @@ export default function DigitalStorefront() {
                 )}
 
                 {/* CTA */}
-                {purchased.has(selected.id) ? (
-                  <button onClick={() => (window as any).__navigateApp?.(`/document?id=${selected.id}`)}
-                    className="w-full py-3 bg-green-600/20 hover:bg-green-600/40 border border-green-500/30 text-green-400 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
-                    <CheckCircle className="w-4 h-4" /> Read Document Now →
+                <div className="space-y-2">
+                  {purchased.has(selected.id) ? (
+                    <button onClick={() => openProductPage(selected)}
+                      className="w-full py-3 bg-green-600/20 hover:bg-green-600/40 border border-green-500/30 text-green-400 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                      <Download className="w-4 h-4" /> Download your files →
+                    </button>
+                  ) : (
+                    <button onClick={() => { addToCart(selected); setSelected(null); }}
+                      className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
+                      <ShoppingCart className="w-4 h-4" /> Add to Cart
+                    </button>
+                  )}
+                  <button onClick={() => openProductPage(selected)}
+                    className="w-full py-2.5 bg-[#1A1A1A] hover:bg-[#222] border border-[#2A2A2A] text-gray-300 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2">
+                    <ArrowRight className="w-4 h-4" /> View full product page
                   </button>
-                ) : (
-                  <button onClick={() => { addToCart(selected); setSelected(null); }}
-                    className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2">
-                    <ShoppingCart className="w-4 h-4" /> Add to Cart
-                  </button>
-                )}
+                </div>
 
                 {/* Description */}
                 <div>
@@ -737,7 +805,7 @@ export default function DigitalStorefront() {
               {featured.map(p => {
                 const Icon = CAT_CONFIG[p.category].icon;
                 return (
-                  <div key={p.id} onClick={() => setSelected(p)}
+                  <div key={p.id} onClick={() => openProductPage(p)}
                     className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5 cursor-pointer hover:border-orange-500/40 transition group">
                     <div className="flex items-start gap-3 mb-4">
                       <div className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${CAT_CONFIG[p.category].bg}`}>
@@ -799,7 +867,7 @@ export default function DigitalStorefront() {
             return (
               <div key={p.id}
                 className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl overflow-hidden hover:border-[#3A3A3A] transition group cursor-pointer"
-                onClick={() => setSelected(p)}>
+                onClick={() => openProductPage(p)}>
                 {/* Top accent */}
                 <div className={`h-1 ${p.popular ? 'bg-orange-500' : 'bg-[#2A2A2A]'}`} />
                 {/* AI-generated cover art (shown when available) */}
@@ -848,17 +916,23 @@ export default function DigitalStorefront() {
                         <span className="text-xs text-gray-500 line-through">{fmt(p.originalPrice)}</span>
                       ) : null}
                     </div>
-                    {isPurchased ? (
-                      <button onClick={e => { e.stopPropagation(); (window as any).__navigateApp?.(`/document?id=${p.id}`); }}
-                        className="px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold rounded-lg flex items-center gap-1 hover:bg-green-500/20 transition">
-                        <Download className="w-3 h-3" /> Read Now
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={e => { e.stopPropagation(); setSelected(p); }}
+                        className="px-2.5 py-1.5 border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-[#3A3A3A] text-xs font-semibold rounded-lg transition">
+                        Quick view
                       </button>
-                    ) : (
-                      <button onClick={e => { e.stopPropagation(); addToCart(p); }}
-                        className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition">
-                        Add to Cart
-                      </button>
-                    )}
+                      {isPurchased ? (
+                        <button onClick={e => { e.stopPropagation(); openProductPage(p); }}
+                          className="px-3 py-1.5 bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-semibold rounded-lg flex items-center gap-1 hover:bg-green-500/20 transition">
+                          <Download className="w-3 h-3" /> Download
+                        </button>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); addToCart(p); }}
+                          className="px-3 py-1.5 bg-orange-600/20 hover:bg-orange-600 border border-orange-500/30 hover:border-orange-500 text-orange-300 hover:text-white text-xs font-semibold rounded-lg transition">
+                          Add to Cart
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

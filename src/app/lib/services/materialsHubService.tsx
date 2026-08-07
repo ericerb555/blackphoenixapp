@@ -1283,6 +1283,35 @@ class MaterialsHubService {
     
     return newMaterial;
   }
+
+  // Update an existing material. Returns null when the id isn't in the library.
+  updateMaterial(id: string, updates: Partial<Material>): Material | null {
+    const materials = this.getAllMaterials();
+    const index = materials.findIndex(m => m.id === id);
+    if (index === -1) return null;
+
+    const updated: Material = {
+      ...materials[index],
+      ...updates,
+      id,
+      createdAt: materials[index].createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    materials[index] = updated;
+    this.saveMaterials(materials);
+
+    return updated;
+  }
+
+  // Remove a material. Returns false when nothing matched.
+  deleteMaterial(id: string): boolean {
+    const materials = this.getAllMaterials();
+    const remaining = materials.filter(m => m.id !== id);
+    if (remaining.length === materials.length) return false;
+
+    this.saveMaterials(remaining);
+    return true;
+  }
 }
 
 export const materialsHubService = new MaterialsHubService();

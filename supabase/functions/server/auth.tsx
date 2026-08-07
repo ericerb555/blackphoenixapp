@@ -7,6 +7,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { linkInvoicesByEmail } from "./invoice-linking.tsx";
+import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 const authRouter = new Hono();
 
@@ -302,29 +303,23 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
       console.error("[CRM] Failed to add signup to CRM (non-blocking):", crmError);
     }
 
-    // 📧 Send admin notification for new customer signup.
-    // NOTE: localStorage does not exist server-side (Deno) — always attempt the
-    // notification; the notification endpoint owns its own enable/disable config.
-    try {
-      // Call the notification endpoint (fire and forget)
-      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/notifications/customer-signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`
-        },
-        body: JSON.stringify({
-          customerName: full_name || email.split("@")[0],
-          customerEmail: email,
-          customerPhone: null // Add phone if available in signup form
-        })
-      }).catch(err => {
-        console.error('Failed to send signup notification (non-blocking):', err);
-      });
-    } catch (notificationError) {
-      console.error('Signup notification error (non-blocking):', notificationError);
-      // Don't fail the signup if notifications fail
-    }
+    // 📧 Alert the team about the new sign-up. This used to POST to
+    // /notifications/customer-signup, which lives in a router that was never
+    // mounted — so the request 404'd and nobody was ever emailed. Now it goes
+    // straight through the staff notification engine, which never throws.
+    notifyStaffInBackground('signup', {
+      subject: `New sign-up: ${full_name || email}`,
+      heading: '👤 New portal sign-up',
+      rows: [
+        ['Name', full_name || email.split("@")[0]],
+        ['Email', email],
+        ['Portal / role', role],
+        ['User ID', userId],
+        ['Signed up', new Date().toLocaleString('en-US')],
+      ],
+      ctaLabel: 'View in User Management',
+      ctaPath: '/user-management',
+    });
 
     return c.json({
       success: true,

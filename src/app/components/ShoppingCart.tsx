@@ -9,6 +9,9 @@ import {
 import { StandardButton, CompactStandardButton } from './ui/button/StandardButton';
 import UnifiedCheckout from './UnifiedCheckout';
 import * as hybridCart from '../utils/hybridCartApi';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface CartItem {
   id: string;
@@ -184,14 +187,56 @@ export default function ShoppingCart({ onClose, initialOpen = false }: ShoppingC
         submitLabel={amt => `Pay $${amt.toFixed(2)}`}
         onEditCart={() => setShowCheckout(false)}
         onClose={() => setShowCheckout(false)}
-        onSubmit={async () => {
-          // Simulate payment processing, then clear the cart and close.
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          try { await hybridCart.clearCart(); } catch { /* offline fallback */ }
-          setCartItems([]);
-          window.dispatchEvent(new Event('cart-updated'));
-          onClose();
-          return { success: true, message: 'Order placed! A confirmation has been emailed to you.' };
+        onSubmit={async customer => {
+          // Real Stripe checkout on the e-commerce account — the same endpoint
+          // the public storefront uses, so these orders land in Order Manager
+          // and get forwarded for fulfillment like any other purchase.
+          try {
+            const res = await fetch(`${SERVER}/store/checkout`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+              body: JSON.stringify({
+                items: cartItems.map(item => ({
+                  id: item.productId || item.id,
+                  name: item.productName,
+                  price: item.price,
+                  qty: item.quantity,
+                  quantity: item.quantity,
+                  image: item.productImage,
+                  vendorId: item.vendorId,
+                  vendorName: item.vendorName,
+                })),
+                customer: {
+                  name: customer.name,
+                  email: customer.email,
+                  phone: customer.phone,
+                  address: `${customer.address}, ${customer.city} ${customer.zip}`,
+                },
+                shipping,
+                tax,
+                giftCardCode: null,
+                coupon: null,
+              }),
+            });
+            const data = await res.json().catch(() => null);
+
+            if (data?.zeroBalanceOrder && data?.order) {
+              try { await hybridCart.clearCart(); } catch { /* offline fallback */ }
+              setCartItems([]);
+              window.dispatchEvent(new Event('cart-updated'));
+              return { success: true, message: `Order ${data.order.id} confirmed.` };
+            }
+            // Stripe hosted checkout — the cart is cleared on confirmed return,
+            // never before the money actually moves.
+            if (res.ok && data?.url) return { url: data.url };
+
+            const reason = data?.error || `Checkout could not be started (${res.status}).`;
+            console.error('[ShoppingCart] checkout failed:', reason);
+            return { error: reason };
+          } catch (err: any) {
+            console.error('[ShoppingCart] checkout request threw:', err);
+            return { error: err?.message || 'Could not reach the payment processor. Nothing was charged.' };
+          }
         }}
       />
     );

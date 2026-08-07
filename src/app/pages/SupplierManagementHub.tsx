@@ -15,8 +15,16 @@ import {
 import { PageHeader } from '../components/PageHeader';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner@2.0.3';
+import { SupplierRfqTab } from '../components/suppliers/SupplierRfqTab';
+import { SupplierAuditTab } from '../components/suppliers/SupplierAuditTab';
 
 type TabType = 'connect' | 'respond' | 'audit' | 'purchase-orders';
+
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const jsonHeaders = {
+  Authorization: `Bearer ${publicAnonKey}`,
+  'Content-Type': 'application/json',
+};
 
 export default function SupplierManagementHub() {
   const [activeTab, setActiveTab] = useState<TabType>('connect');
@@ -29,30 +37,74 @@ export default function SupplierManagementHub() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
 
-  // Load suppliers + purchase orders from the server.
+  const loadSuppliers = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/suppliers`, { headers: jsonHeaders });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      setSuppliers(data.suppliers || []);
+    } catch (err: any) {
+      console.error('Failed to load suppliers:', err);
+      toast.error(`Failed to load suppliers: ${err?.message || err}`);
+    }
+  };
+
+  const loadPurchaseOrders = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/purchase-orders`, { headers: jsonHeaders });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      setPurchaseOrders(data.orders || []);
+    } catch (err: any) {
+      console.error('Failed to load purchase orders:', err);
+      toast.error(`Failed to load purchase orders: ${err?.message || err}`);
+    }
+  };
+
   useEffect(() => {
-    const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-    const authHeaders = { Authorization: `Bearer ${publicAnonKey}` };
-    (async () => {
-      try {
-        const res = await fetch(`${base}/suppliers`, { headers: authHeaders });
-        if (!res.ok) throw new Error(`suppliers ${res.status}`);
-        const data = await res.json();
-        setSuppliers(data.suppliers || []);
-      } catch (err) {
-        console.error('Failed to load suppliers:', err);
-        toast.error('Failed to load suppliers from server');
-      }
-      try {
-        const res = await fetch(`${base}/purchase-orders`, { headers: authHeaders });
-        if (!res.ok) throw new Error(`purchase-orders ${res.status}`);
-        const data = await res.json();
-        setPurchaseOrders(data.purchaseOrders || []);
-      } catch (err) {
-        console.error('Failed to load purchase orders:', err);
-      }
-    })();
+    loadSuppliers();
+    loadPurchaseOrders();
   }, []);
+
+  const handleSaveSupplier = async (formData: any) => {
+    try {
+      const res = await fetch(`${API_BASE}/suppliers`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      setShowAddSupplierModal(false);
+      toast.success('Supplier saved');
+      loadSuppliers();
+    } catch (err: any) {
+      console.error('Failed to save supplier:', err);
+      toast.error(`Could not save the supplier: ${err?.message || err}`);
+    }
+  };
+
+  const handleSavePO = async (formData: any) => {
+    try {
+      const res = await fetch(`${API_BASE}/purchase-orders`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          ...formData,
+          items: Number(formData.items) || 0,
+          total: Number(formData.total) || 0,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      setShowAddPOModal(false);
+      toast.success('Purchase order saved');
+      loadPurchaseOrders();
+    } catch (err: any) {
+      console.error('Failed to save purchase order:', err);
+      toast.error(`Could not save the purchase order: ${err?.message || err}`);
+    }
+  };
 
   // Read tab from URL on mount
   useEffect(() => {
@@ -77,6 +129,8 @@ export default function SupplierManagementHub() {
     { id: 'audit', label: 'Supplier Audit', icon: Shield },
     { id: 'purchase-orders', label: 'Purchase Orders', icon: Receipt }
   ];
+
+  const supplierOptions = suppliers.map(s => ({ id: s.id, name: s.name }));
 
   const filteredSuppliers = suppliers.filter(supplier => {
     if (!searchQuery) return true;
@@ -286,25 +340,11 @@ export default function SupplierManagementHub() {
         )}
 
         {activeTab === 'respond' && (
-          <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-8 text-center">
-            <MessageSquare className="w-16 h-16 text-blue-500 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">Supplier Response System</h3>
-            <p className="text-zinc-400 mb-6">Manage supplier RFQs, quotes, and responses. This feature allows you to track supplier quote submissions and compare pricing across multiple vendors.</p>
-            <div className="text-sm text-gray-500">
-              <p>Coming Soon: Full RFQ management interface</p>
-            </div>
-          </div>
+          <SupplierRfqTab suppliers={supplierOptions} />
         )}
 
         {activeTab === 'audit' && (
-          <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-8 text-center">
-            <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">Supplier Audit System</h3>
-            <p className="text-zinc-400 mb-6">Audit supplier performance, compliance, and quality metrics. Track delivery times, quality ratings, and compliance documentation.</p>
-            <div className="text-sm text-gray-500">
-              <p>Coming Soon: Comprehensive audit tracking tools</p>
-            </div>
-          </div>
+          <SupplierAuditTab suppliers={supplierOptions} />
         )}
 
         {activeTab === 'purchase-orders' && (
@@ -437,10 +477,7 @@ export default function SupplierManagementHub() {
       {showAddSupplierModal && (
         <AddSupplierModal 
           onClose={() => setShowAddSupplierModal(false)}
-          onSave={() => {
-            setShowAddSupplierModal(false);
-            toast.success('Supplier added successfully!');
-          }}
+          onSave={handleSaveSupplier}
         />
       )}
 
@@ -448,10 +485,7 @@ export default function SupplierManagementHub() {
       {showAddPOModal && (
         <AddPOModal 
           onClose={() => setShowAddPOModal(false)}
-          onSave={() => {
-            setShowAddPOModal(false);
-            toast.success('Purchase Order added successfully!');
-          }}
+          onSave={handleSavePO}
         />
       )}
     </div>
@@ -459,7 +493,7 @@ export default function SupplierManagementHub() {
 }
 
 // Add Supplier Modal Component
-function AddSupplierModal({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+function AddSupplierModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => void | Promise<void> }) {
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -483,7 +517,7 @@ function AddSupplierModal({ onClose, onSave }: { onClose: () => void; onSave: ()
       toast.error('Please fill in required fields');
       return;
     }
-    onSave();
+    onSave(formData);
   };
 
   return (
@@ -758,7 +792,7 @@ function AddSupplierModal({ onClose, onSave }: { onClose: () => void; onSave: ()
 }
 
 // Add Purchase Order Modal Component
-function AddPOModal({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+function AddPOModal({ onClose, onSave }: { onClose: () => void; onSave: (data: any) => void | Promise<void> }) {
   const [formData, setFormData] = useState({
     supplier: '',
     items: 0,
@@ -774,7 +808,7 @@ function AddPOModal({ onClose, onSave }: { onClose: () => void; onSave: () => vo
       toast.error('Please fill in required fields');
       return;
     }
-    onSave();
+    onSave(formData);
   };
 
   return (

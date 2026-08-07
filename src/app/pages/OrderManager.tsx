@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import {
   ShoppingBag, RefreshCw, Search, Package, Truck, CheckCircle,
-  Clock, AlertCircle, DollarSign, TrendingUp, Eye, X, ExternalLink,
-  ChevronRight, Copy, Check, Users, BarChart2,
+  Clock, AlertCircle, DollarSign, X, ExternalLink,
+  ChevronRight, Copy, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import FulfillmentAutomationPanel from '../components/FulfillmentAutomationPanel';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -25,6 +26,10 @@ interface Order {
   tracking_number?: string;
   created_at: string;
   updated_at?: string;
+  fulfillment_error?: string;
+  fulfillment_skipped?: string[];
+  fulfillment_attempts?: number;
+  fulfillment_hold_reason?: string;
 }
 
 const FULFILLMENT_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -43,18 +48,6 @@ function timeAgo(iso: string) {
   return `${m}m ago`;
 }
 
-// Seed orders for demo until real ones come in
-function demoOrders(): Order[] {
-  const d = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
-  return [
-    { id: 'BP-A3F2K1', customer_name: 'Marcus Thompson', customer_email: 'marcus.t@gmail.com', customer_phone: '(614) 555-0192', shipping_address: '1234 Oak St, Columbus OH 43215', items: [{ id: 'p1', name: 'Wireless Headphones Pro', price: 79.99, qty: 1 }, { id: 'p2', name: 'Insulated Water Bottle', price: 34.99, qty: 2 }], amount_total: 174.97, currency: 'usd', status: 'paid', fulfillment_status: 'shipped', tracking_number: '1Z999AA10123456784', created_at: d(2) },
-    { id: 'BP-B7C9D2', customer_name: 'Jessica Morales', customer_email: 'jess.morales@yahoo.com', customer_phone: '(614) 555-0341', shipping_address: '567 Elm Ave, Westerville OH 43082', items: [{ id: 'p6', name: 'Air Fryer 5.5L', price: 89.99, qty: 1 }], amount_total: 114.99, currency: 'usd', status: 'paid', fulfillment_status: 'forwarded_to_doba', created_at: d(5) },
-    { id: 'BP-E1G4H8', customer_name: 'Samantha Cole', customer_email: 'samantha@hotmail.com', shipping_address: '890 Maple Dr, Dublin OH 43017', items: [{ id: 'p3', name: 'LED Smart Bulbs (4-Pack)', price: 44.99, qty: 2 }, { id: 'p9', name: 'Daily Vitamin Pack', price: 29.99, qty: 1 }], amount_total: 144.97, currency: 'usd', status: 'paid', fulfillment_status: 'delivered', created_at: d(72) },
-    { id: 'BP-K2M5N9', customer_name: 'Troy James', customer_email: 'troy.james@gmail.com', shipping_address: '321 Pine Rd, Gahanna OH 43230', items: [{ id: 'p10', name: 'Mechanical Keyboard', price: 139.99, qty: 1 }], amount_total: 164.99, currency: 'usd', status: 'paid', fulfillment_status: 'pending', created_at: d(0.5) },
-    { id: 'BP-P3Q6R0', customer_name: 'Mia Flores', customer_email: 'mia.flores@gmail.com', shipping_address: '456 Cedar Ln, Hilliard OH 43026', items: [{ id: 'p5', name: 'Yoga Mat Premium', price: 49.99, qty: 1 }, { id: 'p8', name: 'Bluetooth Speaker 360', price: 69.99, qty: 1 }], amount_total: 144.98, currency: 'usd', status: 'paid', fulfillment_status: 'shipped', tracking_number: '9400111899223432818484', created_at: d(30) },
-  ];
-}
-
 export default function OrderManager() {
   const [orders, setOrders]         = useState<Order[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -65,6 +58,8 @@ export default function OrderManager() {
   const [copiedId, setCopied]       = useState<string | null>(null);
   const [updatingId, setUpdating]   = useState<string | null>(null);
   const [trackingInput, setTracking] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sendingId, setSending]     = useState<string | null>(null);
 
   async function loadOrders() {
     try {
@@ -78,9 +73,16 @@ export default function OrderManager() {
       if (res.ok) {
         const data = await res.json();
         setOrders(Array.isArray(data.orders) ? data.orders : []);
+        setLoadError(null);
         return;
       }
-    } catch { /* Preserve a truthful empty state instead of showing fabricated orders. */ }
+      const detail = await res.json().catch(() => null);
+      throw new Error(detail?.error || `Orders could not be loaded (${res.status}).`);
+    } catch (err: any) {
+      // Say so rather than showing an empty list that looks like "no sales".
+      console.error('[OrderManager] could not load orders:', err);
+      setLoadError(err?.message || 'Orders could not be loaded.');
+    }
     setOrders([]);
   }
 
@@ -119,6 +121,28 @@ export default function OrderManager() {
       toast.error(error?.message || 'Could not update order');
     }
     setUpdating(null);
+  }
+
+  /** Push one paid order to its dropship supplier right now. */
+  async function sendToSupplier(orderId: string) {
+    setSending(orderId);
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in required');
+      const res = await fetch(`${SERVER}/dropshipper/orders/${orderId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `The supplier did not accept this order (${res.status}).`);
+      toast.success('Order sent to the supplier');
+      await loadOrders();
+    } catch (error: any) {
+      console.error('[OrderManager] send to supplier failed:', error);
+      toast.error(error?.message || 'Could not send this order to the supplier');
+    }
+    setSending(null);
   }
 
   function copyId(id: string) {
@@ -177,21 +201,17 @@ export default function OrderManager() {
           ))}
         </div>
 
-        {/* Setup banner if no real orders yet */}
-        {orders.every(o => demoOrders().some(d => d.id === o.id)) && (
-          <div className="rounded-2xl p-5" style={{ background: 'rgba(234,88,12,0.06)', border: '1px solid rgba(234,88,12,0.2)' }}>
-            <p className="font-black text-orange-400 mb-1">⚡ One step to go live</p>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              Add <code className="text-orange-300 bg-black/30 px-1.5 py-0.5 rounded">STRIPE_SECRET_KEY</code> to your Supabase Edge Function secrets and payments start flowing in automatically.
-            </p>
-            <div className="mt-3 space-y-1.5 text-xs text-gray-500">
-              <p>1. Go to <span className="text-orange-400">supabase.com → your project → Edge Functions → Secrets</span></p>
-              <p>2. Add <code className="text-orange-300">STRIPE_SECRET_KEY</code> = your Stripe secret key (from stripe.com → Developers → API Keys)</p>
-              <p>3. Add webhook in Stripe pointing to <code className="text-orange-300">https://{projectId}.supabase.co/functions/v1/make-server-3eae23a6/store/webhook</code></p>
-              <p>4. Add <code className="text-orange-300">STRIPE_WEBHOOK_SECRET</code> from the webhook signing secret</p>
+        {loadError && (
+          <div className="rounded-2xl p-4 flex items-start gap-3" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)' }}>
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-black text-red-400 text-sm">Orders could not be loaded</p>
+              <p className="text-xs text-gray-400 mt-1">{loadError}</p>
             </div>
           </div>
         )}
+
+        <FulfillmentAutomationPanel onOrdersChanged={loadOrders} />
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3">
@@ -322,6 +342,36 @@ export default function OrderManager() {
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Supplier handoff */}
+                {order.fulfillment_status === 'pending' && (
+                  <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                    <p className="text-xs font-black text-amber-400 uppercase tracking-widest">Not sent to a supplier yet</p>
+                    {order.fulfillment_hold_reason && (
+                      <p className="text-xs text-gray-400 leading-snug">{order.fulfillment_hold_reason}</p>
+                    )}
+                    {order.fulfillment_error && (
+                      <p className="text-xs text-red-400 leading-snug">
+                        Last attempt failed: {order.fulfillment_error}
+                      </p>
+                    )}
+                    {order.fulfillment_skipped && order.fulfillment_skipped.length > 0 && (
+                      <ul className="space-y-0.5">
+                        {order.fulfillment_skipped.map((reason, i) => (
+                          <li key={i} className="text-[11px] text-gray-500 leading-snug">• {reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <button onClick={() => sendToSupplier(order.id)} disabled={sendingId === order.id}
+                      className="w-full py-2.5 rounded-xl text-sm font-black text-white hover:brightness-110 transition disabled:opacity-50"
+                      style={{ background: '#ea580c' }}>
+                      {sendingId === order.id ? 'Sending…' : 'Send to supplier now'}
+                    </button>
+                    {typeof order.fulfillment_attempts === 'number' && order.fulfillment_attempts > 0 && (
+                      <p className="text-[11px] text-gray-600">{order.fulfillment_attempts} previous attempt(s).</p>
+                    )}
                   </div>
                 )}
 

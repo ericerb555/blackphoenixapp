@@ -34,6 +34,7 @@ import {
   generateBeatMarkers,
   BeatMarker,
 } from '../lib/audioBeatSync';
+import { useStoreProducts, normalizeStoreProduct, StoreCatalogProduct } from '../lib/useStoreProducts';
 
 // Mock template data
 const TEMPLATES = [
@@ -104,8 +105,8 @@ const TEMPLATES = [
   },
 ];
 
-// Mock products for demo
-const MOCK_PRODUCTS = [
+// Sample products — shown ONLY when the live store catalog can't be reached.
+const MOCK_PRODUCTS: StoreCatalogProduct[] = ([
   {
     id: 'prod-1',
     name: 'Premium Wireless Headphones',
@@ -145,14 +146,16 @@ const MOCK_PRODUCTS = [
     category: 'Lifestyle',
     source: { provider: 'Demo', lastSynced: new Date().toISOString() }
   },
-];
+] as any[]).map(normalizeStoreProduct);
 
 interface ProductAdCreatorClientProps {
   onClose?: () => void;
 }
 
 export default function ProductAdCreatorClient({ onClose }: ProductAdCreatorClientProps) {
-  const [products, setProducts] = useState(MOCK_PRODUCTS);
+  // Real store catalog — the same list the storefront shows shoppers.
+  const { products, loading: productsLoading, live: productsLive, error: productsError, reload: reloadProducts } =
+    useStoreProducts(MOCK_PRODUCTS);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('social-square');
@@ -207,13 +210,6 @@ export default function ProductAdCreatorClient({ onClose }: ProductAdCreatorClie
       }
     }
   }, [selectedTemplate]);
-
-  const retryServerConnection = () => {
-    toast.info('Refreshing page to check server status...');
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
-  };
 
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -345,32 +341,34 @@ export default function ProductAdCreatorClient({ onClose }: ProductAdCreatorClie
             )}
           </div>
 
-          {/* Info Banner */}
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+          {/* Catalog status — tells you exactly which products you're working with. */}
+          <div className={`rounded-lg p-4 border ${productsLive ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm flex-1">
-                <div className="text-blue-400 font-semibold mb-1">Demo Mode Active</div>
-                <div className="text-gray-300 mb-3">
-                  The Edge Function "server" is not deployed, so this is a client-side demo with mock data.
-                  Once the Edge Function is deployed, you'll see your actual imported products here.
+              {productsLive
+                ? <ShoppingCart className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                : <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />}
+              <div className="text-sm flex-1 min-w-0">
+                <div className={`font-semibold mb-1 ${productsLive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {productsLoading
+                    ? 'Loading your store catalog…'
+                    : productsLive
+                      ? `Live store catalog — ${products.length} product${products.length !== 1 ? 's' : ''}`
+                      : 'Showing sample products'}
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={retryServerConnection}
-                    size="sm"
-                    className="bg-blue-500 hover:bg-blue-600 text-white"
-                  >
-                    <RefreshCw className="w-3 h-3 mr-2" />
-                    Check Server Status
+                <div className="text-gray-300 mb-3 break-words">
+                  {productsLive
+                    ? 'These are the exact products on your storefront, including synced dropshipper inventory. Add or activate a product in the store and it appears here.'
+                    : productsError
+                      ? `Could not reach your store catalog: ${productsError}`
+                      : 'Your live catalog is unavailable, so sample items are shown instead.'}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button onClick={reloadProducts} size="sm" className="bg-[#ea580c] hover:brightness-110 text-white">
+                    <RefreshCw className={`w-3 h-3 mr-2 ${productsLoading ? 'animate-spin' : ''}`} />
+                    Refresh products
                   </Button>
-                  <Button
-                    onClick={() => window.open('https://supabase.com/dashboard/project/plzsvzwwcdopnawtiwzm/functions', '_blank')}
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                  >
-                    Open Supabase Dashboard →
+                  <Button onClick={() => window.open('/product-catalog', '_blank')} size="sm" variant="outline" className="text-xs">
+                    Manage store products →
                   </Button>
                 </div>
               </div>
@@ -671,9 +669,11 @@ export default function ProductAdCreatorClient({ onClose }: ProductAdCreatorClie
                   <ShoppingCart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                   <h3 className="text-xl font-semibold text-white mb-2">No Products Found</h3>
                   <p className="text-gray-400">
-                    {products.length === 0
-                      ? 'No products available in demo mode'
-                      : 'No products match your search'}
+                    {productsLoading
+                      ? 'Loading your store catalog…'
+                      : products.length === 0
+                        ? 'Your store has no active products yet. Add one in Product Catalog and it will show up here.'
+                        : 'No products match your search'}
                   </p>
                 </div>
               )}

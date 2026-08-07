@@ -36,22 +36,6 @@ function parseSessionFromUrl(): string | null {
   return params.get('session_id');
 }
 
-function buildDemoOrder(sessionId: string): OrderDetails {
-  return {
-    sessionId,
-    customerName: 'Valued Customer',
-    customerEmail: 'customer@example.com',
-    total: 9900,
-    currency: 'usd',
-    items: [
-      { name: 'Black Phoenix Pro Plan', description: 'Monthly subscription — all features included', quantity: 1, unitAmount: 9900 },
-    ],
-    paymentStatus: 'paid',
-    orderId: `BPX-${Date.now().toString(36).toUpperCase()}`,
-    createdAt: new Date().toISOString(),
-  };
-}
-
 async function fetchOrderDetails(sessionId: string): Promise<OrderDetails> {
   const res = await fetch(`${SERVER}/stripe/session/${sessionId}`, {
     headers: { Authorization: `Bearer ${publicAnonKey}` },
@@ -121,7 +105,7 @@ function Confetti() {
 }
 
 export default function OrderSuccess() {
-  const [status, setStatus] = useState<'loading' | 'success' | 'demo' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'success' | 'nosession' | 'error'>('loading');
   const [order, setOrder] = useState<OrderDetails | null>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -131,10 +115,9 @@ export default function OrderSuccess() {
 
     async function load() {
       if (!sessionId) {
-        // No session_id — show a demo/preview state
-        setOrder(buildDemoOrder('demo_session'));
-        setStatus('demo');
-        setShowConfetti(true);
+        // Reached without a Stripe session — there is no order to show.
+        setOrder(null);
+        setStatus('nosession');
         return;
       }
 
@@ -146,13 +129,13 @@ export default function OrderSuccess() {
         // Fire confirmation email (best-effort)
         await sendConfirmationEmail(details);
         setEmailSent(true);
-      } catch {
-        // If server lookup fails, build demo order from session id so page still looks great
-        const demo = buildDemoOrder(sessionId);
-        setOrder(demo);
-        setStatus('demo');
-        setShowConfetti(true);
-        setEmailSent(true);
+      } catch (err) {
+        // NEVER fabricate a receipt. If we can't verify the order with the
+        // server, say so — a real customer must not be shown invented line
+        // items and told their payment succeeded.
+        console.error('[OrderSuccess] could not verify order for session', sessionId, err);
+        setOrder(null);
+        setStatus('error');
       }
     }
 
@@ -178,6 +161,23 @@ export default function OrderSuccess() {
     );
   }
 
+  if (status === 'nosession') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0A0A0A', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+        <div className="max-w-md w-full text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto">
+            <Package className="w-8 h-8 text-amber-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-white">No order to show</h1>
+          <p className="text-gray-400 text-sm">This page shows your receipt right after a completed checkout. Head back to the store to place an order.</p>
+          <button onClick={goHome} className="px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold transition text-sm">
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'error') {
     return (
       <div style={{ minHeight: '100vh', background: '#0A0A0A', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
@@ -185,8 +185,11 @@ export default function OrderSuccess() {
           <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto">
             <AlertCircle className="w-8 h-8 text-red-400" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Order Not Found</h1>
-          <p className="text-gray-400 text-sm">We couldn't locate your order. If you completed a payment, please contact support and we'll sort it out right away.</p>
+          <h1 className="text-2xl font-bold text-white">We couldn't confirm this order</h1>
+          <p className="text-gray-400 text-sm">
+            Your payment may still have gone through — we just couldn't verify it here. Do not pay again.
+            Contact support with your Stripe receipt and we'll confirm it right away.
+          </p>
           <button onClick={goHome} className="px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold transition text-sm">
             Back to Home
           </button>
@@ -207,9 +210,6 @@ export default function OrderSuccess() {
             <div className="w-20 h-20 rounded-2xl bg-green-500/15 border border-green-500/30 flex items-center justify-center mx-auto">
               <CheckCircle className="w-10 h-10 text-green-400" />
             </div>
-            {status === 'demo' && (
-              <span className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">PREVIEW</span>
-            )}
           </div>
           <div>
             <h1 className="text-3xl font-bold text-white">Order Confirmed!</h1>

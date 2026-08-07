@@ -61,8 +61,30 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any | null>(null);
-  const filteredPlans = getPlansByCategory(activeCategory);
   const [tierOverrides, setTierOverrides] = useState<TierOverrideMap>({});
+  // Owner edits to the code-defined plans, persisted server-side and merged
+  // over the catalog so a saved change is still there after a reload.
+  const [planOverrides, setPlanOverrides] = useState<Record<string, any>>({});
+  const [savingPlan, setSavingPlan] = useState(false);
+
+  const applyOverride = (plan: SubscriptionPlan): SubscriptionPlan => {
+    const ov = planOverrides[plan.id];
+    if (!ov) return plan;
+    return {
+      ...plan,
+      name: typeof ov.name === 'string' && ov.name ? ov.name : plan.name,
+      tagline: typeof ov.tagline === 'string' && ov.tagline ? ov.tagline : plan.tagline,
+      regularPrice: Number.isFinite(Number(ov.regularPrice)) ? Number(ov.regularPrice) : plan.regularPrice,
+      features: Array.isArray(ov.features) && ov.features.length ? ov.features : plan.features,
+      popular: typeof ov.popular === 'boolean' ? ov.popular : plan.popular,
+      highlighted: typeof ov.highlighted === 'boolean' ? ov.highlighted : plan.highlighted,
+    };
+  };
+
+  const filteredPlans = useMemo(
+    () => getPlansByCategory(activeCategory).map(applyOverride),
+    [activeCategory, planOverrides],
+  );
 
   // Load owner-defined per-tier feature entitlements once.
   useEffect(() => {
@@ -75,6 +97,15 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
         if (res.ok && data?.overrides) setTierOverrides(data.overrides);
       } catch (err) {
         console.error(`Failed to load tier feature overrides in SubscriptionPlans: ${err}`);
+      }
+      try {
+        const res = await fetch(`${SERVER}/subscription-plan-overrides`, {
+          headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.overrides) setPlanOverrides(data.overrides);
+      } catch (err) {
+        console.error(`Failed to load subscription plan overrides in SubscriptionPlans: ${err}`);
       }
     })();
   }, []);
@@ -234,12 +265,57 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
     setShowEditor(true);
   };
 
-  const handleSavePlan = (plan: any) => {
-    console.log('Saving plan:', plan);
-    toast.success('Plan updated successfully!');
-    setShowEditor(false);
-    setEditingPlan(null);
-    // TODO: Implement actual save logic to update the plan in the config
+  // Persist only the fields that map back onto a SubscriptionPlan. Everything
+  // else the maintenance editor collects has no home in the plan catalog, so
+  // saving it would create the illusion that it took effect.
+  const handleSavePlan = async (plan: any) => {
+    if (!plan?.id) {
+      toast.error('This plan has no id, so it can\'t be saved.');
+      return;
+    }
+    setSavingPlan(true);
+    try {
+      const override = {
+        name: String(plan.name || '').trim(),
+        tagline: String(plan.description || '').trim(),
+        regularPrice: Number(plan.monthlyPrice) || 0,
+        features: Array.isArray(plan.features) ? plan.features : [],
+        popular: !!plan.isPopular,
+        highlighted: !!plan.isFeatured,
+      };
+      const res = await fetch(`${SERVER}/subscription-plan-overrides`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: plan.id, override }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || `Server responded ${res.status}`);
+      setPlanOverrides(data.overrides || {});
+      toast.success('Plan updated');
+      setShowEditor(false);
+      setEditingPlan(null);
+    } catch (err: any) {
+      console.error('Failed to save subscription plan override:', err);
+      toast.error(`Could not save this plan: ${err?.message || err}`);
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
+  const handleResetPlan = async (planId: string) => {
+    try {
+      const res = await fetch(`${SERVER}/subscription-plan-overrides/${encodeURIComponent(planId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || `Server responded ${res.status}`);
+      setPlanOverrides(data.overrides || {});
+      toast.success('Plan reset to its default');
+    } catch (err: any) {
+      console.error('Failed to reset subscription plan override:', err);
+      toast.error(`Could not reset this plan: ${err?.message || err}`);
+    }
   };
 
   return (
@@ -430,13 +506,24 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
               } ${isSelected ? 'ring-2 ring-[#ea580c]' : ''}`}
             >
               {/* Edit Button */}
-              <button
-                onClick={(e) => handleEditPlan(plan, e)}
-                className="absolute top-4 left-4 z-10 p-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] hover:border-orange-500/50 rounded-lg transition-all group"
-                title="Edit plan"
-              >
-                <Edit2 className="w-4 h-4 text-gray-400 group-hover:text-orange-400" />
-              </button>
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+                <button
+                  onClick={(e) => handleEditPlan(plan, e)}
+                  className="p-2 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] hover:border-orange-500/50 rounded-lg transition-all group"
+                  title="Edit plan"
+                >
+                  <Edit2 className="w-4 h-4 text-gray-400 group-hover:text-orange-400" />
+                </button>
+                {planOverrides[plan.id] && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void handleResetPlan(plan.id); }}
+                    className="px-2 py-1 bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 rounded-lg text-[10px] font-bold uppercase tracking-wide transition"
+                    title="This plan has been edited — restore the default"
+                  >
+                    Edited · Reset
+                  </button>
+                )}
+              </div>
 
               {/* Popular Badge */}
               {plan.popular && (
@@ -648,7 +735,7 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
           }}
           plan={editingPlan}
           mode="edit"
-          onSave={handleSavePlan}
+          onSave={(updated) => { if (!savingPlan) void handleSavePlan(updated); }}
         />
       )}
     </div>

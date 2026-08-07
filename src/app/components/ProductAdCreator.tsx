@@ -15,15 +15,16 @@ import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import ProductAdCreatorClient from './ProductAdCreatorClient';
 
-// Updated API_URL to correct Supabase Edge Function format
-const BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
-const API_PREFIX = '/make-server-3eae23a6';
+// The edge function is served at /functions/v1/make-server-3eae23a6 — the old
+// `/functions/v1/server` base pointed at a function that does not exist, so
+// every request from this screen 404'd.
+const BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Helper function to build API URLs
 const buildApiUrl = (path: string) => {
   // Ensure path starts with /
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${BASE_URL}${API_PREFIX}${cleanPath}`;
+  return `${BASE_URL}${cleanPath}`;
 };
 
 interface Product {

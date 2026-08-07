@@ -611,8 +611,41 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
     toast.success('Settings exported');
   };
 
+  // Reads a previously exported settings JSON file back in. Only keys that
+  // already exist in the current settings object are applied, so a stale or
+  // hand-edited file can't inject unknown fields.
   const importSettings = () => {
-    toast.info('Import functionality coming soon');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('That file does not contain a settings object.');
+        }
+        const known = Object.keys(settings);
+        const applied = Object.fromEntries(
+          Object.entries(parsed).filter(([key]) => known.includes(key)),
+        );
+        const skipped = Object.keys(parsed).length - Object.keys(applied).length;
+        if (Object.keys(applied).length === 0) {
+          throw new Error('No recognised settings were found in that file.');
+        }
+        setSettings(prev => ({ ...prev, ...applied }));
+        setHasUnsavedChanges(true);
+        toast.success(
+          `Imported ${Object.keys(applied).length} setting${Object.keys(applied).length === 1 ? '' : 's'}` +
+          `${skipped > 0 ? ` (${skipped} unrecognised key${skipped === 1 ? '' : 's'} ignored)` : ''}. Save to apply.`,
+        );
+      } catch (err: any) {
+        console.error('Portal settings import failed:', err);
+        toast.error(`Could not import settings: ${err?.message || err}`);
+      }
+    };
+    input.click();
   };
 
   const tabs = [

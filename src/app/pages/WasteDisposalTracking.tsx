@@ -91,6 +91,19 @@ const DISPOSAL_METHODS = [
   { value: 'composting', label: 'Composting', description: 'Organic waste processing' }
 ];
 
+// Rough field conversions so mixed units can be summed. Loads and cubic yards
+// are volume estimates for typical construction debris, not exact weights.
+const TONS_PER_UNIT: Record<WasteEntry['unit'], number> = {
+  tons: 1,
+  pounds: 1 / 2000,
+  cubic_yards: 0.75,
+  loads: 3,
+  bags: 0.02,
+};
+
+const toTons = (entry: WasteEntry) =>
+  (Number(entry.quantity) || 0) * (TONS_PER_UNIT[entry.unit] ?? 1);
+
 const COMMON_MATERIALS = [
   'Drywall', 'Wood Scraps', 'Concrete', 'Asphalt', 'Metal', 'Glass',
   'Plastic', 'Cardboard', 'Insulation', 'Roofing Materials', 'Carpet',
@@ -106,6 +119,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
   const [dumpRuns, setDumpRuns] = useState<DumpRun[]>([]);
   const [stats, setStats] = useState<WasteStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,6 +130,13 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
   // Modals
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [showScheduleRunModal, setShowScheduleRunModal] = useState(false);
+  const [savingRun, setSavingRun] = useState(false);
+  const [runForm, setRunForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    truckNumber: '',
+    driverName: '',
+    entryIds: [] as string[],
+  });
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<WasteEntry | null>(null);
 
@@ -143,53 +164,174 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
     loadData();
   }, []);
 
+  // Failures surface as an error banner rather than an empty screen that looks
+  // like "no waste recorded".
+  const fetchCollection = async <T,>(path: string, label: string): Promise<T[]> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(`Could not load ${label} (${res.status}): ${detail.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data?.items || []);
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Load waste entries
-      const entriesRes = await fetch(`${API_BASE}/waste-entries`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-      });
-      if (entriesRes.ok) {
-        const data = await entriesRes.json();
-        setWasteEntries(data);
-      }
+      setError(null);
 
-      // Load dump runs
-      const runsRes = await fetch(`${API_BASE}/dump-runs`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
-      });
-      if (runsRes.ok) {
-        const data = await runsRes.json();
-        setDumpRuns(data);
-      }
+      const [entries, runs] = await Promise.all([
+        fetchCollection<WasteEntry>('/waste-entries', 'waste entries'),
+        fetchCollection<DumpRun>('/dump-runs', 'dump runs'),
+      ]);
 
-      // Calculate stats
-      calculateStats();
-    } catch (error) {
-      console.error('Error loading waste data:', error);
+      setWasteEntries(entries);
+      setDumpRuns(runs);
+      calculateStats(entries);
+    } catch (err: any) {
+      console.error('Error loading waste data:', err);
+      setError(err?.message || 'Could not load waste tracking data.');
       toast.error('Failed to load waste tracking data');
     } finally {
       setLoading(false);
     }
   };
 
-  const calculateStats = () => {
-    // Mock stats calculation - in production, fetch from backend
+  const calculateStats = (entries: WasteEntry[]) => {
+    if (entries.length === 0) {
+      setStats(null);
+      return;
+    }
+
+    const summarize = (list: WasteEntry[]) => {
+      const tons = list.reduce((sum, e) => sum + toTons(e), 0);
+      const cost = list.reduce((sum, e) => sum + (Number(e.cost) || 0), 0);
+      // Anything sent to recycling, composting or donation counts as fully
+      // diverted; everything else only counts its recorded recycling share.
+      const diverted = list.reduce((sum, e) => {
+        const t = toTons(e);
+        if (['recycling', 'composting', 'donation'].includes(e.disposalMethod)) return sum + t;
+        return sum + t * ((Number(e.recyclingPercentage) || 0) / 100);
+      }, 0);
+      return { tons, cost, diverted };
+    };
+
+    const now = new Date();
+    const inMonth = (e: WasteEntry, offset: number) => {
+      const d = new Date(e.completedDate || e.scheduledDate);
+      if (Number.isNaN(d.getTime())) return false;
+      const ref = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      return d.getMonth() === ref.getMonth() && d.getFullYear() === ref.getFullYear();
+    };
+
+    const all = summarize(entries);
+    const thisMonth = summarize(entries.filter(e => inMonth(e, 0)));
+    const lastMonth = summarize(entries.filter(e => inMonth(e, 1)));
+
+    const pctChange = (current: number, previous: number) =>
+      previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
+
+    const projects = new Set(entries.map(e => e.projectId || e.projectName).filter(Boolean));
+    const compliant = entries.filter(e => e.environmentalCompliance).length;
+
+    const thisRate = thisMonth.tons > 0 ? (thisMonth.diverted / thisMonth.tons) * 100 : 0;
+    const lastRate = lastMonth.tons > 0 ? (lastMonth.diverted / lastMonth.tons) * 100 : 0;
+
     setStats({
-      totalWaste: 487.5,
-      totalCost: 12450,
-      recyclingRate: 42,
-      costPerProject: 1850,
-      hazardousWaste: 12.3,
-      complianceRate: 98,
+      totalWaste: all.tons,
+      totalCost: all.cost,
+      recyclingRate: all.tons > 0 ? (all.diverted / all.tons) * 100 : 0,
+      costPerProject: projects.size > 0 ? all.cost / projects.size : 0,
+      hazardousWaste: entries
+        .filter(e => e.wasteType === 'hazardous' || e.disposalMethod === 'hazmat_facility')
+        .reduce((sum, e) => sum + toTons(e), 0),
+      complianceRate: entries.length > 0 ? (compliant / entries.length) * 100 : 0,
       trendsVsPreviousMonth: {
-        waste: -8,
-        cost: -12,
-        recycling: 5
-      }
+        waste: pctChange(thisMonth.tons, lastMonth.tons),
+        cost: pctChange(thisMonth.cost, lastMonth.cost),
+        recycling: Math.round(thisRate - lastRate),
+      },
     });
+  };
+
+  const resetRunForm = () => setRunForm({
+    date: new Date().toISOString().slice(0, 10),
+    truckNumber: '',
+    driverName: '',
+    entryIds: [],
+  });
+
+  const toggleRunEntry = (id: string) => setRunForm(f => ({
+    ...f,
+    entryIds: f.entryIds.includes(id) ? f.entryIds.filter(x => x !== id) : [...f.entryIds, id],
+  }));
+
+  const selectedRunEntries = () => wasteEntries.filter(e => runForm.entryIds.includes(e.id));
+
+  const handleScheduleRun = async () => {
+    if (!runForm.truckNumber.trim() || !runForm.driverName.trim()) {
+      toast.error('Enter the truck number and driver for this run.');
+      return;
+    }
+    if (runForm.entryIds.length === 0) {
+      toast.error('Pick at least one waste entry for this run.');
+      return;
+    }
+
+    const entries = selectedRunEntries();
+    setSavingRun(true);
+    try {
+      const res = await fetch(`${API_BASE}/dump-runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({
+          date: runForm.date,
+          truckNumber: runForm.truckNumber.trim(),
+          driverName: runForm.driverName.trim(),
+          entries,
+          totalCost: entries.reduce((sum, e) => sum + (Number(e.cost) || 0), 0),
+          totalWeight: entries.reduce((sum, e) => sum + toTons(e), 0),
+          // One stop per distinct dump location, in the order they were picked.
+          route: [...new Set(entries.map(e => e.dumpLocation).filter(Boolean))],
+          status: 'planned',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      toast.success('Dump run scheduled');
+      setShowScheduleRunModal(false);
+      resetRunForm();
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to schedule dump run:', err);
+      toast.error(`Could not schedule the dump run: ${err?.message || err}`);
+    } finally {
+      setSavingRun(false);
+    }
+  };
+
+  const updateRunStatus = async (run: DumpRun, status: DumpRun['status']) => {
+    try {
+      const res = await fetch(`${API_BASE}/dump-runs/${run.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({
+          status,
+          startTime: status === 'active' ? new Date().toISOString() : run.startTime,
+          endTime: status === 'completed' ? new Date().toISOString() : run.endTime,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      toast.success(`Dump run marked ${status}`);
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to update dump run:', err);
+      toast.error(`Could not update the dump run: ${err?.message || err}`);
+    }
   };
 
   const handleAddEntry = async () => {
@@ -339,6 +481,16 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
           </div>
         </div>
 
+        {error && (
+          <div className="mb-6 bg-red-950/40 border border-red-800 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-300 font-semibold">Couldn't load waste tracking data</p>
+              <p className="text-red-400/80 text-sm">{error}</p>
+            </div>
+          </div>
+        )}
+
         {/* Stats Dashboard */}
         {stats && (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
@@ -350,7 +502,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
                   {Math.abs(stats.trendsVsPreviousMonth.waste)}%
                 </span>
               </div>
-              <div className="text-2xl font-bold mb-1">{stats.totalWaste} tons</div>
+              <div className="text-2xl font-bold mb-1">{stats.totalWaste.toFixed(1)} tons</div>
               <div className="text-sm text-gray-400">Total Waste</div>
             </div>
 
@@ -362,7 +514,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
                   {Math.abs(stats.trendsVsPreviousMonth.cost)}%
                 </span>
               </div>
-              <div className="text-2xl font-bold mb-1">${stats.totalCost.toLocaleString()}</div>
+              <div className="text-2xl font-bold mb-1">${Math.round(stats.totalCost).toLocaleString()}</div>
               <div className="text-sm text-gray-400">Disposal Costs</div>
             </div>
 
@@ -374,7 +526,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
                   {stats.trendsVsPreviousMonth.recycling}%
                 </span>
               </div>
-              <div className="text-2xl font-bold mb-1 text-green-400">{stats.recyclingRate}%</div>
+              <div className="text-2xl font-bold mb-1 text-green-400">{stats.recyclingRate.toFixed(0)}%</div>
               <div className="text-sm text-gray-400">Recycling Rate</div>
             </div>
 
@@ -382,7 +534,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
               <div className="flex items-center justify-between mb-2">
                 <Building2 className="w-5 h-5 text-gray-400" />
               </div>
-              <div className="text-2xl font-bold mb-1">${stats.costPerProject.toLocaleString()}</div>
+              <div className="text-2xl font-bold mb-1">${Math.round(stats.costPerProject).toLocaleString()}</div>
               <div className="text-sm text-gray-400">Avg Cost/Project</div>
             </div>
 
@@ -390,7 +542,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
               <div className="flex items-center justify-between mb-2">
                 <AlertTriangle className="w-5 h-5 text-yellow-400" />
               </div>
-              <div className="text-2xl font-bold mb-1 text-yellow-400">{stats.hazardousWaste} tons</div>
+              <div className="text-2xl font-bold mb-1 text-yellow-400">{stats.hazardousWaste.toFixed(1)} tons</div>
               <div className="text-sm text-gray-400">Hazardous Waste</div>
             </div>
 
@@ -398,7 +550,7 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
               <div className="flex items-center justify-between mb-2">
                 <CheckCircle className="w-5 h-5 text-green-400" />
               </div>
-              <div className="text-2xl font-bold mb-1 text-green-400">{stats.complianceRate}%</div>
+              <div className="text-2xl font-bold mb-1 text-green-400">{stats.complianceRate.toFixed(0)}%</div>
               <div className="text-sm text-gray-400">Compliance Rate</div>
             </div>
           </div>
@@ -585,13 +737,72 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
 
       {/* Dump Runs Tab */}
       {activeTab === 'runs' && (
-        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-8 text-center">
-          <TruckIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold mb-2">Dump Run Scheduler</h3>
-          <p className="text-gray-400 mb-6">Schedule and track dump truck routes for efficient waste removal</p>
-          <StandardButton onClick={() => setShowScheduleRunModal(true)} leftIcon={<Plus className="w-4 h-4" />}>
-            Schedule New Dump Run
-          </StandardButton>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h3 className="text-xl font-semibold">Dump Runs</h3>
+              <p className="text-gray-400 text-sm">Group waste entries into truck routes and track them through the day.</p>
+            </div>
+            <StandardButton
+              onClick={() => { resetRunForm(); setShowScheduleRunModal(true); }}
+              leftIcon={<Plus className="w-4 h-4" />}
+            >
+              Schedule Dump Run
+            </StandardButton>
+          </div>
+
+          {dumpRuns.length === 0 ? (
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-12 text-center">
+              <TruckIcon className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-300 mb-1">No dump runs scheduled</p>
+              <p className="text-gray-500 text-sm">Schedule one to batch pickups onto a single truck route.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {dumpRuns.map((run) => (
+                <div key={run.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <h4 className="font-semibold">Truck {run.truckNumber || '—'}</h4>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                          run.status === 'completed' ? 'bg-green-600/20 text-green-400'
+                            : run.status === 'active' ? 'bg-blue-600/20 text-blue-400'
+                            : 'bg-yellow-600/20 text-yellow-400'
+                        }`}>
+                          {String(run.status || 'planned').toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-gray-400 text-sm mt-1">
+                        {run.date || '—'}{run.driverName ? ` • ${run.driverName}` : ''}
+                      </p>
+                      {(run.route || []).length > 0 && (
+                        <p className="text-gray-500 text-xs mt-1">Route: {run.route.join(' → ')}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold">{(Number(run.totalWeight) || 0).toFixed(1)} tons</p>
+                      <p className="text-gray-500 text-sm">${Math.round(Number(run.totalCost) || 0).toLocaleString()}</p>
+                      <p className="text-gray-500 text-xs">{(run.entries || []).length} stop{(run.entries || []).length === 1 ? '' : 's'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-4">
+                    {run.status === 'planned' && (
+                      <StandardButton size="sm" variant="secondary" onClick={() => updateRunStatus(run, 'active')}>
+                        Start Run
+                      </StandardButton>
+                    )}
+                    {run.status === 'active' && (
+                      <StandardButton size="sm" onClick={() => updateRunStatus(run, 'completed')}>
+                        Complete Run
+                      </StandardButton>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -608,28 +819,41 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
                 Export
               </StandardButton>
             </div>
-            <div className="space-y-3">
-              {WASTE_TYPES.map((type, index) => {
-                const percentage = Math.floor(Math.random() * 30) + 10;
-                return (
-                  <div key={type.value}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm flex items-center gap-2">
-                        <type.icon className="w-4 h-4" />
-                        {type.label}
-                      </span>
-                      <span className="text-sm font-semibold">{percentage}%</span>
-                    </div>
-                    <div className="w-full bg-[#0A0A0A] rounded-full h-2">
-                      <div 
-                        className={`bg-${type.color}-500 h-2 rounded-full transition-all`}
-                        style={{ width: `${percentage}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {(() => {
+              const totalTons = wasteEntries.reduce((sum, e) => sum + toTons(e), 0);
+              if (totalTons <= 0) {
+                return <div className="text-center py-8 text-gray-500 text-sm">No waste logged yet — add entries to see the breakdown</div>;
+              }
+              return (
+                <div className="space-y-3">
+                  {WASTE_TYPES.map((type) => {
+                    const tons = wasteEntries
+                      .filter(e => e.wasteType === type.value)
+                      .reduce((sum, e) => sum + toTons(e), 0);
+                    const percentage = (tons / totalTons) * 100;
+                    return (
+                      <div key={type.value}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm flex items-center gap-2">
+                            <type.icon className="w-4 h-4" />
+                            {type.label}
+                          </span>
+                          <span className="text-sm font-semibold">
+                            {percentage.toFixed(0)}% · {tons.toFixed(1)} t
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#0A0A0A] rounded-full h-2">
+                          <div
+                            className={`bg-${type.color}-500 h-2 rounded-full transition-all`}
+                            style={{ width: `${percentage}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
@@ -685,15 +909,17 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                 <span className="text-sm text-gray-400">Total Disposal Costs</span>
-                <span className="font-semibold">${stats?.totalCost.toLocaleString()}</span>
+                <span className="font-semibold">${Math.round(stats?.totalCost || 0).toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                 <span className="text-sm text-gray-400">Cost per Ton</span>
-                <span className="font-semibold">${stats ? (stats.totalCost / stats.totalWaste).toFixed(2) : '0'}</span>
+                <span className="font-semibold">{stats && stats.totalWaste > 0 ? `$${(stats.totalCost / stats.totalWaste).toFixed(2)}` : '—'}</span>
               </div>
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
-                <span className="text-sm text-gray-400">Recycling Savings</span>
-                <span className="font-semibold text-green-400">$2,340</span>
+                <span className="text-sm text-gray-400">Diverted from landfill</span>
+                <span className="font-semibold text-green-400">
+                  {stats ? `${((stats.recyclingRate / 100) * stats.totalWaste).toFixed(1)} tons` : '—'}
+                </span>
               </div>
             </div>
           </div>
@@ -710,16 +936,25 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
             </div>
             <div className="space-y-4">
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
-                <span className="text-sm text-gray-400">CO₂ Offset</span>
-                <span className="font-semibold text-green-400">124 tons</span>
+                <span className="text-sm text-gray-400">Hazardous handled</span>
+                <span className="font-semibold text-green-400">
+                  {stats ? `${stats.hazardousWaste.toFixed(1)} tons` : '—'}
+                </span>
               </div>
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                 <span className="text-sm text-gray-400">Materials Recycled</span>
-                <span className="font-semibold text-green-400">204 tons</span>
+                <span className="font-semibold text-green-400">
+                  {`${wasteEntries
+                    .filter(e => ['recycling', 'composting', 'donation'].includes(e.disposalMethod))
+                    .reduce((sum, e) => sum + toTons(e), 0)
+                    .toFixed(1)} tons`}
+                </span>
               </div>
               <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
                 <span className="text-sm text-gray-400">Diversion Rate</span>
-                <span className="font-semibold text-green-400">42%</span>
+                <span className="font-semibold text-green-400">
+                  {stats ? `${stats.recyclingRate.toFixed(0)}%` : '—'}
+                </span>
               </div>
             </div>
           </div>
@@ -732,18 +967,24 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-gradient-to-br from-green-500/10 to-emerald-600/10 border border-green-500/20 rounded-xl p-6">
               <CheckCircle className="w-8 h-8 text-green-400 mb-3" />
-              <div className="text-3xl font-bold text-green-400 mb-2">98%</div>
+              <div className="text-3xl font-bold text-green-400 mb-2">
+                {stats ? `${stats.complianceRate.toFixed(0)}%` : '—'}
+              </div>
               <div className="text-sm text-gray-300">Compliance Rate</div>
             </div>
             <div className="bg-gradient-to-br from-yellow-500/10 to-orange-600/10 border border-yellow-500/20 rounded-xl p-6">
               <AlertTriangle className="w-8 h-8 text-yellow-400 mb-3" />
-              <div className="text-3xl font-bold text-yellow-400 mb-2">3</div>
-              <div className="text-sm text-gray-300">Pending Reviews</div>
+              <div className="text-3xl font-bold text-yellow-400 mb-2">
+                {wasteEntries.filter(e => !e.environmentalCompliance).length}
+              </div>
+              <div className="text-sm text-gray-300">Entries Needing Review</div>
             </div>
             <div className="bg-gradient-to-br from-blue-500/10 to-cyan-600/10 border border-blue-500/20 rounded-xl p-6">
               <FileText className="w-8 h-8 text-blue-400 mb-3" />
-              <div className="text-3xl font-bold text-blue-400 mb-2">47</div>
-              <div className="text-sm text-gray-300">Compliance Docs</div>
+              <div className="text-3xl font-bold text-blue-400 mb-2">
+                {wasteEntries.filter(e => e.ticketNumber || e.ticketPhoto).length}
+              </div>
+              <div className="text-sm text-gray-300">Disposal Tickets on File</div>
             </div>
           </div>
 
@@ -1024,6 +1265,93 @@ export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (pa
           />
         </Modal>
       )}
+
+      {/* Schedule Dump Run Modal */}
+      <Modal
+        isOpen={showScheduleRunModal}
+        onClose={() => setShowScheduleRunModal(false)}
+        size="xl"
+      >
+        <ModalHeader
+          title="Schedule Dump Run"
+          icon={TruckIcon}
+          onClose={() => setShowScheduleRunModal(false)}
+        />
+        <ModalBody>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <TextInput
+                label="Date"
+                type="date"
+                value={runForm.date}
+                onChange={(e) => setRunForm({ ...runForm, date: e.target.value })}
+              />
+              <TextInput
+                label="Truck number"
+                value={runForm.truckNumber}
+                onChange={(e) => setRunForm({ ...runForm, truckNumber: e.target.value })}
+                placeholder="e.g. T-14"
+              />
+              <TextInput
+                label="Driver"
+                value={runForm.driverName}
+                onChange={(e) => setRunForm({ ...runForm, driverName: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-400 mb-2">
+                Waste entries on this run ({runForm.entryIds.length} selected)
+              </p>
+              {wasteEntries.filter(e => e.status !== 'completed' && e.status !== 'cancelled').length === 0 ? (
+                <p className="text-gray-500 text-sm">
+                  No open waste entries to assign — log one first on the Waste Entries tab.
+                </p>
+              ) : (
+                <div className="max-h-64 overflow-y-auto border border-[#2A2A2A] rounded-lg divide-y divide-[#2A2A2A]">
+                  {wasteEntries
+                    .filter(e => e.status !== 'completed' && e.status !== 'cancelled')
+                    .map((entry) => (
+                      <label
+                        key={entry.id}
+                        className="flex items-center gap-3 p-3 cursor-pointer hover:bg-[#0F0F0F]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={runForm.entryIds.includes(entry.id)}
+                          onChange={() => toggleRunEntry(entry.id)}
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm">{entry.material} — {entry.projectName}</p>
+                          <p className="text-xs text-gray-500">
+                            {entry.quantity} {entry.unit.replace('_', ' ')} · {entry.dumpLocation || 'no location set'}
+                          </p>
+                        </div>
+                        <span className="text-sm text-gray-400">
+                          ${Math.round(Number(entry.cost) || 0).toLocaleString()}
+                        </span>
+                      </label>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg">
+              <span className="text-sm text-gray-400">Run totals</span>
+              <span className="text-sm font-semibold">
+                {selectedRunEntries().reduce((sum, e) => sum + toTons(e), 0).toFixed(1)} tons ·{' '}
+                ${Math.round(selectedRunEntries().reduce((sum, e) => sum + (Number(e.cost) || 0), 0)).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter
+          onCancel={() => setShowScheduleRunModal(false)}
+          onConfirm={handleScheduleRun}
+          confirmText={savingRun ? 'Scheduling...' : 'Schedule Run'}
+          cancelText="Cancel"
+        />
+      </Modal>
     </div>
   );
 }

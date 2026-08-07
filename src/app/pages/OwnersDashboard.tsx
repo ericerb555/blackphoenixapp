@@ -61,12 +61,13 @@ import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -416,6 +417,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'companies' as MainTab, label: 'Companies', icon: Building2, badge: companies.length },
     { id: 'roles' as MainTab, label: 'Roles & Permissions', icon: Key },
     { id: 'alerts' as MainTab, label: 'Admin Alerts', icon: Bell, badge: '3' },
+    { id: 'notifications' as MainTab, label: 'Notification Recipients', icon: Mail },
     { id: 'transfers' as MainTab, label: 'Transfer Approvals', icon: RefreshCw },
     { id: 'users' as MainTab, label: 'User Management', icon: Users },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
@@ -679,6 +681,8 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         )}
 
         {/* ALERTS TAB */}
+        {activeTab === 'notifications' && <NotificationRecipientsPanel />}
+
         {activeTab === 'alerts' && (
           <div className="space-y-6">
             <div>

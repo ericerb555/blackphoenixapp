@@ -1401,32 +1401,818 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
   );
 }
 
+// ─── Shared procurement types ─────────────────────────────────────────────────
+
+const PO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const poHeaders = {
+  Authorization: `Bearer ${publicAnonKey}`,
+  'Content-Type': 'application/json',
+};
+
+interface POLineItem {
+  materialId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+interface PurchaseOrderRecord {
+  id: string;
+  poNumber?: string;
+  vendorName?: string;
+  supplier?: string;
+  status: 'draft' | 'sent' | 'confirmed' | 'received' | 'cancelled' | string;
+  orderDate?: string;
+  expectedDate?: string;
+  lineItems?: POLineItem[];
+  total?: number;
+  notes?: string;
+  createdAt?: string;
+}
+
+const PO_STATUS_STYLES: Record<string, string> = {
+  draft: 'bg-gray-600/20 text-gray-300',
+  sent: 'bg-blue-600/20 text-blue-400',
+  confirmed: 'bg-yellow-600/20 text-yellow-400',
+  received: 'bg-green-600/20 text-green-400',
+  cancelled: 'bg-red-600/20 text-red-400',
+  pending: 'bg-yellow-600/20 text-yellow-400',
+};
+
+const usd = (n: number) =>
+  `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const poTotal = (po: PurchaseOrderRecord) =>
+  Number(po.total) ||
+  (po.lineItems || []).reduce((sum, li) => sum + (Number(li.quantity) || 0) * (Number(li.unitPrice) || 0), 0);
+
+// ─── Database tab ─────────────────────────────────────────────────────────────
+
 function DatabaseTab() {
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<Material | null>(null);
+  const [form, setForm] = useState({ basePrice: '', leadTime: '', minOrderQuantity: '', inStock: true });
+
+  const reload = () => setMaterials(materialsHubService.getAllMaterials());
+  useEffect(() => { reload(); }, []);
+
+  const filtered = materials.filter((m) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return [m.name, m.sku, m.category, m.manufacturer, m.vendorName]
+      .some((field) => String(field || '').toLowerCase().includes(q));
+  });
+
+  const stats = {
+    total: materials.length,
+    inStock: materials.filter((m) => m.inStock).length,
+    categories: new Set(materials.map((m) => m.category)).size,
+    avgPrice: materials.length
+      ? materials.reduce((sum, m) => sum + (Number(m.basePrice) || 0), 0) / materials.length
+      : 0,
+  };
+
+  const openEdit = (m: Material) => {
+    setEditing(m);
+    setForm({
+      basePrice: String(m.basePrice ?? ''),
+      leadTime: m.leadTime || '',
+      minOrderQuantity: String(m.minOrderQuantity ?? ''),
+      inStock: !!m.inStock,
+    });
+  };
+
+  const handleSave = () => {
+    if (!editing) return;
+    const price = Number(form.basePrice);
+    if (!Number.isFinite(price) || price < 0) {
+      toast.error('Enter a valid base price.');
+      return;
+    }
+    const moq = Number(form.minOrderQuantity);
+    const result = materialsHubService.updateMaterial(editing.id, {
+      basePrice: price,
+      leadTime: form.leadTime,
+      minOrderQuantity: Number.isFinite(moq) && moq > 0 ? moq : 1,
+      inStock: form.inStock,
+    });
+    if (!result) {
+      toast.error('That material is no longer in the library.');
+      return;
+    }
+    toast.success(`${result.name} updated`);
+    setEditing(null);
+    reload();
+  };
+
+  const handleDelete = (m: Material) => {
+    if (!window.confirm(`Remove "${m.name}" from the material library?`)) return;
+    if (materialsHubService.deleteMaterial(m.id)) {
+      toast.success('Material removed');
+      reload();
+    } else {
+      toast.error('Could not remove that material.');
+    }
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(materials, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `material-library-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Library exported');
+  };
+
   return (
-    <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
-      <Database className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-      <p className="text-gray-400 text-lg mb-2">Materials Database</p>
-      <p className="text-gray-500 text-sm">Coming soon - Manage your material library</p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Materials', value: String(stats.total) },
+          { label: 'In stock', value: String(stats.inStock) },
+          { label: 'Categories', value: String(stats.categories) },
+          { label: 'Average price', value: stats.total ? usd(stats.avgPrice) : '—' },
+        ].map((s) => (
+          <div key={s.label} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
+            <p className="text-gray-400 text-sm mb-1">{s.label}</p>
+            <p className="text-2xl font-bold text-white">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, SKU, category, manufacturer or vendor"
+            className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg pl-9 pr-3 py-2 text-white"
+          />
+        </div>
+        <button
+          onClick={handleExport}
+          className="px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg flex items-center gap-2"
+        >
+          <Download className="w-4 h-4" />
+          Export Library
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
+          <Database className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-300 mb-1">{materials.length === 0 ? 'The material library is empty' : 'No materials match that search'}</p>
+          <p className="text-gray-500 text-sm">
+            {materials.length === 0 ? 'Add materials from the Catalog or Vendor Portal tab.' : 'Try a different term.'}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-500 text-left border-b border-[#2A2A2A]">
+                <th className="p-3 font-medium">Material</th>
+                <th className="p-3 font-medium">SKU</th>
+                <th className="p-3 font-medium">Category</th>
+                <th className="p-3 font-medium">Price</th>
+                <th className="p-3 font-medium">Lead time</th>
+                <th className="p-3 font-medium">Stock</th>
+                <th className="p-3 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((m) => (
+                <tr key={m.id} className="border-b border-[#2A2A2A]/60">
+                  <td className="p-3 text-white">
+                    {m.name}
+                    {m.manufacturer && <span className="block text-gray-500 text-xs">{m.manufacturer}</span>}
+                  </td>
+                  <td className="p-3 text-gray-400">{m.sku || '—'}</td>
+                  <td className="p-3 text-gray-400">{m.category}</td>
+                  <td className="p-3 text-white">{usd(m.basePrice)}<span className="text-gray-500"> / {m.unit}</span></td>
+                  <td className="p-3 text-gray-400">{m.leadTime || '—'}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded text-xs ${m.inStock ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>
+                      {m.inStock ? 'In stock' : 'Out'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right whitespace-nowrap">
+                    <button onClick={() => openEdit(m)} className="p-2 text-gray-400 hover:text-white" aria-label={`Edit ${m.name}`}>
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(m)} className="p-2 text-gray-500 hover:text-red-400" aria-label={`Delete ${m.name}`}>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-[#2A2A2A]">
+              <h3 className="text-lg font-bold text-white">Edit {editing.name}</h3>
+              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-white" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Base price ({editing.unit})</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={form.basePrice}
+                  onChange={(e) => setForm({ ...form, basePrice: e.target.value })}
+                  className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Lead time</label>
+                  <input
+                    value={form.leadTime}
+                    onChange={(e) => setForm({ ...form, leadTime: e.target.value })}
+                    placeholder="e.g. 3-5 days"
+                    className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Min order qty</label>
+                  <input
+                    type="number" min="1" step="1"
+                    value={form.minOrderQuantity}
+                    onChange={(e) => setForm({ ...form, minOrderQuantity: e.target.value })}
+                    className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <input type="checkbox" checked={form.inStock} onChange={(e) => setForm({ ...form, inStock: e.target.checked })} />
+                In stock
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t border-[#2A2A2A]">
+              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg">Cancel</button>
+              <button onClick={handleSave} className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-gray-600 text-xs">
+        This library is stored in your browser, so edits here are local to this device until the catalog is moved to the server.
+      </p>
     </div>
   );
 }
+
+// ─── Procurement tab ──────────────────────────────────────────────────────────
 
 function ProcurementTab() {
+  const [orders, setOrders] = useState<PurchaseOrderRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showCreate, setShowCreate] = useState(false);
+
+  const [materials] = useState<Material[]>(() => materialsHubService.getAllMaterials());
+  const [draft, setDraft] = useState({
+    vendorName: '', poNumber: '', orderDate: new Date().toISOString().slice(0, 10),
+    expectedDate: '', notes: '',
+  });
+  const [lines, setLines] = useState<POLineItem[]>([]);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${PO_API}/purchase-orders`, { headers: poHeaders });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Could not load purchase orders (${res.status}): ${detail.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      setOrders(Array.isArray(data) ? data : (data.orders || []));
+      setError(null);
+    } catch (err: any) {
+      console.error('Failed to load purchase orders:', err);
+      setError(err?.message || 'Could not load purchase orders.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const draftTotal = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0);
+
+  const addLine = () => setLines([...lines, { materialId: '', name: '', quantity: 1, unitPrice: 0 }]);
+
+  const setLine = (index: number, patch: Partial<POLineItem>) =>
+    setLines(lines.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+
+  const pickMaterial = (index: number, materialId: string) => {
+    const m = materials.find((x) => x.id === materialId);
+    setLine(index, {
+      materialId,
+      name: m?.name || '',
+      unitPrice: Number(m?.basePrice) || 0,
+    });
+  };
+
+  const resetDraft = () => {
+    setDraft({ vendorName: '', poNumber: '', orderDate: new Date().toISOString().slice(0, 10), expectedDate: '', notes: '' });
+    setLines([]);
+  };
+
+  const handleCreate = async () => {
+    if (!draft.vendorName.trim()) {
+      toast.error('Enter the vendor this order goes to.');
+      return;
+    }
+    if (lines.length === 0 || lines.some((l) => !l.name.trim())) {
+      toast.error('Add at least one line item, and give every line a material.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`${PO_API}/purchase-orders`, {
+        method: 'POST',
+        headers: poHeaders,
+        body: JSON.stringify({
+          ...draft,
+          supplier: draft.vendorName,
+          poNumber: draft.poNumber.trim() || `PO-${Date.now().toString(36).toUpperCase()}`,
+          status: 'draft',
+          lineItems: lines,
+          items: lines.length,
+          total: draftTotal,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      toast.success('Purchase order created');
+      setShowCreate(false);
+      resetDraft();
+      load();
+    } catch (err: any) {
+      console.error('Failed to create purchase order:', err);
+      toast.error(err?.message || 'Could not create the purchase order.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setStatus = async (po: PurchaseOrderRecord, status: string) => {
+    try {
+      const res = await fetch(`${PO_API}/purchase-orders/${po.id}/status`, {
+        method: 'PATCH',
+        headers: poHeaders,
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`);
+      toast.success(`Marked ${status}`);
+      load();
+    } catch (err: any) {
+      console.error('Failed to update purchase order status:', err);
+      toast.error(err?.message || 'Could not update the order.');
+    }
+  };
+
+  const handleDelete = async (po: PurchaseOrderRecord) => {
+    if (!window.confirm(`Delete ${po.poNumber || 'this purchase order'}?`)) return;
+    try {
+      const res = await fetch(`${PO_API}/purchase-orders/${po.id}`, { method: 'DELETE', headers: poHeaders });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      toast.success('Purchase order deleted');
+      load();
+    } catch (err: any) {
+      console.error('Failed to delete purchase order:', err);
+      toast.error(err?.message || 'Could not delete the order.');
+    }
+  };
+
+  const visible = statusFilter === 'all' ? orders : orders.filter((o) => o.status === statusFilter);
+
   return (
-    <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
-      <Receipt className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-      <p className="text-gray-400 text-lg mb-2">Procurement & Purchase Orders</p>
-      <p className="text-gray-500 text-sm">Coming soon - Manage purchase orders and vendors</p>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-xl font-bold text-white">Purchase Orders</h3>
+          <p className="text-gray-400 text-sm">Raise orders against the material library and track them through delivery.</p>
+        </div>
+        <button
+          onClick={() => setShowCreate((v) => !v)}
+          className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          {showCreate ? 'Close' : 'New Purchase Order'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-950/40 border border-red-800 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-300 font-semibold">Couldn't load purchase orders</p>
+            <p className="text-red-400/80 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Vendor *</label>
+              <input
+                value={draft.vendorName}
+                onChange={(e) => setDraft({ ...draft, vendorName: e.target.value })}
+                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">PO number</label>
+              <input
+                value={draft.poNumber}
+                onChange={(e) => setDraft({ ...draft, poNumber: e.target.value })}
+                placeholder="auto-generated if blank"
+                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Order date</label>
+              <input
+                type="date"
+                value={draft.orderDate}
+                onChange={(e) => setDraft({ ...draft, orderDate: e.target.value })}
+                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Expected delivery</label>
+              <input
+                type="date"
+                value={draft.expectedDate}
+                onChange={(e) => setDraft({ ...draft, expectedDate: e.target.value })}
+                className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {lines.map((line, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-6">
+                  {i === 0 && <label className="block text-sm text-gray-400 mb-1">Material</label>}
+                  <select
+                    value={line.materialId}
+                    onChange={(e) => pickMaterial(i, e.target.value)}
+                    className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                  >
+                    <option value="">Select a material…</option>
+                    {materials.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name} — {usd(m.basePrice)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  {i === 0 && <label className="block text-sm text-gray-400 mb-1">Qty</label>}
+                  <input
+                    type="number" min="1" step="1"
+                    value={line.quantity}
+                    onChange={(e) => setLine(i, { quantity: Number(e.target.value) || 0 })}
+                    className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div className="col-span-3">
+                  {i === 0 && <label className="block text-sm text-gray-400 mb-1">Unit price</label>}
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={line.unitPrice}
+                    onChange={(e) => setLine(i, { unitPrice: Number(e.target.value) || 0 })}
+                    className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <button
+                    onClick={() => setLines(lines.filter((_, x) => x !== i))}
+                    className="p-2 text-gray-500 hover:text-red-400"
+                    aria-label="Remove line"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button onClick={addLine} className="text-orange-400 hover:text-orange-300 text-sm flex items-center gap-1">
+              <Plus className="w-4 h-4" /> Add line item
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Notes</label>
+            <textarea
+              value={draft.notes}
+              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+              rows={2}
+              className="w-full bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white"
+            />
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#2A2A2A] pt-4">
+            <p className="text-white font-semibold">Order total: {usd(draftTotal)}</p>
+            <button
+              onClick={handleCreate}
+              disabled={saving}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg font-semibold"
+            >
+              {saving ? 'Saving…' : 'Create Purchase Order'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        {['all', 'draft', 'sent', 'confirmed', 'received', 'cancelled'].map((sf) => (
+          <button
+            key={sf}
+            onClick={() => setStatusFilter(sf)}
+            className={`px-3 py-1.5 rounded-lg text-sm capitalize ${
+              statusFilter === sf ? 'bg-orange-600 text-white' : 'bg-[#1A1A1A] border border-[#2A2A2A] text-gray-400 hover:text-white'
+            }`}
+          >
+            {sf}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl text-gray-400">
+          Loading purchase orders…
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
+          <Receipt className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+          <p className="text-gray-300 mb-1">
+            {orders.length === 0 ? 'No purchase orders yet' : `No ${statusFilter} orders`}
+          </p>
+          <p className="text-gray-500 text-sm">Create one to start tracking spend with your vendors.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map((po) => (
+            <div key={po.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h4 className="font-bold text-white">{po.poNumber || po.id}</h4>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${PO_STATUS_STYLES[po.status] || PO_STATUS_STYLES.draft}`}>
+                      {String(po.status || 'draft').toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-gray-400 text-sm mt-1">{po.vendorName || po.supplier || 'No vendor recorded'}</p>
+                  <p className="text-gray-500 text-xs mt-1">
+                    Ordered {po.orderDate || '—'}
+                    {po.expectedDate ? ` • expected ${po.expectedDate}` : ''}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-white">{usd(poTotal(po))}</p>
+                  <p className="text-gray-500 text-xs">{(po.lineItems || []).length} line item{(po.lineItems || []).length === 1 ? '' : 's'}</p>
+                </div>
+              </div>
+
+              {(po.lineItems || []).length > 0 && (
+                <div className="mt-3 border-t border-[#2A2A2A] pt-3 space-y-1">
+                  {po.lineItems!.map((li, i) => (
+                    <div key={`${po.id}-${i}`} className="flex justify-between text-sm">
+                      <span className="text-gray-300">{li.name} × {li.quantity}</span>
+                      <span className="text-gray-400">{usd((Number(li.quantity) || 0) * (Number(li.unitPrice) || 0))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {po.notes && <p className="text-gray-500 text-sm mt-2">{po.notes}</p>}
+
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
+                {po.status === 'draft' && (
+                  <button onClick={() => setStatus(po, 'sent')} className="px-3 py-1.5 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg text-sm">Mark Sent</button>
+                )}
+                {po.status === 'sent' && (
+                  <button onClick={() => setStatus(po, 'confirmed')} className="px-3 py-1.5 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg text-sm">Mark Confirmed</button>
+                )}
+                {(po.status === 'sent' || po.status === 'confirmed') && (
+                  <button onClick={() => setStatus(po, 'received')} className="px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg text-sm">Mark Received</button>
+                )}
+                {po.status !== 'received' && po.status !== 'cancelled' && (
+                  <button onClick={() => setStatus(po, 'cancelled')} className="px-3 py-1.5 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-gray-300 rounded-lg text-sm">Cancel</button>
+                )}
+                <button onClick={() => handleDelete(po)} className="p-2 text-gray-500 hover:text-red-400 ml-auto" aria-label="Delete order">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
+// ─── Analytics tab ────────────────────────────────────────────────────────────
+
 function AnalyticsTab() {
+  const [orders, setOrders] = useState<PurchaseOrderRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [materials] = useState<Material[]>(() => materialsHubService.getAllMaterials());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${PO_API}/purchase-orders`, { headers: poHeaders });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(`Could not load purchase orders (${res.status}): ${detail.slice(0, 200)}`);
+        }
+        const data = await res.json();
+        setOrders(Array.isArray(data) ? data : (data.orders || []));
+        setError(null);
+      } catch (err: any) {
+        console.error('Failed to load material analytics:', err);
+        setError(err?.message || 'Could not load material analytics.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  // Cancelled orders never became spend, so they're excluded everywhere below.
+  const counted = orders.filter((o) => o.status !== 'cancelled');
+  const totalSpend = counted.reduce((sum, o) => sum + poTotal(o), 0);
+  const avgOrder = counted.length ? totalSpend / counted.length : 0;
+  const vendors = new Set(counted.map((o) => o.vendorName || o.supplier).filter(Boolean));
+
+  const monthly: { label: string; total: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const total = counted.reduce((sum, o) => {
+      const od = new Date(o.orderDate || o.createdAt || '');
+      if (Number.isNaN(od.getTime())) return sum;
+      return `${od.getFullYear()}-${od.getMonth()}` === key ? sum + poTotal(o) : sum;
+    }, 0);
+    monthly.push({ label: d.toLocaleString('en-US', { month: 'short' }), total });
+  }
+  const maxMonth = Math.max(...monthly.map((m) => m.total), 0);
+
+  const byVendor = Object.entries(
+    counted.reduce<Record<string, number>>((acc, o) => {
+      const v = o.vendorName || o.supplier || 'Unspecified vendor';
+      acc[v] = (acc[v] || 0) + poTotal(o);
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]);
+
+  const byMaterial = Object.entries(
+    counted.reduce<Record<string, number>>((acc, o) => {
+      for (const li of o.lineItems || []) {
+        const name = li.name || 'Unnamed item';
+        acc[name] = (acc[name] || 0) + (Number(li.quantity) || 0) * (Number(li.unitPrice) || 0);
+      }
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  const byCategory = Object.entries(
+    counted.reduce<Record<string, number>>((acc, o) => {
+      for (const li of o.lineItems || []) {
+        const cat = materials.find((m) => m.id === li.materialId)?.category || 'Uncategorized';
+        acc[cat] = (acc[cat] || 0) + (Number(li.quantity) || 0) * (Number(li.unitPrice) || 0);
+      }
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]);
+
+  if (loading) {
+    return (
+      <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl text-gray-400">
+        Loading material analytics…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-950/40 border border-red-800 rounded-lg p-5 flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-red-300 font-semibold">Couldn't load material analytics</p>
+          <p className="text-red-400/80 text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (counted.length === 0) {
+    return (
+      <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
+        <BarChart3 className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+        <p className="text-gray-300 mb-1">No material spend yet</p>
+        <p className="text-gray-500 text-sm">Analytics fill in as purchase orders are raised on the Procurement tab.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
-      <BarChart3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-      <p className="text-gray-400 text-lg mb-2">Material Analytics</p>
-      <p className="text-gray-500 text-sm">Coming soon - Track material usage and costs</p>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total spend', value: usd(totalSpend) },
+          { label: 'Orders placed', value: String(counted.length) },
+          { label: 'Average order', value: usd(avgOrder) },
+          { label: 'Vendors used', value: String(vendors.size) },
+        ].map((s) => (
+          <div key={s.label} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
+            <p className="text-gray-400 text-sm mb-1">{s.label}</p>
+            <p className="text-2xl font-bold text-white">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+        <h4 className="font-bold text-white mb-4">Spend, last 6 months</h4>
+        <div className="flex items-end gap-3 h-40">
+          {monthly.map((m) => (
+            <div key={m.label} className="flex-1 flex flex-col items-center justify-end gap-2">
+              <span className="text-gray-500 text-xs">{m.total > 0 ? usd(m.total) : ''}</span>
+              <div
+                className="w-full bg-orange-600/70 rounded-t"
+                style={{ height: maxMonth > 0 ? `${Math.max((m.total / maxMonth) * 100, m.total > 0 ? 4 : 0)}%` : '0%' }}
+              />
+              <span className="text-gray-400 text-xs">{m.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+          <h4 className="font-bold text-white mb-4">Spend by vendor</h4>
+          <div className="space-y-2">
+            {byVendor.map(([name, total]) => (
+              <div key={name} className="flex justify-between text-sm">
+                <span className="text-gray-300">{name}</span>
+                <span className="text-white">{usd(total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+          <h4 className="font-bold text-white mb-4">Spend by category</h4>
+          {byCategory.length === 0 ? (
+            <p className="text-gray-500 text-sm">No line items are linked to catalog materials yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {byCategory.map(([name, total]) => (
+                <div key={name} className="flex justify-between text-sm">
+                  <span className="text-gray-300">{name}</span>
+                  <span className="text-white">{usd(total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5">
+        <h4 className="font-bold text-white mb-4">Top materials by spend</h4>
+        {byMaterial.length === 0 ? (
+          <p className="text-gray-500 text-sm">No line items recorded on these orders.</p>
+        ) : (
+          <div className="space-y-2">
+            {byMaterial.map(([name, total]) => (
+              <div key={name} className="flex justify-between text-sm">
+                <span className="text-gray-300">{name}</span>
+                <span className="text-white">{usd(total)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { StoreAmbientBackground } from '../components/StoreAmbientBackground';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
 import UnifiedCheckout from '../components/UnifiedCheckout';
+import DigitalProductsRail from '../components/DigitalProductsRail';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -1357,6 +1358,10 @@ export default function PublicStore() {
               })}
             </div>
           </section>
+
+          {/* ── DIGITAL PRODUCTS ──────────────────────────────────────────────── */}
+          {/* Links across to the digital catalog; renders nothing when it's empty. */}
+          <DigitalProductsRail />
 
           {/* ── FAMILY OWNED BANNER ───────────────────────────────────────────── */}
           <section className="max-w-screen-xl mx-auto px-4 py-6">
