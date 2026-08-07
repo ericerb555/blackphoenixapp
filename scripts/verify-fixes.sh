@@ -163,6 +163,11 @@ require $IDX "forwardStoreOrderToSupplier"
 OM=src/app/pages/OrderManager.tsx
 require $OM "FulfillmentAutomationPanel"
 require $OM "sendToSupplier"
+# The Orders page must read BOTH order stores; /store/orders alone misses every
+# marketplace/digital-checkout order.
+require $OM "marketplace/orders"
+require $OM "normalizeOrder"
+require $OM "isSampleOrder"
 # The Orders page used to ship with five invented customers and orders.
 forbid  $OM "demoOrders"
 forbid  $OM "Marcus Thompson"
@@ -185,6 +190,56 @@ require src/app/components/DigitalProductsRail.tsx "View &amp; Download"
 require src/app/components/HeroSideReels.tsx "store-content/reels"
 require src/app/pages/PublicStore.tsx 'HeroSideReels side="left"'
 require src/app/pages/PublicStore.tsx 'HeroSideReels side="right"'
+
+# ── Investments: funding starts at zero, computed live from real commitments ──
+IK=supabase/functions/server/investments-kv.tsx
+require $IK "fundingByOpportunity"
+require $IK "withLiveFunding"
+forbid  $IK "funded: 62"
+forbid  $IK "funded: 78"
+forbid  $IK "funded: 41"
+
+# ── Landlord portal: rolled-back fixes re-applied, must stay wired ──
+MPT=src/app/components/portals/MaintenancePlanTracker.tsx
+forbid  $MPT "function demoPlan"
+forbid  $MPT "function demoUsage"
+forbid  $MPT "function demoPayments"
+forbid  $MPT "Mike T."
+
+DOS=src/app/components/portals/DealsOffersSection.tsx
+require $DOS "portal-deals"
+require $DOS "persistDeal"
+
+LPV=src/app/components/portals/LandlordPortalView.tsx
+require $LPV "async function saveSettings"
+require $LPV "supabase.auth.updateUser"
+forbid  $LPV "toast.success('Settings saved!')"
+
+# ── Zendrop Orders: real forwarded orders, no invented customers ──
+ZDI=src/app/pages/ZendropIntegration.tsx
+forbid  $ZDI "MOCK_ORDERS"
+forbid  $ZDI "Sarah Mitchell"
+require $ZDI "dropshipper/orders"
+require $ZDI "async function loadOrders"
+
+# ── Paid-order recovery: rebuild orders for paid Stripe checkouts that never
+#    fired the webhook/redirect, so the sale is never stranded at Stripe. ──
+require supabase/functions/server/index.tsx "store/orders/recover"
+require supabase/functions/server/index.tsx "getByPrefix('store:checkout:')"
+require src/app/pages/OrderManager.tsx "async function recoverOrders"
+require src/app/pages/OrderManager.tsx "store/orders/recover"
+
+# ── Store hub must link the real Order Manager, distinct from the Dropshipper
+#    "Forwarded Orders" view, so paid orders are reachable without typing a URL. ──
+ESH=src/app/components/adstudio/EcommerceStoreHub.tsx
+require $ESH "import OrderManager"
+require $ESH "'customer-orders'"
+require $ESH "render: () => <OrderManager />"
+
+# ── Store analytics must ignore BP-DEMO/affiliate-demo seed orders so real
+#    numbers never contradict themselves. ──
+require $SVR "function isDemoOrder"
+require $SVR "if (isDemoOrder(o)) continue;"
 
 if [ $fail -eq 0 ]; then
   echo "All fixes present."

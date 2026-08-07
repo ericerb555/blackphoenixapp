@@ -48,6 +48,39 @@ function timeAgo(iso: string) {
   return `${m}m ago`;
 }
 
+/**
+ * Marketplace orders use different field names than main-store orders
+ * (`total` vs `amount_total`, `quantity` vs `qty`, `unfulfilled` vs `pending`).
+ * Present one shape to the UI.
+ */
+function normalizeOrder(o: any): Order {
+  const rawFulfillment = String(o.fulfillment_status || 'pending');
+  return {
+    ...o,
+    customer_name: o.customer_name || o.customer?.name || 'Unknown customer',
+    customer_email: o.customer_email || o.customer?.email || '',
+    amount_total: Number(o.amount_total ?? o.amount_paid ?? o.total ?? 0) || 0,
+    currency: o.currency || 'usd',
+    status: o.status || (o.payment_status === 'paid' ? 'paid' : o.payment_status || 'paid'),
+    fulfillment_status: (rawFulfillment === 'unfulfilled' || rawFulfillment === ''
+      ? 'pending'
+      : rawFulfillment) as Order['fulfillment_status'],
+    items: (Array.isArray(o.items) ? o.items : []).map((it: any, i: number) => ({
+      id: it.id ?? it.productId ?? it.sku ?? String(i),
+      name: it.name ?? it.title ?? 'Item',
+      price: Number(it.price ?? it.unitPrice ?? 0) || 0,
+      qty: Number(it.qty ?? it.quantity ?? 1) || 1,
+    })),
+  };
+}
+
+/** Seeded sample records that are in the live database, not real sales. */
+function isSampleOrder(o: Order): boolean {
+  return /^BP-DEMO-/i.test(o.id)
+    || String((o as any).source || '').toLowerCase().includes('demo')
+    || /@example\.com$/i.test(o.customer_email || '');
+}
+
 export default function OrderManager() {
   const [orders, setOrders]         = useState<Order[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -60,24 +93,67 @@ export default function OrderManager() {
   const [trackingInput, setTracking] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendingId, setSending]     = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [showDemo, setShowDemo]     = useState(false);
 
+  /**
+   * Orders live under TWO key prefixes on the server: `store:order:` (main store
+   * checkout, served by /store/orders) and `store_order:` (marketplace/digital
+   * checkout, served by /marketplace/orders). Reading only the first is why a
+   * paid marketplace order never appeared here. Merge both.
+   *
+   * The server-side merge is the real fix, but it needs a deploy — this client
+   * merge makes the orders visible against the currently deployed backend.
+   */
   async function loadOrders() {
     try {
       const { supabase } = await import('../lib/supabase');
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) { setOrders([]); return; }
-      const res = await fetch(`${SERVER}/store/orders`, {
-        headers: { apikey: publicAnonKey, Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setOrders(Array.isArray(data.orders) ? data.orders : []);
-        setLoadError(null);
-        return;
+      const auth = { apikey: publicAnonKey, Authorization: `Bearer ${token}` };
+
+      const [storeRes, marketRes] = await Promise.allSettled([
+        fetch(`${SERVER}/store/orders`, { headers: auth }),
+        fetch(`${SERVER}/marketplace/orders`, { headers: auth }),
+      ]);
+
+      const collected: Order[] = [];
+      const problems: string[] = [];
+
+      if (storeRes.status === 'fulfilled' && storeRes.value.ok) {
+        const data = await storeRes.value.json().catch(() => null);
+        for (const o of (data?.orders || [])) collected.push(normalizeOrder(o));
+      } else {
+        const detail = storeRes.status === 'fulfilled'
+          ? (await storeRes.value.json().catch(() => null))?.error || `HTTP ${storeRes.value.status}`
+          : String(storeRes.reason);
+        problems.push(`Store orders: ${detail}`);
       }
-      const detail = await res.json().catch(() => null);
-      throw new Error(detail?.error || `Orders could not be loaded (${res.status}).`);
+
+      if (marketRes.status === 'fulfilled' && marketRes.value.ok) {
+        const data = await marketRes.value.json().catch(() => null);
+        for (const o of (data?.orders || [])) collected.push(normalizeOrder(o));
+      } else {
+        const detail = marketRes.status === 'fulfilled'
+          ? (await marketRes.value.json().catch(() => null))?.error || `HTTP ${marketRes.value.status}`
+          : String(marketRes.reason);
+        problems.push(`Marketplace orders: ${detail}`);
+      }
+
+      // De-duplicate by id — once the server-side merge deploys, both endpoints
+      // will report the same order and we must not show it twice.
+      const byId = new Map<string, Order>();
+      for (const o of collected) if (o.id && !byId.has(o.id)) byId.set(o.id, o);
+      const merged = [...byId.values()].sort(
+        (a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''),
+      );
+
+      setOrders(merged);
+      // Only a total failure is an error; one source failing still shows the other.
+      setLoadError(problems.length === 2 ? problems.join(' · ') : null);
+      if (problems.length === 1) console.warn('[OrderManager] one order source failed:', problems[0]);
+      return;
     } catch (err: any) {
       // Say so rather than showing an empty list that looks like "no sales".
       console.error('[OrderManager] could not load orders:', err);
@@ -93,6 +169,42 @@ export default function OrderManager() {
     await loadOrders();
     setRefreshing(false);
     toast.success('Orders refreshed');
+  }
+
+  /**
+   * Recover paid checkouts that never became orders. If a customer paid via
+   * Stripe but the webhook/redirect never fired, Stripe has the money yet no
+   * order exists here. This re-verifies every unconverted checkout against
+   * Stripe and creates the missing orders. Safe to run repeatedly.
+   */
+  async function recoverOrders() {
+    setRecovering(true);
+    try {
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in required');
+      const res = await fetch(`${SERVER}/store/orders/recover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Recovery failed (${res.status}).`);
+      if (data.recoveredCount > 0) {
+        toast.success(`Recovered ${data.recoveredCount} paid order${data.recoveredCount === 1 ? '' : 's'} from Stripe.`);
+        await loadOrders();
+      } else {
+        const pending = (data.stillPending || []).length;
+        toast.info(pending > 0
+          ? `No paid orders to recover. ${pending} checkout${pending === 1 ? '' : 's'} were not confirmed paid by Stripe.`
+          : 'No unconverted checkouts found — every paid order is already recorded.');
+      }
+      if ((data.stillPending || []).length) console.warn('[OrderManager] checkouts still pending:', data.stillPending);
+    } catch (error: any) {
+      console.error('[OrderManager] recover error:', error);
+      toast.error(error?.message || 'Could not recover orders.');
+    } finally {
+      setRecovering(false);
+    }
   }
 
   async function updateFulfillment(orderId: string, fulfillment_status: string, tracking_number?: string) {
@@ -151,7 +263,14 @@ export default function OrderManager() {
     setTimeout(() => setCopied(null), 1500);
   }
 
-  const visible = orders.filter(o => {
+  // Two seeded sample records ("Affiliate Demo") live in the database itself, so
+  // no code change removes them. Keep them out of revenue and counts, and show
+  // them behind a toggle so the numbers on this page are real sales only.
+  const sampleOrders = orders.filter(isSampleOrder);
+  const realOrders = orders.filter(o => !isSampleOrder(o));
+  const scoped = showDemo ? orders : realOrders;
+
+  const visible = scoped.filter(o => {
     if (filterStatus !== 'all' && o.fulfillment_status !== filterStatus) return false;
     if (search && !o.customer_name.toLowerCase().includes(search.toLowerCase()) &&
         !o.customer_email.toLowerCase().includes(search.toLowerCase()) &&
@@ -159,9 +278,9 @@ export default function OrderManager() {
     return true;
   });
 
-  const totalRevenue = orders.reduce((s, o) => s + o.amount_total, 0);
-  const pendingCount = orders.filter(o => o.fulfillment_status === 'pending').length;
-  const shippedCount = orders.filter(o => o.fulfillment_status === 'shipped' || o.fulfillment_status === 'delivered').length;
+  const totalRevenue = realOrders.reduce((s, o) => s + o.amount_total, 0);
+  const pendingCount = realOrders.filter(o => o.fulfillment_status === 'pending').length;
+  const shippedCount = realOrders.filter(o => o.fulfillment_status === 'shipped' || o.fulfillment_status === 'delivered').length;
 
   return (
     <div className="min-h-screen p-4 sm:p-6 space-y-6" style={{ background: '#0a0a0a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
@@ -177,6 +296,12 @@ export default function OrderManager() {
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black" style={{ background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
               <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Stripe Connected
             </div>
+            <button onClick={recoverOrders} disabled={recovering}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm text-white hover:brightness-110 transition disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #059669, #047857)' }}
+              title="Re-check Stripe for paid checkouts that never became orders and create the missing ones.">
+              <RefreshCw className={`w-4 h-4 ${recovering ? 'animate-spin' : ''}`} /> {recovering ? 'Recovering…' : 'Recover paid orders'}
+            </button>
             <button onClick={refresh} disabled={refreshing}
               className="flex items-center gap-2 px-4 py-2 rounded-xl font-black text-sm text-white hover:brightness-110 transition disabled:opacity-50"
               style={{ background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -189,7 +314,7 @@ export default function OrderManager() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Total Revenue',   value: `$${totalRevenue.toFixed(2)}`, icon: DollarSign,  color: '#ea580c' },
-            { label: 'Total Orders',    value: orders.length,                 icon: ShoppingBag, color: '#60a5fa' },
+            { label: 'Total Orders',    value: realOrders.length,             icon: ShoppingBag, color: '#60a5fa' },
             { label: 'Need Fulfillment',value: pendingCount,                  icon: AlertCircle, color: '#fbbf24' },
             { label: 'Shipped / Done',  value: shippedCount,                  icon: Truck,       color: '#4ade80' },
           ].map(k => (
@@ -212,6 +337,28 @@ export default function OrderManager() {
         )}
 
         <FulfillmentAutomationPanel onOrdersChanged={loadOrders} />
+
+        {sampleOrders.length > 0 && (
+          <div className="rounded-2xl p-4 flex items-start gap-3 flex-wrap"
+            style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.2)' }}>
+            <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-[240px]">
+              <p className="font-black text-amber-400 text-sm">
+                {sampleOrders.length} sample order{sampleOrders.length !== 1 ? 's' : ''} in the database
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {sampleOrders.map(o => o.id).join(', ')} — seeded test records, not real sales. They're
+                excluded from the totals above. Removing them means deleting live database rows, so
+                say the word and I'll add that.
+              </p>
+            </div>
+            <button onClick={() => setShowDemo(v => !v)}
+              className="px-3 py-1.5 rounded-lg text-xs font-black text-amber-300 hover:brightness-125 transition flex-shrink-0"
+              style={{ border: '1px solid rgba(251,191,36,0.3)' }}>
+              {showDemo ? 'Hide' : 'Show'} samples
+            </button>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3">

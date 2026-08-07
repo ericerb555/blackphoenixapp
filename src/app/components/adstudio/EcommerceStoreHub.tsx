@@ -34,6 +34,7 @@ import ShopIntelligenceSuite from '../ShopIntelligenceSuite';
 import StoreAnalyticsDashboard from '../StoreAnalyticsDashboard';
 import MediaLibraryManager from '../MediaLibraryManager';
 import MarketplaceAdmin from '../../pages/MarketplaceAdmin';
+import OrderManager from '../../pages/OrderManager';
 
 /** A section that renders inline inside the hub. */
 interface Section {
@@ -70,7 +71,8 @@ const GROUPS: Group[] = [
     sections: [
       { id: 'providers', name: 'Store Providers', desc: 'Manage dropshipper connections', icon: Link2, storeTab: 'providers' },
       { id: 'inventory', name: 'Store Inventory', desc: 'Synced inventory & stock levels', icon: Package, storeTab: 'inventory' },
-      { id: 'orders', name: 'Orders', desc: 'Stripe payments · fulfillment', icon: ShoppingCart, badge: 'LIVE', storeTab: 'orders' },
+      { id: 'customer-orders', name: 'Customer Orders', desc: 'Every paid order · recover · send to supplier', icon: ShoppingCart, badge: 'LIVE', render: () => <OrderManager /> },
+      { id: 'orders', name: 'Forwarded Orders', desc: 'Orders already sent to dropshippers', icon: ShoppingCart, storeTab: 'orders' },
       { id: 'fulfillment', name: 'Fulfillment', desc: 'Order tracking, notifications, stock', icon: ShoppingCart, render: () => <FulfillmentManager /> },
     ],
   },

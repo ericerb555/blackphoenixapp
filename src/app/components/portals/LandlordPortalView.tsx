@@ -30,6 +30,7 @@ import { enrichLandlordProperty } from '../../lib/services/propertyRecordsServic
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 
 class Safe extends Component<{ children: ReactNode; label?: string }, { err: boolean }> {
   state = { err: false };
@@ -155,6 +156,25 @@ export default function LandlordPortalView() {
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const name = String(user?.user_metadata?.full_name || user?.user_metadata?.name || demoProfile?.name || 'Landlord');
   const email = accountEmail || demoProfile?.email || '';
+  // Settings — landlord name is editable and persisted to the auth profile.
+  const [settingsName, setSettingsName] = useState(name);
+  const [savingSettings, setSavingSettings] = useState(false);
+  useEffect(() => { setSettingsName(name); }, [name]);
+
+  async function saveSettings() {
+    if (!settingsName.trim()) { toast.error('Please enter a name.'); return; }
+    setSavingSettings(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ data: { full_name: settingsName.trim(), name: settingsName.trim() } });
+      if (error) throw error;
+      toast.success('Settings saved.');
+    } catch (err: any) {
+      console.error('[LandlordPortalView] Failed to save settings:', err);
+      toast.error(err?.message || 'Could not save settings. Please try again.');
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   const loadMaintenance = async () => {
     if (!session?.access_token) { setMaintenance([]); setMaintenanceLoading(false); return; }
@@ -839,17 +859,18 @@ export default function LandlordPortalView() {
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Landlord Name</label>
-                <input value={name} readOnly
+                <input value={settingsName} onChange={e => setSettingsName(e.target.value)}
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-teal-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Email</label>
                 <input value={email} readOnly
-                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-teal-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
+                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-4 py-3 text-gray-400 text-sm outline-none cursor-not-allowed" />
+                <p className="text-xs text-gray-600 mt-1">Contact support to change your account email.</p>
               </div>
-              <button onClick={() => toast.success('Settings saved!')}
-                className="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold transition">
-                Save Changes
+              <button onClick={saveSettings} disabled={savingSettings || settingsName.trim() === name.trim()}
+                className="px-6 py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold transition">
+                {savingSettings ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
 

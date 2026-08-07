@@ -4,7 +4,7 @@
  *   - Subscription plans (monthly / annual)
  *   - Pay-as-you-post (one-time fee per deal)
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Tag, Plus, Trash2, Eye, EyeOff, CheckCircle, Star, Zap,
   Crown, RefreshCw, CreditCard, Calendar, Clock, BadgePercent,
@@ -12,6 +12,19 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useUserData } from '../../lib/hooks/useUserData';
+import { useAuth } from '../../contexts/AuthContext';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
+
+const DEALS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+async function dealsAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+  };
+}
 
 interface Deal {
   id: string;
@@ -81,9 +94,30 @@ const PAYPG = {
 };
 
 export default function DealsOffersSection({ portalType, storageKey }: Props) {
-  const [deals, setDeals] = useUserData<Deal[]>(storageKey, []);
+  const { user } = useAuth();
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [loadingDeals, setLoadingDeals] = useState(true);
   const [currentPlan, setCurrentPlan] = useUserData<string>(`${storageKey}_plan`, 'none');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+
+  // Deals are published to the shared server store so customers actually see
+  // them. We show this owner their own published deals (active + paused).
+  const loadDeals = useCallback(async () => {
+    try {
+      const res = await fetch(`${DEALS_BASE}/portal-deals/all`, { headers: await dealsAuthHeaders() });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `Failed to load deals (${res.status})`);
+      const mine = (json.deals || []).filter((d: any) =>
+        !user?.email || String(d.createdBy || '').toLowerCase() === String(user.email).toLowerCase());
+      setDeals(mine as Deal[]);
+    } catch (err) {
+      console.error('[DealsOffersSection] Failed to load deals:', err);
+    } finally {
+      setLoadingDeals(false);
+    }
+  }, [user?.email]);
+
+  useEffect(() => { loadDeals(); }, [loadDeals]);
   const [showModal, setShowModal] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [expandedDeal, setExpandedDeal] = useState<string | null>(null);
@@ -98,7 +132,24 @@ export default function DealsOffersSection({ portalType, storageKey }: Props) {
   const activeDeals = deals.filter(d => d.active);
   const canPost = currentPlan !== 'none' && activeDeals.length < maxDeals;
 
-  function handleSave() {
+  async function persistDeal(deal: Partial<Deal>): Promise<Deal | null> {
+    try {
+      const res = await fetch(`${DEALS_BASE}/portal-deals`, {
+        method: 'POST',
+        headers: await dealsAuthHeaders(),
+        body: JSON.stringify({ deal: { ...deal, targetPortals: ['all'] } }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `Failed to save deal (${res.status})`);
+      return json.deal as Deal;
+    } catch (err: any) {
+      console.error('[DealsOffersSection] Failed to persist deal:', err);
+      toast.error(err?.message || 'Could not publish the deal. Please try again.');
+      return null;
+    }
+  }
+
+  async function handleSave() {
     if (!form.title?.trim()) { setFormError('Title is required.'); return; }
     if (!form.discountValue?.trim() && form.discountType !== 'bogo' && form.discountType !== 'free-service') {
       setFormError('Discount value is required.'); return;
@@ -119,7 +170,9 @@ export default function DealsOffersSection({ portalType, storageKey }: Props) {
       plan: (currentPlan as Deal['plan']) || 'paypg',
       postedAt: new Date().toISOString(),
     };
-    setDeals([newDeal, ...deals]);
+    const saved = await persistDeal(newDeal);
+    if (!saved) return;
+    setDeals(prev => [saved, ...prev]);
     toast.success('Deal posted! Customers can now see it.');
     setShowModal(false);
     resetForm();
@@ -130,14 +183,33 @@ export default function DealsOffersSection({ portalType, storageKey }: Props) {
     setFormError('');
   }
 
-  function toggleActive(id: string) {
-    setDeals(deals.map(d => d.id === id ? { ...d, active: !d.active } : d));
+  async function toggleActive(id: string) {
+    const target = deals.find(d => d.id === id);
+    if (!target) return;
+    const next = { ...target, active: !target.active };
+    setDeals(deals.map(d => d.id === id ? next : d)); // optimistic
+    const saved = await persistDeal(next);
+    if (!saved) { setDeals(deals.map(d => d.id === id ? target : d)); return; } // rollback
+    setDeals(prev => prev.map(d => d.id === id ? saved : d));
   }
 
-  function deleteDeal(id: string) {
+  async function deleteDeal(id: string) {
     if (!confirm('Delete this deal?')) return;
-    setDeals(deals.filter(d => d.id !== id));
-    toast.success('Deal removed.');
+    const prev = deals;
+    setDeals(deals.filter(d => d.id !== id)); // optimistic
+    try {
+      const res = await fetch(`${DEALS_BASE}/portal-deals/${id}`, {
+        method: 'DELETE',
+        headers: await dealsAuthHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `Failed to remove deal (${res.status})`);
+      toast.success('Deal removed.');
+    } catch (err: any) {
+      console.error('[DealsOffersSection] Failed to delete deal:', err);
+      toast.error(err?.message || 'Could not remove the deal.');
+      setDeals(prev); // rollback
+    }
   }
 
   function selectPlan(planId: string) {
@@ -210,7 +282,12 @@ export default function DealsOffersSection({ portalType, storageKey }: Props) {
       )}
 
       {/* Deals Grid */}
-      {deals.length === 0 ? (
+      {loadingDeals ? (
+        <div className="text-center py-16 border border-dashed border-[#2A2A2A] rounded-2xl">
+          <RefreshCw className="w-8 h-8 text-gray-600 mx-auto mb-3 animate-spin" />
+          <p className="text-gray-500 text-sm">Loading your published deals…</p>
+        </div>
+      ) : deals.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-[#2A2A2A] rounded-2xl">
           <BadgePercent className="w-12 h-12 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400 font-medium mb-2">No deals yet</p>

@@ -9612,6 +9612,45 @@ app.patch('/make-server-3eae23a6/store/orders/:id', async (c) => {
   catch (error: any) { return c.json({ error: error.message || 'Unable to update order.' }, 500); }
 });
 
+// Recover paid checkouts that never became orders.
+//
+// An order is normally written when Stripe's webhook fires or the storefront
+// calls /complete on redirect. If a customer paid but neither ran (no webhook
+// configured + no redirect back), Stripe has the money yet no order exists.
+// This admin route re-verifies every unconverted checkout against Stripe and
+// finalizes the ones Stripe confirms as paid. finalizeStoreOrder is idempotent,
+// so re-running is safe and already-converted checkouts are skipped.
+app.post('/make-server-3eae23a6/store/orders/recover', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user || !admin) return c.json({ error: 'Administrator access is required.' }, 403);
+    const checkouts = ((await kv.getByPrefix('store:checkout:')) || []) as any[];
+    const recovered: any[] = [];
+    const stillPending: Array<{ checkoutId: string; reason: string }> = [];
+    for (const checkout of checkouts) {
+      if (!checkout || checkout.orderId) continue; // already became an order
+      const sessionId = String(checkout.stripeCheckoutSessionId || '');
+      if (!sessionId) { stillPending.push({ checkoutId: checkout.id, reason: 'No Stripe session was ever created for this checkout.' }); continue; }
+      const account: StripeAccount = checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+      try {
+        const verified = await retrieveStripeCheckoutSession(sessionId, account);
+        if (verified?.payment_status === 'paid') {
+          const order = await finalizeStoreOrder(checkout, verified);
+          if (order) recovered.push({ orderId: order.id, total: order.amount_total ?? order.total, customer_email: order.customer_email, created_at: order.created_at });
+        } else {
+          stillPending.push({ checkoutId: checkout.id, reason: `Stripe payment_status is "${verified?.payment_status || 'unknown'}" — not paid.` });
+        }
+      } catch (error: any) {
+        stillPending.push({ checkoutId: checkout.id, reason: `Stripe verification failed: ${error?.message || error}` });
+      }
+    }
+    return c.json({ success: true, recovered, recoveredCount: recovered.length, stillPending, scanned: checkouts.length });
+  } catch (error: any) {
+    console.log(`[store/orders/recover] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Unable to recover orders.' }, 500);
+  }
+});
+
 // ── STORE RETURNS / RMA ──────────────────────────────────────────────────────
 // Shoppers request a return against one of their paid orders. The request is
 // stored as a review record the owner approves/denies from the dashboard; no

@@ -12,8 +12,31 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+// Real order routed through a dropshipper, as returned by /dropshipper/orders.
+interface ZendropOrder {
+  id: string;
+  customer: string;
+  product: string;
+  status: string;
+  orderDate: string;
+  tracking: string;
+  total: number;
+}
+
+async function ordersAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return { 'Authorization': `Bearer ${session?.access_token || publicAnonKey}` };
+}
+
+// Map the dropshipper status vocabulary onto the four badges below.
+const DROPSHIP_STATUS_MAP: Record<string, string> = {
+  pending: 'processing', forwarded: 'processing', confirmed: 'processing',
+  shipped: 'shipped', delivered: 'delivered', failed: 'failed',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,12 +73,6 @@ const MOCK_PRODUCTS: ZendropProduct[] = [
   { id: 'zd10', name: 'Work Light LED — 5000 Lumen Tripod',    category: 'Lighting',     cost: 31.50, msrp: 94.99, shipsFrom: 'USA', eta: '4–6 days', rating: 4.8, reviews: 167, stock: 143, img: '💡', sku: 'ZD-LGT-010', description: '5000-lumen LED work light on adjustable tripod stand, IP44 weather resistant.' },
   { id: 'zd11', name: 'Knee Pads — Construction Grade (Pair)', category: 'Safety',       cost: 13.20, msrp: 39.99, shipsFrom: 'USA', eta: '2–4 days', rating: 4.7, reviews: 289, stock: 530, img: '🦺', sku: 'ZD-SFT-011', description: 'Heavy-duty gel knee pads with hard shell cap and adjustable straps.' },
   { id: 'zd12', name: 'Paint Sprayer — HVLP 700W',             category: 'Painting',     cost: 48.90, msrp: 149.99, shipsFrom: 'USA', eta: '4–7 days', rating: 4.6, reviews: 211, stock: 62,  img: '🖌️', sku: 'ZD-PNT-012', description: '700W HVLP sprayer with 3 spray patterns, 500ml/min flow, includes cleaning kit.' },
-];
-
-const MOCK_ORDERS = [
-  { id: 'ZO-001', customer: 'Sarah Mitchell', product: 'Magnetic Tool Holder Strip — 18"', status: 'shipped', orderDate: '2026-07-08', tracking: 'USPS9261290100830090', total: 29.99 },
-  { id: 'ZO-002', customer: 'Tom Harrington', product: 'Retractable Extension Cord — 50 ft', status: 'delivered', orderDate: '2026-07-05', tracking: 'UPS1Z999AA10123456784', total: 79.99 },
-  { id: 'ZO-003', customer: 'Linda Beaumont', product: 'Pro Caulking Gun — Drip-Free', status: 'processing', orderDate: '2026-07-11', tracking: '', total: 34.99 },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,6 +114,11 @@ export default function ZendropIntegration() {
   // Real products pulled from store inventory (what actually went live)
   const [liveProducts, setLiveProducts] = useState<ZendropProduct[]>([]);
   const [loadingLive, setLoadingLive]   = useState(false);
+
+  // Real orders forwarded to Zendrop (admin-only route)
+  const [orders, setOrders]             = useState<ZendropOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError]   = useState('');
 
   // Settings
   const [markupType, setMarkupType]   = useState<'percent' | 'fixed'>(cfg.markupType || 'percent');
@@ -206,11 +228,51 @@ export default function ZendropIntegration() {
     }
   }
 
+  async function loadOrders() {
+    setOrdersLoading(true);
+    setOrdersError('');
+    try {
+      const res = await fetch(`${SERVER}/dropshipper/orders`, { headers: await ordersAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        setOrdersError('Sign in as an administrator to view Zendrop orders.');
+        setOrders([]);
+        return;
+      }
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Could not load orders (HTTP ${res.status}).`);
+      }
+      const mapped: ZendropOrder[] = (data.orders || [])
+        .filter((o: any) => String(o.providerId || '').toLowerCase() === 'zendrop')
+        .map((o: any) => ({
+          id: String(o.orderId || o.providerOrderId || ''),
+          customer: o.shippingAddress?.name || 'Customer',
+          product: (o.items || []).map((it: any) => it.sku).filter(Boolean).join(', ') || `${(o.items || []).length} item(s)`,
+          status: DROPSHIP_STATUS_MAP[String(o.status || 'pending')] || 'processing',
+          orderDate: (o.forwardedAt || o.confirmedAt || o.shippedAt || '').slice(0, 10),
+          tracking: o.trackingNumber || '',
+          total: (o.items || []).reduce((sum: number, it: any) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0),
+        }));
+      setOrders(mapped);
+    } catch (e: any) {
+      console.error('[Zendrop] Failed to load orders:', e);
+      setOrdersError(e?.message || 'Could not load orders.');
+    } finally {
+      setOrdersLoading(false);
+    }
+  }
+
   // Load real imported products whenever connected / viewing the catalog
   useEffect(() => {
     if (isConnected) loadLiveProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
+
+  // Pull real forwarded orders when the Orders tab opens.
+  useEffect(() => {
+    if (tab === 'orders') loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // Auto-connect on load using the server-side ZENDROP_API_KEY secret. This is
   // what makes the store "go live automatically" — if Zendrop isn't connected
@@ -661,11 +723,31 @@ export default function ZendropIntegration() {
         {tab === 'orders' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-400">{MOCK_ORDERS.length} orders routed through Zendrop</p>
-              <button className="text-xs text-emerald-400 hover:text-emerald-300 transition">Export CSV</button>
+              <p className="text-sm text-gray-400">
+                {ordersLoading ? 'Loading orders…' : `${orders.length} order${orders.length === 1 ? '' : 's'} routed through Zendrop`}
+              </p>
+              <button onClick={loadOrders} disabled={ordersLoading}
+                className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 transition disabled:opacity-50">
+                <RefreshCw className={`w-3.5 h-3.5 ${ordersLoading ? 'animate-spin' : ''}`} /> Refresh
+              </button>
             </div>
 
-            {MOCK_ORDERS.map(o => {
+            {ordersError && (
+              <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-300">{ordersError}</p>
+              </div>
+            )}
+
+            {!ordersLoading && !ordersError && orders.length === 0 && (
+              <div className="rounded-2xl p-8 text-center" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <Box className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-400 font-bold">No Zendrop orders yet</p>
+                <p className="text-xs text-gray-600 mt-1">When a customer buys a Zendrop product, the forwarded order will appear here.</p>
+              </div>
+            )}
+
+            {orders.map(o => {
               const st = ORDER_STATUS[o.status] || ORDER_STATUS.processing;
               return (
                 <div key={o.id} className="rounded-2xl p-4" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>

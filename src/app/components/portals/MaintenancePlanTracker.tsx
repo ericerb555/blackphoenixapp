@@ -78,58 +78,6 @@ const ROLE_CONFIG: Record<PortalRole, {
   investor:         { title: 'Management Fee Plans',   subtitle: 'Asset management hours & fee tracking',              hoursLabel: 'Mgmt Hours',    serviceLabel: 'Management',   accentColor: 'emerald',tabColor: 'bg-emerald-600' },
 };
 
-// ── Demo data generators ───────────────────────────────────────────────────────
-
-function demoPlan(role: PortalRole): Plan[] {
-  const base: Plan[] = [
-    {
-      id: 'plan-1',
-      name: 'Basic Maintenance Plan',
-      hoursIncluded: 20,
-      hoursUsed: 14.5,
-      overageRate: 85,
-      monthlyFee: 299,
-      billingCycle: 'monthly',
-      status: 'active',
-      renewsOn: '2026-08-01',
-      property: role === 'landlord' ? 'Oak Street Duplex' : role === 'condo_manager' ? 'Harborview Condos' : role === 'property_manager' ? 'Sunset Towers' : undefined,
-    },
-    {
-      id: 'plan-2',
-      name: 'Pro Coverage Plan',
-      hoursIncluded: 40,
-      hoursUsed: 47,
-      overageRate: 75,
-      monthlyFee: 549,
-      billingCycle: 'monthly',
-      status: 'active',
-      renewsOn: '2026-08-01',
-      property: role === 'landlord' ? 'Maple Avenue Flats' : role === 'condo_manager' ? 'Sunset Towers' : role === 'property_manager' ? 'Harborview Condos' : undefined,
-    },
-  ];
-  return base;
-}
-
-function demoUsage(planId: string): UsageEntry[] {
-  return [
-    { id: 'u1', date: '2026-06-28', description: 'HVAC filter replacement', hours: 2.0, tech: 'Mike T.', planId },
-    { id: 'u2', date: '2026-06-25', description: 'Plumbing leak repair – Unit 305', hours: 3.5, tech: 'Carlos R.', planId },
-    { id: 'u3', date: '2026-06-20', description: 'Electrical panel inspection', hours: 2.0, tech: 'James W.', planId },
-    { id: 'u4', date: '2026-06-15', description: 'General handyman – doors & hardware', hours: 4.0, tech: 'Mike T.', planId },
-    { id: 'u5', date: '2026-06-10', description: 'Roof drain cleaning', hours: 1.5, tech: 'Sarah L.', planId },
-    { id: 'u6', date: '2026-06-05', description: 'Appliance repair – Unit 12A', hours: 1.5, tech: 'Carlos R.', planId },
-  ];
-}
-
-function demoPayments(planId: string): Payment[] {
-  return [
-    { id: 'inv-1', date: '2026-07-01', description: 'Monthly plan fee – July', amount: 299, status: 'pending', planId },
-    { id: 'inv-2', date: '2026-06-01', description: 'Monthly plan fee – June', amount: 299, status: 'paid', planId },
-    { id: 'inv-3', date: '2026-06-01', description: 'Overage – 7h × $85', amount: 595, status: 'pending', planId },
-    { id: 'inv-4', date: '2026-05-01', description: 'Monthly plan fee – May', amount: 299, status: 'paid', planId },
-  ];
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function pct(used: number, total: number) {

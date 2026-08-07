@@ -22,6 +22,15 @@ function num(v: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Seed/demo orders (created while verifying attribution) must never count toward
+// real analytics — they made the dashboard contradict itself ($0 "this month"
+// KPIs next to a non-zero P&L). Identified by the BP-DEMO- id prefix or the
+// "Affiliate Demo" source, matching the /dev/purge-affiliate-demo cleanup.
+function isDemoOrder(o: any): boolean {
+  const id = String(o?.id || o?.orderNumber || o?.orderId || '');
+  return id.startsWith('BP-DEMO-') || o?.source === 'Affiliate Demo' || o?.demo === true;
+}
+
 // Collect every order record, deduped by id, tolerating the two storage schemas.
 async function loadAllOrders(): Promise<any[]> {
   const [a, b] = await Promise.all([
@@ -31,6 +40,7 @@ async function loadAllOrders(): Promise<any[]> {
   const byId = new Map<string, any>();
   for (const o of [...(a || []), ...(b || [])]) {
     if (!o || typeof o !== 'object') continue;
+    if (isDemoOrder(o)) continue;
     const id = o.id || o.orderNumber || o.orderId;
     if (!id) continue;
     if (!byId.has(id)) byId.set(id, o);

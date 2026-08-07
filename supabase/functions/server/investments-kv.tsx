@@ -455,8 +455,8 @@ const DEMO_OPPORTUNITIES = [
     projectedROI: 22,
     term: '4 years',
     status: 'open',
-    investors: 14,
-    funded: 62,
+    investors: 0,
+    funded: 0,
     targetRaise: 1500000,
     highlight: 'Equity Upside',
     location: 'Company-wide',
@@ -471,8 +471,8 @@ const DEMO_OPPORTUNITIES = [
     projectedROI: 14,
     term: '5 years',
     status: 'open',
-    investors: 31,
-    funded: 78,
+    investors: 0,
+    funded: 0,
     targetRaise: 800000,
     highlight: 'Passive Income',
     location: 'Dallas, TX',
@@ -487,8 +487,8 @@ const DEMO_OPPORTUNITIES = [
     projectedROI: 19,
     term: '3 years',
     status: 'open',
-    investors: 8,
-    funded: 41,
+    investors: 0,
+    funded: 0,
     targetRaise: 2000000,
     highlight: 'Forced Appreciation',
     location: 'Austin, TX',
@@ -508,13 +508,52 @@ async function ensureSeeded() {
   await kv.set(SEED_FLAG, now);
 }
 
+// Funding progress and investor counts are NEVER stored as truth — they are
+// computed live from real commitments so every opportunity starts at zero and
+// only moves when a genuine commitment is recorded. Cancelled/rejected/withdrawn
+// commitments don't count. This is what "start with zero funding" means: the
+// listings exist, the numbers are real.
+const DEAD_COMMITMENT = new Set(['cancelled', 'canceled', 'rejected', 'withdrawn', 'declined']);
+
+async function fundingByOpportunity(): Promise<Map<string, { raised: number; investors: number }>> {
+  const commitments = ((await kv.getByPrefix(COMMIT_PREFIX)) || []) as any[];
+  const map = new Map<string, { raised: number; seen: Set<string> }>();
+  for (const commit of commitments) {
+    const oppId = commit?.opportunity_id;
+    if (!oppId) continue;
+    if (DEAD_COMMITMENT.has(String(commit?.status || '').toLowerCase())) continue;
+    const amount = parseFloat(commit?.commitment_amount) || 0;
+    const entry = map.get(oppId) || { raised: 0, seen: new Set<string>() };
+    entry.raised += amount;
+    const who = String(commit?.investor_email || commit?.id || '').toLowerCase();
+    if (who) entry.seen.add(who);
+    map.set(oppId, entry);
+  }
+  const out = new Map<string, { raised: number; investors: number }>();
+  for (const [id, v] of map) out.set(id, { raised: v.raised, investors: v.seen.size });
+  return out;
+}
+
+/** Overlay real, computed funding onto a stored opportunity. */
+function withLiveFunding(opp: any, funding: Map<string, { raised: number; investors: number }>): any {
+  const f = funding.get(opp.id) || { raised: 0, investors: 0 };
+  const target = Number(opp.targetRaise) || 0;
+  return {
+    ...opp,
+    amountRaised: f.raised,
+    investors: f.investors,
+    funded: target > 0 ? Math.min(100, Math.round((f.raised / target) * 100)) : 0,
+  };
+}
+
 // ── Opportunities ────────────────────────────────────────────────────────
 investmentsRouter.get(`${PREFIX}/investments/opportunities`, async (c) => {
   try {
     await ensureSeeded();
     const opportunities = (await kv.getByPrefix(OPP_PREFIX)) || [];
     opportunities.sort((a: any, b: any) => (b.created_at || '').localeCompare(a.created_at || ''));
-    return c.json({ opportunities });
+    const funding = await fundingByOpportunity();
+    return c.json({ opportunities: opportunities.map((o: any) => withLiveFunding(o, funding)) });
   } catch (error: any) {
     console.log(`Error fetching opportunities: ${error?.message || error}`);
     return c.json({ error: `Failed to fetch opportunities: ${error?.message || error}` }, 500);
@@ -525,7 +564,8 @@ investmentsRouter.get(`${PREFIX}/investments/opportunities/:id`, async (c) => {
   try {
     const opportunity = await kv.get(OPP(c.req.param('id')));
     if (!opportunity) return c.json({ error: 'Opportunity not found' }, 404);
-    return c.json({ opportunity });
+    const funding = await fundingByOpportunity();
+    return c.json({ opportunity: withLiveFunding(opportunity, funding) });
   } catch (error: any) {
     return c.json({ error: `Failed to fetch opportunity: ${error?.message || error}` }, 500);
   }
