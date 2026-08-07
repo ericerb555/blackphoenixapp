@@ -170,6 +170,22 @@ forbid  $OM "Marcus Thompson"
 FAP=src/app/components/FulfillmentAutomationPanel.tsx
 require $FAP "store/fulfillment/tick"
 
+# The digital catalog needs a permanent entry point: the rail hides itself when
+# the catalog is empty, which left no way in at all.
+require src/app/pages/PublicStore.tsx '"/digital-products"'
+require src/app/pages/DigitalStorefront.tsx "No digital products published yet"
+require src/app/pages/PublicStore.tsx "Shop Downloads"
+# Digital products also browse as their own shelf inside the product grid,
+# each card with its own button through to the product page.
+require src/app/pages/PublicStore.tsx 'layout="shelf"'
+require src/app/components/DigitalProductsRail.tsx "View &amp; Download"
+
+# Vertical product reels flank the hero, fed by the same published reels as
+# the Watch & Shop rail. They hide rather than invent content.
+require src/app/components/HeroSideReels.tsx "store-content/reels"
+require src/app/pages/PublicStore.tsx 'HeroSideReels side="left"'
+require src/app/pages/PublicStore.tsx 'HeroSideReels side="right"'
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi

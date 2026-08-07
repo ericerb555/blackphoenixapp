@@ -10,7 +10,7 @@ import {
   Plus, Minus, Check, Eye, TrendingUp, Zap, Award, ChevronRight, ChevronLeft,
   Grid, List, SlidersHorizontal, RefreshCw, ShoppingBag, Lock,
   Flame, Tag, ArrowRight, MessageSquare, Mail, Instagram,
-  Facebook, Youtube, MapPin, Phone, Image as ImageIcon,
+  Facebook, Youtube, MapPin, Phone, Image as ImageIcon, Download,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,6 +21,7 @@ import { CampaignPromoStrip } from '../components/CampaignPromoStrip';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
 import { ActiveFlashBanner } from './FlashSaleManager';
 import { ProductReels } from '../components/ProductReels';
+import HeroSideReels from '../components/HeroSideReels';
 import { StoreAmbientBackground } from '../components/StoreAmbientBackground';
 import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
@@ -596,6 +597,13 @@ export default function PublicStore() {
   };
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  /** Shared by every reel surface: jump the shopper to the featured product. */
+  const shopReelProduct = (productId: string) => {
+    const match = allProducts.find(p => p.id === productId);
+    if (match) setSearchQuery(match.name);
+    setShopView('all');
+  };
   const cartTotal = cart.reduce((sum, item) => sum + (volumeUnitPrice(item.price, item.quantity) * item.quantity), 0);
   const cartVolumeSavings = cart.reduce((sum, item) => sum + ((item.price - volumeUnitPrice(item.price, item.quantity)) * item.quantity), 0);
   // Free-shipping threshold is admin-configurable via the booster config.
@@ -1009,6 +1017,15 @@ export default function PublicStore() {
               <button className="md:hidden p-2 rounded-xl hover:bg-white/5 transition text-gray-400" onClick={() => setShopView(shopView === 'home' ? 'all' : shopView)}>
                 <Search className="w-5 h-5" />
               </button>
+              {/* Digital downloads — a permanent way into the digital catalog.
+                  The rail further down hides itself when the catalog is empty,
+                  so without this there is no entry point at all. */}
+              <a href="/digital-products" title="Digital downloads"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl transition hover:brightness-110"
+                style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.25)' }}>
+                <Download className="w-4 h-4 flex-shrink-0" style={{ color: '#a78bfa' }} />
+                <span className="hidden sm:inline text-xs font-black" style={{ color: '#a78bfa' }}>Downloads</span>
+              </a>
               {/* My Account — orders, returns & points */}
               {user?.email && (
                 <a href="/my-account" className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition hover:bg-white/5 text-gray-300"
@@ -1089,7 +1106,12 @@ export default function PublicStore() {
               background: 'linear-gradient(to bottom, transparent, #080808)'
             }} />
 
-            <div className="relative max-w-screen-xl mx-auto px-4 pt-10 pb-16 flex flex-col items-center text-center">
+            <div className="relative max-w-screen-xl mx-auto px-4 pt-10 pb-16 flex items-stretch justify-center gap-6 xl:gap-10">
+            {/* Featured product reels flanking the headline. Each column hides
+                itself below lg and when fewer than two reels are published. */}
+            <HeroSideReels side="left" onShopProduct={shopReelProduct} />
+
+            <div className="flex flex-col items-center text-center flex-1 min-w-0">
               {/* Family badge */}
               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-6"
                 style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -1151,6 +1173,9 @@ export default function PublicStore() {
                 ))}
               </div>
             </div>
+
+            <HeroSideReels side="right" onShopProduct={shopReelProduct} />
+            </div>
           </section>
 
           {/* ── CATEGORY STRIP ────────────────────────────────────────────────── */}
@@ -1178,13 +1203,7 @@ export default function PublicStore() {
           </section>
 
           {/* ── PRODUCT REELS — WATCH & SHOP ──────────────────────────────────── */}
-          <ProductReels
-            onShopProduct={(pid) => {
-              const match = allProducts.find(p => p.id === pid);
-              if (match) { setSearchQuery(match.name); setShopView('all'); }
-              else { setShopView('all'); }
-            }}
-          />
+          <ProductReels onShopProduct={shopReelProduct} />
 
           {/* ── HOT PRODUCTS GRID — TOP 12 ────────────────────────────────────── */}
           <section className="max-w-screen-xl mx-auto px-4 pt-8 pb-4">
@@ -1515,10 +1534,17 @@ export default function PublicStore() {
                       </div>
                     </div>
                   ))}
+
+                {/* Digital products browse like their own category shelf, each
+                    card with its own button through to the product page. */}
+                <DigitalProductsRail layout="shelf" limit={8} />
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {viewProducts.map(product => <ProductCard key={product.id} product={product} />)}
+              <div className="space-y-10">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {viewProducts.map(product => <ProductCard key={product.id} product={product} />)}
+                </div>
+                <DigitalProductsRail layout="shelf" limit={8} />
               </div>
             )
           ) : allProductsRaw.length === 0 ? (
@@ -1543,6 +1569,28 @@ export default function PublicStore() {
               <button onClick={() => setShopView('all')} className="px-6 py-2.5 rounded-xl text-sm font-bold" style={{ background: '#ea580c' }}>Browse All Products</button>
             </div>
           )}
+
+          {/* Digital catalog CTA — always shown, because it links to the catalog
+              rather than rendering products, so an empty digital catalog can't
+              make the only entry point disappear. */}
+          <div className="mt-10 rounded-3xl p-6 flex flex-col sm:flex-row items-center gap-5"
+            style={{ background: 'linear-gradient(135deg, #16121f 0%, #0d0d0d 100%)', border: '1px solid rgba(124,58,237,0.25)' }}>
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}>
+              <Download className="w-6 h-6" style={{ color: '#a78bfa' }} />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <h3 className="text-lg font-black text-white">Digital Downloads</h3>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Guides, templates and calculators — delivered instantly, no shipping.
+              </p>
+            </div>
+            <a href="/digital-products"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm text-white transition hover:brightness-110 flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}>
+              Shop Downloads <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
         </div>
       )}
 

@@ -943,7 +943,22 @@ export default function DigitalStorefront() {
         {visible.length === 0 && (
           <div className="text-center py-20 text-gray-500">
             <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p>No products found. Try a different search or category.</p>
+            {products.length === 0 ? (
+              // An empty catalog and an over-filtered one are different problems;
+              // telling the owner to "try a different search" hides the real one.
+              <>
+                <p className="font-bold text-gray-400">No digital products published yet.</p>
+                <p className="text-sm mt-1">
+                  Add one in{' '}
+                  <a href="/digital-products-admin" className="text-violet-400 underline hover:text-violet-300">
+                    Digital Products admin
+                  </a>{' '}
+                  and it will appear here and on the main store.
+                </p>
+              </>
+            ) : (
+              <p>No products found. Try a different search or category.</p>
+            )}
           </div>
         )}
 
