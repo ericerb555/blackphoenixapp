@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { consumeContentProduct } from '../lib/contentHandoff';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -49,23 +50,45 @@ export default function StoreContentStudio() {
   const [tab, setTab] = useState<Tab>('posts');
   const [products, setProducts] = useState<LiveProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [handoffId, setHandoffId] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
     setLoadingProducts(true);
     try {
-      const res = await fetch(`${SERVER}/products?isActive=true&limit=200`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) throw new Error(data?.error || `Failed (${res.status})`);
-      setProducts((data.products || []).map((p: any) => ({
-        id: p.id,
-        name: p.name || p.title || 'Untitled',
-        image: p.primaryImage || p.images?.[0] || p.image || '',
-        price: Number(p.price) || 0,
-        category: p.category || 'General',
-        description: p.description || '',
-      })));
+      // Load BOTH catalogs so posts/reels can feature physical AND digital
+      // products. Physical prices are dollars; digital (/marketplace) are cents.
+      const [physRes, digiRes] = await Promise.allSettled([
+        fetch(`${SERVER}/products?isActive=true&limit=200`, { headers: { Authorization: `Bearer ${publicAnonKey}` } }),
+        fetch(`${SERVER}/marketplace/products`, { headers: { Authorization: `Bearer ${publicAnonKey}` } }),
+      ]);
+      const merged: LiveProduct[] = [];
+      if (physRes.status === 'fulfilled' && physRes.value.ok) {
+        const data = await physRes.value.json().catch(() => null);
+        if (data?.products) merged.push(...data.products.map((p: any) => ({
+          id: p.id,
+          name: p.name || p.title || 'Untitled',
+          image: p.primaryImage || p.images?.[0] || p.image || '',
+          price: Number(p.price) || 0,
+          category: p.category || 'General',
+          description: p.description || '',
+        })));
+      }
+      if (digiRes.status === 'fulfilled' && digiRes.value.ok) {
+        const data = await digiRes.value.json().catch(() => null);
+        const arr = Array.isArray(data?.products) ? data.products : [];
+        merged.push(...arr.filter((p: any) => p?.visible !== false).map((p: any) => ({
+          id: p.id,
+          name: p.title || p.name || 'Untitled',
+          image: p.coverImage || p.images?.[0] || p.image || '',
+          price: typeof p.price === 'number' ? p.price / 100 : 0,
+          category: p.category || 'digital',
+          description: p.subtitle || p.description || '',
+        })));
+      }
+      if (merged.length === 0 && physRes.status === 'rejected' && digiRes.status === 'rejected') {
+        throw new Error('Could not reach either product catalog.');
+      }
+      setProducts(merged);
     } catch (err: any) {
       console.error('[StoreContentStudio] load products:', err);
       toast.error(err.message || 'Could not load live products.');
@@ -73,6 +96,12 @@ export default function StoreContentStudio() {
   }, []);
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  // A product was routed here from the Content Center's product picker.
+  useEffect(() => {
+    const p = consumeContentProduct('store-content');
+    if (p) { setTab('posts'); setHandoffId(p.id); }
+  }, []);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -94,19 +123,24 @@ export default function StoreContentStudio() {
       </div>
 
       {tab === 'posts'
-        ? <ProductPosts products={products} loading={loadingProducts} reload={loadProducts} />
+        ? <ProductPosts products={products} loading={loadingProducts} reload={loadProducts} initialSelectedId={handoffId} />
         : <StoreReels products={products} />}
     </div>
   );
 }
 
 // ── PRODUCT POSTS ────────────────────────────────────────────────────────
-function ProductPosts({ products, loading, reload }: { products: LiveProduct[]; loading: boolean; reload: () => void }) {
+function ProductPosts({ products, loading, reload, initialSelectedId }: { products: LiveProduct[]; loading: boolean; reload: () => void; initialSelectedId?: string | null }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [recipients, setRecipients] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Pre-select a product handed off from the Content Center product picker.
+  useEffect(() => {
+    if (initialSelectedId) setSelected(new Set([initialSelectedId]));
+  }, [initialSelectedId]);
 
   const toggle = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 

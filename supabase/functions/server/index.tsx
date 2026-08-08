@@ -6241,6 +6241,11 @@ const FACEBOOK_APP_ID     = Deno.env.get('FACEBOOK_APP_ID')     || '';
 const FACEBOOK_APP_SECRET = Deno.env.get('FACEBOOK_APP_SECRET') || '';
 const TIKTOK_CLIENT_KEY   = Deno.env.get('TIKTOK_CLIENT_KEY')   || '';
 const TIKTOK_CLIENT_SECRET= Deno.env.get('TIKTOK_CLIENT_SECRET')|| '';
+const LINKEDIN_CLIENT_ID     = Deno.env.get('LINKEDIN_CLIENT_ID')     || '';
+const LINKEDIN_CLIENT_SECRET = Deno.env.get('LINKEDIN_CLIENT_SECRET') || '';
+// X (Twitter) API v2 uses OAuth 2.0 with PKCE.
+const TWITTER_CLIENT_ID      = Deno.env.get('TWITTER_CLIENT_ID')      || '';
+const TWITTER_CLIENT_SECRET  = Deno.env.get('TWITTER_CLIENT_SECRET')  || '';
 const APP_URL             = Deno.env.get('APP_URL')             || 'https://www.theblackphoenixcompany.com';
 // Customer replies route here. The verified `send.` subdomain is send-only (not
 // a real mailbox), so every outbound email carries this reply-to address.
@@ -6325,7 +6330,7 @@ app.get('/make-server-3eae23a6/social/accounts', async (c) => {
     const tokens = await getSocialTokens(user.id);
     const accounts: Record<string, any> = {};
 
-    for (const platform of ['facebook', 'instagram', 'tiktok']) {
+    for (const platform of ['facebook', 'instagram', 'tiktok', 'linkedin', 'twitter']) {
       const t = tokens[platform];
       accounts[platform] = {
         connected: !!t?.accessToken,
@@ -6369,6 +6374,33 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
       }
       const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'tiktok' })).toString('base64');
       const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${TIKTOK_CLIENT_KEY}&scope=user.info.basic,video.list,video.publish&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    if (platform === 'linkedin') {
+      if (!LINKEDIN_CLIENT_ID) {
+        return c.json({ error: 'LinkedIn Client ID not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to Supabase secrets.' }, 503);
+      }
+      const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'linkedin' })).toString('base64');
+      const scopes = 'openid profile w_member_social';
+      const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    if (platform === 'twitter') {
+      if (!TWITTER_CLIENT_ID) {
+        return c.json({ error: 'X (Twitter) Client ID not configured. Add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to Supabase secrets.' }, 503);
+      }
+      // OAuth 2.0 with PKCE. Stash the code_verifier keyed by state so the
+      // callback can complete the exchange.
+      const verifier = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+      const challengeBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+      const challenge = Buffer.from(new Uint8Array(challengeBuf))
+        .toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'twitter' })).toString('base64');
+      await kv.set(`social_pkce:${state}`, { verifier });
+      const scopes = 'tweet.read tweet.write users.read offline.access';
+      const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
       return c.json({ authUrl });
     }
 
@@ -6418,6 +6450,43 @@ app.get('/make-server-3eae23a6/social/callback', async (c) => {
       });
       const info = await infoRes.json();
       tokenData = { accessToken: tokenJson.access_token, refreshToken: tokenJson.refresh_token, name: info.data?.user?.display_name, avatar: info.data?.user?.avatar_url, followers: info.data?.user?.follower_count, connectedAt: new Date().toISOString() };
+    }
+
+    if (platform === 'linkedin') {
+      const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: LINKEDIN_CLIENT_ID, client_secret: LINKEDIN_CLIENT_SECRET }),
+      });
+      const tokenJson = await tokenRes.json();
+      if (!tokenJson.access_token) return c.text(`LinkedIn auth error: ${tokenJson.error_description || tokenJson.error || 'no token'}`, 400);
+
+      // openid userinfo → { sub, name, picture }
+      const meRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+      });
+      const me = await meRes.json();
+      tokenData = { accessToken: tokenJson.access_token, memberId: me.sub, name: me.name, avatar: me.picture, connectedAt: new Date().toISOString() };
+    }
+
+    if (platform === 'twitter') {
+      const pkce = (await kv.get(`social_pkce:${state}`)) as any;
+      if (!pkce?.verifier) return c.text('Twitter auth error: PKCE verifier expired. Please reconnect.', 400);
+      const basic = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+      const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basic}` },
+        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: TWITTER_CLIENT_ID, code_verifier: pkce.verifier }),
+      });
+      const tokenJson = await tokenRes.json();
+      await kv.del(`social_pkce:${state}`);
+      if (!tokenJson.access_token) return c.text(`Twitter auth error: ${tokenJson.error_description || tokenJson.error || 'no token'}`, 400);
+
+      const meRes = await fetch('https://api.twitter.com/2/users/me', {
+        headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+      });
+      const me = await meRes.json();
+      tokenData = { accessToken: tokenJson.access_token, refreshToken: tokenJson.refresh_token, name: me.data?.name || me.data?.username, connectedAt: new Date().toISOString() };
     }
 
     // Save tokens
@@ -6640,6 +6709,48 @@ app.post('/make-server-3eae23a6/social/publish', async (c) => {
           });
           const initData = await initRes.json();
           results[platform] = initData.data?.publish_id ? { success: true, publishId: initData.data.publish_id } : { error: initData.error?.message || 'TikTok publish failed' };
+        }
+
+        if (platform === 'linkedin') {
+          if (!t.memberId) { results[platform] = { error: 'LinkedIn member id missing — reconnect the account' }; continue; }
+          const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${t.accessToken}`,
+              'Content-Type': 'application/json',
+              'X-Restli-Protocol-Version': '2.0.0',
+            },
+            body: JSON.stringify({
+              author: `urn:li:person:${t.memberId}`,
+              lifecycleState: 'PUBLISHED',
+              specificContent: {
+                'com.linkedin.ugc.ShareContent': {
+                  shareCommentary: { text: content },
+                  shareMediaCategory: 'NONE',
+                },
+              },
+              visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+            }),
+          });
+          if (postRes.ok) {
+            const postId = postRes.headers.get('x-restli-id') || undefined;
+            results[platform] = { success: true, postId };
+          } else {
+            const err = await postRes.json().catch(() => ({}));
+            results[platform] = { error: err.message || `LinkedIn publish failed (${postRes.status})` };
+          }
+        }
+
+        if (platform === 'twitter') {
+          const postRes = await fetch('https://api.twitter.com/2/tweets', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${t.accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: content }),
+          });
+          const postData = await postRes.json();
+          results[platform] = postData.data?.id
+            ? { success: true, postId: postData.data.id }
+            : { error: postData.detail || postData.title || 'X publish failed' };
         }
       } catch (platformErr: any) {
         results[platform] = { error: platformErr.message };
@@ -9901,7 +10012,7 @@ function orderAwaitsFulfillment(order: any): boolean {
  * Shared by the instant path, the daily sweep and the manual retry route so all
  * three write exactly the same fields.
  */
-async function forwardStoreOrderToSupplier(order: any): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string }> {
+async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string }> {
   const forwardItems = (Array.isArray(order.items) ? order.items : [])
     .map((it: any) => ({
       sku: String(it.sku || it.SKU || it.id || it.productId || ''),
@@ -9929,7 +10040,11 @@ async function forwardStoreOrderToSupplier(order: any): Promise<{ success: boole
   order.fulfillment_attempts = Number(order.fulfillment_attempts || 0) + 1;
   order.fulfillment_skipped = Array.isArray(result.skipped) && result.skipped.length > 0 ? result.skipped : undefined;
   order.fulfillment_error = result.success ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
-  await kv.set(storeOrderKey(order.id), order);
+  // Persist back to whichever prefix the order was loaded from. Marketplace/
+  // digital orders live under `store_order:` while main-store orders use
+  // `store:order:`; defaulting to the latter would fork a duplicate and leave
+  // the real record stale.
+  await kv.set(storageKey || storeOrderKey(order.id), order);
 
   return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: result.error };
 }
@@ -10060,7 +10175,15 @@ app.post('/make-server-3eae23a6/dropshipper/orders/:orderId/retry', async (c) =>
   if (!actor) return c.json({ error: 'Administrator access is required.' }, 403);
   try {
     const orderId = c.req.param('orderId');
-    const order = (await kv.get(storeOrderKey(orderId))) as any;
+    // An order id can belong to either store: the main store (`store:order:`)
+    // or the marketplace/digital store (`store_order:`). Check both so paid
+    // marketplace orders (e.g. Zendrop) can be re-sent to their supplier.
+    let storageKey = storeOrderKey(orderId);
+    let order = (await kv.get(storageKey)) as any;
+    if (!order) {
+      storageKey = `store_order:${orderId}`;
+      order = (await kv.get(storageKey)) as any;
+    }
     if (!order) return c.json({ success: false, error: `No store order found with id ${orderId}.` }, 404);
     const paid = order.payment_status === 'paid' || order.payment_status === 'gift_card_paid' || order.status === 'paid';
     if (!paid) {
@@ -10069,7 +10192,7 @@ app.post('/make-server-3eae23a6/dropshipper/orders/:orderId/retry', async (c) =>
         error: `Order ${orderId} is not paid (payment_status="${order.payment_status || 'unknown'}"). Refusing to send an unpaid order to a supplier.`,
       }, 409);
     }
-    const result = await forwardStoreOrderToSupplier(order);
+    const result = await forwardStoreOrderToSupplier(order, storageKey);
     return c.json({
       success: result.success,
       orderId: order.id,

@@ -11,11 +11,12 @@ import {
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Copy,
   ArrowUp, ArrowDown, Shield, Upload, Grid, List,
   TrendingUp, Zap, Gift, RefreshCw, Home, Sparkles, Image as ImageIcon, Loader2,
-  Megaphone, ExternalLink, Link2,
+  ExternalLink, Link2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { sendProductToAdStudio } from '../lib/adStudioHandoff';
+import CreateContentMenu from '../components/CreateContentMenu';
+import type { UnifiedProduct } from '../lib/useAllProducts';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
@@ -40,6 +41,26 @@ async function copyProductLink(id: string, title: string) {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ProductCategory = 'ebook' | 'template' | 'calculator' | 'ai_report' | 'maintenance' | 'bundle';
+
+/** Map an admin (digital) product into the shared UnifiedProduct shape the
+ *  content pipeline expects. Admin prices are in CENTS; UnifiedProduct is dollars. */
+function adminToUnified(p: AdminProduct): UnifiedProduct {
+  return {
+    id: p.id,
+    name: p.title,
+    description: p.subtitle || p.description || '',
+    price: (p.price || 0) / 100,
+    originalPrice: p.originalPrice ? p.originalPrice / 100 : undefined,
+    category: p.category,
+    image: p.coverImage || '',
+    images: p.coverImage ? [p.coverImage] : [],
+    badge: p.badge,
+    sku: p.id,
+    kind: 'digital',
+    isDigital: true,
+    raw: p,
+  };
+}
 
 interface ProductFile {
   id: string;
@@ -1204,24 +1225,7 @@ export default function MarketplaceAdmin() {
                     className="p-2 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-[#2A2A2A] transition">
                     <Copy className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => {
-                      sendProductToAdStudio({
-                        id: p.id,
-                        title: p.title,
-                        subtitle: p.subtitle,
-                        price: p.price / 100,
-                        originalPrice: p.originalPrice ? p.originalPrice / 100 : undefined,
-                        image: p.coverImage,
-                        badge: p.badge,
-                        features: p.features,
-                      });
-                      toast.success(`Opening Ad Studio for "${p.title}"`);
-                    }}
-                    title="Create an ad for this product"
-                    className="p-2 rounded-lg text-gray-500 hover:text-orange-400 hover:bg-orange-500/10 transition">
-                    <Megaphone className="w-4 h-4" />
-                  </button>
+                  <CreateContentMenu product={adminToUnified(p)} compact />
                   <button onClick={() => setEditing(p)} title="Edit"
                     className="p-2 rounded-lg text-gray-400 hover:text-orange-400 hover:bg-orange-500/10 transition">
                     <Edit2 className="w-4 h-4" />
@@ -1263,24 +1267,7 @@ export default function MarketplaceAdmin() {
                       className={`p-1.5 rounded-lg transition ${p.visible ? 'text-green-400' : 'text-gray-500'}`}>
                       {p.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                     </button>
-                    <button
-                      onClick={() => {
-                        sendProductToAdStudio({
-                          id: p.id,
-                          title: p.title,
-                          subtitle: p.subtitle,
-                          price: p.price / 100,
-                          originalPrice: p.originalPrice ? p.originalPrice / 100 : undefined,
-                          image: p.coverImage,
-                          badge: p.badge,
-                          features: p.features,
-                        });
-                        toast.success(`Opening Ad Studio for "${p.title}"`);
-                      }}
-                      title="Create an ad for this product"
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-orange-400 transition">
-                      <Megaphone className="w-3.5 h-3.5" />
-                    </button>
+                    <CreateContentMenu product={adminToUnified(p)} compact />
                     <button onClick={() => setEditing(p)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-orange-400 transition">
                       <Edit2 className="w-3.5 h-3.5" />

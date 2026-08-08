@@ -241,6 +241,76 @@ require $ESH "render: () => <OrderManager />"
 require $SVR "function isDemoOrder"
 require $SVR "if (isDemoOrder(o)) continue;"
 
+# ── Dropshipper SKU resolution: storefront ids are `provider_SKU` but inventory
+#    is keyed by the raw supplier SKU. Paid orders stranded at "no inventory
+#    match" until getInventoryItem strips the prefix and forwarding sends the
+#    supplier's own SKU. ──
+DSH=supabase/functions/server/dropshipper.tsx
+require $DSH "Strip a leading .provider_. segment and retry"
+require $DSH "sku: inventoryItem.sku, originalSku: item.sku"
+require $DSH "item.originalSku ?? item.sku"
+
+# ── Manual "Send to supplier" must find orders in BOTH order stores and write
+#    back to the prefix the order came from (marketplace orders use store_order:). ──
+require $IDX "let storageKey = storeOrderKey(orderId);"
+require $IDX 'storageKey = `store_order:\${orderId}`;'
+require $IDX "forwardStoreOrderToSupplier(order, storageKey)"
+require $IDX "storageKey || storeOrderKey(order.id)"
+
+# ── Unified product content pipeline: any product (physical OR digital) can be
+#    pulled into every Content Center tool. ──
+UAP=src/app/lib/useAllProducts.ts
+require $UAP "marketplace/products"
+require $UAP "isActive=true"
+require $UAP "isDigital"
+CHO=src/app/lib/contentHandoff.ts
+require $CHO "sendProductToContentTool"
+require $CHO "consumeContentProduct"
+require $CHO "creator-studio"
+PP=src/app/components/ProductPicker.tsx
+require $PP "useAllProducts"
+require $PP "showSendMenu"
+ECC=src/app/pages/EnterpriseContentCenter.tsx
+require $ECC "import ProductPicker"
+require $ECC "CONTENT_OPEN_EVENT"
+require $ECC "<ProductPicker showSendMenu />"
+# Store Content Studio must load digital products too, not just /products.
+require src/app/components/StoreContentStudio.tsx "marketplace/products"
+require src/app/components/StoreContentStudio.tsx "consumeContentProduct"
+require src/app/components/SocialMediaSchedulerTab.tsx "consumeContentProduct"
+
+# ── One product → several content tools at once, plus a "Create content" menu
+#    right on catalog/admin product rows. ──
+require $CHO "sendProductToContentTools"
+CCM=src/app/components/CreateContentMenu.tsx
+require $CCM "sendProductToContentTools"
+require $CCM "sendProductToContentTool"
+require $PP "CreateContentMenu"
+require $MA "CreateContentMenu"
+require $MA "adminToUnified"
+# The old Ad-Studio-only Megaphone button on digital rows is replaced by the menu.
+forbid  $MA "Opening Ad Studio for"
+require src/app/components/ProductCatalogBrowser.tsx "CreateContentMenu"
+require src/app/components/ProductCatalogBrowser.tsx "stagedToUnified"
+
+# ── Social Scheduler must publish through the REAL backend (Graph/LinkedIn/X)
+#    with the owner's OAuth token — not just flip a local flag. ──
+SMS=src/app/components/SocialMediaSchedulerTab.tsx
+require $SMS "social/publish"
+require $SMS "social/accounts"
+require $SMS "social/connect/"
+require $SMS "connectPlatform"
+require $SMS "setAutoPublish"
+# The publish button used to only mark posts published without ever posting.
+forbid  $SMS "marked as published on"
+require $I "make-server-3eae23a6/social/publish"
+require $I "graph.facebook.com"
+# Real LinkedIn + X (Twitter) publishing + OAuth.
+require $I "urn:li:person"
+require $I "api.twitter.com/2/tweets"
+require $I "LINKEDIN_CLIENT_ID"
+require $I "TWITTER_CLIENT_ID"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi

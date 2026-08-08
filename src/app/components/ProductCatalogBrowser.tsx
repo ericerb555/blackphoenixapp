@@ -11,8 +11,29 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
+import CreateContentMenu from './CreateContentMenu';
+import type { UnifiedProduct } from '../lib/useAllProducts';
 
 const API_URL = API_BASE_URL;
+
+/** Map a staged dropship product into the shared UnifiedProduct shape. Prices
+ *  are already in DOLLARS here. */
+function stagedToUnified(p: StagedProduct): UnifiedProduct {
+  return {
+    id: p.stagingId,
+    name: p.name,
+    description: p.description || '',
+    price: p.price || 0,
+    originalPrice: p.compareAtPrice,
+    category: p.category || '',
+    image: p.primaryImage || p.images?.[0] || '',
+    images: Array.isArray(p.images) ? p.images : [],
+    sku: p.sku,
+    kind: 'physical',
+    isDigital: false,
+    raw: p,
+  };
+}
 
 async function secureHeaders(contentType = false) {
   const { supabase } = await import('../lib/supabase');
@@ -557,6 +578,10 @@ function ProductCard({ product, isSelected, onToggleSelect }: {
           <span>SKU: {product.sku}</span>
           <span>{product.providerName}</span>
         </div>
+
+        <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+          <CreateContentMenu product={stagedToUnified(product)} />
+        </div>
       </div>
     </div>
   );
@@ -631,6 +656,10 @@ function ProductRow({ product, isSelected, onToggleSelect }: {
               <span className="text-gray-400">SKU: {product.sku}</span>
             </div>
           </div>
+        </div>
+
+        <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <CreateContentMenu product={stagedToUnified(product)} compact />
         </div>
       </div>
     </div>

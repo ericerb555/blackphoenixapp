@@ -188,17 +188,27 @@ export default function OrderManager() {
         headers: { 'Content-Type': 'application/json', apikey: publicAnonKey, Authorization: `Bearer ${session.access_token}` },
       });
       const data = await res.json().catch(() => null);
+      if (res.status === 404) {
+        throw new Error('The recovery endpoint isn\'t live yet — click Publish to deploy the backend, then try again.');
+      }
       if (!res.ok || !data?.success) throw new Error(data?.error || `Recovery failed (${res.status}).`);
+      const pendingList: Array<{ checkoutId: string; reason: string }> = data.stillPending || [];
       if (data.recoveredCount > 0) {
         toast.success(`Recovered ${data.recoveredCount} paid order${data.recoveredCount === 1 ? '' : 's'} from Stripe.`);
         await loadOrders();
+        if (pendingList.length) {
+          toast.info(`${pendingList.length} other checkout${pendingList.length === 1 ? '' : 's'} still couldn't be recovered — see below.`);
+        }
+      } else if (data.scanned === 0) {
+        toast.info('No store checkouts exist yet. If Stripe charged a card, the payment may have gone through a different checkout flow — tell me and I\'ll trace it.');
+      } else if (pendingList.length) {
+        // Show the actual Stripe reason for the first stranded checkout so the
+        // problem is diagnosable instead of a silent "nothing happened".
+        toast.error(`Couldn't recover ${pendingList.length} checkout${pendingList.length === 1 ? '' : 's'}. First reason: ${pendingList[0].reason}`, { duration: 10000 });
       } else {
-        const pending = (data.stillPending || []).length;
-        toast.info(pending > 0
-          ? `No paid orders to recover. ${pending} checkout${pending === 1 ? '' : 's'} were not confirmed paid by Stripe.`
-          : 'No unconverted checkouts found — every paid order is already recorded.');
+        toast.info('No unconverted checkouts found — every paid order is already recorded.');
       }
-      if ((data.stillPending || []).length) console.warn('[OrderManager] checkouts still pending:', data.stillPending);
+      if (pendingList.length) console.warn('[OrderManager] checkouts still pending:', pendingList);
     } catch (error: any) {
       console.error('[OrderManager] recover error:', error);
       toast.error(error?.message || 'Could not recover orders.');

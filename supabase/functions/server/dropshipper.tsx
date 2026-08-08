@@ -176,9 +176,28 @@ async function saveInventoryItem(product: DropshipperProduct): Promise<void> {
  * Get inventory item by SKU
  */
 export async function getInventoryItem(sku: string): Promise<DropshipperProduct | null> {
-  const key = `${INVENTORY_KEY_PREFIX}:${sku}`;
-  const data = await kv.get(key);
-  return data ? JSON.parse(data) : null;
+  const raw = String(sku || '');
+  const parse = (data: any) => (data ? (typeof data === 'string' ? JSON.parse(data) : data) : null);
+
+  // Exact match first.
+  const direct = parse(await kv.get(`${INVENTORY_KEY_PREFIX}:${raw}`));
+  if (direct) return direct;
+
+  // Storefront product ids are written as `${providerId}_${sku}` (e.g.
+  // `zendrop_ZD-2746847`), but the dropshipper-inventory record is keyed by the
+  // raw supplier SKU (`ZD-2746847`). An order line carries the store id, so a
+  // paid order would never match its own inventory and would strand at
+  // "pending". Strip a leading `provider_` segment and retry.
+  const underscore = raw.indexOf('_');
+  if (underscore > 0) {
+    const stripped = raw.slice(underscore + 1);
+    if (stripped && stripped !== raw) {
+      const viaStrip = parse(await kv.get(`${INVENTORY_KEY_PREFIX}:${stripped}`));
+      if (viaStrip) return viaStrip;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -245,8 +264,11 @@ export async function forwardOrder(order: {
     let forwarded = 0;
     const skipped: string[] = [];
 
+    // Match on the ORIGINAL order-line SKU (grouping rewrites `sku` to the
+    // supplier's SKU but preserves `originalSku`), so store-prefixed ids that
+    // were successfully resolved aren't falsely reported as unmatched.
     const matchedSkus = new Set(
-      Object.values(itemsByProvider).flat().map((item: any) => String(item.sku)),
+      Object.values(itemsByProvider).flat().map((item: any) => String(item.originalSku ?? item.sku)),
     );
     for (const item of order.items) {
       if (!matchedSkus.has(String(item.sku))) {
@@ -318,7 +340,10 @@ async function groupItemsByProvider(items: { sku: string; quantity: number; pric
     if (!grouped[inventoryItem.providerId]) {
       grouped[inventoryItem.providerId] = [];
     }
-    grouped[inventoryItem.providerId].push(item);
+    // Forward the supplier's own SKU, not the storefront id. The order line may
+    // carry `zendrop_ZD-2746847` while the supplier only knows `ZD-2746847`;
+    // sending the store id would make the provider reject or mis-map the order.
+    grouped[inventoryItem.providerId].push({ ...item, sku: inventoryItem.sku, originalSku: item.sku, providerProductId: (inventoryItem as any).providerProductId });
   }
 
   return grouped;

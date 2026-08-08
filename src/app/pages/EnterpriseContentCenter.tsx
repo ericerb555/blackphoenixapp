@@ -43,6 +43,8 @@ import MarketingCommandCenter from '../components/adstudio/MarketingCommandCente
 import EcommerceStoreHub from '../components/adstudio/EcommerceStoreHub';
 import MarketplaceAdmin from './MarketplaceAdmin';
 import { AD_STUDIO_OPEN_EVENT } from '../lib/adStudioHandoff';
+import { CONTENT_OPEN_EVENT, type ContentHandoffPayload } from '../lib/contentHandoff';
+import ProductPicker from '../components/ProductPicker';
 import {
   UserContext,
   getMockUserContext,
@@ -216,6 +218,28 @@ export default function EnterpriseContentCenter() {
     navigate(page);
   };
   const [studioPreloadedProduct, setStudioPreloadedProduct] = useState<any>(null);
+
+  // Generic product handoff: any tool/picker can route a product into a Content
+  // Center app. Ad Studio keeps its own bridge; here we handle the other tools.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ContentHandoffPayload>).detail;
+      if (!detail?.target) return;
+      if (detail.target === 'creator-studio') {
+        // VideoRecreationEngine reads `preloadedProduct` to seed its draft.
+        const p = detail.product;
+        setStudioPreloadedProduct({
+          id: p.id, name: p.name, description: p.description,
+          price: p.price, originalPrice: p.originalPrice,
+          category: p.category, image: p.image, badge: p.badge,
+        });
+      }
+      setActiveTab(detail.target as any);
+    };
+    window.addEventListener(CONTENT_OPEN_EVENT, handler as EventListener);
+    return () => window.removeEventListener(CONTENT_OPEN_EVENT, handler as EventListener);
+  }, []);
+
   const [contentPieces, setContentPieces] = useState<ContentPiece[]>([]);
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [channels, setChannels] = useState<ContentChannel[]>([]);
@@ -2194,6 +2218,20 @@ export default function EnterpriseContentCenter() {
                   AI Content Generator
                 </h2>
                 <p className="text-gray-400">Select content type to generate with AI using {companyInfo.name} branding</p>
+              </div>
+
+              {/* Start from any product — physical or digital — and route it into
+                  any content tool (Ad Studio, Creator Studio, Store Content,
+                  Social Scheduler) to create and post content about it. */}
+              <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles className="w-5 h-5 text-[#ea580c]" />
+                  <h3 className="text-lg font-bold text-white">Start from a product</h3>
+                </div>
+                <p className="text-sm text-gray-500 mb-4">
+                  Pick any product you sell — physical or digital — and send it straight into a content tool.
+                </p>
+                <ProductPicker showSendMenu />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

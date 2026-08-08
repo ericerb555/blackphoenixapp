@@ -5,6 +5,29 @@ import {
   Image as ImageIcon, Video, Library, Zap, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { consumeContentProduct } from '../lib/contentHandoff';
+import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/** Auth header carrying the signed-in owner's token (falls back to anon). */
+async function authHeaders(json = false): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  };
+}
+
+/** Platforms the backend can publish to (given the owner connects them). */
+const PUBLISHABLE = new Set(['facebook', 'instagram', 'linkedin', 'twitter']);
+
+interface AccountState {
+  connected: boolean;
+  name?: string | null;
+  followers?: number | null;
+}
 
 interface SocialPost {
   id: string;
@@ -71,11 +94,48 @@ export default function SocialMediaSchedulerTab() {
     platforms: [] as ('facebook' | 'instagram' | 'linkedin' | 'twitter')[],
     scheduled_date: '',
     media_type: 'text' as 'image' | 'video' | 'carousel' | 'text',
+    media_url: '',
   });
+  const [accounts, setAccounts] = useState<Record<string, AccountState>>({});
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [autoPublish, setAutoPublish] = useState<boolean>(() => localStorage.getItem('social_auto_publish') === '1');
+
+  // Pull the REAL connection status for each platform from the server.
+  async function loadAccounts() {
+    try {
+      const res = await fetch(`${API}/social/accounts`, { headers: await authHeaders() });
+      const data = await res.json();
+      if (data?.accounts) setAccounts(data.accounts);
+    } catch (err) {
+      console.error('Failed to load social accounts:', err);
+    }
+  }
 
   useEffect(() => {
     setLibraryItems(loadLibraryItems());
   }, [showLibraryPicker]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  // A product was routed here from the Content Center product picker — open the
+  // composer prefilled with a ready-to-edit caption for that product.
+  useEffect(() => {
+    const p = consumeContentProduct('social-scheduler');
+    if (!p) return;
+    const priceLine = p.price > 0 ? ` — $${p.price.toFixed(2)}` : '';
+    const caption = `${p.name}${priceLine}\n\n${(p.description || '').slice(0, 180)}\n\nShop now 👉 theblackphoenixcompany.com`;
+    setNewSocialPost(prev => ({
+      ...prev,
+      content: caption,
+      media_type: p.image ? 'image' : 'text',
+      media_url: p.image || '',
+    }));
+    setShowCreateSocialPost(true);
+    toast.success(`"${p.name}" loaded into a new post`);
+  }, []);
 
   function updatePosts(posts: SocialPost[]) {
     setSocialPosts(posts);
@@ -89,14 +149,144 @@ export default function SocialMediaSchedulerTab() {
     toast.success(`"${item.title}" loaded into post editor`);
   }
 
-  function publishNow(post: SocialPost) {
-    // Mark as published — real posting requires OAuth tokens from connected accounts
-    const updated = socialPosts.map(p =>
-      p.id === post.id ? { ...p, status: 'published' as const } : p
-    );
-    updatePosts(updated);
-    toast.success(`✅ "${post.content.slice(0, 40)}…" marked as published on ${post.platforms.join(', ')}!`);
+  // Kick off the real OAuth flow in a popup; refresh accounts when it succeeds.
+  async function connectPlatform(platform: string) {
+    if (!PUBLISHABLE.has(platform)) {
+      toast.error(`${platform} publishing isn't supported yet.`);
+      return;
+    }
+    setConnecting(platform);
+    try {
+      const res = await fetch(`${API}/social/connect/${platform}`, {
+        method: 'POST',
+        headers: await authHeaders(true),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.authUrl) {
+        throw new Error(data.error || `Couldn't start ${platform} connection`);
+      }
+      const popup = window.open(data.authUrl, 'social_oauth', 'width=600,height=720');
+      const onMessage = (e: MessageEvent) => {
+        if (e.data?.type === 'social_connected') {
+          window.removeEventListener('message', onMessage);
+          popup?.close();
+          setConnecting(null);
+          toast.success(`${e.data.platform} connected!`);
+          loadAccounts();
+        } else if (e.data?.type === 'social_error') {
+          window.removeEventListener('message', onMessage);
+          popup?.close();
+          setConnecting(null);
+          toast.error(e.data.message || `${platform} connection failed`);
+        }
+      };
+      window.addEventListener('message', onMessage);
+    } catch (err: any) {
+      console.error(`Social connect error for ${platform}:`, err);
+      toast.error(err.message || `Couldn't connect ${platform}`);
+      setConnecting(null);
+    }
   }
+
+  // Publish a post for real through the backend Graph/LinkedIn/X APIs. Returns
+  // true if at least one platform succeeded. `silent` suppresses the "nothing
+  // connected" error toast (used by the auto-publish tick).
+  async function publishNow(post: SocialPost, silent = false): Promise<boolean> {
+    const targets = post.platforms.filter(p => PUBLISHABLE.has(p) && accounts[p]?.connected);
+    const skipped = post.platforms.filter(p => !targets.includes(p));
+
+    if (targets.length === 0) {
+      if (!silent) {
+        toast.error(
+          `Connect ${post.platforms.join(' / ') || 'a supported account'} before publishing.`,
+          { duration: 8000 },
+        );
+      }
+      return false;
+    }
+
+    setPublishingId(post.id);
+    try {
+      const res = await fetch(`${API}/social/publish`, {
+        method: 'POST',
+        headers: await authHeaders(true),
+        body: JSON.stringify({
+          content: post.content,
+          imageUrl: post.media_type === 'image' ? post.media_urls?.[0] : undefined,
+          videoUrl: post.media_type === 'video' ? post.media_urls?.[0] : undefined,
+          platforms: targets,
+        }),
+      });
+
+      if (res.status === 401) {
+        if (!silent) toast.error('Sign in as the store owner to publish to your connected accounts.');
+        return false;
+      }
+      if (res.status === 404) {
+        if (!silent) toast.error('The publish endpoint isn\'t live yet — click Publish to deploy the backend, then retry.');
+        return false;
+      }
+
+      const data = await res.json();
+      const results: Record<string, any> = data?.results || {};
+      const ok = targets.filter(p => results[p]?.success);
+      const failed = targets.filter(p => results[p] && !results[p].success);
+
+      const updated = socialPosts.map(p =>
+        p.id === post.id
+          ? { ...p, status: (ok.length > 0 ? 'published' : 'failed') as SocialPost['status'] }
+          : p
+      );
+      updatePosts(updated);
+
+      if (ok.length) {
+        toast.success(`✅ Published to ${ok.join(', ')}${skipped.length ? ` (skipped ${skipped.join(', ')})` : ''}`);
+      }
+      if (failed.length) {
+        const firstErr = results[failed[0]]?.error || 'unknown error';
+        toast.error(`Failed on ${failed.join(', ')}: ${firstErr}`, { duration: 9000 });
+      }
+      return ok.length > 0;
+    } catch (err: any) {
+      console.error('Publish error:', err);
+      if (!silent) toast.error(`Couldn't reach the publish endpoint: ${err.message}`);
+      updatePosts(socialPosts.map(p => p.id === post.id ? { ...p, status: 'failed' as SocialPost['status'] } : p));
+      return false;
+    } finally {
+      setPublishingId(null);
+    }
+  }
+
+  // Auto-publish: while enabled and this tab is open, fire any scheduled post
+  // whose time has arrived. Runs on a 60s tick.
+  useEffect(() => {
+    localStorage.setItem('social_auto_publish', autoPublish ? '1' : '0');
+    if (!autoPublish) return;
+
+    let running = false;
+    const sweep = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const now = Date.now();
+        const due = loadScheduledPosts().filter(
+          p => p.status === 'scheduled' && new Date(p.scheduled_date).getTime() <= now,
+        );
+        for (const post of due) {
+          // Only auto-fire posts that have a connected, supported target.
+          if (post.platforms.some(pl => PUBLISHABLE.has(pl) && accounts[pl]?.connected)) {
+            await publishNow(post, true);
+          }
+        }
+      } finally {
+        running = false;
+      }
+    };
+    sweep();
+    const id = setInterval(sweep, 60_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPublish, accounts, socialPosts]);
 
   function deletePost(id: string) {
     const updated = socialPosts.filter(p => p.id !== id);
@@ -112,7 +302,18 @@ export default function SocialMediaSchedulerTab() {
           <h2 className="text-2xl font-bold text-white mb-2">Social Media Scheduler</h2>
           <p className="text-gray-400">Schedule and manage posts across all your social media platforms</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAutoPublish(v => !v)}
+            title="When on, scheduled posts auto-publish at their time while this tab is open"
+            className={`px-4 py-2 rounded-lg transition-all font-medium flex items-center gap-2 border ${
+              autoPublish
+                ? 'bg-green-600/20 border-green-500/40 text-green-400'
+                : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-300 hover:text-white'
+            }`}
+          >
+            <Clock className="w-4 h-4" /> Auto-publish {autoPublish ? 'On' : 'Off'}
+          </button>
           <button onClick={() => setShowLibraryPicker(true)}
             className="px-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-orange-500/40 text-gray-300 hover:text-white rounded-lg transition-all font-medium flex items-center gap-2">
             <Library className="w-4 h-4" /> From Library
@@ -124,15 +325,27 @@ export default function SocialMediaSchedulerTab() {
         </div>
       </div>
 
+      {autoPublish && (
+        <div className="bg-green-600/10 border border-green-500/30 rounded-xl px-4 py-2.5 text-sm text-green-300 flex items-center gap-2 -mt-2">
+          <Clock className="w-4 h-4" /> Auto-publish is on — scheduled posts fire at their time while this tab stays open.
+        </div>
+      )}
+
       {/* Platform Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { platform: 'facebook', label: 'Facebook', icon: Facebook, color: 'from-blue-500 to-blue-700', connected: true, posts: 12 },
-          { platform: 'instagram', label: 'Instagram', icon: Instagram, color: 'from-pink-500 to-purple-700', connected: true, posts: 24 },
-          { platform: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: 'from-blue-600 to-blue-800', connected: true, posts: 8 },
-          { platform: 'twitter', label: 'Twitter', icon: Twitter, color: 'from-blue-400 to-blue-600', connected: false, posts: 0 },
+          { platform: 'facebook', label: 'Facebook', icon: Facebook, color: 'from-blue-500 to-blue-700' },
+          { platform: 'instagram', label: 'Instagram', icon: Instagram, color: 'from-pink-500 to-purple-700' },
+          { platform: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: 'from-blue-600 to-blue-800' },
+          { platform: 'twitter', label: 'X / Twitter', icon: Twitter, color: 'from-blue-400 to-blue-600' },
         ].map((platform) => {
           const Icon = platform.icon;
+          const supported = PUBLISHABLE.has(platform.platform);
+          const acct = accounts[platform.platform];
+          const isConnected = !!acct?.connected;
+          const scheduledCount = socialPosts.filter(
+            p => p.status === 'scheduled' && p.platforms.includes(platform.platform as any),
+          ).length;
           return (
             <div
               key={platform.platform}
@@ -144,19 +357,29 @@ export default function SocialMediaSchedulerTab() {
                   <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${platform.color} flex items-center justify-center`}>
                     <Icon className="w-5 h-5 text-white" />
                   </div>
-                  {platform.connected ? (
+                  {!supported ? (
+                    <span className="px-2 py-1 bg-[#2a2a2a] text-gray-500 text-xs rounded-full font-semibold">
+                      Coming soon
+                    </span>
+                  ) : isConnected ? (
                     <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full font-semibold flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
                       Connected
                     </span>
                   ) : (
-                    <button className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded-full font-semibold hover:bg-orange-500/30 transition-colors">
-                      Connect
+                    <button
+                      onClick={() => connectPlatform(platform.platform)}
+                      disabled={connecting === platform.platform}
+                      className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded-full font-semibold hover:bg-orange-500/30 transition-colors disabled:opacity-50"
+                    >
+                      {connecting === platform.platform ? 'Connecting…' : 'Connect'}
                     </button>
                   )}
                 </div>
                 <h3 className="font-semibold text-white mb-1">{platform.label}</h3>
-                <p className="text-sm text-gray-400">{platform.posts} scheduled posts</p>
+                <p className="text-sm text-gray-400">
+                  {isConnected && acct?.name ? acct.name : `${scheduledCount} scheduled post${scheduledCount === 1 ? '' : 's'}`}
+                </p>
               </div>
             </div>
           );
@@ -167,7 +390,7 @@ export default function SocialMediaSchedulerTab() {
       <div className="bg-[#0f0f0f] rounded-xl border border-[#2a2a2a] p-6">
         <h3 className="text-lg font-bold text-white mb-4">Scheduled Posts</h3>
         
-        {socialPosts.filter(p => p.status === 'scheduled').length === 0 ? (
+        {socialPosts.filter(p => p.status === 'scheduled' || p.status === 'failed').length === 0 ? (
           <div className="text-center py-12">
             <Calendar className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 mb-2">No scheduled posts yet</p>
@@ -176,7 +399,7 @@ export default function SocialMediaSchedulerTab() {
         ) : (
           <div className="space-y-4">
             {socialPosts
-              .filter(p => p.status === 'scheduled')
+              .filter(p => p.status === 'scheduled' || p.status === 'failed')
               .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
               .map((post) => (
                 <div
@@ -190,8 +413,10 @@ export default function SocialMediaSchedulerTab() {
                         <span className="text-sm text-gray-400">
                           {new Date(post.scheduled_date).toLocaleString()}
                         </span>
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400">
-                          {post.status}
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          post.status === 'failed' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                          {post.status === 'failed' ? 'failed — retry' : post.status}
                         </span>
                       </div>
                       <p className="text-gray-300 mb-3">{post.content}</p>
@@ -218,8 +443,9 @@ export default function SocialMediaSchedulerTab() {
                     </div>
                     <div className="flex items-center gap-2 ml-4">
                       <button onClick={() => publishNow(post)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-bold transition">
-                        <Zap className="w-3.5 h-3.5" /> Publish Now
+                        disabled={publishingId === post.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-bold transition disabled:opacity-50">
+                        <Zap className="w-3.5 h-3.5" /> {publishingId === post.id ? 'Publishing…' : 'Publish Now'}
                       </button>
                       <button onClick={() => deletePost(post.id)}
                         className="p-2 hover:bg-red-500/20 rounded-lg transition-colors">
@@ -385,6 +611,25 @@ export default function SocialMediaSchedulerTab() {
                 </div>
               </div>
 
+              {/* Media URL (required for Instagram) */}
+              {newSocialPost.media_type !== 'text' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    {newSocialPost.media_type === 'video' ? 'Video URL' : 'Image URL'}
+                  </label>
+                  <input
+                    type="url"
+                    value={newSocialPost.media_url}
+                    onChange={(e) => setNewSocialPost({ ...newSocialPost, media_url: e.target.value })}
+                    placeholder="https://…"
+                    className="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg p-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition-colors"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Instagram requires a public image or video URL. Facebook & LinkedIn post text; X posts text only.
+                  </p>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex gap-3 pt-4 border-t border-[#2a2a2a]">
                 <button
@@ -395,6 +640,7 @@ export default function SocialMediaSchedulerTab() {
                       platforms: [],
                       scheduled_date: '',
                       media_type: 'text',
+                      media_url: '',
                     });
                   }}
                   className="flex-1 px-6 py-3 bg-[#2a2a2a] rounded-lg font-semibold hover:bg-[#3a3a3a] transition-colors text-white"
@@ -407,18 +653,22 @@ export default function SocialMediaSchedulerTab() {
                       toast.error('Please fill in all required fields');
                       return;
                     }
-                    
+                    if (newSocialPost.media_type !== 'text' && !newSocialPost.media_url.trim()) {
+                      toast.error('Add a public image or video URL for this media type.');
+                      return;
+                    }
+
                     const newPost: SocialPost = {
                       id: `post-${Date.now()}`,
                       content: newSocialPost.content,
-                      media_urls: [],
+                      media_urls: newSocialPost.media_url.trim() ? [newSocialPost.media_url.trim()] : [],
                       media_type: newSocialPost.media_type,
                       platforms: newSocialPost.platforms,
                       scheduled_date: newSocialPost.scheduled_date,
                       status: 'scheduled',
                       created_at: new Date().toISOString(),
                     };
-                    
+
                     updatePosts([...socialPosts, newPost]);
                     setShowCreateSocialPost(false);
                     setNewSocialPost({
@@ -426,8 +676,9 @@ export default function SocialMediaSchedulerTab() {
                       platforms: [],
                       scheduled_date: '',
                       media_type: 'text',
+                      media_url: '',
                     });
-                    toast.success('✅ Post scheduled! Click "Publish Now" when ready to send.');
+                    toast.success('✅ Post scheduled! Click "Publish Now" or enable Auto-publish.');
                   }}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#c2410c] rounded-lg font-semibold hover:shadow-lg hover:shadow-orange-500/50 transition-all text-white flex items-center justify-center gap-2"
                 >
