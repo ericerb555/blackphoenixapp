@@ -15,8 +15,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Card, CardHeader, CardTitle, CardDescription, CardContent,
 } from '../components/ui/Card';
-import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';

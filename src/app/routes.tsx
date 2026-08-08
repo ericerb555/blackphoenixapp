@@ -26,6 +26,7 @@ import ResetPassword from "./pages/ResetPassword";
 // App Pages
 const UnifiedDashboard = lazy(() => import("./pages/UnifiedDashboard"));
 const AutopilotCampaigns = lazy(() => import("./pages/AutopilotCampaigns"));
+const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
 const AdminAlerts = lazy(() => import("./pages/AdminAlerts"));
 const CustomersNew = lazy(() => import("./pages/CustomersNew"));
@@ -289,6 +290,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "auto-product-pilot":   AutoProductPilot,
   "social-media-hub":     SocialMediaHub,
   "autopilot-campaigns":  AutopilotCampaigns,
+  "video-studio":  VideoStudio,
   "email-lead-gen":       EmailLeadGen,
 
   // Geo-targeted landing

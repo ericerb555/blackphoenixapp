@@ -52,6 +52,7 @@ export const navigationSections: NavSection[] = [
     icon: "TrendingUp",
     items: [
       { name: "🚀 Autopilot Campaigns",   path: "autopilot-campaigns",   badge: "NEW" },
+      { name: "🎬 Video Studio",   path: "video-studio",   badge: "NEW" },
       { name: "🎯 Marketing Command Center", path: "enterprise-content-center?tab=command", badge: "HUB" },
       { name: "📣 Ad Studio",             path: "enterprise-content-center?tab=ad-studio", badge: "NEW" },
       { name: "🚀 Product Page Pilot",    path: "product-page-pilot",     badge: "AI" },

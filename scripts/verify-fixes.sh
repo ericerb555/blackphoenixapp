@@ -526,6 +526,38 @@ require $APF "approveAll"
 require $APF "pending_approval"
 require src/app/routes.tsx "autopilot-campaigns"
 require src/app/nav.ts "autopilot-campaigns"
+# UI import casing must match the case-sensitive filenames git tracks, or
+# Vercel's Linux build fails with "Could not resolve ../components/ui/...".
+require $APF "components/ui/Card"
+require $APF "components/ui/Button"
+require $APF "components/ui/Badge"
+require $APF "components/ui/Input"
+forbid $APF "components/ui/card'"
+forbid $APF "components/ui/button'"
+forbid $APF "components/ui/badge'"
+forbid $APF "components/ui/input'"
+
+# --- Video Studio (faceless video creator, Path A) ---
+VSB=supabase/functions/server/video-studio.tsx
+require $VSB "/video-studio/script"
+require $VSB "/video-studio/scene-image"
+require $VSB "/video-studio/voiceover"
+require $VSB "/video-studio/projects"
+require $VSB "audio/speech"
+require $VSB "make-3eae23a6-video"
+require supabase/functions/server/index.tsx "videoStudioRouter"
+VSF=src/app/pages/VideoStudio.tsx
+require $VSF "/video-studio/script"
+require $VSF "captureStream"
+require $VSF "MediaRecorder"
+require $VSF "createMediaStreamDestination"
+require $VSF "components/ui/Card"
+require $VSF "components/ui/Button"
+require $VSF "components/ui/Input"
+forbid $VSF "components/ui/card'"
+forbid $VSF "components/ui/button'"
+require src/app/routes.tsx "video-studio"
+require src/app/nav.ts "video-studio"
 
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
