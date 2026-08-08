@@ -1,9 +1,90 @@
 // Marketing Assets API Routes
 // AI-powered asset generation for products
 import { Hono } from 'npm:hono';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 
 export const marketingAssetsRouter = new Hono();
+
+// Private Supabase Storage bucket for generated marketing images. DALL-E's
+// returned URLs are temporary (they expire in ~1 hour), so we persist the
+// bytes here and hand the frontend a long-lived signed URL that renders
+// reliably and survives being saved into the Content Library / scheduler.
+const MARKETING_BUCKET = 'make-3eae23a6-marketing';
+const SIGNED_URL_TTL = 60 * 60 * 24 * 365; // 1 year
+
+function serviceClient() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  );
+}
+
+async function ensureMarketingBucket(supabase: ReturnType<typeof serviceClient>) {
+  try {
+    const { data: buckets } = await supabase.storage.listBuckets();
+    if (!buckets?.some((b) => b.name === MARKETING_BUCKET)) {
+      await supabase.storage.createBucket(MARKETING_BUCKET, { public: false });
+    }
+  } catch (err) {
+    console.log(`Marketing bucket ensure error (continuing): ${err}`);
+  }
+}
+
+/**
+ * Persist a base64 PNG to storage and return a durable signed URL. Returns null
+ * on any failure so the caller can fall back gracefully.
+ */
+async function storeGeneratedImage(b64: string, keyHint: string): Promise<string | null> {
+  try {
+    const supabase = serviceClient();
+    await ensureMarketingBucket(supabase);
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    const path = `${keyHint}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    const { error: upErr } = await supabase.storage
+      .from(MARKETING_BUCKET)
+      .upload(path, bytes, { contentType: 'image/png', upsert: true });
+    if (upErr) {
+      console.log(`Marketing image upload error: ${upErr.message}`);
+      return null;
+    }
+    const { data: signed, error: signErr } = await supabase.storage
+      .from(MARKETING_BUCKET)
+      .createSignedUrl(path, SIGNED_URL_TTL);
+    if (signErr || !signed?.signedUrl) {
+      console.log(`Marketing image sign error: ${signErr?.message || 'no url'}`);
+      return null;
+    }
+    return signed.signedUrl;
+  } catch (err) {
+    console.log(`storeGeneratedImage failed: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Real Unsplash fallback via the official API (UNSPLASH_ACCESS_KEY). The old
+ * random-photo redirect endpoint was shut down in 2024 and produced broken
+ * images, so we use the official search endpoint and return an actual photo
+ * URL, or null if Unsplash isn't configured / has no match.
+ */
+async function unsplashFallback(query: string): Promise<string | null> {
+  try {
+    const key = Deno.env.get('UNSPLASH_ACCESS_KEY');
+    if (!key) return null;
+    const q = encodeURIComponent((query || 'product').split(' ').slice(0, 3).join(' '));
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${q}&per_page=1&orientation=squarish`,
+      { headers: { Authorization: `Client-ID ${key}` } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.results?.[0]?.urls?.regular || null;
+  } catch (err) {
+    console.log(`unsplashFallback failed: ${err}`);
+    return null;
+  }
+}
 
 // Generate Marketing Assets using OpenAI DALL-E
 marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
@@ -21,6 +102,7 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
     console.log(`Generating ${assetType} assets for product ${productId}`);
 
     const assets = [];
+    const errors: string[] = [];
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
 
     if (!openaiKey) {
@@ -59,7 +141,9 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
           prompt = customPrompt || `Professional web banner design for ${productName}. ${productDescription}. Clean modern design, product featured, commercial banner ad style, ${dimensions} dimensions, attention-grabbing composition.`;
         }
 
-        // Call OpenAI DALL-E API
+        // Call OpenAI DALL-E API. We request b64_json (not url) so we get the
+        // raw bytes and can persist them ourselves — DALL-E's hosted URLs are
+        // temporary (~1h) and were the reason saved ads later broke.
         const imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
           method: 'POST',
           headers: {
@@ -72,36 +156,54 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
             n: 1,
             size: '1024x1024', // DALL-E 3 standard size
             quality: 'standard',
-            style: 'natural'
+            style: 'natural',
+            response_format: 'b64_json',
           }),
         });
 
         if (!imageResponse.ok) {
-          const errorData = await imageResponse.json();
-          console.error(`OpenAI API error for ${platform}:`, errorData);
-          
-          // Fallback to Unsplash for demo
-          const fallbackUrl = `https://source.unsplash.com/1200x1200/?${productName.split(' ')[0]},product,${platform}&sig=${Date.now()}`;
-          assets.push({
-            id: `asset_${Date.now()}_${platform}`,
-            type: assetType,
-            url: fallbackUrl,
-            platform,
-            dimensions,
-            prompt,
-            source: 'unsplash_fallback'
-          });
+          const errorData = await imageResponse.json().catch(() => ({}));
+          const detail = errorData?.error?.message || `HTTP ${imageResponse.status}`;
+          console.error(`OpenAI API error for ${platform}: ${detail}`, errorData);
+
+          // Real Unsplash fallback (the old random-photo redirect endpoint is
+          // dead and produced broken images). Only push if we actually get a
+          // usable photo URL — otherwise record the error so the frontend can
+          // surface an honest "unavailable" message instead of a broken img.
+          const fallbackUrl = await unsplashFallback(productName);
+          if (fallbackUrl) {
+            assets.push({
+              id: `asset_${Date.now()}_${platform}`,
+              type: assetType,
+              url: fallbackUrl,
+              platform,
+              dimensions,
+              prompt,
+              source: 'unsplash_fallback',
+            });
+          } else {
+            errors.push(`${platform}: ${detail}`);
+          }
           continue;
         }
 
         const imageData = await imageResponse.json();
-        const imageUrl = imageData.data[0]?.url;
+        const b64 = imageData.data?.[0]?.b64_json as string | undefined;
+        const rawUrl = imageData.data?.[0]?.url as string | undefined;
 
-        if (imageUrl) {
+        // Persist to storage → durable signed URL. Fall back to the raw DALL-E
+        // URL only if storage fails, so the image still shows immediately.
+        let finalUrl: string | undefined;
+        if (b64) {
+          finalUrl = (await storeGeneratedImage(b64, `${productId || 'product'}_${platform}`)) || undefined;
+        }
+        if (!finalUrl && rawUrl) finalUrl = rawUrl;
+
+        if (finalUrl) {
           assets.push({
             id: `asset_${Date.now()}_${platform}`,
             type: assetType,
-            url: imageUrl,
+            url: finalUrl,
             platform,
             dimensions,
             prompt,
@@ -114,34 +216,51 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
             productId,
             platform,
             type: assetType,
-            url: imageUrl,
+            url: finalUrl,
             prompt,
             createdAt: new Date().toISOString()
           });
+        } else {
+          errors.push(`${platform}: image generated but could not be stored`);
         }
 
       } catch (platformError) {
         console.error(`Error generating asset for ${platform}:`, platformError);
-        
-        // Fallback to Unsplash
-        const fallbackUrl = `https://source.unsplash.com/1200x1200/?${productName.split(' ')[0]},product,${platform}&sig=${Date.now()}`;
-        assets.push({
-          id: `asset_${Date.now()}_${platform}`,
-          type: assetType,
-          url: fallbackUrl,
-          platform,
-          dimensions: dimensionsMap[platform] || '1200x1200',
-          prompt: 'Fallback image',
-          source: 'unsplash_fallback'
-        });
+
+        const fallbackUrl = await unsplashFallback(productName);
+        if (fallbackUrl) {
+          assets.push({
+            id: `asset_${Date.now()}_${platform}`,
+            type: assetType,
+            url: fallbackUrl,
+            platform,
+            dimensions: dimensionsMap[platform] || '1200x1200',
+            prompt: 'Fallback image',
+            source: 'unsplash_fallback'
+          });
+        } else {
+          errors.push(`${platform}: ${platformError instanceof Error ? platformError.message : String(platformError)}`);
+        }
       }
     }
 
-    console.log(`Successfully generated ${assets.length} assets`);
+    console.log(`Successfully generated ${assets.length} assets (${errors.length} error(s))`);
+
+    // If nothing was produced, return a 502 with details so the frontend shows
+    // its "unavailable" toast rather than rendering a broken image.
+    if (assets.length === 0) {
+      return c.json({
+        success: false,
+        assets: [],
+        error: 'No marketing assets could be generated.',
+        details: errors.join(' | ') || 'Unknown error',
+      }, 502);
+    }
 
     return c.json({
       success: true,
       assets,
+      errors,
       message: `Generated ${assets.length} marketing asset(s)`
     });
 

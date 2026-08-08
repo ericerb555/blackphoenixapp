@@ -628,6 +628,16 @@ require $HP "toCSV"
 require $HP 'p.source === "cjdropshipping"'
 require $HP 'p.source === "zendrop"'
 
+# Marketing AI image generation — must persist to storage + real Unsplash
+# fallback, and must NOT use the dead source.unsplash.com endpoint.
+MA=supabase/functions/server/marketing-assets.tsx
+forbid  $MA "source.unsplash.com"
+require $MA "make-3eae23a6-marketing"
+require $MA "storeGeneratedImage"
+require $MA "createSignedUrl"
+require $MA "unsplashFallback"
+require $MA "response_format: 'b64_json'"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi
