@@ -59,6 +59,7 @@ export const navigationSections: NavSection[] = [
       { name: "Zendrop",                  path: "zendrop",                badge: "NEW" },
       { name: "Auto-Product Pilot",       path: "auto-product-pilot",     badge: "NEW" },
       { name: "AI Ranking Engine",        path: "ai-ranking-engine",      badge: "NEW" },
+      { name: "AI SEO Engine",            path: "ai-seo-engine",          badge: "AI" },
       { name: "Social Media Hub",         path: "social-media-hub",       badge: "NEW" },
       { name: "Exit-Intent Popups",       path: "exit-intent",            badge: "NEW" },
       { name: "Live Chat",                path: "live-chat",              badge: "NEW" },

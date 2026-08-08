@@ -194,6 +194,47 @@ require $DP "cjdropshipping"
 require $I "cjRouter"
 require $I 'app.route("/", cjRouter)'
 
+# --- AI SEO Engine (GrandRanker-style) ----------------------------------------
+# Real OpenAI + KV module. Guard the module, its mount, and the frontend wiring
+# so the whole section can't silently vanish.
+SEO=supabase/functions/server/seo-engine.tsx
+require $SEO "seo-engine/keywords/discover"
+require $SEO "seo-engine/articles/generate"
+require $SEO "seo-engine/visibility/check"
+require $SEO "seo-engine/overview"
+require $SEO "api.openai.com/v1/chat/completions"
+require $SEO "OPENAI_API_KEY"
+require $I "seoEngineRouter"
+require $I 'app.route("/", seoEngineRouter)'
+SEOP=src/app/pages/AiSeoEngine.tsx
+require $SEOP "seo-engine/keywords/discover"
+require $SEOP "seo-engine/articles/generate"
+require src/app/routes.tsx '"ai-seo-engine"'
+require src/app/nav.ts "ai-seo-engine"
+# Publishing an AI article must create a real blog post in the store's blog KV.
+require $SEO "publishArticleToBlog"
+require $SEO "blog_post:"
+require $SEO "htmlToMarkdown"
+
+# --- Creative Studio (Higgsfield-style AI image suite) ------------------------
+# Real OpenAI image gen persisted to Supabase Storage. Guard module, mount, and
+# Content Center tab wiring so it can't silently vanish.
+CS=supabase/functions/server/creative-studio.tsx
+require $CS "creative-studio/generate"
+require $CS "creative-studio/presets"
+require $CS "creative-studio/status"
+require $CS "api.openai.com/v1/images/generations"
+require $CS "make-3eae23a6-creative"
+require $CS "createSignedUrl"
+require $I "creativeStudioRouter"
+require $I 'app.route("/make-server-3eae23a6", creativeStudioRouter)'
+ECC=src/app/pages/EnterpriseContentCenter.tsx
+require $ECC "creative-studio"
+require $ECC "CreativeStudio"
+CSP=src/app/components/creativestudio/CreativeStudio.tsx
+require $CSP "creative-studio/generate"
+require $CSP "creative-studio/presets"
+
 # --- Auto-fulfillment ---------------------------------------------------------
 IDX=supabase/functions/server/index.tsx
 require $IDX "dropshipper/orders/:orderId/retry"
@@ -353,6 +394,55 @@ require $I "urn:li:person"
 require $I "api.twitter.com/2/tweets"
 require $I "LINKEDIN_CLIENT_ID"
 require $I "TWITTER_CLIENT_ID"
+
+# ── Content Studio: Brand Kit + Omnichannel Repurposer + AI Planner. Real
+#    OpenAI + KV, no mocks; wired as a Content Center tab. ──
+CST=supabase/functions/server/content-studio.tsx
+require $CST "content-studio/brand-kit"
+require $CST "content-studio/repurpose"
+require $CST "content-studio/packs"
+require $CST "content-studio/plan"
+require $CST "OPENAI_API_KEY"
+require $CST "api.openai.com/v1/chat/completions"
+require $CST "brandContext"
+require $I "contentStudioRouter"
+require $I 'app.route("/make-server-3eae23a6", contentStudioRouter)'
+CSTP=src/app/components/contentstudio/ContentStudio.tsx
+require $CSTP "content-studio/brand-kit"
+require $CSTP "content-studio/repurpose"
+require $CSTP "content-studio/plan"
+require $ECC "contentstudio/ContentStudio"
+require $ECC "activeTab === 'content-studio'"
+
+# ── Content Studio → Social Scheduler handoff (real text drafts, incl. whole
+#    pack queue). These were silently lost in a prior reset — guard them. ──
+CH=src/app/lib/contentHandoff.ts
+require $CH "sendDraftToScheduler"
+require $CH "sendDraftsToScheduler"
+require $CH "consumeSchedulerDraft"
+require $CH "consumeSchedulerDraftQueue"
+require $CH "channelToPlatform"
+require $CSTP "sendDraftToScheduler"
+require $CSTP "sendDraftsToScheduler"
+require $CSTP "Send whole pack"
+require $SMS "consumeSchedulerDraft"
+require $SMS "consumeSchedulerDraftQueue"
+
+# ── Brand Kit applied across generators: SEO Engine + Creative Studio read the
+#    shared brand context so all AI output matches one brand. ──
+require $CST "loadBrandContext"
+require $CST "loadBrandVisual"
+require $CST "brandKitStatus"
+require $SEO "loadBrandContext"
+require $SEO "useBrandKit"
+require $SEO "usedBrandKit"
+require $CS "loadBrandVisual"
+require $CS "useBrandKit"
+require $CS "usedBrandKit"
+require $CSP "useBrandKit"          # Creative Studio component toggle
+require $CSP "brandConfigured"      # Brand-Kit-not-set hint
+require $SEOP "useBrandKit"         # SEO Engine page toggle
+require $SEOP "brandConfigured"     # Brand-Kit-not-set hint
 
 if [ $fail -eq 0 ]; then
   echo "All fixes present."

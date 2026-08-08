@@ -27,7 +27,7 @@ import {
   TrendingUp as TrendingUpIcon, Package as PackageIcon, Shield,
   AlertCircle, Briefcase, Link as LinkIcon, Unlink, ExternalLink,
   CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame, Link2,
-  Store
+  Store, Repeat
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
@@ -39,6 +39,8 @@ import UserContextSelector from '../components/UserContextSelector';
 import MusicTimelineEditor from '../components/MusicTimelineEditor';
 import { useNavigate } from '../hooks/useNavigate';
 import AdStudio from '../components/adstudio/AdStudio';
+import CreativeStudio from '../components/creativestudio/CreativeStudio';
+import ContentStudio from '../components/contentstudio/ContentStudio';
 import MarketingCommandCenter from '../components/adstudio/MarketingCommandCenter';
 import EcommerceStoreHub from '../components/adstudio/EcommerceStoreHub';
 import MarketplaceAdmin from './MarketplaceAdmin';
@@ -163,7 +165,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce' | 'digital-products'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce' | 'digital-products' | 'creative-studio' | 'content-studio'>('command');
 
   // Which sub-tab the embedded Online Store panel should open on (deep-linkable).
   const [storeSubTab, setStoreSubTab] = useState<import('../components/DropshipperAdminPanel').StoreTab>('overview');
@@ -184,7 +186,7 @@ export default function EnterpriseContentCenter() {
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
     try {
-      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce', 'digital-products'];
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce', 'digital-products', 'creative-studio', 'content-studio'];
       const storeSubTabs = ['overview', 'providers', 'catalog', 'pricing', 'inventory', 'orders', 'errors'];
       const tab = new URLSearchParams(window.location.search).get('tab');
       if (tab && tab.startsWith('store-') && storeSubTabs.includes(tab.replace('store-', ''))) {
@@ -1845,6 +1847,8 @@ export default function EnterpriseContentCenter() {
           {[
             { id: 'command', label: '🎯 Command Center', icon: Target },
             { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
+            { id: 'creative-studio', label: '🎨 Creative Studio', icon: Wand2 },
+            { id: 'content-studio', label: '✍️ Content Studio', icon: Repeat },
             { id: 'ecommerce', label: '🛒 eCommerce Store', icon: Store },
             { id: 'digital-products', label: '📦 Digital Products', icon: Download },
             { id: 'library', label: 'Content Library', icon: FileText },
@@ -1891,6 +1895,16 @@ export default function EnterpriseContentCenter() {
           {/* Ad Studio Tab */}
           {activeTab === 'ad-studio' && (
             <AdStudio onNavigate={hubNavigate} onSaveToLibrary={handleAdSaveToLibrary} />
+          )}
+
+          {/* Creative Studio Tab — Higgsfield-style AI image/VFX generation. */}
+          {activeTab === 'creative-studio' && (
+            <CreativeStudio />
+          )}
+
+          {/* Content Studio Tab — Brand Kit, Omnichannel Repurposer & AI Planner. */}
+          {activeTab === 'content-studio' && (
+            <ContentStudio />
           )}
 
           {/* Digital Products Tab — create, price & organize all digital products.

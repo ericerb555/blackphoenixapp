@@ -135,6 +135,106 @@ export function sendProductToContentTools(
   return unique;
 }
 
+/**
+ * Text-draft handoff into the Social Scheduler. Unlike the product handoff
+ * above, this carries a ready-to-post caption (e.g. a repurposed channel post
+ * or a planned calendar item) plus an optional platform + scheduled date so the
+ * composer opens fully prefilled. Prices/products are not involved here.
+ */
+export interface SchedulerDraft {
+  content: string;
+  platforms?: ('facebook' | 'instagram' | 'linkedin' | 'twitter')[];
+  scheduled_date?: string;
+  media_url?: string;
+  source?: string;
+}
+
+const SCHEDULER_DRAFT_KEY = 'bp_scheduler_draft';
+const SCHEDULER_QUEUE_KEY = 'bp_scheduler_draft_queue';
+
+/** Map a Content Studio channel id to a publishable scheduler platform (if any). */
+export function channelToPlatform(
+  channel: string,
+): 'facebook' | 'instagram' | 'linkedin' | 'twitter' | null {
+  switch (channel) {
+    case 'x_thread':
+      return 'twitter';
+    case 'linkedin':
+      return 'linkedin';
+    case 'instagram':
+      return 'instagram';
+    case 'facebook':
+      return 'facebook';
+    default:
+      return null; // email / youtube / tiktok aren't auto-publishable
+  }
+}
+
+/** Stash a single text draft for the Social Scheduler and open that tab prefilled. */
+export function sendDraftToScheduler(draft: SchedulerDraft) {
+  try {
+    localStorage.setItem(SCHEDULER_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    /* storage may be unavailable; the event still carries the payload */
+  }
+  openScheduler();
+}
+
+/**
+ * Queue SEVERAL drafts for the Social Scheduler at once (e.g. every publishable
+ * channel from a repurposed pack). The scheduler lands each as its own draft
+ * post rather than trying to cram them into a single composer.
+ */
+export function sendDraftsToScheduler(drafts: SchedulerDraft[]) {
+  const list = (drafts || []).filter((d) => d && d.content);
+  if (!list.length) return;
+  try {
+    localStorage.setItem(SCHEDULER_QUEUE_KEY, JSON.stringify(list));
+  } catch {
+    /* storage may be unavailable; the event still carries the payload */
+  }
+  openScheduler();
+}
+
+/** Fire the open event + SPA navigation to the Social Scheduler tab. */
+function openScheduler() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(CONTENT_OPEN_EVENT, {
+      detail: { target: 'social-scheduler' as ContentTarget },
+    }),
+  );
+  const spaNavigate = (window as any).__navigateApp;
+  if (typeof spaNavigate === 'function') {
+    spaNavigate(`enterprise-content-center?tab=social-scheduler`);
+  }
+}
+
+/** Read and clear a pending single scheduler draft (called by the scheduler). */
+export function consumeSchedulerDraft(): SchedulerDraft | null {
+  try {
+    const raw = localStorage.getItem(SCHEDULER_DRAFT_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(SCHEDULER_DRAFT_KEY);
+    return JSON.parse(raw) as SchedulerDraft;
+  } catch {
+    return null;
+  }
+}
+
+/** Read and clear a queued batch of scheduler drafts (called by the scheduler). */
+export function consumeSchedulerDraftQueue(): SchedulerDraft[] {
+  try {
+    const raw = localStorage.getItem(SCHEDULER_QUEUE_KEY);
+    if (!raw) return [];
+    localStorage.removeItem(SCHEDULER_QUEUE_KEY);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SchedulerDraft[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Read and clear the pending product for a tool (called by that tool on mount). */
 export function consumeContentProduct(target: ContentTarget): UnifiedProduct | null {
   try {

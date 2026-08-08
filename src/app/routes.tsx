@@ -49,6 +49,7 @@ const PublicStore = lazy(() => import("./pages/PublicStore"));
 const OrderTracking = lazy(() => import("./components/OrderTracking"));
 const PromotionsManager = lazy(() => import("./pages/PromotionsManager"));
 const AIRankingEngine = lazy(() => import("./pages/AIRankingEngine"));
+const AiSeoEngine = lazy(() => import("./pages/AiSeoEngine"));
 const AutoProductPilot = lazy(() => import("./pages/AutoProductPilot"));
 const SocialMediaHub = lazy(() => import("./pages/SocialMediaHub"));
 const EmailLeadGen = lazy(() => import("./pages/EmailLeadGen"));
@@ -283,6 +284,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "keyword-tracker":      KeywordTracker,
   "customer-portal":      CustomerPortal,
   "ai-ranking-engine":    AIRankingEngine,
+  "ai-seo-engine":        AiSeoEngine,
   "auto-product-pilot":   AutoProductPilot,
   "social-media-hub":     SocialMediaHub,
   "email-lead-gen":       EmailLeadGen,

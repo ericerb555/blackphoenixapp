@@ -5,7 +5,7 @@ import {
   Image as ImageIcon, Video, Library, Zap, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { consumeContentProduct } from '../lib/contentHandoff';
+import { consumeContentProduct, consumeSchedulerDraft, consumeSchedulerDraftQueue } from '../lib/contentHandoff';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
@@ -135,6 +135,55 @@ export default function SocialMediaSchedulerTab() {
     }));
     setShowCreateSocialPost(true);
     toast.success(`"${p.name}" loaded into a new post`);
+  }, []);
+
+  // Text drafts routed here from Content Studio (a single repurposed post / a
+  // planned calendar item, OR a whole pack queued at once). A single draft opens
+  // the composer prefilled; a queued batch lands each as its own draft post.
+  useEffect(() => {
+    function loadDrafts() {
+      // Whole-pack queue first: create a draft SocialPost per item.
+      const queue = consumeSchedulerDraftQueue();
+      if (queue.length) {
+        const now = Date.now();
+        const drafts: SocialPost[] = queue.map((d, i) => ({
+          id: `post-${now}-${i}`,
+          content: d.content,
+          media_urls: d.media_url ? [d.media_url] : [],
+          media_type: d.media_url ? 'image' : 'text',
+          platforms: (d.platforms || []).filter((p) => PUBLISHABLE.has(p)) as SocialPost['platforms'],
+          scheduled_date: d.scheduled_date || '',
+          status: 'draft',
+          created_at: new Date().toISOString(),
+        }));
+        setSocialPosts((prev) => {
+          const next = [...prev, ...drafts];
+          saveScheduledPosts(next);
+          return next;
+        });
+        toast.success(`${drafts.length} posts added as drafts from ${queue[0].source || 'Content Studio'}`);
+      }
+
+      // Single draft opens the composer prefilled.
+      const d = consumeSchedulerDraft();
+      if (d) {
+        const platforms = (d.platforms || []).filter((p) => PUBLISHABLE.has(p)) as ('facebook' | 'instagram' | 'linkedin' | 'twitter')[];
+        setNewSocialPost((prev) => ({
+          ...prev,
+          content: d.content || prev.content,
+          platforms: platforms.length ? platforms : prev.platforms,
+          scheduled_date: d.scheduled_date || prev.scheduled_date,
+          media_type: d.media_url ? 'image' : prev.media_type,
+          media_url: d.media_url || prev.media_url,
+        }));
+        setShowCreateSocialPost(true);
+        toast.success(d.source ? `Loaded from ${d.source}` : 'Draft loaded into a new post');
+      }
+    }
+    loadDrafts();
+    const handler = () => loadDrafts();
+    window.addEventListener('content:open', handler as EventListener);
+    return () => window.removeEventListener('content:open', handler as EventListener);
   }, []);
 
   function updatePosts(posts: SocialPost[]) {
