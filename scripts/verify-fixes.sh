@@ -142,12 +142,28 @@ require $ZD "submitZendropOrder"
 require $ZD "listZendropTools"
 require $ZD "pickOrderTool"
 require $ZD "zendrop/order-tool"
+# fulfill_order is NOT an order-creation tool (it dispatches orders already in a
+# Zendrop store). It must stay out of the create-order patterns so we don't
+# mis-call it and surface a misleading "Insufficient scope" error.
+forbid  $ZD "/^fulfill_order\$/i"
+forbid  $ZD "/^fulfill_.*order/i"
+require $ZD "cannot place this order remotely"
+# Product linking (import into the user's Zendrop account) — prerequisite for
+# fulfillment, auto-run on payment.
+require $ZD "linkProductToZendrop"
+require $ZD "linkInventoryProduct"
+require $ZD "pickProductLinkTool"
+require $ZD "zendrop/link-product"
+require $ZD "zendrop/link-all"
+require $ZD "resolveZendropStoreId"
 
 DP=supabase/functions/server/dropshipper.tsx
 require $DP "submitZendropOrder"
 # Zendrop must be intercepted before the generic REST post (still correct for
 # other providers) can reach it.
 require $DP "provider.id) === 'zendrop'"
+# Auto-fill on payment: the forward path imports products into Zendrop first.
+require $DP "linkInventoryProduct"
 # Skip reasons used to be the opaque "(send failed)".
 forbid  $DP "(send failed)"
 

@@ -6,7 +6,7 @@
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
-import { submitZendropOrder } from './zendrop.tsx';
+import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey } from './zendrop.tsx';
 
 // Storage keys
 const INVENTORY_KEY_PREFIX = 'dropshipper_inventory';
@@ -361,6 +361,30 @@ async function sendOrderToProvider(
   // Posting to `${provider.apiUrl}/orders` never created an order; it just
   // failed and left the store order sitting at "pending".
   if (String(provider.id) === 'zendrop' || /zendrop/i.test(String(provider.name || ''))) {
+    const key = resolveZendropKey(provider.apiKey) || '';
+
+    // Auto-fill step: before attempting fulfillment, make sure every ordered
+    // product actually exists in the user's Zendrop account (import_my_product).
+    // This is the prerequisite the platform requires and runs automatically the
+    // moment an order is paid. Best-effort per item — a link failure must not
+    // abort the order; it only means that item stays manual.
+    if (key) {
+      for (const item of orderData.items) {
+        const providerProductId = item.providerProductId ? String(item.providerProductId) : undefined;
+        if (!providerProductId && !item.sku) continue;
+        try {
+          const r = await linkInventoryProduct(key, { sku: item.sku, providerProductId });
+          if (r.success) {
+            console.log(`[Dropshipper] Zendrop product ${item.sku} ${r.skipped ? 'already linked' : `linked (${r.myProductId || 'ok'})`}`);
+          } else {
+            console.log(`[Dropshipper] Zendrop link skipped for ${item.sku}: ${r.error}`);
+          }
+        } catch (e) {
+          console.log(`[Dropshipper] Zendrop link error for ${item.sku}: ${e}`);
+        }
+      }
+    }
+
     const { providerOrderId } = await submitZendropOrder(provider.apiKey, {
       orderId: orderData.orderId || 'unknown',
       items: orderData.items,

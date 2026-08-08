@@ -154,16 +154,20 @@ export async function listZendropTools(apiKey: string, force = false): Promise<{
   return { tools };
 }
 
+// NOTE: only tools that CREATE a brand-new order from external data belong
+// here. `fulfill_order` is deliberately NOT in this list: despite the name it
+// does not create an order — its schema is { store_id, order_ids, confirmed }
+// and it only dispatches orders that ALREADY exist inside a connected Zendrop
+// store. Matching it made us call it with line_items/shipping_address, which it
+// silently ignores, and surfaced Zendrop's "Insufficient scope: orders:write"
+// as if a token toggle would fix a structural mismatch. Keep it out.
 const ORDER_TOOL_PATTERNS: RegExp[] = [
   /^create_order$/i,
   /^place_order$/i,
   /^submit_order$/i,
   /^create_orders?$/i,
   /^order_create$/i,
-  /^fulfill_order$/i,
   /^(create|place|submit)_.*order/i,
-  /^fulfill_.*order/i,
-  /^trigger_fulfillment$/i,
   /^(create|place|submit).*order/i,
 ];
 
@@ -213,6 +217,110 @@ export function buildOrderArguments(tool: McpTool, order: ZendropOrderInput): Re
   put(["shipping_address", "shippingAddress", "address", "destination", "shipping"], order.shippingAddress);
   put(["external_id", "externalId", "reference", "reference_id", "order_id", "orderId", "external_order_id"], order.orderId);
   return args;
+}
+
+// ─── Product linking (add_my_product / import_my_product) ───────────────────
+//
+// Prerequisite for any Zendrop fulfillment: the products a customer buys must
+// exist in the user's own Zendrop account ("my products"), not just the shared
+// catalog. These tools import a catalog product into the account and return a
+// "my product" id we store on the inventory record so we never re-import.
+
+const PRODUCT_LINK_PATTERNS: RegExp[] = [
+  /^import_my_product$/i,
+  /^add_my_product$/i,
+  /^link_my_product$/i,
+  /^(import|add|link)_my_product/i,
+];
+
+export function pickProductLinkTool(tools: McpTool[]): McpTool | null {
+  for (const pattern of PRODUCT_LINK_PATTERNS) {
+    const hit = tools.find((t) => pattern.test(t.name));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export interface ZendropLinkInput {
+  providerProductId: string; // Zendrop CATALOG product id
+  sku?: string;
+  name?: string;
+  price?: number;
+  variantId?: string;
+}
+
+/** As with orders, only send keys the tool's own inputSchema declares. */
+export function buildLinkArguments(tool: McpTool, p: ZendropLinkInput): Record<string, unknown> {
+  const numId = (v?: string) =>
+    v != null && /^\d+$/.test(String(v)) ? Number(v) : v;
+
+  const properties = tool.inputSchema?.properties;
+  if (!properties || typeof properties !== "object") {
+    return { product_id: numId(p.providerProductId), variant_id: numId(p.variantId ?? p.providerProductId) };
+  }
+
+  const args: Record<string, unknown> = {};
+  const put = (aliases: string[], value: unknown) => {
+    if (value === undefined || value === null || value === "") return;
+    const key = aliases.find((a) => a in properties);
+    if (key) args[key] = value;
+  };
+
+  put(["catalog_product_id", "product_id", "productId", "id", "source_product_id"], numId(p.providerProductId));
+  put(["variant_id", "variantId", "catalog_variant_id"], p.variantId ? numId(p.variantId) : undefined);
+  put(["sku"], p.sku);
+  put(["name", "title"], p.name);
+  put(["price", "sell_price", "retail_price"], p.price);
+  return args;
+}
+
+/**
+ * Import ONE catalog product into the user's Zendrop account. Returns the
+ * "my product" id on success. Best-effort by contract: callers should not let a
+ * link failure abort a whole order — it just means fulfillment stays manual.
+ */
+export async function linkProductToZendrop(
+  apiKey: string,
+  p: ZendropLinkInput,
+): Promise<{ linked: boolean; tool?: string; myProductId?: string; raw?: any; error?: string }> {
+  const { tools, error } = await listZendropTools(apiKey);
+  if (error) return { linked: false, error };
+  const tool = pickProductLinkTool(tools);
+  if (!tool) {
+    return { linked: false, error: `This Zendrop token exposes no product-import tool. Available: ${tools.map((t) => t.name).join(", ")}.` };
+  }
+  const args = buildLinkArguments(tool, p);
+  const res = await zendropFetch(apiKey, tool.name, args);
+  if (!res.ok) return { linked: false, tool: tool.name, error: res.error || `HTTP ${res.status}` };
+  if (res.data?.result?.isError) {
+    return { linked: false, tool: tool.name, error: JSON.stringify(res.data.result?.content ?? res.data.result).slice(0, 300) };
+  }
+  const myProductId = extractOrderId(res.data) ?? undefined; // walks id/product_id/etc.
+  return { linked: true, tool: tool.name, myProductId, raw: res.data };
+}
+
+/** Unwrap Zendrop's MCP envelope (structuredContent, or content[].text JSON). */
+export function unwrapStructured(data: any): any {
+  const sc = data?.result?.structuredContent;
+  if (sc && typeof sc === "object") return sc;
+  const content = data?.result?.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const txt = typeof part === "string" ? part : part?.text;
+      if (txt) { try { return JSON.parse(txt); } catch { /* not json */ } }
+    }
+  }
+  return data?.result ?? data;
+}
+
+/** The numeric internal store id `fulfill_order` needs, or null if none exists. */
+export async function resolveZendropStoreId(apiKey: string): Promise<number | null> {
+  const res = await zendropFetch(apiKey, "get_stores", {});
+  if (!res.ok) return null;
+  const structured = unwrapStructured(res.data);
+  const stores = Array.isArray(structured?.stores) ? structured.stores : Array.isArray(structured) ? structured : [];
+  const first = stores.find((s: any) => s && s.id != null);
+  return first ? Number(first.id) : null;
 }
 
 /** Walk an arbitrary MCP response looking for something that names the order. */
@@ -270,10 +378,21 @@ export async function submitZendropOrder(
 
   const tool = pickOrderTool(tools);
   if (!tool) {
+    const hasFulfill = tools.some((t) => /fulfill_order/i.test(t.name));
     const names = tools.map((t) => t.name).join(", ") || "(none returned)";
+    // Zendrop's MCP has no create-order tool — orders can only be FULFILLED
+    // (fulfill_order) once they already live inside a connected Zendrop store.
+    // A standalone store's order cannot be injected through this API, so say so
+    // plainly instead of mis-calling fulfill_order or blaming token scope.
     throw new Error(
-      `Zendrop's MCP token does not expose an order-creation tool. Available tools: ${names}. ` +
-      `Regenerate the access token at app.zendrop.com/mcp/v1 with order write access enabled.`,
+      hasFulfill
+        ? `Products were imported into your Zendrop account, but Zendrop's API cannot place this order remotely. ` +
+          `Its only order tool is "fulfill_order", which dispatches orders that ALREADY exist in a connected Zendrop ` +
+          `store (it needs a numeric store_id + order_ids, not a shipping address and line items), and this account has ` +
+          `no connected Zendrop store yet. Connect a sales channel Zendrop syncs (so orders flow in automatically) or ` +
+          `place this order in the Zendrop dashboard — the products are now linked and ready. Available tools: ${names}.`
+        : `Zendrop's MCP token does not expose an order-creation tool. Available tools: ${names}. ` +
+          `Regenerate the access token at app.zendrop.com/mcp/v1 with order write access enabled.`,
     );
   }
 
@@ -789,6 +908,99 @@ zendropRouter.get(`${PREFIX}/zendrop/status`, async (c) => {
 });
 
 /**
+ * Load one imported inventory record by its supplier SKU.
+ */
+async function getInventoryRecord(sku: string): Promise<any | null> {
+  const raw = await kv.get(`${INVENTORY_KEY_PREFIX}:${sku}`);
+  return raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+}
+
+/**
+ * Import a product into the user's Zendrop account so it's ready to fulfill.
+ * Idempotent: if we already stored a myProductId for this SKU, we skip the call.
+ * Body: { sku? } | { providerProductId?, sku?, name?, price?, variantId?, force? }
+ */
+export async function linkInventoryProduct(
+  apiKey: string,
+  input: { sku?: string; providerProductId?: string; name?: string; price?: number; variantId?: string; force?: boolean },
+): Promise<{ success: boolean; linked?: boolean; skipped?: boolean; myProductId?: string; tool?: string; error?: string }> {
+  let record: any = null;
+  if (input.sku) record = await getInventoryRecord(input.sku);
+
+  const providerProductId = String(input.providerProductId || record?.providerProductId || "");
+  if (!providerProductId) {
+    return { success: false, error: "No Zendrop catalog product id available to import (pass providerProductId or a known sku)." };
+  }
+
+  // Already linked — nothing to do unless forced.
+  if (!input.force && record?.zendropMyProductId) {
+    return { success: true, skipped: true, myProductId: String(record.zendropMyProductId) };
+  }
+
+  const result = await linkProductToZendrop(apiKey, {
+    providerProductId,
+    sku: input.sku || record?.sku,
+    name: input.name || record?.name,
+    price: input.price ?? record?.price,
+    variantId: input.variantId,
+  });
+
+  if (!result.linked) return { success: false, error: result.error, tool: result.tool };
+
+  // Persist the returned my-product id on the inventory record so order
+  // forwarding can reference it and we never re-import.
+  if (record && result.myProductId) {
+    record.zendropMyProductId = result.myProductId;
+    record.zendropLinkedAt = new Date().toISOString();
+    await kv.set(`${INVENTORY_KEY_PREFIX}:${record.sku}`, JSON.stringify(record));
+  }
+
+  return { success: true, linked: true, myProductId: result.myProductId, tool: result.tool };
+}
+
+/**
+ * POST /zendrop/link-product — import one product into the Zendrop account.
+ * Body: { sku } or { providerProductId, name?, price?, variantId? }
+ */
+zendropRouter.post(`${PREFIX}/zendrop/link-product`, async (c) => {
+  try {
+    const apiKey = resolveKey();
+    if (!apiKey) return c.json({ success: false, error: "No ZENDROP_API_KEY configured." }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await linkInventoryProduct(apiKey, body);
+    return c.json(result, result.success ? 200 : 502);
+  } catch (error: any) {
+    console.log(`[Zendrop] link-product error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
+  }
+});
+
+/**
+ * POST /zendrop/link-all — import every not-yet-linked inventory product.
+ */
+zendropRouter.post(`${PREFIX}/zendrop/link-all`, async (c) => {
+  try {
+    const apiKey = resolveKey();
+    if (!apiKey) return c.json({ success: false, error: "No ZENDROP_API_KEY configured." }, 400);
+    const inventory = await kv.getByPrefix(INVENTORY_KEY_PREFIX);
+    let linked = 0, skipped = 0, failed = 0;
+    const errors: string[] = [];
+    for (const raw of inventory as any[]) {
+      const p = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!p?.sku) continue;
+      const r = await linkInventoryProduct(apiKey, { sku: p.sku });
+      if (!r.success) { failed += 1; if (errors.length < 5) errors.push(`${p.sku}: ${r.error}`); }
+      else if (r.skipped) skipped += 1;
+      else linked += 1;
+    }
+    return c.json({ success: true, linked, skipped, failed, total: (inventory as any[]).length, errors });
+  } catch (error: any) {
+    console.log(`[Zendrop] link-all error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || String(error) }, 500);
+  }
+});
+
+/**
  * GET /zendrop/debug
  * Flexible diagnostic probe (all via GET so it works without POST access):
  *   ?probe=list              → MCP tools/list, returns available tool names
@@ -828,6 +1040,15 @@ zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
       ? data.result.tools.map((t: any) => t?.name)
       : undefined;
 
+    // When asked, surface a single tool's FULL input schema so we can wire
+    // against Zendrop's real contract instead of guessing argument shapes.
+    const schemaFor = c.req.query("schema");
+    let toolSchema: any = undefined;
+    if (probe === "list" && schemaFor && Array.isArray(data?.result?.tools)) {
+      const hit = data.result.tools.find((t: any) => t?.name === schemaFor);
+      toolSchema = hit ? { name: hit.name, description: hit.description, inputSchema: hit.inputSchema ?? hit.input_schema } : null;
+    }
+
     return c.json({
       success: true,
       mode: probe === "list" ? "tools/list" : tool ? `tools/call:${tool}` : "tools/call:get_catalog_trending_products",
@@ -837,6 +1058,7 @@ zendropRouter.get(`${PREFIX}/zendrop/debug`, async (c) => {
       parsedAsJson: data != null && typeof data === "object",
       topLevelKeys: data && typeof data === "object" ? Object.keys(data) : [],
       toolNames,
+      toolSchema,
       extractedProductCount: extracted.length,
       firstProductKeys: firstProduct && typeof firstProduct === "object" ? Object.keys(firstProduct) : [],
       firstProduct,
