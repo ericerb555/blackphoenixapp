@@ -31,6 +31,7 @@ import maintenanceConfigRouter from "./maintenance-config.tsx";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
+import cjRouter from "./cjdropshipping.tsx";
 import { productsRouter } from "./ecommerce-products.tsx";
 import marketplaceRouter from "./marketplace.tsx";
 import flashSalesRouter from "./flash-sales.tsx";
@@ -239,6 +240,7 @@ app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
 app.route("/make-server-3eae23a6/analytics", storeAnalyticsRouter);
 app.route("/", zendropRouter);
+app.route("/", cjRouter);
 app.route("/", contentFilterRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.

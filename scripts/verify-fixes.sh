@@ -173,6 +173,27 @@ require $I "manual_required"
 # Skip reasons used to be the opaque "(send failed)".
 forbid  $DP "(send failed)"
 
+# --- CJdropshipping (real create-order supplier) ------------------------------
+# CJ has a REST create-order endpoint, so it is the working forward-on-payment
+# path. This whole module was lost once; guard every load-bearing piece.
+CJ=supabase/functions/server/cjdropshipping.tsx
+require $CJ "authentication/getAccessToken"
+require $CJ "shopping/order/createOrderV2"
+require $CJ "CJ-Access-Token"
+require $CJ "submitCJOrder"
+require $CJ "normalizeAddress"
+require $CJ "getAccessToken"
+require $CJ "cj/verify"
+require $CJ "cj/debug"
+require $CJ "CJ_API_KEY"
+# Dropshipper must route CJ orders through the REST create-order call, before
+# the generic POST fallback.
+require $DP "submitCJOrder"
+require $DP "cjdropshipping"
+# index must mount the CJ router or every /cj/* route 404s.
+require $I "cjRouter"
+require $I 'app.route("/", cjRouter)'
+
 # --- Auto-fulfillment ---------------------------------------------------------
 IDX=supabase/functions/server/index.tsx
 require $IDX "dropshipper/orders/:orderId/retry"

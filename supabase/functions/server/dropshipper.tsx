@@ -7,6 +7,7 @@ import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
 import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey } from './zendrop.tsx';
+import { submitCJOrder, resolveKey as resolveCJKey } from './cjdropshipping.tsx';
 
 // Storage keys
 const INVENTORY_KEY_PREFIX = 'dropshipper_inventory';
@@ -372,8 +373,22 @@ async function groupItemsByProvider(items: { sku: string; quantity: number; pric
  */
 async function sendOrderToProvider(
   provider: config.DropshipperProvider,
-  orderData: { orderId?: string; items: any[]; shippingAddress: any }
+  orderData: { orderId?: string; items: any[]; shippingAddress: any; customerName?: string; customerPhone?: string }
 ): Promise<string> {
+  // CJdropshipping IS a plain REST API with a real create-order endpoint
+  // (createOrderV2), so — unlike Zendrop — a paid order can be forwarded
+  // directly and get back a trackable supplier order id.
+  if (String(provider.id) === 'cjdropshipping' || /cj\s*dropshipping/i.test(String(provider.name || ''))) {
+    const { providerOrderId } = await submitCJOrder(resolveCJKey(provider.apiKey) || undefined, {
+      orderId: orderData.orderId || 'unknown',
+      items: orderData.items,
+      shippingAddress: orderData.shippingAddress,
+      customerName: orderData.customerName,
+      customerPhone: orderData.customerPhone,
+    });
+    return providerOrderId;
+  }
+
   // Zendrop is NOT a plain REST API — it speaks MCP (JSON-RPC 2.0) at
   // app.zendrop.com/mcp/v1, the same endpoint the catalog sync already uses.
   // Posting to `${provider.apiUrl}/orders` never created an order; it just
