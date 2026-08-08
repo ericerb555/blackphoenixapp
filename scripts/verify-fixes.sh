@@ -493,6 +493,40 @@ require $VEO "MediaRecorder"
 require $VEO "captureStream"
 require $VEO "renderAndDownload"
 
+# ── Autopilot Campaigns: hands-off ScaleShot-style engine that reuses the real
+#    content-studio/creative-studio/social-media modules (no mocked generation
+#    or publishing) and an idempotent, cron-free advance runner. ──
+APB=supabase/functions/server/autopilot.tsx
+require $APB "/autopilot/campaigns"
+require $APB "/autopilot/campaigns/:id/generate-plan"
+require $APB "/autopilot/campaigns/:id/generate-assets"
+require $APB "/autopilot/campaigns/:id/advance"
+require $APB "/content-studio/plan"
+require $APB "/content-studio/compose"
+require $APB "/creative-studio/generate"
+require $APB "/social/publish"
+require $APB "postedAt"          # idempotency guard against double-posting
+require $APB "/autopilot/tick"   # external-cron upgrade path
+# Opt-in human-in-the-loop review: keeps hands-off generation intact but lets a
+# campaign hold posts for approval/edit/regenerate before publishing.
+require $APB "requireApproval"
+require $APB "pending_approval"
+require $APB "/approve-all"
+require $APB "/items/:itemId/approve"
+require $APB "/items/:itemId/reject"
+require $APB "/items/:itemId/edit"
+require $APB "/items/:itemId/regenerate"
+IDX=supabase/functions/server/index.tsx
+require $IDX "autopilotRouter"
+APF=src/app/pages/AutopilotCampaigns.tsx
+require $APF "/autopilot/due"
+require $APF "runHeartbeat"
+require $APF "requireApproval"
+require $APF "approveAll"
+require $APF "pending_approval"
+require src/app/routes.tsx "autopilot-campaigns"
+require src/app/nav.ts "autopilot-campaigns"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi
