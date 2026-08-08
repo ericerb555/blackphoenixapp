@@ -65,6 +65,7 @@ import LiveVideoPreviewPlayer from '../components/LiveVideoPreviewPlayer';
 import DraggableVideoLibrary from '../components/DraggableVideoLibrary';
 import PhotoToVideoConverter from '../components/PhotoToVideoConverter';
 import SocialMediaSchedulerTab from '../components/SocialMediaSchedulerTab';
+import MediaLibraryManager from '../components/MediaLibraryManager';
 import SocialMediaHub from '../components/SocialMediaHub';
 import StoreBoostersManager from '../components/StoreBoostersManager';
 import PromotionsEngineManager from '../components/PromotionsEngineManager';
@@ -245,6 +246,37 @@ export default function EnterpriseContentCenter() {
   const [contentPieces, setContentPieces] = useState<ContentPiece[]>([]);
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [channels, setChannels] = useState<ContentChannel[]>([]);
+
+  // Distribution-channel on/off preferences (Settings tab). Persisted locally so
+  // toggles are real and survive reloads.
+  const CHANNEL_PREFS_KEY = 'ecc_channel_prefs';
+  const DEFAULT_CHANNEL_PREFS: Record<string, boolean> = {
+    'Website/Blog': true,
+    'Email': true,
+    'Facebook': true,
+    'Instagram': false,
+    'Twitter/X': true,
+    'LinkedIn': false,
+  };
+  const [channelPrefs, setChannelPrefs] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(CHANNEL_PREFS_KEY);
+      return saved ? { ...DEFAULT_CHANNEL_PREFS, ...JSON.parse(saved) } : DEFAULT_CHANNEL_PREFS;
+    } catch {
+      return DEFAULT_CHANNEL_PREFS;
+    }
+  });
+  const toggleChannelPref = (name: string) => {
+    setChannelPrefs((prev) => {
+      const next = { ...prev, [name]: !prev[name] };
+      try {
+        localStorage.setItem(CHANNEL_PREFS_KEY, JSON.stringify(next));
+      } catch (err) {
+        console.error('Failed to persist channel preferences:', err);
+      }
+      return next;
+    });
+  };
   const [selectedContent, setSelectedContent] = useState<ContentPiece | null>(null);
   const [showCreator, setShowCreator] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -3175,6 +3207,13 @@ export default function EnterpriseContentCenter() {
           )}
 
           {/* Templates Tab */}
+          {/* Storage Tab — media library (upload/list images & videos). */}
+          {activeTab === 'storage' && (
+            <div className="space-y-6">
+              <MediaLibraryManager />
+            </div>
+          )}
+
           {activeTab === 'templates' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between mb-6">
@@ -3182,7 +3221,10 @@ export default function EnterpriseContentCenter() {
                   <h2 className="text-2xl font-bold text-white mb-1">Content Templates</h2>
                   <p className="text-gray-400">Pre-built templates for quick content creation</p>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg transition font-medium">
+                <button
+                  onClick={() => setActiveTab('create')}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg transition font-medium"
+                >
                   <Plus className="w-4 h-4" />
                   New Template
                 </button>
@@ -3224,7 +3266,13 @@ export default function EnterpriseContentCenter() {
                         </span>
                       )}
                     </div>
-                    <button className="text-sm text-[#ea580c] hover:text-[#c2410c] font-medium flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setActiveTab('create');
+                        toast.info(`Opening the AI Generator to create a "${template.name}" piece`);
+                      }}
+                      className="text-sm text-[#ea580c] hover:text-[#c2410c] font-medium flex items-center gap-1"
+                    >
                       Use Template
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -3365,7 +3413,7 @@ export default function EnterpriseContentCenter() {
                     <span className="text-sm text-gray-400">Total Views</span>
                   </div>
                   <p className="text-3xl font-bold text-white">{stats.totalImpressions.toLocaleString()}</p>
-                  <p className="text-sm text-gray-500 mt-1">+12% from last month</p>
+                  <p className="text-sm text-gray-500 mt-1">Across {stats.published} published item(s)</p>
                 </div>
                 <div className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6">
                   <div className="flex items-center gap-3 mb-2">
@@ -3373,7 +3421,11 @@ export default function EnterpriseContentCenter() {
                     <span className="text-sm text-gray-400">Total Clicks</span>
                   </div>
                   <p className="text-3xl font-bold text-white">{stats.totalClicks.toLocaleString()}</p>
-                  <p className="text-sm text-gray-500 mt-1">+8% from last month</p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {stats.totalImpressions > 0
+                      ? `${((stats.totalClicks / stats.totalImpressions) * 100).toFixed(1)}% CTR`
+                      : 'No impressions yet'}
+                  </p>
                 </div>
                 <div className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6">
                   <div className="flex items-center gap-3 mb-2">
@@ -3381,18 +3433,63 @@ export default function EnterpriseContentCenter() {
                     <span className="text-sm text-gray-400">Engagement Rate</span>
                   </div>
                   <p className="text-3xl font-bold text-white">
-                    {stats.totalImpressions > 0 
+                    {stats.totalImpressions > 0
                       ? ((stats.totalEngagement / stats.totalImpressions) * 100).toFixed(1)
                       : '0'}%
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">+15% from last month</p>
+                  <p className="text-sm text-gray-500 mt-1">{stats.totalEngagement.toLocaleString()} total engagements</p>
                 </div>
               </div>
 
-              <div className="text-center py-20">
-                <BarChart3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <p className="text-xl font-bold text-gray-400 mb-2">Advanced Analytics</p>
-                <p className="text-gray-500">Detailed performance metrics and insights coming soon</p>
+              {/* Real breakdowns computed from actual content pieces. */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6">
+                  <h3 className="text-lg font-bold text-white mb-4">Content by Status</h3>
+                  <div className="space-y-3">
+                    {[
+                      { label: 'Draft', value: stats.draft, color: 'bg-gray-500' },
+                      { label: 'Pending Review', value: stats.pending, color: 'bg-yellow-500' },
+                      { label: 'Approved', value: stats.approved, color: 'bg-blue-500' },
+                      { label: 'Published', value: stats.published, color: 'bg-green-500' },
+                    ].map((row) => (
+                      <div key={row.label}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="text-gray-400">{row.label}</span>
+                          <span className="text-white font-medium">{row.value}</span>
+                        </div>
+                        <div className="w-full h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${row.color} rounded-full transition-all`}
+                            style={{ width: `${stats.total > 0 ? (row.value / stats.total) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] p-6">
+                  <h3 className="text-lg font-bold text-white mb-4">Top Performing Content</h3>
+                  {contentPieces.filter(p => (p.total_impressions || 0) > 0).length === 0 ? (
+                    <p className="text-gray-500 text-sm py-8 text-center">
+                      No performance data yet. Publish content to start tracking impressions and engagement.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {[...contentPieces]
+                        .sort((a, b) => (b.total_impressions || 0) - (a.total_impressions || 0))
+                        .slice(0, 5)
+                        .map((p) => (
+                          <div key={p.id} className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-white truncate">{p.title}</span>
+                            <span className="text-sm text-gray-400 whitespace-nowrap">
+                              {(p.total_impressions || 0).toLocaleString()} views
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -3410,27 +3507,35 @@ export default function EnterpriseContentCenter() {
                   <h3 className="text-lg font-bold text-white mb-4">Distribution Channels</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
-                      { name: 'Website/Blog', icon: Globe, enabled: true },
-                      { name: 'Email', icon: Mail, enabled: true },
-                      { name: 'Facebook', icon: Facebook, enabled: true },
-                      { name: 'Instagram', icon: Instagram, enabled: false },
-                      { name: 'Twitter/X', icon: Twitter, enabled: true },
-                      { name: 'LinkedIn', icon: Linkedin, enabled: false },
-                    ].map((channel) => (
-                      <div
-                        key={channel.name}
-                        className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-lg border border-[#2A2A2A]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <channel.icon className={`w-5 h-5 ${channel.enabled ? 'text-[#ea580c]' : 'text-gray-600'}`} />
-                          <span className="text-white font-medium">{channel.name}</span>
+                      { name: 'Website/Blog', icon: Globe },
+                      { name: 'Email', icon: Mail },
+                      { name: 'Facebook', icon: Facebook },
+                      { name: 'Instagram', icon: Instagram },
+                      { name: 'Twitter/X', icon: Twitter },
+                      { name: 'LinkedIn', icon: Linkedin },
+                    ].map((channel) => {
+                      const enabled = channelPrefs[channel.name] ?? false;
+                      return (
+                        <div
+                          key={channel.name}
+                          className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-lg border border-[#2A2A2A]"
+                        >
+                          <div className="flex items-center gap-3">
+                            <channel.icon className={`w-5 h-5 ${enabled ? 'text-[#ea580c]' : 'text-gray-600'}`} />
+                            <span className="text-white font-medium">{channel.name}</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={() => toggleChannelPref(channel.name)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#ea580c]"></div>
+                          </label>
                         </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={channel.enabled} className="sr-only peer" readOnly />
-                          <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#ea580c]"></div>
-                        </label>
-                      </div>
-                    ))}
+                      );
+                    })}
               </div>
                 </div>
               </div>

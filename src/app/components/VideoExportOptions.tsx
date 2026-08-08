@@ -4,7 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { Download, Film, Settings, Image as ImageIcon, Zap, Upload, Check, X } from 'lucide-react';
+import { Download, Film, Settings, Image as ImageIcon, Zap, Upload, Check, X, Loader2 } from 'lucide-react';
+import { toast } from 'sonner@2.0.3';
 import { PhotoSlide } from './PhotoToVideoConverter';
 import { MusicAsset } from '../lib/musicAssetManager';
 
@@ -57,6 +58,150 @@ export default function VideoExportOptions({
   });
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+
+  // Load an image URL/dataURL into a decoded HTMLImageElement.
+  const loadImage = (src: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`Failed to load image: ${src.slice(0, 60)}`));
+      img.src = src;
+    });
+
+  // Draw a single image "cover"-fit onto the canvas (centered, no distortion).
+  const drawCover = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) => {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    const scale = Math.max(w / img.width, h / img.height);
+    const dw = img.width * scale;
+    const dh = img.height * scale;
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  };
+
+  // Real client-side render: paint each slide to a canvas for its duration,
+  // capture the canvas as a MediaStream, and encode to a downloadable WebM via
+  // MediaRecorder. Music (if present) is mixed in as an audio track.
+  const renderAndDownload = async () => {
+    if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+      toast.error('Your browser does not support in-browser video export. Try Chrome or Edge.');
+      // Still hand off to the library save path so the work isn't lost.
+      onExport(settings);
+      return;
+    }
+
+    setRendering(true);
+    setRenderProgress(0);
+    try {
+      const [wStr, hStr] = getResolutionDimensions().split('x');
+      const width = parseInt(wStr, 10);
+      const height = parseInt(hStr, 10);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create a rendering canvas.');
+
+      // Preload all slide images up front.
+      const images = await Promise.all(slides.map((s) => loadImage(s.url)));
+
+      const fps = settings.fps;
+      const stream = canvas.captureStream(fps);
+
+      // Best-effort audio: attach the music track if a source is available.
+      let audioEl: HTMLAudioElement | null = null;
+      if (music?.url) {
+        try {
+          audioEl = new Audio(music.url);
+          audioEl.crossOrigin = 'anonymous';
+          const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+          const audioCtx = new AudioCtx();
+          const srcNode = audioCtx.createMediaElementSource(audioEl);
+          const dest = audioCtx.createMediaStreamDestination();
+          srcNode.connect(dest);
+          srcNode.connect(audioCtx.destination);
+          dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+        } catch (audioErr) {
+          console.warn('Music track could not be added to the export:', audioErr);
+        }
+      }
+
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      const finished = new Promise<Blob>((resolve) => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+      });
+
+      recorder.start();
+      if (audioEl) audioEl.play().catch(() => {});
+
+      // Timeline: draw each slide for (duration + transitionDuration) seconds.
+      const startedAt = performance.now();
+      const totalMs = slides.reduce((sum, s) => sum + (s.duration + s.transitionDuration) * 1000, 0);
+
+      await new Promise<void>((resolve) => {
+        const boundaries = slides.map((s) => (s.duration + s.transitionDuration) * 1000);
+        const tick = () => {
+          const elapsed = performance.now() - startedAt;
+          setRenderProgress(Math.min(99, Math.round((elapsed / totalMs) * 100)));
+          // Find the active slide for the current elapsed time.
+          let acc = 0;
+          let idx = boundaries.length - 1;
+          for (let i = 0; i < boundaries.length; i++) {
+            if (elapsed < acc + boundaries[i]) { idx = i; break; }
+            acc += boundaries[i];
+          }
+          drawCover(ctx, images[idx], width, height);
+
+          // Optional text watermark overlay.
+          if (settings.watermark?.enabled && settings.watermark.type === 'text' && settings.watermark.content) {
+            ctx.globalAlpha = (settings.watermark.opacity ?? 70) / 100;
+            ctx.fillStyle = '#fff';
+            ctx.font = `${Math.round(height * 0.03)}px sans-serif`;
+            ctx.fillText(settings.watermark.content, width * 0.04, height * 0.94);
+            ctx.globalAlpha = 1;
+          }
+
+          if (elapsed >= totalMs) { resolve(); return; }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+
+      recorder.stop();
+      if (audioEl) { audioEl.pause(); }
+      const blob = await finished;
+      setRenderProgress(100);
+
+      // Trigger download.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `slideshow-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+      toast.success('Video exported and downloaded!');
+      // Also persist to the library via the parent handler.
+      onExport(settings);
+      onClose();
+    } catch (err: any) {
+      console.error('Video export failed:', err);
+      toast.error(`Video export failed: ${err?.message || err}`);
+    } finally {
+      setRendering(false);
+    }
+  };
 
   const updateSettings = (updates: Partial<ExportSettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
@@ -439,17 +584,28 @@ export default function VideoExportOptions({
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="px-6 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg transition font-medium"
+              disabled={rendering}
+              className="px-6 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg transition font-medium disabled:opacity-50"
             >
               Cancel
             </button>
-            
+
             <button
-              onClick={() => onExport(settings)}
-              className="px-8 py-3 bg-gradient-to-r from-[#ea580c] to-[#dc2626] hover:opacity-90 text-white rounded-lg transition font-medium flex items-center gap-2 shadow-lg shadow-[#ea580c]/30"
+              onClick={renderAndDownload}
+              disabled={rendering || slides.length === 0}
+              className="px-8 py-3 bg-gradient-to-r from-[#ea580c] to-[#dc2626] hover:opacity-90 text-white rounded-lg transition font-medium flex items-center gap-2 shadow-lg shadow-[#ea580c]/30 disabled:opacity-60"
             >
-              <Zap className="w-5 h-5" />
-              Export Video
+              {rendering ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Rendering… {renderProgress}%
+                </>
+              ) : (
+                <>
+                  <Zap className="w-5 h-5" />
+                  Export Video
+                </>
+              )}
             </button>
           </div>
         </div>

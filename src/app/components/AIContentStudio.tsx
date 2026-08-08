@@ -22,6 +22,24 @@ import { ConfirmModal } from './ui/modal/ConfirmModal';
 import { useContentManagement, ContentTemplate, BrandGuideline } from '../lib/useContentManagement';
 import { useCompany } from '../contexts/CompanyContext';
 import ProfessionalReelGenerator from '../lib/professionalReelGenerator';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const composeHeaders = {
+  Authorization: `Bearer ${publicAnonKey}`,
+  apikey: publicAnonKey,
+  'Content-Type': 'application/json',
+};
+
+// Pure {{variable}} substitution for template bodies (real, deterministic).
+function fillTemplate(template: ContentTemplate, variables: Record<string, string>): string {
+  let content = template.template_body || '';
+  (template.variables || []).forEach((variable: any) => {
+    const value = variables[variable.name] || variable.default_value || '';
+    content = content.replace(new RegExp(`{{\\s*${variable.name}\\s*}}`, 'g'), value);
+  });
+  return content;
+}
 
 interface BrandGuidelinesLocal {
   id: string;
@@ -103,6 +121,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
   const {
     fetchTemplates,
     fetchBrandGuidelines,
+    fetchContentPieces,
     createContentPiece,
     updateContentPiece,
     deleteContentPiece,
@@ -154,67 +173,8 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
     restrictions: ['No competitor mentions', 'No pricing in posts', 'Always include CTA']
   };
 
-  const [contentLibrary, setContentLibrary] = useState<ContentPiece[]>([
-    {
-      id: 'CONTENT-001',
-      type: 'post',
-      platform: ['instagram', 'facebook'],
-      status: 'published',
-      title: 'Kitchen Renovation Showcase',
-      caption: '🏠 Transform your space! Check out this stunning kitchen renovation we completed last week. From outdated to outstanding! #HomeImprovement #KitchenReno',
-      media: ['https://images.unsplash.com/photo-1556912173-3bb406ef7e77?w=800'],
-      aiGenerated: true,
-      createdBy: 'admin',
-      createdAt: '2024-01-24T10:00:00Z',
-      publishedAt: '2024-01-24T14:00:00Z',
-      tags: ['kitchen', 'renovation', 'before-after'],
-      hashtags: ['#HomeImprovement', '#KitchenReno', '#Renovation'],
-      complianceScore: 95,
-      analytics: {
-        views: 2450,
-        likes: 187,
-        comments: 23,
-        shares: 12,
-        engagement: 9.1
-      }
-    },
-    {
-      id: 'CONTENT-002',
-      type: 'reel',
-      platform: ['instagram', 'tiktok'],
-      status: 'scheduled',
-      title: 'Time-lapse: Bathroom Transformation',
-      caption: '⚡ Watch this bathroom go from drab to fab in 60 seconds! Professional work, stunning results. 📞 Book your consultation today!',
-      media: ['https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=800'],
-      aiGenerated: true,
-      createdBy: 'manager',
-      createdAt: '2024-01-25T09:00:00Z',
-      scheduledFor: '2024-01-26T18:00:00Z',
-      tags: ['bathroom', 'timelapse', 'transformation'],
-      hashtags: ['#BathroomReno', '#HomeTransformation', '#BeforeAndAfter'],
-      complianceScore: 92
-    },
-    {
-      id: 'CONTENT-003',
-      type: 'carousel',
-      platform: ['instagram', 'facebook', 'linkedin'],
-      status: 'review',
-      title: '5 Tips for Successful Home Renovation',
-      caption: '💡 Planning a renovation? Here are 5 essential tips from our experts! Swipe to learn more →',
-      media: [
-        'https://images.unsplash.com/photo-1581858726788-75bc0f6a952d?w=800',
-        'https://images.unsplash.com/photo-1581858726788-75bc0f6a952d?w=800',
-        'https://images.unsplash.com/photo-1581858726788-75bc0f6a952d?w=800'
-      ],
-      aiGenerated: true,
-      createdBy: 'marketing',
-      createdAt: '2024-01-25T11:00:00Z',
-      tags: ['tips', 'education', 'carousel'],
-      hashtags: ['#RenovationTips', '#HomeAdvice', '#ExpertTips'],
-      complianceScore: 88,
-      complianceIssues: ['Missing call-to-action']
-    }
-  ]);
+  // Real content library, loaded from the CMS backend (no mock seed).
+  const [contentLibrary, setContentLibrary] = useState<ContentPiece[]>([]);
 
   const platforms = [
     { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'from-pink-600 to-purple-600', formats: ['Post (1:1)', 'Story (9:16)', 'Reel (9:16)', 'Carousel'], loginUrl: 'https://www.instagram.com/accounts/login/' },
@@ -239,219 +199,187 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
       setTemplates(templatesData);
       setBrandGuidelines(guidelinesData);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading templates/brand guidelines:', error);
+    }
+    await loadLibrary();
+  };
+
+  // Map a persisted CMS content piece into the UI's ContentPiece shape.
+  const mapPieceToLocal = (p: any): ContentPiece => {
+    const meta = p.ai_generation_metadata || {};
+    let status: ContentPiece['status'] = 'draft';
+    if (p.status === 'published') status = 'published';
+    else if (p.status === 'approved') status = 'approved';
+    else if (p.status === 'pending_review') status = 'review';
+    else if (p.scheduled_publish_at) status = 'scheduled';
+    return {
+      id: p.id,
+      type: meta.type || 'post',
+      platform: Array.isArray(meta.platform) ? meta.platform : [],
+      status,
+      title: p.title || 'Untitled',
+      caption: p.content_body || '',
+      media: p.featured_image_url ? [p.featured_image_url] : (Array.isArray(meta.media) ? meta.media : []),
+      aiGenerated: Boolean(p.is_ai_generated),
+      createdBy: p.created_by || 'system',
+      createdAt: p.created_at || new Date().toISOString(),
+      scheduledFor: p.scheduled_publish_at,
+      publishedAt: p.published_at,
+      tags: Array.isArray(meta.tags) ? meta.tags : [],
+      hashtags: Array.isArray(meta.hashtags) ? meta.hashtags : [],
+      templateId: p.template_id,
+      complianceScore: p.brand_compliance_score,
+      complianceIssues: Array.isArray(p.compliance_issues) ? p.compliance_issues : undefined,
+      analytics: {
+        views: p.total_impressions || 0,
+        likes: p.total_engagement || 0,
+        comments: 0,
+        shares: 0,
+        engagement: p.total_engagement || 0,
+      },
+    };
+  };
+
+  const loadLibrary = async () => {
+    try {
+      const pieces = await fetchContentPieces();
+      setContentLibrary((pieces || []).map(mapPieceToLocal));
+    } catch (error) {
+      console.error('Error loading content library:', error);
     }
   };
 
-  // AI Content Generation with template support
+  // AI Content Generation — REAL backend generation + CMS persistence.
   const handleGenerateAI = async (prompt: AIPrompt) => {
     setGeneratingContent(true);
-    
+
     try {
-      // Simulate AI generation
-      await new Promise(resolve => setTimeout(resolve, 2500));
-      
-      let caption = '';
+      // Free-form and template both go through the real compose endpoint. For a
+      // template we fill its variables locally (deterministic substitution) and
+      // pass the result as context so the model refines it in the brand voice.
+      let brief = prompt.topic;
+      let context = '';
       let title = '';
-      let score = 90;
-      let issues: string[] = [];
-
       if (prompt.useTemplate && prompt.templateId && selectedTemplate) {
-        // Generate from template
-        caption = await generateFromTemplate(selectedTemplate, variableValues);
+        context = fillTemplate(selectedTemplate, variableValues);
+        brief = selectedTemplate.name;
         title = selectedTemplate.name;
-        score = await calculateBrandCompliance(caption);
-        issues = await checkCompliance(caption);
-        
-        // Increment template usage
-        await incrementTemplateUsage(selectedTemplate.id);
-      } else {
-        // Generate with free-form AI
-        caption = generateAICaption(prompt);
-        title = `AI Generated: ${prompt.topic}`;
-        score = await calculateBrandCompliance(caption);
-        issues = await checkCompliance(caption);
       }
-      
-      const newContent: ContentPiece = {
-        id: `CONTENT-${Date.now()}`,
-        type: contentType,
-        platform: prompt.platform,
-        status: 'draft',
-        title,
-        caption,
-        media: [
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800'
-        ],
-        aiGenerated: true,
-        createdBy: 'ai-system',
-        createdAt: new Date().toISOString(),
-        tags: [prompt.topic.toLowerCase()],
-        hashtags: prompt.includeHashtags ? brandGuidelinesLocal.hashtags : [],
-        templateId: prompt.templateId,
-        complianceScore: score,
-        complianceIssues: issues
-      };
 
-      setContentLibrary([newContent, ...contentLibrary]);
+      const res = await fetch(`${API_BASE}/content-studio/compose`, {
+        method: 'POST',
+        headers: composeHeaders,
+        body: JSON.stringify({
+          topic: brief,
+          platform: Array.isArray(prompt.platform) ? prompt.platform[0] : prompt.platform,
+          tone: prompt.tone,
+          includeHashtags: prompt.includeHashtags,
+          contentType,
+          context,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Generation failed (HTTP ${res.status})`);
+      }
+
+      const caption = String(data.caption || '');
+      title = title || String(data.title || `AI: ${prompt.topic}`);
+      const score = Number(data.complianceScore) || 0;
+      const issues: string[] = Array.isArray(data.complianceIssues) ? data.complianceIssues : [];
+      const hashtags: string[] = prompt.includeHashtags && Array.isArray(data.hashtags) ? data.hashtags : [];
+
+      if (prompt.useTemplate && selectedTemplate) {
+        // Count real usage of the template.
+        await incrementTemplateUsage(selectedTemplate.id).catch(() => {});
+      }
+
+      // Persist the generated draft to the CMS so it becomes a real library item.
+      let newId = `CONTENT-${Date.now()}`;
+      try {
+        const created = await createContentPiece({
+          title,
+          content_body: caption,
+          content_format: contentType,
+          status: 'draft',
+          is_ai_generated: true,
+          brand_compliance_score: score,
+          compliance_issues: issues as any,
+          ai_generation_metadata: {
+            type: contentType,
+            platform: prompt.platform,
+            hashtags,
+            tags: [prompt.topic.toLowerCase()],
+            usedBrandKit: Boolean(data.usedBrandKit),
+          },
+          template_id: prompt.templateId,
+        } as any);
+        if (created?.id) newId = created.id;
+      } catch (persistErr) {
+        console.error('Generated content could not be persisted to CMS:', persistErr);
+        toast.error('Generated, but saving to library failed — check connection.');
+      }
+
+      await loadLibrary();
       setGeneratedContent(caption);
       setGeneratedTitle(title);
       setComplianceScore(score);
       setComplianceIssues(issues);
       setShowAIGenerator(false);
-      
+
       toast.success('✨ AI content generated successfully!', {
-        description: `Compliance Score: ${score}% • ${issues.length} issues found`
+        description: `Compliance Score: ${score}% • ${issues.length} issue(s) found`
       });
 
       if (onContentCreated) {
-        onContentCreated(newContent.id);
+        onContentCreated(newId);
       }
-    } catch (error) {
-      toast.error('Failed to generate content');
-      console.error(error);
+    } catch (error: any) {
+      toast.error(`Failed to generate content: ${error?.message || error}`);
+      console.error('AI content generation error:', error);
     } finally {
       setGeneratingContent(false);
     }
   };
 
-  // Generate content from template
-  const generateFromTemplate = async (template: ContentTemplate, variables: Record<string, string>): Promise<string> => {
-    let content = template.template_body;
-    
-    // Replace variables
-    template.variables.forEach((variable: any) => {
-      const value = variables[variable.name] || variable.default_value || '';
-      content = content.replace(new RegExp(`{{${variable.name}}}`, 'g'), value);
-    });
-
-    // If AI enhancement is enabled, enhance the content
-    if (useAI && template.ai_prompt) {
-      // Simulate AI enhancement
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      content = `${content}\n\n✨ AI-Enhanced: Professional tone applied with optimized SEO keywords.`;
+  const handleSchedulePost = async (contentId: string, dateTime: string) => {
+    try {
+      await updateContentPiece(contentId, { scheduled_publish_at: dateTime, status: 'approved' } as any);
+      await loadLibrary();
+      toast.success('📅 Content scheduled successfully!');
+    } catch (error: any) {
+      toast.error(`Failed to schedule content: ${error?.message || error}`);
+      console.error('Schedule content error:', error);
     }
-
-    return content;
   };
 
-  // Calculate brand compliance score
-  const calculateBrandCompliance = async (content: string): Promise<number> => {
-    // Simulate compliance checking
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    let score = 100;
-    const lowerContent = content.toLowerCase();
-    
-    // Check for required terms
-    brandGuidelinesLocal.keywords.forEach(keyword => {
-      if (!lowerContent.includes(keyword.toLowerCase())) {
-        score -= 5;
-      }
-    });
-    
-    // Check for prohibited terms
-    brandGuidelinesLocal.restrictions.forEach(restriction => {
-      if (lowerContent.includes(restriction.toLowerCase())) {
-        score -= 10;
-      }
-    });
-    
-    return Math.max(0, Math.min(100, score));
-  };
-
-  // Check compliance issues
-  const checkCompliance = async (content: string): Promise<string[]> => {
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    const issues: string[] = [];
-    const lowerContent = content.toLowerCase();
-    
-    // Check for CTA
-    if (!lowerContent.includes('contact') && !lowerContent.includes('call') && !lowerContent.includes('book')) {
-      issues.push('Missing call-to-action');
+  const handlePublishNow = async (contentId: string) => {
+    try {
+      await updateContentPiece(contentId, { status: 'published', published_at: new Date().toISOString() } as any);
+      await loadLibrary();
+      toast.success('🚀 Content published successfully!');
+    } catch (error: any) {
+      toast.error(`Failed to publish content: ${error?.message || error}`);
+      console.error('Publish content error:', error);
     }
-    
-    // Check for hashtags
-    if (!content.includes('#')) {
-      issues.push('No hashtags included');
-    }
-    
-    // Check length
-    if (content.length < 50) {
-      issues.push('Content too short');
-    }
-    
-    return issues;
-  };
-
-  const generateAICaption = (prompt: AIPrompt): string => {
-    // Use enhanced professional reel generator for reels
-    if (contentType === 'reel') {
-      const reelScript = ProfessionalReelGenerator.generateReel({
-        topic: prompt.topic,
-        tone: prompt.tone,
-        platform: prompt.platform,
-        includeHashtags: prompt.includeHashtags,
-        includeEmojis: prompt.includeEmojis,
-        contentLength: prompt.contentLength,
-        callToAction: prompt.callToAction,
-        targetAudience: prompt.targetAudience,
-        companyName: brandGuidelinesLocal.companyName,
-        brandHashtags: brandGuidelinesLocal.hashtags,
-      });
-      
-      return reelScript.script + '\n\n═══════════════════════════════════════\n\n📝 CAPTION:\n\n' + reelScript.caption;
-    }
-    
-    const emojis = prompt.includeEmojis ? '✨ 🏠 💡 ' : '';
-    const hashtags = prompt.includeHashtags ? brandGuidelinesLocal.hashtags.join(' ') : '';
-    const cta = prompt.callToAction || 'Contact us today!';
-    
-    let lengthContent = '';
-    switch (prompt.contentLength) {
-      case 'short':
-        lengthContent = `Discover professional ${prompt.topic.toLowerCase()}.`;
-        break;
-      case 'medium':
-        lengthContent = `Discover how we can help transform your space with professional ${prompt.topic.toLowerCase()}. Our expert team delivers quality results every time.`;
-        break;
-      case 'long':
-        lengthContent = `Discover how we can help transform your space with professional ${prompt.topic.toLowerCase()}. Our expert team brings years of experience and delivers quality results every time. We're committed to excellence and customer satisfaction in every project we undertake.`;
-        break;
-    }
-    
-    return `${emojis}${prompt.topic}\n\n${lengthContent}\n\n${cta}\n\n${hashtags}`;
-  };
-
-  const handleSchedulePost = (contentId: string, dateTime: string) => {
-    setContentLibrary(contentLibrary.map(content =>
-      content.id === contentId
-        ? { ...content, status: 'scheduled', scheduledFor: dateTime }
-        : content
-    ));
-    toast.success('📅 Content scheduled successfully!');
-  };
-
-  const handlePublishNow = (contentId: string) => {
-    setContentLibrary(contentLibrary.map(content =>
-      content.id === contentId
-        ? { ...content, status: 'published', publishedAt: new Date().toISOString() }
-        : content
-    ));
-    toast.success('🚀 Content published successfully!');
   };
 
   const handleDeleteContent = (contentId: string, contentTitle: string) => {
     setDeleteConfirm({ isOpen: true, contentId, contentTitle });
   };
   
-  const confirmDeleteContent = () => {
+  const confirmDeleteContent = async () => {
     if (!deleteConfirm.contentId) return;
-    
-    setContentLibrary(contentLibrary.filter(c => c.id !== deleteConfirm.contentId));
-    toast.success('Content deleted successfully');
+    const id = deleteConfirm.contentId;
     setDeleteConfirm({ isOpen: false, contentId: null, contentTitle: '' });
+    try {
+      await deleteContentPiece(id);
+      await loadLibrary();
+      toast.success('Content deleted successfully');
+    } catch (error: any) {
+      toast.error(`Failed to delete content: ${error?.message || error}`);
+      console.error('Delete content error:', error);
+    }
   };
 
   const handleSaveContent = async () => {
@@ -462,16 +390,28 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
 
     setIsSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const contentId = `CONTENT-${Date.now()}`;
+      const created = await createContentPiece({
+        title: generatedTitle,
+        content_body: generatedContent,
+        content_format: contentType,
+        status: 'draft',
+        is_ai_generated: true,
+        brand_compliance_score: complianceScore ?? undefined,
+        compliance_issues: complianceIssues as any,
+        ai_generation_metadata: {
+          type: contentType,
+          platform: selectedPlatforms,
+        },
+      } as any);
+      await loadLibrary();
       toast.success('Content saved to library!');
-      
-      if (onContentCreated) {
-        onContentCreated(contentId);
+
+      if (onContentCreated && created?.id) {
+        onContentCreated(created.id);
       }
-    } catch (error) {
-      toast.error('Failed to save content');
+    } catch (error: any) {
+      toast.error(`Failed to save content: ${error?.message || error}`);
+      console.error('Save content error:', error);
     } finally {
       setIsSaving(false);
     }

@@ -274,4 +274,153 @@ contentStudioRouter.get("/content-studio/plan", async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Compose — generate a single platform-native social post in the brand voice,
+// with a real, model-scored brand-compliance check. Powers the AI Content
+// Studio 'create' tab (no client-side mock generation).
+// Body: { topic|brief, platform?, tone?, includeHashtags?, contentType?, context? }
+// ---------------------------------------------------------------------------
+const PLATFORM_SPEC: Record<string, string> = {
+  instagram: "Instagram: engaging first line hook, line breaks, up to ~15 relevant hashtags, emoji-friendly.",
+  facebook: "Facebook: conversational, community tone, a clear CTA, few hashtags.",
+  linkedin: "LinkedIn: professional, value-first, insight-led, minimal hashtags (3-5), no fluff.",
+  twitter: "Twitter/X: punchy, under 280 characters, 1-3 hashtags, strong hook.",
+  youtube: "YouTube: a compelling video title + description with keywords and chapters-style structure.",
+  tiktok: "TikTok: trend-aware, energetic, short hook-driven caption, 3-6 hashtags.",
+};
+
+contentStudioRouter.post("/content-studio/compose", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const topic = String(body.topic || body.brief || "").trim();
+    if (!topic) return c.json({ success: false, error: "A topic or brief is required." }, 400);
+
+    const platform = String(body.platform || "instagram").toLowerCase();
+    const spec = PLATFORM_SPEC[platform] || PLATFORM_SPEC.instagram;
+    const tone = String(body.tone || "professional and friendly");
+    const includeHashtags = body.includeHashtags !== false;
+    const contentType = String(body.contentType || "post");
+    const context = String(body.context || "").trim();
+
+    const brandVoice = await loadBrandContext();
+
+    const system = [
+      "You are an expert social media copywriter and brand-compliance reviewer.",
+      "Write a platform-native piece of content, then honestly grade it for brand compliance.",
+      brandVoice ? `Brand voice & guidelines to follow strictly:\n${brandVoice}` : "",
+      `Target platform — ${spec}`,
+      `Content type: ${contentType}. Desired tone: ${tone}.`,
+      "Return STRICT JSON with keys: title (string), caption (string), " +
+        "hashtags (string[] — omit the leading # or include it, be consistent), " +
+        "complianceScore (integer 0-100 reflecting how well it matches the brand voice/guidelines), " +
+        "complianceIssues (string[] — concrete, actionable issues; empty if none).",
+    ].filter(Boolean).join("\n\n");
+
+    const user = [
+      `Topic / brief: ${topic}`,
+      context ? `Draft/base content to refine (keep the substance, elevate the writing):\n${context}` : "",
+      includeHashtags ? "Include relevant hashtags." : "Do NOT include any hashtags.",
+    ].filter(Boolean).join("\n\n");
+
+    const result = await openaiJson(system, user, 1200);
+
+    const hashtags = Array.isArray(result.hashtags)
+      ? result.hashtags.map((h: any) => String(h)).filter(Boolean)
+      : [];
+    let score = Number(result.complianceScore);
+    if (!Number.isFinite(score)) score = 0;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    return c.json({
+      success: true,
+      title: String(result.title || topic),
+      caption: String(result.caption || ""),
+      hashtags: includeHashtags ? hashtags : [],
+      complianceScore: score,
+      complianceIssues: Array.isArray(result.complianceIssues)
+        ? result.complianceIssues.map((i: any) => String(i)).filter(Boolean)
+        : [],
+      usedBrandKit: Boolean(brandVoice),
+    });
+  } catch (error) {
+    console.log("[Content Studio] compose error:", error);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Recreate-script — real AI-generated recreation copy for the Creator Studio
+// (Video Recreation Engine). Takes a product + chosen style/platform + optional
+// reference/brief and returns platform-native copy in the brand voice.
+// Body: { productName, category, description, price, originalPrice?, videoStyle,
+//         platform, brief?, reference? }
+// ---------------------------------------------------------------------------
+contentStudioRouter.post("/content-studio/recreate-script", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const productName = String(body.productName || "").trim();
+    if (!productName) return c.json({ success: false, error: "productName is required." }, 400);
+
+    const category = String(body.category || "product");
+    const description = String(body.description || "");
+    const price = body.price;
+    const originalPrice = body.originalPrice;
+    const videoStyle = String(body.videoStyle || "problem-solution");
+    const platform = String(body.platform || "instagram").toLowerCase();
+    const brief = String(body.brief || "").trim();
+    const reference = String(body.reference || "").trim();
+
+    const brandVoice = await loadBrandContext();
+
+    const system = [
+      "You are an expert short-form video scriptwriter and DTC ad copywriter.",
+      "Recreate a marketing script for the user's OWN product, inspired by the",
+      "STRUCTURE and STRATEGY of a reference (never copying its wording).",
+      brandVoice ? `Brand voice & guidelines to follow strictly:\n${brandVoice}` : "",
+      `Chosen narrative style: ${videoStyle}. Primary platform: ${platform}.`,
+      "Return STRICT JSON with keys: hook (string), problemStatement (string), " +
+        "productIntro (string), keyBenefits (string[] of 3-4), socialProof (string), " +
+        "callToAction (string), hashtags (string[]), title (string), description (string), " +
+        "captions (object with instagram, tiktok, facebook, youtube string values).",
+    ].filter(Boolean).join("\n\n");
+
+    const user = [
+      `Product: ${productName}`,
+      `Category: ${category}`,
+      description ? `Description: ${description}` : "",
+      price != null ? `Price: $${price}${originalPrice != null ? ` (was $${originalPrice})` : ""}` : "",
+      brief ? `Creator brief / angle: ${brief}` : "",
+      reference ? `Reference being recreated (structure inspiration only): ${reference}` : "",
+    ].filter(Boolean).join("\n");
+
+    const result = await openaiJson(system, user, 1600);
+    const captions = result.captions && typeof result.captions === "object" ? result.captions : {};
+
+    return c.json({
+      success: true,
+      script: {
+        hook: String(result.hook || ""),
+        problemStatement: String(result.problemStatement || ""),
+        productIntro: String(result.productIntro || ""),
+        keyBenefits: Array.isArray(result.keyBenefits) ? result.keyBenefits.map((b: any) => String(b)) : [],
+        socialProof: String(result.socialProof || ""),
+        callToAction: String(result.callToAction || ""),
+        hashtags: Array.isArray(result.hashtags) ? result.hashtags.map((h: any) => String(h)) : [],
+        title: String(result.title || productName),
+        description: String(result.description || description),
+        captions: {
+          instagram: String(captions.instagram || ""),
+          tiktok: String(captions.tiktok || ""),
+          facebook: String(captions.facebook || ""),
+          youtube: String(captions.youtube || ""),
+        },
+      },
+      usedBrandKit: Boolean(brandVoice),
+    });
+  } catch (error) {
+    console.log("[Content Studio] recreate-script error:", error);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
 export default contentStudioRouter;

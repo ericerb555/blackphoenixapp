@@ -66,106 +66,19 @@ export default function MediaLibraryManager({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [loadingMedia, setLoadingMedia] = useState(false);
 
-  // Mock data
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([
-    {
-      id: 'MEDIA-001',
-      type: 'image',
-      name: 'Kitchen Renovation - Before.jpg',
-      url: 'https://images.unsplash.com/photo-1556912173-46c336c7fd55?w=800',
-      thumbnail: 'https://images.unsplash.com/photo-1556912173-46c336c7fd55?w=400',
-      size: 2400000,
-      dimensions: { width: 1920, height: 1080 },
-      uploadedAt: '2026-01-20T10:00:00Z',
-      uploadedBy: 'John Smith',
-      tags: ['kitchen', 'before', 'renovation'],
-      folder: 'FOLDER-001',
-      project: 'Kitchen Remodel #445',
-      client: 'Johnson Family',
-      favorite: true,
-      description: 'Before photo of kitchen renovation project',
-      metadata: {
-        camera: 'iPhone 15 Pro',
-        location: '123 Main St, Boston MA',
-        dateTaken: '2026-01-15'
-      }
-    },
-    {
-      id: 'MEDIA-002',
-      type: 'image',
-      name: 'Kitchen Renovation - After.jpg',
-      url: 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=800',
-      thumbnail: 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=400',
-      size: 2800000,
-      dimensions: { width: 1920, height: 1080 },
-      uploadedAt: '2026-01-22T14:30:00Z',
-      uploadedBy: 'John Smith',
-      tags: ['kitchen', 'after', 'renovation', 'completed'],
-      folder: 'FOLDER-001',
-      project: 'Kitchen Remodel #445',
-      client: 'Johnson Family',
-      favorite: true,
-      description: 'After photo of completed kitchen renovation'
-    },
-    {
-      id: 'MEDIA-003',
-      type: 'video',
-      name: 'Bathroom Transformation Timelapse.mp4',
-      url: 'https://example.com/video1.mp4',
-      thumbnail: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=400',
-      size: 15600000,
-      duration: 45,
-      dimensions: { width: 1080, height: 1920 },
-      uploadedAt: '2026-01-18T09:15:00Z',
-      uploadedBy: 'Mike Johnson',
-      tags: ['bathroom', 'timelapse', 'transformation', 'reel'],
-      folder: 'FOLDER-002',
-      project: 'Bathroom Upgrade #337',
-      favorite: false,
-      description: 'Time-lapse video of bathroom transformation'
-    },
-    {
-      id: 'MEDIA-004',
-      type: 'video',
-      name: 'HVAC Installation Process.mp4',
-      url: 'https://example.com/video2.mp4',
-      thumbnail: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?w=400',
-      size: 22400000,
-      duration: 60,
-      dimensions: { width: 1080, height: 1920 },
-      uploadedAt: '2026-01-19T11:00:00Z',
-      uploadedBy: 'Sarah Davis',
-      tags: ['hvac', 'installation', 'process', 'educational'],
-      folder: 'FOLDER-003',
-      favorite: true,
-      description: 'Step-by-step HVAC installation process video'
-    },
-    {
-      id: 'MEDIA-005',
-      type: 'image',
-      name: 'Customer Testimonial - Smith Family.jpg',
-      url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800',
-      thumbnail: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400',
-      size: 1900000,
-      dimensions: { width: 1080, height: 1080 },
-      uploadedAt: '2026-01-21T16:45:00Z',
-      uploadedBy: 'Emily Chen',
-      tags: ['testimonial', 'customer', 'happy'],
-      folder: 'FOLDER-004',
-      favorite: false,
-      description: 'Happy customer with completed project'
-    }
-  ]);
+  // Real media library — starts empty and is hydrated from the database
+  // (loadDual) and real uploads (POST /media/upload). No mock seed.
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 
+  // Starter organizational folders. Item counts are computed live from real
+  // media, never hardcoded.
   const [folders, setFolders] = useState<MediaFolder[]>([
-    { id: 'FOLDER-001', name: 'Kitchen Projects', itemCount: 24, color: 'bg-orange-600' },
-    { id: 'FOLDER-002', name: 'Bathroom Projects', itemCount: 18, color: 'bg-blue-600' },
-    { id: 'FOLDER-003', name: 'HVAC Installations', itemCount: 12, color: 'bg-green-600' },
-    { id: 'FOLDER-004', name: 'Customer Testimonials', itemCount: 31, color: 'bg-purple-600' },
-    { id: 'FOLDER-005', name: 'Before & After', itemCount: 45, color: 'bg-pink-600' },
-    { id: 'FOLDER-006', name: 'Team Photos', itemCount: 8, color: 'bg-yellow-600' },
-    { id: 'FOLDER-007', name: 'Equipment & Tools', itemCount: 15, color: 'bg-gray-600' }
+    { id: 'FOLDER-001', name: 'Projects', itemCount: 0, color: 'bg-orange-600' },
+    { id: 'FOLDER-002', name: 'Before & After', itemCount: 0, color: 'bg-pink-600' },
+    { id: 'FOLDER-003', name: 'Testimonials', itemCount: 0, color: 'bg-purple-600' },
+    { id: 'FOLDER-004', name: 'Team Photos', itemCount: 0, color: 'bg-yellow-600' },
   ]);
+  const folderCount = (folderId: string) => mediaItems.filter((m) => m.folder === folderId).length;
 
   // Load media items from database on mount
   useEffect(() => {
@@ -632,7 +545,7 @@ export default function MediaLibraryManager({
                   >
                     <div className={`w-3 h-3 rounded ${folder.color}`}></div>
                     <span className="flex-1 text-left text-sm font-semibold truncate">{folder.name}</span>
-                    <span className="text-xs">{folder.itemCount}</span>
+                    <span className="text-xs">{folderCount(folder.id)}</span>
                   </button>
                 ))}
               </div>

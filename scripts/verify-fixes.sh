@@ -444,6 +444,55 @@ require $CSP "brandConfigured"      # Brand-Kit-not-set hint
 require $SEOP "useBrandKit"         # SEO Engine page toggle
 require $SEOP "brandConfigured"     # Brand-Kit-not-set hint
 
+# ── AI Content Studio ('create' tab): fully de-mocked. Real compose endpoint +
+#    CMS persistence (create/update/delete) + real library load. No setTimeout
+#    fakes, no hardcoded Unsplash seed, no local fake caption/compliance. ──
+require $CST "content-studio/compose"
+ACS=src/app/components/AIContentStudio.tsx
+require $ACS "content-studio/compose"
+require $ACS "createContentPiece"
+require $ACS "updateContentPiece"
+require $ACS "fetchContentPieces"
+require $ACS "loadLibrary"
+require $ACS "fillTemplate"
+forbid $ACS "generateAICaption"
+forbid $ACS "calculateBrandCompliance"
+forbid $ACS "setTimeout\(resolve, 2500\)"
+
+# ── Enterprise Content Center inline dead-ends fixed: Storage tab renders the
+#    media library, Templates buttons navigate, Settings channel toggles persist,
+#    Analytics shows real breakdowns (no fabricated % deltas / "coming soon"). ──
+require $ECC "activeTab === 'storage'"
+require $ECC "MediaLibraryManager"
+require $ECC "channelPrefs"
+require $ECC "toggleChannelPref"
+require $ECC "Content by Status"
+require $ECC "Top Performing Content"
+forbid $ECC "12% from last month"
+forbid $ECC "Detailed performance metrics and insights coming soon"
+
+# ── Media Library de-mocked: no hardcoded demo media/folder counts; real upload
+#    + loadDual hydration; folder counts computed from real items. ──
+MLM=src/app/components/MediaLibraryManager.tsx
+forbid $MLM "Kitchen Renovation - Before.jpg"
+forbid $MLM "example.com/video1.mp4"
+require $MLM "folderCount"
+require $MLM "make-server-3eae23a6/media/upload"
+
+# ── Creator Studio (Video Recreation Engine): real AI recreation copy from the
+#    backend, not the local template. Template kept only as offline fallback. ──
+require $CST "content-studio/recreate-script"
+VRE=src/app/components/VideoRecreationEngine.tsx
+require $VRE "content-studio/recreate-script"
+require $VRE "usedAI"
+
+# ── Photo-to-Video export: real client-side canvas + MediaRecorder render that
+#    produces a downloadable video (no fake export). ──
+VEO=src/app/components/VideoExportOptions.tsx
+require $VEO "MediaRecorder"
+require $VEO "captureStream"
+require $VEO "renderAndDownload"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi

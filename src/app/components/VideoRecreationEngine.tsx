@@ -16,6 +16,14 @@ import {
   Instagram, Youtube, Facebook, Video, Sparkles, Package,
   Clock, Tag, DollarSign, Star, Send, Copy, Zap, Film,
 } from 'lucide-react';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const RECREATE_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const recreateHeaders = {
+  Authorization: `Bearer ${publicAnonKey}`,
+  apikey: publicAnonKey,
+  'Content-Type': 'application/json',
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -110,7 +118,11 @@ const DEMO_PRODUCTS: StoreProduct[] = [
   { id: 'p6', name: 'Interior Paint Bundle', description: 'Premium zero-VOC paint + supplies for 2 rooms', price: 149, category: 'Materials', image: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=400&q=80' },
 ];
 
-// ── AI Script Generator (simulated) ───────────────────────────────────────────
+// ── Script scaffold builder ────────────────────────────────────────────────
+// Builds the structural scaffold (storyboard, formats, thumbnails, reference
+// analysis). The AI-written copy fields (hook, benefits, captions, etc.) are
+// generated server-side by OpenAI and merged over this scaffold in
+// handleGenerate — this is only the fallback/base structure.
 
 function generateScript(product: StoreProduct, videoStyle: string, targetPlatform: string): RecreatedScript {
   const discount = product.originalPrice
@@ -404,14 +416,68 @@ export default function VideoRecreationEngine({ onPushToScheduler, onPushToStore
       return;
     }
     setIsGenerating(true);
-    await new Promise(r => setTimeout(r, 2500));
 
-    // Generate script — incorporate brief into hook/style if provided
-    const generated = generateScript(selectedProduct, videoStyle, targetPlatforms[0] || 'instagram');
+    const platform = targetPlatforms[0] || 'instagram';
+    // Structural scaffold (storyboard/formats/thumbnails). Copy fields below are
+    // replaced by real AI output.
+    const generated = generateScript(selectedProduct, videoStyle, platform);
 
-    // If brief provided, prepend it as context to the hook
-    if (creatorBrief.trim()) {
-      generated.hook = `${generated.hook} ${creatorBrief.trim().endsWith('.') ? creatorBrief.trim() : creatorBrief.trim() + '.'}`;
+    // Real AI recreation copy from the backend (OpenAI, brand-voice aware).
+    let usedAI = false;
+    try {
+      const reference = scannedContent
+        ? `${scannedContent.platform || ''} ${scannedContent.note || ''} ${scannedContent.url || ''}`.trim()
+        : (referenceVideoUrl || (referenceVideo ? 'uploaded reference video' : ''));
+      const res = await fetch(`${RECREATE_API}/content-studio/recreate-script`, {
+        method: 'POST',
+        headers: recreateHeaders,
+        body: JSON.stringify({
+          productName: selectedProduct.name,
+          category: selectedProduct.category,
+          description: selectedProduct.description,
+          price: selectedProduct.price,
+          originalPrice: selectedProduct.originalPrice,
+          videoStyle,
+          platform,
+          brief: creatorBrief.trim(),
+          reference,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && data.script) {
+        const s = data.script;
+        // Merge real AI copy over the structural scaffold.
+        generated.hook = s.hook || generated.hook;
+        generated.problemStatement = s.problemStatement || generated.problemStatement;
+        generated.productIntro = s.productIntro || generated.productIntro;
+        if (Array.isArray(s.keyBenefits) && s.keyBenefits.length) generated.keyBenefits = s.keyBenefits;
+        generated.socialProof = s.socialProof || generated.socialProof;
+        generated.callToAction = s.callToAction || generated.callToAction;
+        if (Array.isArray(s.hashtags) && s.hashtags.length) generated.hashtags = s.hashtags;
+        generated.title = s.title || generated.title;
+        generated.description = s.description || generated.description;
+        if (s.captions) {
+          generated.captions = {
+            instagram: s.captions.instagram || generated.captions.instagram,
+            tiktok: s.captions.tiktok || generated.captions.tiktok,
+            facebook: s.captions.facebook || generated.captions.facebook,
+            youtube: s.captions.youtube || generated.captions.youtube,
+          };
+        }
+        usedAI = true;
+      } else {
+        console.error('AI recreate-script failed, using template scaffold:', data.error || res.status);
+      }
+    } catch (err) {
+      console.error('AI recreate-script request error, using template scaffold:', err);
+    }
+
+    if (!usedAI) {
+      toast.info('Using built-in template (AI service unavailable — publish the backend to enable AI recreation).');
+      // In template mode, still honor the brief by folding it into the hook.
+      if (creatorBrief.trim()) {
+        generated.hook = `${generated.hook} ${creatorBrief.trim().endsWith('.') ? creatorBrief.trim() : creatorBrief.trim() + '.'}`;
+      }
     }
 
     // If for store, generate a full product detail page
@@ -451,7 +517,7 @@ export default function VideoRecreationEngine({ onPushToScheduler, onPushToStore
     setActivePlatform(targetPlatforms[0] || 'instagram');
     setIsGenerating(false);
     setStep(3);
-    toast.success(`Script recreated!${isForStore ? ' Product page also generated.' : ''} Review and customize below.`);
+    toast.success(`${usedAI ? 'AI script generated!' : 'Script recreated!'}${isForStore ? ' Product page also generated.' : ''} Review and customize below.`);
   }
 
   function getCaption(platform: string) {
