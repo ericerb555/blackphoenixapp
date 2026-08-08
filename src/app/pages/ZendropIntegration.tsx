@@ -58,23 +58,6 @@ interface ZendropProduct {
 
 type Tab = 'connect' | 'catalog' | 'orders' | 'settings';
 
-// ─── Mock catalog (used until real API is connected) ──────────────────────────
-
-const MOCK_PRODUCTS: ZendropProduct[] = [
-  { id: 'zd1',  name: 'Magnetic Tool Holder Strip — 18"',     category: 'Organization', cost: 9.80,  msrp: 29.99, shipsFrom: 'USA', eta: '3–5 days', rating: 4.8, reviews: 412, stock: 580, img: '🧲', sku: 'ZD-ORG-001', description: 'Heavy-duty magnetic strip for garage and workshop tool organization.' },
-  { id: 'zd2',  name: 'Foldable Work Sawhorse (2-Pack)',       category: 'Tools',        cost: 34.50, msrp: 99.99, shipsFrom: 'USA', eta: '4–6 days', rating: 4.7, reviews: 189, stock: 73,  img: '🪚', sku: 'ZD-TLS-002', description: 'Adjustable steel folding sawhorses, 1,000 lb capacity each.' },
-  { id: 'zd3',  name: 'Heavy Duty Drop Cloth (9×12 ft)',       category: 'Painting',     cost: 7.20,  msrp: 22.99, shipsFrom: 'USA', eta: '3–5 days', rating: 4.6, reviews: 267, stock: 840, img: '🎨', sku: 'ZD-PNT-003', description: 'Canvas drop cloth, ideal for home painting and renovation projects.' },
-  { id: 'zd4',  name: 'Adjustable Pipe Clamp Set (6 pc)',      category: 'Plumbing',     cost: 14.90, msrp: 44.99, shipsFrom: 'USA', eta: '3–6 days', rating: 4.9, reviews: 94,  stock: 215, img: '🔩', sku: 'ZD-PLM-004', description: 'Stainless adjustable clamps for pipes 1/2" to 2".' },
-  { id: 'zd5',  name: 'Pro Caulking Gun — Drip-Free',          category: 'Sealing',      cost: 11.40, msrp: 34.99, shipsFrom: 'USA', eta: '2–4 days', rating: 4.8, reviews: 328, stock: 394, img: '🔫', sku: 'ZD-SLG-005', description: 'Smooth-rod professional caulking gun with built-in cutter and nozzle piercer.' },
-  { id: 'zd6',  name: 'Hex Allen Key Set — 30 Piece',          category: 'Hand Tools',   cost: 8.60,  msrp: 26.99, shipsFrom: 'USA', eta: '3–5 days', rating: 4.7, reviews: 512, stock: 677, img: '🔑', sku: 'ZD-HND-006', description: 'SAE and metric hex keys in chrome vanadium steel with organizer case.' },
-  { id: 'zd7',  name: 'Jobsite Radio — Bluetooth + AM/FM',     category: 'Electronics',  cost: 38.20, msrp: 114.99, shipsFrom: 'USA', eta: '4–7 days', rating: 4.8, reviews: 143, stock: 58,  img: '📻', sku: 'ZD-ELT-007', description: 'Weatherproof job site radio with Bluetooth 5.0, USB charging, and 10hr battery.' },
-  { id: 'zd8',  name: 'Retractable Extension Cord — 50 ft',    category: 'Electrical',   cost: 26.80, msrp: 79.99, shipsFrom: 'USA', eta: '3–5 days', rating: 4.9, reviews: 221, stock: 120, img: '🔌', sku: 'ZD-ELC-008', description: '14AWG retractable cord reel with 3-outlet head, auto-rewind.' },
-  { id: 'zd9',  name: 'Laser Level — Self-Leveling 360°',      category: 'Measuring',    cost: 42.00, msrp: 124.99, shipsFrom: 'USA', eta: '3–5 days', rating: 4.9, reviews: 304, stock: 88,  img: '📏', sku: 'ZD-MSR-009', description: 'Cross-line laser level, ±4° self-leveling range, 50-ft range with tripod.' },
-  { id: 'zd10', name: 'Work Light LED — 5000 Lumen Tripod',    category: 'Lighting',     cost: 31.50, msrp: 94.99, shipsFrom: 'USA', eta: '4–6 days', rating: 4.8, reviews: 167, stock: 143, img: '💡', sku: 'ZD-LGT-010', description: '5000-lumen LED work light on adjustable tripod stand, IP44 weather resistant.' },
-  { id: 'zd11', name: 'Knee Pads — Construction Grade (Pair)', category: 'Safety',       cost: 13.20, msrp: 39.99, shipsFrom: 'USA', eta: '2–4 days', rating: 4.7, reviews: 289, stock: 530, img: '🦺', sku: 'ZD-SFT-011', description: 'Heavy-duty gel knee pads with hard shell cap and adjustable straps.' },
-  { id: 'zd12', name: 'Paint Sprayer — HVLP 700W',             category: 'Painting',     cost: 48.90, msrp: 149.99, shipsFrom: 'USA', eta: '4–7 days', rating: 4.6, reviews: 211, stock: 62,  img: '🖌️', sku: 'ZD-PNT-012', description: '700W HVLP sprayer with 3 spray patterns, 500ml/min flow, includes cleaning kit.' },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function loadConfig() {
@@ -113,6 +96,7 @@ export default function ZendropIntegration() {
 
   // Real products pulled from store inventory (what actually went live)
   const [liveProducts, setLiveProducts] = useState<ZendropProduct[]>([]);
+  const [importingId, setImportingId] = useState<string | null>(null);
   const [loadingLive, setLoadingLive]   = useState(false);
 
   // Real orders forwarded to Zendrop (admin-only route)
@@ -340,30 +324,33 @@ export default function ZendropIntegration() {
     }
   }
 
-  function importProduct(p: ZendropProduct) {
-    const next = new Set(importedIds);
-    next.add(p.id);
-    setImported(next);
-    localStorage.setItem('bp_zendrop_imported', JSON.stringify([...next]));
-
-    // Add to store catalog
+  // Publish a synced Zendrop product to the LIVE server storefront (real,
+  // server-persisted) — not localStorage. The server looks the item up by SKU
+  // in dropshipper inventory and writes it to the public catalog.
+  async function importProduct(p: ZendropProduct) {
+    if (!p.sku) { toast.error('This product has no SKU, so it cannot be published.'); return; }
+    setImportingId(p.id);
     try {
-      const catalog = JSON.parse(localStorage.getItem('store_catalog') || '[]');
-      const existing = catalog.find((c: any) => c.id === `zendrop-${p.id}`);
-      if (!existing) {
-        const yourPrice = computePrice(p.cost);
-        catalog.push({
-          id: `zendrop-${p.id}`, sku: p.sku, name: p.name, category: p.category,
-          cost: p.cost, price: parseFloat(yourPrice), msrp: p.msrp,
-          source: 'zendrop', shipsFrom: p.shipsFrom, eta: p.eta,
-          rating: p.rating, stock: p.stock, description: p.description,
-          importedAt: new Date().toISOString(), autoFulfill,
-        });
-        localStorage.setItem('store_catalog', JSON.stringify(catalog));
+      const res = await fetch(`${SERVER}/zendrop/publish-to-store`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await ordersAuthHeaders()) },
+        body: JSON.stringify({ sku: p.sku }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || `Publish failed (${res.status})`);
       }
-    } catch {}
-
-    toast.success(`"${p.name}" imported to your store.`);
+      const next = new Set(importedIds);
+      next.add(p.id);
+      setImported(next);
+      toast.success(`"${p.name}" published to your store.`);
+      loadLiveProducts();
+    } catch (e: any) {
+      console.error('[Zendrop] publish-to-store failed:', e);
+      toast.error(e?.message || 'Could not publish product to the store.');
+    } finally {
+      setImportingId(null);
+    }
   }
 
   function computePrice(cost: number): string {
@@ -376,9 +363,10 @@ export default function ZendropIntegration() {
     toast.success('API key copied.');
   }
 
-  // Show real imported products once they exist; otherwise the sample catalog.
+  // Only ever show REAL products pulled from the server. No sample/mock data —
+  // an empty catalog means "connect & sync first", which is the honest state.
   const showingLive = liveProducts.length > 0;
-  const sourceProducts = showingLive ? liveProducts : MOCK_PRODUCTS;
+  const sourceProducts = liveProducts;
 
   const cats = ['All', ...Array.from(new Set(sourceProducts.map(p => p.category)))];
   const filtered = useMemo(() => sourceProducts.filter(p => {
@@ -387,7 +375,10 @@ export default function ZendropIntegration() {
     return true;
   }), [catFilter, search, sourceProducts]);
 
-  const totalRevenue = [...importedIds].length * 45; // rough estimate
+  // Real potential margin from the products actually in the store (sell − cost).
+  const totalRevenue = liveProducts
+    .filter(p => importedIds.has(p.id))
+    .reduce((sum, p) => sum + Math.max(0, parseFloat(computePrice(p.cost)) - p.cost), 0);
 
   return (
     <div className="min-h-screen p-4 sm:p-6" style={{ background: '#0a0a0a', color: 'white' }}>
@@ -652,7 +643,7 @@ export default function ZendropIntegration() {
               </div>
             ) : (
               <p className="text-xs text-gray-600">
-                {loadingLive ? 'Loading your imported products…' : `Sample catalog · ${filtered.length} products · click Connect or Sync to import your real Zendrop top products`}
+                {loadingLive ? 'Loading your imported products…' : 'No products yet — click Connect, then Sync to pull your real Zendrop top products into the store.'}
               </p>
             )}
 
@@ -703,14 +694,16 @@ export default function ZendropIntegration() {
 
                     <button
                       onClick={() => importProduct(p)}
-                      disabled={imported}
+                      disabled={imported || importingId === p.id}
                       className="w-full mt-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2"
                       style={imported
                         ? { background: 'rgba(74,222,128,0.06)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)', cursor: 'default' }
                         : { background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)', cursor: 'pointer' }}>
                       {imported
                         ? <><CheckCircle className="w-3.5 h-3.5" /> In Your Store</>
-                        : <><Package className="w-3.5 h-3.5" /> Import to Store</>}
+                        : importingId === p.id
+                          ? <>Publishing…</>
+                          : <><Package className="w-3.5 h-3.5" /> Import to Store</>}
                     </button>
                   </div>
                 );

@@ -6,8 +6,21 @@
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
-import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey } from './zendrop.tsx';
-import { submitCJOrder, resolveKey as resolveCJKey } from './cjdropshipping.tsx';
+import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey, importTopProducts as importZendropProducts } from './zendrop.tsx';
+import { submitCJOrder, resolveKey as resolveCJKey, importProducts as importCJProducts } from './cjdropshipping.tsx';
+
+/**
+ * Identify a provider so the generic sync can dispatch to the real,
+ * provider-specific importer (Zendrop MCP / CJ REST) instead of the generic
+ * `{apiUrl}/products` shape, which neither provider actually serves.
+ */
+function providerKind(provider: config.DropshipperProvider): 'zendrop' | 'cj' | 'generic' {
+  const id = String(provider.id || '').toLowerCase();
+  const name = String(provider.name || '').toLowerCase();
+  if (id === 'zendrop' || /zendrop/.test(name)) return 'zendrop';
+  if (id === 'cjdropshipping' || /cj\s*dropshipping/.test(name)) return 'cj';
+  return 'generic';
+}
 
 // Storage keys
 const INVENTORY_KEY_PREFIX = 'dropshipper_inventory';
@@ -98,17 +111,35 @@ export async function syncInventory(): Promise<{ success: boolean; synced: numbe
     if (!provider.syncInventory) continue;
 
     try {
-      const products = await fetchInventoryFromProvider(provider);
+      const kind = providerKind(provider);
 
-      let skippedAdult = 0;
-      for (const product of products) {
-        // Never sync adult / sexual-wellness products into the store.
-        if (isAdultProduct(product)) { skippedAdult++; continue; }
-        await saveInventoryItem(product);
-        totalSynced++;
+      // Zendrop & CJ have real, provider-specific importers that pull from their
+      // actual APIs (Zendrop MCP / CJ REST) and persist inventory themselves.
+      // Dispatch to those instead of the generic `{apiUrl}/products` shape,
+      // which neither supplier serves (that path only fits a plain REST vendor).
+      if (kind === 'zendrop') {
+        const apiKey = resolveZendropKey(provider.apiKey);
+        if (!apiKey) throw new Error('No Zendrop API key configured (set ZENDROP_API_KEY or save a provider key).');
+        const { imported } = await importZendropProducts(apiKey, provider.settings?.syncLimit || 100);
+        totalSynced += imported;
+        console.log(`[Dropshipper] Zendrop sync imported ${imported} products.`);
+      } else if (kind === 'cj') {
+        const apiKey = resolveCJKey(provider.apiKey);
+        if (!apiKey) throw new Error('No CJ API key configured (set CJ_API_KEY or save a provider key).');
+        const { imported, blocked } = await importCJProducts(apiKey, provider.settings?.syncLimit || 100);
+        totalSynced += imported;
+        console.log(`[Dropshipper] CJ sync imported ${imported} products${blocked ? ` (${blocked} blocked)` : ''}.`);
+      } else {
+        const products = await fetchInventoryFromProvider(provider);
+        let skippedAdult = 0;
+        for (const product of products) {
+          // Never sync adult / sexual-wellness products into the store.
+          if (isAdultProduct(product)) { skippedAdult++; continue; }
+          await saveInventoryItem(product);
+          totalSynced++;
+        }
+        console.log(`[Dropshipper] Synced ${products.length - skippedAdult} products from ${provider.name}${skippedAdult ? ` (skipped ${skippedAdult} adult items)` : ''}`);
       }
-
-      console.log(`[Dropshipper] Synced ${products.length - skippedAdult} products from ${provider.name}${skippedAdult ? ` (skipped ${skippedAdult} adult items)` : ''}`);
     } catch (error) {
       const errorMsg = `Failed to sync from ${provider.name}: ${error}`;
       errors.push(errorMsg);
@@ -498,9 +529,10 @@ export async function getTracking(orderId: string): Promise<TrackingInfo | null>
   try {
     const tracking = await fetchTrackingFromProvider(provider, order.providerOrderId);
     
-    // Update order with tracking info
+    // Update order with tracking info. Only record a tracking URL the provider
+    // actually returned — never fabricate one (a fake URL misleads customers).
     order.trackingNumber = tracking.trackingNumber;
-    order.trackingUrl = `https://track.example.com/${tracking.trackingNumber}`;
+    if ((tracking as any).trackingUrl) order.trackingUrl = (tracking as any).trackingUrl;
     order.status = mapTrackingStatus(tracking.status);
     await saveOrder(order);
 
@@ -534,7 +566,9 @@ async function fetchTrackingFromProvider(provider: config.DropshipperProvider, p
     status: data.status,
     estimatedDelivery: data.estimated_delivery,
     events: data.events || [],
-  };
+    // Pass through a real carrier tracking URL if the provider supplies one.
+    ...(data.tracking_url ? { trackingUrl: data.tracking_url } : {}),
+  } as TrackingInfo;
 }
 
 /**

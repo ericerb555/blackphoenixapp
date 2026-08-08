@@ -417,7 +417,7 @@ function pickImages(p: any): string[] {
  * store reads (`product_` prefix) plus the dropshipper inventory
  * (`dropshipper_inventory:` prefix) used for order forwarding.
  */
-async function importProducts(apiKey: string, limit: number): Promise<{ imported: number; blocked: number }> {
+export async function importProducts(apiKey: string, limit: number): Promise<{ imported: number; blocked: number }> {
   const pageSize = Math.min(50, Math.max(1, limit));
   const data = await cjFetch(apiKey, "/product/list", {
     query: { pageNum: 1, pageSize },

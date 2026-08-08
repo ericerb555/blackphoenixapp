@@ -572,7 +572,7 @@ async function registerProvider(apiKey: string, markupType: string, markupValue:
 /**
  * Pull top products from Zendrop and write them into store inventory.
  */
-async function importTopProducts(apiKey: string, limit: number): Promise<{ imported: number; sample: NormalizedProduct[]; endpoint: string }> {
+export async function importTopProducts(apiKey: string, limit: number): Promise<{ imported: number; sample: NormalizedProduct[]; endpoint: string }> {
   const { markupType, markupValue } = await loadServerConfig();
 
   // Pull TWO Zendrop feeds and merge them:

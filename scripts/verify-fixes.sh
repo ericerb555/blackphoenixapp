@@ -559,6 +559,19 @@ forbid $VSF "components/ui/button'"
 require src/app/routes.tsx "video-studio"
 require src/app/nav.ts "video-studio"
 
+# --- Dropshipper: real provider sync + no fabricated data ---
+DSB=supabase/functions/server/dropshipper.tsx
+require $DSB "importZendropProducts"
+require $DSB "importCJProducts"
+require $DSB "providerKind"
+forbid $DSB "track.example.com"
+require supabase/functions/server/zendrop.tsx "export async function importTopProducts"
+require supabase/functions/server/cjdropshipping.tsx "export async function importProducts"
+ZIF=src/app/pages/ZendropIntegration.tsx
+require $ZIF "zendrop/publish-to-store"
+forbid $ZIF "MOCK_PRODUCTS"
+forbid $ZIF "store_catalog"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi
