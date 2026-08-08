@@ -128,18 +128,6 @@ const SUPPLIERS: SupplierDef[] = [
     ],
     pros: ['US-only shipping', '1M+ products', 'Auto routing'],
   },
-  {
-    id: 'zendrop', name: 'Zendrop', logo: '⚡', color: 'from-emerald-600 to-emerald-700',
-    description: 'US-based fulfillment with fast shipping and a full auto-fulfillment API. Strong for home goods and tools.',
-    categories: ['Home', 'Tools', 'Lifestyle', 'Electronics'],
-    minOrder: 'No minimum', shipsFrom: 'USA', avgShipping: '3–5 days',
-    apiType: 'key', website: 'zendrop.com',
-    fields: [
-      { key: 'api_key', label: 'API Key', placeholder: 'zdp_live_••••••••', secret: true },
-      { key: 'store_id', label: 'Store ID (optional)', placeholder: 'Your Zendrop Store ID' },
-    ],
-    pros: ['US warehouse priority', 'Auto-fulfillment API', '1M+ products'],
-  },
 ];
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -223,12 +211,11 @@ export default function MultiDropshipperManager() {
   const [generatingPrices, setGeneratingPrices] = useState(false);
   const [suggestions, setSuggestions] = useState<PriceSuggestion[] | null>(null);
 
-  // Zendrop quick-connect (inline in the dropshipping area).
-  const [zendropKey, setZendropKey] = useState('');
-  const [zendropStore, setZendropStore] = useState('');
-  const [zendropShowKey, setZendropShowKey] = useState(false);
-  const [zendropConnecting, setZendropConnecting] = useState(false);
-  const zendropConnected = connected.some(s => s.supplierId === 'zendrop');
+  // CJ Dropshipping quick-connect (inline in the dropshipping area).
+  const [cjKey, setCjKey] = useState('');
+  const [cjShowKey, setCjShowKey] = useState(false);
+  const [cjConnecting, setCjConnecting] = useState(false);
+  const cjConnected = connected.some(s => s.supplierId === 'cjdropshipping');
 
   // Load REAL connected providers + inventory from the server so this tab
   // reflects the actual connection state (e.g. Zendrop connected on the
@@ -330,65 +317,113 @@ export default function MultiDropshipperManager() {
     const missing = selectedSupplier.fields.find(f => !credentials[f.key]);
     if (missing) { toast.error(`Please enter your ${missing.label}`); return; }
     setConnecting(true);
-    await new Promise(r => setTimeout(r, 1800));
-
-    const newConn: ConnectedSupplier = {
-      id: `cs${Date.now()}`, supplierId: selectedSupplier.id, name: selectedSupplier.name,
-      status: 'connected', productCount: Math.floor(Math.random() * 500) + 50,
-      lastSync: 'just now',
-      markupType, markupValue: Number(markupValue), autoForwardOrders: autoForward,
-      credentials, syncInterval: 4, categories: selectedSupplier.categories,
-      totalRevenue: 0, pendingOrders: 0,
-    };
-    setConnected(prev => [...prev, newConn]);
-    toast.success(`✅ ${selectedSupplier.name} connected! ${newConn.productCount} products synced.`);
-    setConnecting(false);
-    setShowAddModal(false);
-    setSelectedSupplier(null);
-    setCredentials({});
-  }
-
-  // Connect Zendrop directly from the dropshipping area using the entered API key
-  // + store number, then it's immediately syncable from here.
-  async function connectZendropInline() {
-    setZendropConnecting(true);
     try {
-      const res = await fetch(`${SERVER}/zendrop/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          apiKey: zendropKey.trim(),
-          storeId: zendropStore.trim(),
-          markupType: 'percent',
-          markupValue: 75,
-          autoImport: true,
-          limit: 100,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        const msg = data.error || `Zendrop connection failed (HTTP ${res.status}). Check your API key.`;
-        console.error('[DropshipperManager] Zendrop inline verify failed:', msg, data);
-        toast.error(msg);
+      // CJ Dropshipping connects for real against the server (auth + product import).
+      if (selectedSupplier.id === 'cjdropshipping') {
+        const res = await fetch(`${SERVER}/cj/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ apiKey: (credentials['api_key'] || '').trim(), limit: 100 }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          const msg = data.error || `CJ Dropshipping connection failed (HTTP ${res.status}). Check your API key.`;
+          console.error('[DropshipperManager] CJ verify failed:', msg, data);
+          toast.error(msg);
+          return;
+        }
+        toast.success(`✅ CJ Dropshipping connected! ${(data.imported ?? data.productCount ?? 0)} products imported.`);
+        await loadConnected();
+        setShowAddModal(false);
+        setSelectedSupplier(null);
+        setCredentials({});
         return;
       }
-      toast.success(`✅ Zendrop connected! ${(data.imported || data.productCount || 0)} products imported. You can now sync anytime.`);
-      setZendropKey('');
-      await loadConnected();
+
+      // Other suppliers: record the connection honestly — no products until a real
+      // sync integration exists for that provider.
+      const newConn: ConnectedSupplier = {
+        id: `cs${Date.now()}`, supplierId: selectedSupplier.id, name: selectedSupplier.name,
+        status: 'connected', productCount: 0, lastSync: 'not synced',
+        markupType, markupValue: Number(markupValue), autoForwardOrders: autoForward,
+        credentials, syncInterval: 4, categories: selectedSupplier.categories,
+        totalRevenue: 0, pendingOrders: 0,
+      };
+      setConnected(prev => [...prev, newConn]);
+      toast.success(`✅ ${selectedSupplier.name} saved. Automatic product sync isn't available for this provider yet.`);
+      setShowAddModal(false);
+      setSelectedSupplier(null);
+      setCredentials({});
     } catch (e: any) {
-      console.error('[DropshipperManager] Zendrop inline verify error:', e);
-      toast.error(`Could not reach the server to connect Zendrop: ${e?.message || e}`);
+      console.error('[DropshipperManager] connect error:', e);
+      toast.error(`Could not reach the server to connect ${selectedSupplier.name}: ${e?.message || e}`);
     } finally {
-      setZendropConnecting(false);
+      setConnecting(false);
     }
   }
 
+  // Connect CJ Dropshipping directly from the dropshipping area using the entered
+  // API key (or the server-configured key if left blank), then it's syncable here.
+  async function connectCJInline() {
+    setCjConnecting(true);
+    try {
+      const res = await fetch(`${SERVER}/cj/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apiKey: cjKey.trim(), limit: 100 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `CJ Dropshipping connection failed (HTTP ${res.status}). Check your API key.`;
+        console.error('[DropshipperManager] CJ inline verify failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      toast.success(`✅ CJ Dropshipping connected! ${(data.imported || data.productCount || 0)} products imported. You can now sync anytime.`);
+      setCjKey('');
+      await loadConnected();
+    } catch (e: any) {
+      console.error('[DropshipperManager] CJ inline verify error:', e);
+      toast.error(`Could not reach the server to connect CJ Dropshipping: ${e?.message || e}`);
+    } finally {
+      setCjConnecting(false);
+    }
+  }
+
+  // Real inventory sync — dispatch to the provider-specific server route.
   async function syncSupplier(id: string) {
+    const supplier = connected.find(c => c.id === id || c.supplierId === id);
+    if (!supplier) { toast.error('Supplier not found.'); return; }
+    const kind = supplier.supplierId;
+    let route: string | null = null;
+    if (kind === 'cjdropshipping') route = `${SERVER}/cj/sync`;
+    else if (kind === 'zendrop') route = `${SERVER}/zendrop/sync`;
+    if (!route) {
+      toast.error(`Sync isn't available for ${supplier.name} yet. Connect a supported supplier (CJ Dropshipping).`);
+      return;
+    }
     setSyncing(id);
-    await new Promise(r => setTimeout(r, 2000));
-    setConnected(prev => prev.map(s => s.id === id ? { ...s, lastSync: 'just now', productCount: s.productCount + Math.floor(Math.random() * 10) } : s));
-    toast.success('Inventory synced!');
-    setSyncing(null);
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ limit: 100 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Sync failed (HTTP ${res.status}).`;
+        console.error('[DropshipperManager] sync failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      toast.success(`✅ Synced ${(data.imported ?? data.productCount ?? 0)} products from ${supplier.name}.`);
+      await loadConnected();
+    } catch (e: any) {
+      console.error('[DropshipperManager] sync error:', e);
+      toast.error(`Could not reach the server to sync: ${e?.message || e}`);
+    } finally {
+      setSyncing(null);
+    }
   }
 
   function disconnectSupplier(id: string) {
@@ -586,14 +621,14 @@ export default function MultiDropshipperManager() {
       {/* ── SUPPLIERS TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'suppliers' && (
         <div className="space-y-4">
-          {/* Zendrop quick-connect — enter API key + store number, then sync */}
-          <div className="bg-[#1A1A1A] border border-emerald-500/20 rounded-2xl p-5">
+          {/* CJ Dropshipping quick-connect — enter API key (or use server key), then sync */}
+          <div className="bg-[#1A1A1A] border border-red-500/20 rounded-2xl p-5">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 flex items-center justify-center text-xl flex-shrink-0">⚡</div>
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-700 flex items-center justify-center text-xl flex-shrink-0">📦</div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-white">Zendrop</p>
-                  {zendropConnected ? (
+                  <p className="font-bold text-white">CJ Dropshipping</p>
+                  {cjConnected ? (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400">
                       <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> Connected
                     </span>
@@ -601,47 +636,38 @@ export default function MultiDropshipperManager() {
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-500/20 text-gray-400">Not connected</span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">Enter your Zendrop API key and store number to connect, then sync your catalog.</p>
+                <p className="text-xs text-gray-500 mt-0.5">Enter your CJ Dropshipping API key to connect, then sync your catalog. Orders can be auto-fulfilled through CJ.</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Zendrop API Key</label>
+                <label className="block text-xs font-semibold text-gray-400 mb-1.5">CJ Dropshipping API Key</label>
                 <div className="relative">
                   <input
-                    type={zendropShowKey ? 'text' : 'password'}
-                    value={zendropKey}
-                    onChange={e => setZendropKey(e.target.value)}
-                    placeholder="zdp_live_••••••••••••"
-                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600 pr-10"
+                    type={cjShowKey ? 'text' : 'password'}
+                    value={cjKey}
+                    onChange={e => setCjKey(e.target.value)}
+                    placeholder="Your CJ API key (from CJ → Authorization → API)"
+                    className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-red-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600 pr-10"
                   />
-                  <button type="button" onClick={() => setZendropShowKey(v => !v)}
+                  <button type="button" onClick={() => setCjShowKey(v => !v)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition">
-                    {zendropShowKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {cjShowKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 mb-1.5">Store Number <span className="text-gray-600">(optional)</span></label>
-                <input
-                  value={zendropStore}
-                  onChange={e => setZendropStore(e.target.value)}
-                  placeholder="Your Zendrop Store ID"
-                  className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600"
-                />
               </div>
             </div>
 
             <div className="flex items-center gap-2 mt-4 flex-wrap">
-              <button onClick={connectZendropInline} disabled={zendropConnecting}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:brightness-110 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition">
-                {zendropConnecting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Connecting…</> : <><Zap className="w-4 h-4" /> {zendropConnected ? 'Reconnect' : 'Connect'} Zendrop</>}
+              <button onClick={connectCJInline} disabled={cjConnecting}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 hover:brightness-110 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition">
+                {cjConnecting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Connecting…</> : <><Zap className="w-4 h-4" /> {cjConnected ? 'Reconnect' : 'Connect'} CJ Dropshipping</>}
               </button>
-              {zendropConnected && (
-                <button onClick={() => syncSupplier('zendrop')} disabled={syncing === 'zendrop'}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/25 disabled:opacity-50 rounded-xl text-sm font-bold transition">
-                  <RefreshCw className={`w-4 h-4 ${syncing === 'zendrop' ? 'animate-spin' : ''}`} /> Sync Catalog
+              {cjConnected && (
+                <button onClick={() => syncSupplier('cjdropshipping')} disabled={syncing === 'cjdropshipping'}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-red-600/15 border border-red-500/30 text-red-400 hover:bg-red-600/25 disabled:opacity-50 rounded-xl text-sm font-bold transition">
+                  <RefreshCw className={`w-4 h-4 ${syncing === 'cjdropshipping' ? 'animate-spin' : ''}`} /> Sync Catalog
                 </button>
               )}
               <p className="text-xs text-gray-600">Leave the API key blank to use the account key already configured on the server.</p>
@@ -1082,7 +1108,7 @@ export default function MultiDropshipperManager() {
                   <span className="text-2xl">🏭</span>
                   <div>
                     <p className="font-bold text-white text-sm">Custom Dropshipper</p>
-                    <p className="text-xs text-gray-400">Add any supplier — Zendrop, Modalyst, Inventory Source, or your own wholesaler</p>
+                    <p className="text-xs text-gray-400">Add any supplier — Modalyst, Inventory Source, or your own wholesaler</p>
                   </div>
                   <button onClick={() => setIsCustom(false)} className="ml-auto p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white">
                     <X className="w-4 h-4" />
@@ -1093,7 +1119,7 @@ export default function MultiDropshipperManager() {
                   <div>
                     <label className="block text-xs font-semibold text-gray-400 mb-1.5">Supplier Name *</label>
                     <input value={customSupplier.name} onChange={e => setCustomSupplier(p => ({ ...p, name: e.target.value }))}
-                      placeholder="e.g. Zendrop, My Wholesale Co."
+                      placeholder="e.g. Modalyst, My Wholesale Co."
                       className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-orange-500 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none placeholder-gray-600" />
                   </div>
                   <div>

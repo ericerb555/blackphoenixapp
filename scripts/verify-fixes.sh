@@ -572,6 +572,17 @@ require $ZIF "zendrop/publish-to-store"
 forbid $ZIF "MOCK_PRODUCTS"
 forbid $ZIF "store_catalog"
 
+# MultiDropshipperManager: CJ Dropshipping inline connect replaced Zendrop, and
+# connect/sync hit real server routes (no Math.random / fake product counts).
+MDM=src/app/components/MultiDropshipperManager.tsx
+require $MDM "connectCJInline"
+require $MDM "cj/verify"
+require $MDM "cj/sync"
+require $MDM "cjConnected"
+forbid $MDM "connectZendropInline"
+forbid $MDM "zendrop/verify"
+forbid $MDM "Math.floor(Math.random() \* 500)"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi
