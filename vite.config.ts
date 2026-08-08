@@ -44,7 +44,9 @@ export default defineConfig({
       }
     },
     outDir: 'dist',
-    sourcemap: true,
+    // sourcemap: false — generating .map files OOMs the 8GB Vercel builder
+    // during "transforming..." on this large app. Keep off to allow the build.
+    sourcemap: false,
     // Disable minification cache
     minify: 'esbuild',
     // Increase chunk size limit to reduce splitting
