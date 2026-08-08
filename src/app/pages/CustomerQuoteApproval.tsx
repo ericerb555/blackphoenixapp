@@ -14,6 +14,7 @@ import {
   loadCustomerMembership,
   contractDiscountForMembership,
   planTierLabel,
+  isLandlordPlanId,
   type CustomerMembership,
 } from '../lib/subscriptionDiscount';
 import {
@@ -578,7 +579,9 @@ export default function CustomerQuoteApproval() {
                 <div className="flex justify-between items-center text-green-400">
                   <span className="flex items-center gap-2">
                     <Award className="w-4 h-4" />
-                    {planTierLabel(membership?.tier) ? `${planTierLabel(membership?.tier)} Plan` : 'Member'} Discount ({discountPct}% off)
+                    {isLandlordPlanId(membership?.planId)
+                      ? 'Landlord Plan'
+                      : (planTierLabel(membership?.tier) ? `${planTierLabel(membership?.tier)} Plan` : 'Member')} Discount ({discountPct}% off)
                   </span>
                   <span className="font-semibold">−${discountAmount.toLocaleString()}</span>
                 </div>

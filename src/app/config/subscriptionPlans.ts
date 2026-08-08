@@ -445,7 +445,7 @@ export const PROPERTY_MANAGEMENT_PLANS: SubscriptionPlan[] = [
       '📚 Knowledge Center: NH landlord law library & lease templates',
       '🛒 Marketplace: NH Landlord Operations Manual + NH Lease Pack included',
       '🎁 First 12 Subscribers: Half price pressure washing',
-      '🎁 First 12 Subscribers: 15% off Black Phoenix Services for life',
+      '🏷️ 15% off every quoted project — for the lifetime of your subscription',
     ],
     limits: {
       projects: 10,

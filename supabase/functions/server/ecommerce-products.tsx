@@ -167,6 +167,26 @@ productsRouter.post('/products', async (c) => {
   }
 });
 
+// Summary of products grouped by dropship source, with active/hidden counts.
+// Registered BEFORE `/products/:id` so it isn't captured as an id lookup.
+productsRouter.get('/products/source-summary', async (c) => {
+  try {
+    const products = await loadAllProducts();
+    const summary: Record<string, { total: number; active: number; hidden: number }> = {};
+    for (const p of products) {
+      const src = productSource(p);
+      const entry = summary[src] || { total: 0, active: 0, hidden: 0 };
+      entry.total += 1;
+      if (p.isActive === false) entry.hidden += 1; else entry.active += 1;
+      summary[src] = entry;
+    }
+    return c.json({ success: true, sources: summary });
+  } catch (error) {
+    console.error('Error building product source summary:', error);
+    return c.json({ error: 'Failed to build source summary', details: (error as any)?.message }, 500);
+  }
+});
+
 // Get Product by ID
 productsRouter.get('/products/:id', async (c) => {
   try {
@@ -374,6 +394,53 @@ productsRouter.delete('/products/:id', async (c) => {
   } catch (error) {
     console.error('Error deleting product:', error);
     return c.json({ error: 'Failed to delete product', details: error.message }, 500);
+  }
+});
+
+// ── Storefront visibility by dropship source ────────────────────────────────
+// A product's originating dropshipper is recorded on `source` (e.g. "zendrop",
+// "cjdropshipping"). These two routes let the owner see how many products came
+// from each source and flip ALL of them on/off the storefront at once, without
+// deleting anything — hiding = isActive:false, showing = isActive:true.
+
+const productSource = (p: any): string =>
+  String(p?.source || p?.vendorId || p?.vendorName || 'unknown').toLowerCase();
+
+// Toggle storefront visibility for every product from a given source.
+// Body: { source: string, isActive: boolean }
+productsRouter.post('/products/source-visibility', async (c) => {
+  try {
+    const { source, isActive } = await c.req.json();
+    if (!source || typeof source !== 'string') {
+      return c.json({ error: 'A "source" string is required (e.g. "zendrop", "cjdropshipping").' }, 400);
+    }
+    if (typeof isActive !== 'boolean') {
+      return c.json({ error: 'An "isActive" boolean is required.' }, 400);
+    }
+    const wanted = source.toLowerCase();
+    const products = await loadAllProducts();
+    const matches = products.filter((p: any) => productSource(p) === wanted);
+    if (matches.length === 0) {
+      return c.json({ success: true, updated: 0, source: wanted, isActive, message: `No products found for source "${wanted}".` });
+    }
+
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const product of matches) {
+      if (product.isActive === isActive) continue; // already in desired state
+      // Write back to the SAME prefix the product lives under. Imported dropship
+      // products use `live_product_`; canonical ones use `product_`.
+      const canonical = await kv.get(`product_${product.id}`);
+      const key = canonical ? `product_${product.id}` : `live_product_${product.id}`;
+      const existing = canonical || (await kv.get(`live_product_${product.id}`)) || product;
+      await kv.set(key, { ...existing, isActive, updatedAt: now });
+      updated += 1;
+    }
+    invalidateProductsCache();
+    return c.json({ success: true, updated, matched: matches.length, source: wanted, isActive });
+  } catch (error) {
+    console.error('Error toggling source visibility:', error);
+    return c.json({ error: 'Failed to toggle source visibility', details: (error as any)?.message }, 500);
   }
 });
 

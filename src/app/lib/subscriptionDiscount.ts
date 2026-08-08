@@ -26,6 +26,13 @@ export const CONTRACT_DISCOUNT_BY_TIER: Record<PlanTier, number> = {
   enterprise: 15,
 };
 
+/**
+ * Landlord lifetime perk: every paying landlord subscriber gets 15% off any
+ * quoted project for the lifetime of the subscription (as long as it's active).
+ * This applies to ALL landlord-portal plans, not just the first N subscribers.
+ */
+export const LANDLORD_LIFETIME_DISCOUNT = 15;
+
 export interface CustomerMembership {
   planId?: string;
   planName?: string;
@@ -45,6 +52,13 @@ export function tierForPlanId(planId?: string): PlanTier | undefined {
   return plan?.tier;
 }
 
+/** True if a plan id belongs to a landlord-portal subscription. */
+export function isLandlordPlanId(planId?: string): boolean {
+  if (!planId) return false;
+  const plan = ALL_SUBSCRIPTION_PLANS.find((p: SubscriptionPlan) => p.id === planId);
+  return plan?.portalType === 'landlord';
+}
+
 /** Percent off contract jobs for a given tier (0 if none). */
 export function contractDiscountForTier(tier?: PlanTier): number {
   return tier ? (CONTRACT_DISCOUNT_BY_TIER[tier] ?? 0) : 0;
@@ -54,7 +68,14 @@ export function contractDiscountForTier(tier?: PlanTier): number {
 export function contractDiscountForMembership(m?: CustomerMembership | null): number {
   if (!m || m.status === 'cancelled' || m.status === 'paused') return 0;
   const tier = m.tier || tierForPlanId(m.planId);
-  return contractDiscountForTier(tier);
+  const tierDiscount = contractDiscountForTier(tier);
+  // Landlord subscribers get a guaranteed 15% lifetime discount on any quoted
+  // project while their subscription is active — take whichever is greater so a
+  // higher-tier landlord plan is never worse off.
+  if (isLandlordPlanId(m.planId)) {
+    return Math.max(tierDiscount, LANDLORD_LIFETIME_DISCOUNT);
+  }
+  return tierDiscount;
 }
 
 /** Human label for a tier. */

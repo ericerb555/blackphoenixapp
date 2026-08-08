@@ -771,6 +771,28 @@ zendropRouter.post(`${PREFIX}/zendrop/sync`, async (c) => {
 });
 
 /**
+ * POST /zendrop/import-more
+ * Import ADDITIONAL Zendrop products on demand. importTopProducts pages through
+ * the catalog up to `limit` and de-dupes on write, so requesting a larger batch
+ * pulls in more of the catalog. Body: { apiKey?, limit? }
+ */
+zendropRouter.post(`${PREFIX}/zendrop/import-more`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const apiKey = resolveKey(body.apiKey);
+    if (!apiKey) {
+      return c.json({ success: false, error: "No Zendrop API key available." }, 400);
+    }
+    const limit = Math.min(500, Math.max(1, num(body.limit, 50)));
+    const result = await importTopProducts(apiKey, limit);
+    return c.json({ success: true, imported: result.imported, sample: result.sample, endpoint: result.endpoint });
+  } catch (error) {
+    console.log(`[Zendrop] import-more error: ${error}`);
+    return c.json({ success: false, error: `Zendrop import-more error: ${error}` }, 500);
+  }
+});
+
+/**
  * Fetch the top (best-selling) Zendrop products, normalized, WITHOUT importing.
  */
 async function fetchTopProducts(apiKey: string, limit: number): Promise<{ products: NormalizedProduct[]; endpoint: string }> {

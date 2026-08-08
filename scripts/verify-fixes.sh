@@ -583,6 +583,51 @@ forbid $MDM "connectZendropInline"
 forbid $MDM "zendrop/verify"
 forbid $MDM "Math.floor(Math.random() \* 500)"
 
+# Landlord lifetime perk: active landlord subscribers get 15% off any quoted
+# project. Discount engine must recognize landlord plans and grant the bonus.
+SD=src/app/lib/subscriptionDiscount.ts
+require $SD "LANDLORD_LIFETIME_DISCOUNT = 15"
+require $SD "isLandlordPlanId"
+require $SD "Math.max(tierDiscount, LANDLORD_LIFETIME_DISCOUNT)"
+require src/app/pages/CustomerQuoteApproval.tsx "isLandlordPlanId(membership?.planId)"
+
+# Storefront visibility toggle: hide/show all products from a dropship source
+# (e.g. Zendrop) without deleting them. Backend routes + admin toggle UI.
+EP=supabase/functions/server/ecommerce-products.tsx
+require $EP "/products/source-visibility"
+require $EP "/products/source-summary"
+require $MDM "toggleStorefrontVisibility"
+require $MDM "products/source-visibility"
+require $MDM "Show on storefront"
+
+# Add-more-products: on-demand import of additional supplier catalog items.
+require supabase/functions/server/cjdropshipping.tsx "cj/import-more"
+require supabase/functions/server/zendrop.tsx "zendrop/import-more"
+require $MDM "async function importMore"
+require $MDM "Add more products"
+
+# Modular Hot Products discovery pipeline (trend + scoring + supplier + export).
+HP=supabase/functions/server/hot-products.tsx
+SCORING=supabase/functions/server/product-scoring.tsx
+EXPORTER=supabase/functions/server/product-exporter.tsx
+require $SCORING "export function scoreProduct"
+require $SCORING "export function applyFilters"
+require $SCORING "export const SCORE_WEIGHTS"
+require $SCORING "competitionRisk"
+require $EXPORTER "export function toCSV"
+require $EXPORTER "export function toExportRows"
+require supabase/functions/server/cjdropshipping.tsx "export async function scanCatalog"
+require supabase/functions/server/cjdropshipping.tsx "export async function importCandidates"
+require $HP "scanAllSuppliers"
+require $HP "cjScanCatalog"
+require $HP "cjImportCandidates"
+require $HP 'envKey: "CJ_API_KEY"'
+require $HP "hot-products/export"
+require $HP "hot-products/daily-top10"
+require $HP "toCSV"
+require $HP 'p.source === "cjdropshipping"'
+require $HP 'p.source === "zendrop"'
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi

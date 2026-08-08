@@ -417,11 +417,100 @@ function pickImages(p: any): string[] {
  * store reads (`product_` prefix) plus the dropshipper inventory
  * (`dropshipper_inventory:` prefix) used for order forwarding.
  */
-export async function importProducts(apiKey: string, limit: number): Promise<{ imported: number; blocked: number }> {
+/** A read-only trend candidate from the CJ catalog (scored without importing). */
+export interface CjCandidate {
+  pid: string; sku: string; name: string; description: string; category: string;
+  cost: number; suggestedPrice: number; images: string[]; stock: number; rating: number; createdAt?: string;
+}
+
+function toCjCandidate(p: any): CjCandidate | null {
+  const pid = String(p?.pid || p?.productId || p?.id || "");
+  if (!pid) return null;
+  const name = String(p?.productNameEn || p?.productName || p?.nameEn || "").trim();
+  if (!name) return null;
+  const cost = num(p?.sellPrice ?? p?.price ?? 0);
+  return {
+    pid, sku: String(p?.productSku || p?.sku || pid), name,
+    description: String(p?.description || p?.productNameEn || ""),
+    category: String(p?.categoryName || p?.category || "General"),
+    cost, suggestedPrice: +(cost * 1.3).toFixed(2) || cost,
+    images: pickImages(p), stock: num(p?.listedNum ?? 100, 100), rating: 4.6,
+    createdAt: p?.createTime || p?.createdAt || undefined,
+  };
+}
+
+/** Read-only scan of the CJ catalog for trend discovery (writes nothing). */
+export async function scanCatalog(
+  apiKey: string,
+  opts?: { pageNum?: number; pageSize?: number; keyword?: string },
+): Promise<CjCandidate[]> {
+  const pageSize = Math.min(50, Math.max(1, opts?.pageSize ?? 50));
+  const pageNum = Math.max(1, Math.floor(opts?.pageNum ?? 1));
+  const keyword = (opts?.keyword || "").trim();
+  const query: Record<string, unknown> = { pageNum, pageSize };
+  if (keyword) query.productNameEn = keyword;
+  const data = await cjFetch(apiKey, "/product/list", { query });
+  const list: any[] = data?.data?.list || data?.data?.content || [];
+  return list.map(toCjCandidate).filter((c): c is CjCandidate => c != null);
+}
+
+/** Persist already-scanned CJ candidates into the store (content-screened). */
+export async function importCandidates(
+  apiKey: string,
+  candidates: CjCandidate[],
+  opts?: { featuredSkus?: Set<string>; extraBySku?: Record<string, Record<string, unknown>> },
+): Promise<{ imported: number; blocked: number }> {
+  const nowIso = new Date().toISOString();
+  const writes: Promise<void>[] = [];
+  let imported = 0;
+  let blocked = 0;
+  for (const cand of candidates) {
+    let vid: string | undefined;
+    try {
+      const vres = await cjFetch(apiKey, "/product/variant/query", { query: { pid: cand.pid } });
+      const variants: any[] = Array.isArray(vres?.data) ? vres.data : vres?.data?.list || [];
+      vid = variants[0]?.vid ? String(variants[0].vid) : undefined;
+    } catch { /* lazy at order time */ }
+    const inventoryRecord = {
+      sku: cand.sku, name: cand.name, description: cand.description, category: cand.category,
+      price: cand.suggestedPrice, cost: cand.cost, shippingCost: 0, stock: cand.stock,
+      images: cand.images, rating: cand.rating, providerId: PROVIDER_ID, providerProductId: cand.pid, vid,
+    };
+    const storeId = `cj_${cand.sku}`;
+    const slug = cand.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
+    const extra = opts?.extraBySku?.[cand.sku] || {};
+    const storeProduct = {
+      id: storeId, vendorId: PROVIDER_ID, vendorName: "CJdropshipping",
+      name: cand.name, description: cand.description, category: cand.category,
+      price: cand.suggestedPrice, compare_at_price: cand.suggestedPrice ? +(cand.suggestedPrice * 1.3).toFixed(2) : undefined,
+      cost_price: cand.cost, shippingCost: 0, inventoryQuantity: cand.stock, trackInventory: true,
+      images: cand.images, primaryImage: cand.images[0] || "",
+      isActive: true, isFeatured: opts?.featuredSkus?.has(cand.sku) || false,
+      slug, sku: cand.sku, rating: cand.rating, viewCount: 0, orderCount: 0,
+      source: PROVIDER_ID, providerProductId: cand.pid, createdAt: nowIso, updatedAt: nowIso, ...extra,
+    };
+    if (await screenAndQuarantine(storeProduct, PROVIDER_ID)) { blocked += 1; continue; }
+    writes.push(kv.set(`${INVENTORY_KEY_PREFIX}:${cand.sku}`, JSON.stringify(inventoryRecord)));
+    writes.push(kv.set(`product_${storeId}`, storeProduct));
+    imported += 1;
+  }
+  await Promise.all(writes);
+  if (imported) await config.updateLastSync();
+  return { imported, blocked };
+}
+
+export async function importProducts(
+  apiKey: string,
+  limit: number,
+  opts?: { pageNum?: number; keyword?: string },
+): Promise<{ imported: number; blocked: number }> {
   const pageSize = Math.min(50, Math.max(1, limit));
-  const data = await cjFetch(apiKey, "/product/list", {
-    query: { pageNum: 1, pageSize },
-  });
+  const pageNum = Math.max(1, Math.floor(opts?.pageNum ?? 1));
+  const keyword = (opts?.keyword || "").trim();
+  const query: Record<string, unknown> = { pageNum, pageSize };
+  // CJ's /product/list accepts a productNameEn keyword filter for search.
+  if (keyword) query.productNameEn = keyword;
+  const data = await cjFetch(apiKey, "/product/list", { query });
 
   const list: any[] = data?.data?.list || data?.data?.content || [];
   const nowIso = new Date().toISOString();
@@ -566,6 +655,29 @@ cjRouter.post(`${PREFIX}/cj/sync`, async (c) => {
     return c.json({ success: true, imported, blocked });
   } catch (error) {
     console.log(`[CJ] sync error: ${error}`);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
+/**
+ * Import ADDITIONAL products on demand — a specific catalog page and/or a
+ * keyword search — so the owner can keep adding more CJ products beyond the
+ * initial batch. Body: { apiKey?, limit?, pageNum?, keyword? }
+ */
+cjRouter.post(`${PREFIX}/cj/import-more`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const apiKey = resolveKey(body?.apiKey);
+    if (!apiKey) {
+      return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
+    }
+    const limit = Math.min(50, Math.max(1, num(body?.limit, 20)));
+    const pageNum = Math.max(1, num(body?.pageNum, 1));
+    const keyword = typeof body?.keyword === "string" ? body.keyword : "";
+    const { imported, blocked } = await importProducts(apiKey, limit, { pageNum, keyword });
+    return c.json({ success: true, imported, blocked, pageNum, keyword });
+  } catch (error) {
+    console.log(`[CJ] import-more error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
 });

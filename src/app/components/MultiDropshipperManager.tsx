@@ -217,6 +217,99 @@ export default function MultiDropshipperManager() {
   const [cjConnecting, setCjConnecting] = useState(false);
   const cjConnected = connected.some(s => s.supplierId === 'cjdropshipping');
 
+  // Storefront visibility per dropship source — how many of each supplier's
+  // products are live on the site, and a toggle to show/hide them all at once.
+  const [sourceSummary, setSourceSummary] = useState<Record<string, { total: number; active: number; hidden: number }>>({});
+  const [togglingSource, setTogglingSource] = useState<string | null>(null);
+  const summaryFor = (supplierId: string) => sourceSummary[supplierId.toLowerCase()];
+
+  async function loadSourceSummary() {
+    try {
+      const res = await fetch(`${SERVER}/products/source-summary`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) setSourceSummary(data.sources || {});
+    } catch (e) {
+      console.error('[DropshipperManager] Failed to load storefront source summary:', e);
+    }
+  }
+
+  // "Add more products" per supplier — pull additional catalog items on demand.
+  const [importMoreCount, setImportMoreCount] = useState('20');
+  const [importMoreKeyword, setImportMoreKeyword] = useState('');
+  const [importMorePage, setImportMorePage] = useState('2');
+  const [importingMore, setImportingMore] = useState<string | null>(null);
+
+  async function importMore(supplierId: string) {
+    let route: string | null = null;
+    let body: Record<string, unknown> = {};
+    const count = Math.min(50, Math.max(1, Number(importMoreCount) || 20));
+    if (supplierId === 'cjdropshipping') {
+      route = `${SERVER}/cj/import-more`;
+      body = { limit: count, pageNum: Math.max(1, Number(importMorePage) || 2), keyword: importMoreKeyword.trim() };
+    } else if (supplierId === 'zendrop') {
+      route = `${SERVER}/zendrop/import-more`;
+      body = { limit: count };
+    }
+    if (!route) {
+      toast.error(`Adding more products isn't available for this supplier yet (CJ Dropshipping is supported).`);
+      return;
+    }
+    setImportingMore(supplierId);
+    try {
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Couldn't import more products (HTTP ${res.status}).`;
+        console.error('[DropshipperManager] import-more failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      const imported = data.imported ?? 0;
+      toast.success(imported > 0
+        ? `✅ Added ${imported} new product(s) to your catalog.${data.blocked ? ` (${data.blocked} filtered out)` : ''}`
+        : `No new products found for that page/keyword — try a different search or page.`);
+      await loadConnected();
+      await loadSourceSummary();
+    } catch (e: any) {
+      console.error('[DropshipperManager] import-more error:', e);
+      toast.error(`Could not reach the server to import more products: ${e?.message || e}`);
+    } finally {
+      setImportingMore(null);
+    }
+  }
+
+  // Show/hide every product from a supplier on the public storefront.
+  async function toggleStorefrontVisibility(supplierId: string, isActive: boolean) {
+    setTogglingSource(supplierId);
+    try {
+      const res = await fetch(`${SERVER}/products/source-visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ source: supplierId, isActive }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const msg = data.error || `Couldn't update storefront visibility (HTTP ${res.status}).`;
+        console.error('[DropshipperManager] source-visibility failed:', msg, data);
+        toast.error(msg);
+        return;
+      }
+      toast.success(isActive
+        ? `✅ ${data.updated} product(s) are now live on your store.`
+        : `🚫 ${data.updated} product(s) hidden from your store.`);
+      await loadSourceSummary();
+    } catch (e: any) {
+      console.error('[DropshipperManager] source-visibility error:', e);
+      toast.error(`Could not reach the server to update visibility: ${e?.message || e}`);
+    } finally {
+      setTogglingSource(null);
+    }
+  }
+
   // Load REAL connected providers + inventory from the server so this tab
   // reflects the actual connection state (e.g. Zendrop connected on the
   // integration page must show here too). Previously this used mock data,
@@ -289,6 +382,7 @@ export default function MultiDropshipperManager() {
 
   useEffect(() => {
     loadConnected();
+    loadSourceSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -334,6 +428,7 @@ export default function MultiDropshipperManager() {
         }
         toast.success(`✅ CJ Dropshipping connected! ${(data.imported ?? data.productCount ?? 0)} products imported.`);
         await loadConnected();
+      await loadSourceSummary();
         setShowAddModal(false);
         setSelectedSupplier(null);
         setCredentials({});
@@ -382,6 +477,7 @@ export default function MultiDropshipperManager() {
       toast.success(`✅ CJ Dropshipping connected! ${(data.imported || data.productCount || 0)} products imported. You can now sync anytime.`);
       setCjKey('');
       await loadConnected();
+      await loadSourceSummary();
     } catch (e: any) {
       console.error('[DropshipperManager] CJ inline verify error:', e);
       toast.error(`Could not reach the server to connect CJ Dropshipping: ${e?.message || e}`);
@@ -418,6 +514,7 @@ export default function MultiDropshipperManager() {
       }
       toast.success(`✅ Synced ${(data.imported ?? data.productCount ?? 0)} products from ${supplier.name}.`);
       await loadConnected();
+      await loadSourceSummary();
     } catch (e: any) {
       console.error('[DropshipperManager] sync error:', e);
       toast.error(`Could not reach the server to sync: ${e?.message || e}`);
@@ -707,6 +804,13 @@ export default function MultiDropshipperManager() {
                             {supplier.status === 'syncing' && <><RefreshCw className="w-3 h-3 animate-spin" /> Syncing</>}
                             {supplier.status === 'error' && <><AlertTriangle className="w-3 h-3" /> Error</>}
                           </span>
+                          {(() => {
+                            const sum = summaryFor(supplier.supplierId);
+                            if (sum && sum.total > 0 && sum.active === 0) {
+                              return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400">Hidden from store</span>;
+                            }
+                            return null;
+                          })()}
                         </div>
                         <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 flex-wrap">
                           <span>{supplier.productCount.toLocaleString()} products</span>
@@ -769,6 +873,108 @@ export default function MultiDropshipperManager() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Storefront visibility — show/hide this supplier's products on the live site */}
+                        {(() => {
+                          const sum = summaryFor(supplier.supplierId);
+                          const total = sum?.total ?? 0;
+                          const live = sum?.active ?? 0;
+                          const allHidden = total > 0 && live === 0;
+                          const busy = togglingSource === supplier.supplierId;
+                          return (
+                            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
+                              <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-white">Show on storefront</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {total === 0
+                                      ? 'No products imported from this supplier yet.'
+                                      : `${live.toLocaleString()} of ${total.toLocaleString()} products live${sum && sum.hidden ? ` · ${sum.hidden.toLocaleString()} hidden` : ''}`}
+                                  </p>
+                                </div>
+                                <button
+                                  disabled={busy || total === 0}
+                                  onClick={() => toggleStorefrontVisibility(supplier.supplierId, allHidden)}
+                                  className={`w-12 h-6 rounded-full transition-all relative disabled:opacity-40 ${!allHidden && total > 0 ? 'bg-green-600' : 'bg-[#2A2A2A]'}`}
+                                  title={allHidden ? 'Show these products on your store' : 'Hide these products from your store'}
+                                >
+                                  {busy
+                                    ? <RefreshCw className="w-4 h-4 animate-spin text-white absolute top-1 left-4" />
+                                    : <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${!allHidden && total > 0 ? 'left-6' : 'left-0.5'}`} />}
+                                </button>
+                              </div>
+                              {total > 0 && (
+                                <p className="text-xs text-gray-600 mt-2">
+                                  Turning this off hides every {supplier.name} product from shoppers without deleting them — flip it back on anytime.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Add more products from this supplier */}
+                        {(() => {
+                          const isCJ = supplier.supplierId === 'cjdropshipping';
+                          const isZendrop = supplier.supplierId === 'zendrop';
+                          const supported = isCJ || isZendrop;
+                          const busy = importingMore === supplier.supplierId;
+                          return (
+                            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
+                              <p className="text-sm font-semibold text-white">Add more products</p>
+                              <p className="text-xs text-gray-500 mt-0.5 mb-3">
+                                {supported
+                                  ? `Pull additional products from ${supplier.name} into your catalog.`
+                                  : `Importing more isn't available for this supplier yet.`}
+                              </p>
+                              {supported && (
+                                <div className="flex items-end gap-2 flex-wrap">
+                                  <div>
+                                    <label className="block text-xs font-semibold text-gray-400 mb-1.5">How many</label>
+                                    <input
+                                      type="number" min="1" max="50"
+                                      value={importMoreCount}
+                                      onChange={e => setImportMoreCount(e.target.value)}
+                                      className="w-24 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500 rounded-lg px-3 py-2 text-white text-sm focus:outline-none"
+                                    />
+                                  </div>
+                                  {isCJ && (
+                                    <>
+                                      <div className="flex-1 min-w-[160px]">
+                                        <label className="block text-xs font-semibold text-gray-400 mb-1.5">Search keyword <span className="text-gray-600">(optional)</span></label>
+                                        <input
+                                          value={importMoreKeyword}
+                                          onChange={e => setImportMoreKeyword(e.target.value)}
+                                          placeholder="e.g. kitchen, LED, tools"
+                                          className="w-full bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500 rounded-lg px-3 py-2 text-white text-sm focus:outline-none placeholder-gray-600"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs font-semibold text-gray-400 mb-1.5">Page</label>
+                                        <input
+                                          type="number" min="1"
+                                          value={importMorePage}
+                                          onChange={e => setImportMorePage(e.target.value)}
+                                          className="w-20 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-orange-500 rounded-lg px-3 py-2 text-white text-sm focus:outline-none"
+                                        />
+                                      </div>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={() => importMore(supplier.supplierId)}
+                                    disabled={busy}
+                                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-sm font-bold transition">
+                                    {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Importing…</> : <><Package className="w-4 h-4" /> Import</>}
+                                  </button>
+                                </div>
+                              )}
+                              {isCJ && (
+                                <p className="text-xs text-gray-600 mt-2">
+                                  Tip: change the page number to pull a different batch, or add a keyword to import a specific type of product.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Categories */}
                         <div>
