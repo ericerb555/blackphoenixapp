@@ -47,6 +47,20 @@ interface NormalizedProduct {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Raised when Zendrop cannot accept an order via API (no create-order tool /
+ * no connected store). This is a permanent platform limitation, so the forward
+ * layer flags the order for MANUAL fulfillment rather than logging a repeating
+ * hard error and endlessly retrying something that can never succeed remotely.
+ */
+export class ZendropManualFulfillmentError extends Error {
+  readonly code = "ZENDROP_MANUAL_REQUIRED";
+  constructor(message: string) {
+    super(message);
+    this.name = "ZendropManualFulfillmentError";
+  }
+}
+
 export function resolveKey(bodyKey?: string): string | null {
   const key = (bodyKey && bodyKey.trim()) || Deno.env.get("ZENDROP_API_KEY") || "";
   return key.trim() || null;
@@ -382,17 +396,21 @@ export async function submitZendropOrder(
     const names = tools.map((t) => t.name).join(", ") || "(none returned)";
     // Zendrop's MCP has no create-order tool — orders can only be FULFILLED
     // (fulfill_order) once they already live inside a connected Zendrop store.
-    // A standalone store's order cannot be injected through this API, so say so
-    // plainly instead of mis-calling fulfill_order or blaming token scope.
+    // A standalone store's order cannot be injected through this API. This is a
+    // PLATFORM LIMITATION, not a transient failure, so raise a typed error the
+    // forward layer treats as "needs manual fulfillment" instead of a repeating
+    // hard error that keeps re-alerting the operator.
+    if (hasFulfill) {
+      throw new ZendropManualFulfillmentError(
+        `Products were imported into your Zendrop account, but Zendrop's API cannot place this order remotely — ` +
+        `it only fulfills orders that already exist in a connected Zendrop store. Fulfill it once in the Zendrop ` +
+        `dashboard (the products are linked and ready), or connect a sales channel Zendrop syncs so future orders ` +
+        `flow in automatically.`,
+      );
+    }
     throw new Error(
-      hasFulfill
-        ? `Products were imported into your Zendrop account, but Zendrop's API cannot place this order remotely. ` +
-          `Its only order tool is "fulfill_order", which dispatches orders that ALREADY exist in a connected Zendrop ` +
-          `store (it needs a numeric store_id + order_ids, not a shipping address and line items), and this account has ` +
-          `no connected Zendrop store yet. Connect a sales channel Zendrop syncs (so orders flow in automatically) or ` +
-          `place this order in the Zendrop dashboard — the products are now linked and ready. Available tools: ${names}.`
-        : `Zendrop's MCP token does not expose an order-creation tool. Available tools: ${names}. ` +
-          `Regenerate the access token at app.zendrop.com/mcp/v1 with order write access enabled.`,
+      `Zendrop's MCP token does not expose an order-creation tool. Available tools: ${names}. ` +
+      `Regenerate the access token at app.zendrop.com/mcp/v1 with order write access enabled.`,
     );
   }
 

@@ -164,6 +164,12 @@ require $DP "submitZendropOrder"
 require $DP "provider.id) === 'zendrop'"
 # Auto-fill on payment: the forward path imports products into Zendrop first.
 require $DP "linkInventoryProduct"
+# A supplier that can't accept orders via API is manual, not a retryable error.
+require $ZD "ZendropManualFulfillmentError"
+require $ZD "ZENDROP_MANUAL_REQUIRED"
+require $DP "ZENDROP_MANUAL_REQUIRED"
+require $DP "manualRequired"
+require $I "manual_required"
 # Skip reasons used to be the opaque "(send failed)".
 forbid  $DP "(send failed)"
 

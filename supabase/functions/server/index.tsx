@@ -10012,7 +10012,7 @@ function orderAwaitsFulfillment(order: any): boolean {
  * Shared by the instant path, the daily sweep and the manual retry route so all
  * three write exactly the same fields.
  */
-async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string }> {
+async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string; manualRequired?: string[]; status?: string }> {
   const forwardItems = (Array.isArray(order.items) ? order.items : [])
     .map((it: any) => ({
       sku: String(it.sku || it.SKU || it.id || it.productId || ''),
@@ -10034,19 +10034,27 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
   // 'forwarded_to_doba' is the legacy name for "sent to the supplier" and is the
   // value OrderManager, ShopperAccountPortal and the manual status route already
   // recognise, so reuse it rather than inventing a status the UI can't label.
-  order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
+  // A manual-only outcome (supplier can't accept orders via API) is neither a
+  // success nor a retryable failure — mark it distinctly so the UI can prompt
+  // the operator to fulfill in the supplier dashboard instead of showing a red
+  // error and re-attempting something that can never succeed remotely.
+  const manualOnly = !result.success && Array.isArray(result.manualRequired) && result.manualRequired.length > 0 && (result.skipped || []).length === 0;
+  order.fulfillment_status = result.success ? 'forwarded_to_doba' : (manualOnly ? 'manual_required' : 'pending');
   order.fulfillment_forwarded_at = new Date().toISOString();
   order.fulfillment_forwarded_count = result.forwarded ?? 0;
   order.fulfillment_attempts = Number(order.fulfillment_attempts || 0) + 1;
   order.fulfillment_skipped = Array.isArray(result.skipped) && result.skipped.length > 0 ? result.skipped : undefined;
-  order.fulfillment_error = result.success ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
+  order.fulfillment_manual_required = manualOnly ? result.manualRequired : undefined;
+  // Not an error when manual fulfillment is simply the only path available.
+  order.fulfillment_error = (result.success || manualOnly) ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
+  order.fulfillment_notice = manualOnly ? result.manualRequired.join('; ') : undefined;
   // Persist back to whichever prefix the order was loaded from. Marketplace/
   // digital orders live under `store_order:` while main-store orders use
   // `store:order:`; defaulting to the latter would fork a duplicate and leave
   // the real record stale.
   await kv.set(storageKey || storeOrderKey(order.id), order);
 
-  return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: result.error };
+  return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: manualOnly ? undefined : result.error, manualRequired: manualOnly ? result.manualRequired : undefined, status: order.fulfillment_status };
 }
 
 /** Forward every paid order still sitting at pending. */
