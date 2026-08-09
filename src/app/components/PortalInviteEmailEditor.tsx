@@ -311,7 +311,7 @@ export default function PortalInviteEmailEditor() {
             </div>
 
             {channel === 'email' && (
-              <div className="rounded-xl overflow-hidden border border-[#2A2A2A] bg-white h-[460px]">
+              <div className="rounded-xl overflow-hidden border border-[#2A2A2A] bg-[#0a0a0a] h-[460px]">
                 <iframe title="Invite email preview" srcDoc={previewHtml} className="w-full h-full" sandbox="" />
               </div>
             )}

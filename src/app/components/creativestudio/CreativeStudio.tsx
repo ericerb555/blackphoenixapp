@@ -104,7 +104,7 @@ export default function CreativeStudio() {
   return (
     <div>
       {/* Sub-tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 mb-6 bg-[#101010] border border-[#2A2A2A] rounded-xl p-1 w-fit">
         {STUDIO_TABS.map((t) => {
           const Icon = t.icon;
           const gated = (t.id === 'video' && !caps?.video.available) || (t.id === 'audio' && !caps?.audio.available);
@@ -113,19 +113,19 @@ export default function CreativeStudio() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                tab === t.id ? 'bg-white shadow-sm text-orange-600' : 'text-gray-600 hover:text-gray-900'
+                tab === t.id ? 'bg-orange-600 text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
               <Icon className="w-4 h-4" /> {t.label}
-              {gated && <Lock className="w-3 h-3 text-gray-400" />}
+              {gated && <Lock className="w-3 h-3 text-gray-500" />}
             </button>
           );
         })}
-        <button onClick={loadAll} className="ml-1 px-3 py-2 text-gray-400 hover:text-gray-700"><RefreshCw className="w-4 h-4" /></button>
+        <button onClick={loadAll} className="ml-1 px-3 py-2 text-gray-500 hover:text-white"><RefreshCw className="w-4 h-4" /></button>
       </div>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 text-sm">
+        <div className="mb-4 flex items-start gap-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 px-4 py-3 text-sm">
           <X className="w-4 h-4 mt-0.5 shrink-0" /> <span>{error}</span>
         </div>
       )}
@@ -134,40 +134,40 @@ export default function CreativeStudio() {
       {tab === 'image' && (
         <div className="grid lg:grid-cols-[1fr_320px] gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Describe your image</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Describe your image</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={4}
               placeholder="A sports car drifting through a neon city at night…"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full border border-[#2A2A2A] bg-[#101010] text-white placeholder:text-gray-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
 
             <div className="mt-4">
-              <div className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2"><Wand2 className="w-4 h-4 text-orange-500" /> Viral presets</div>
+              <div className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2"><Wand2 className="w-4 h-4 text-orange-400" /> Viral presets</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {presets.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setPresetId(presetId === p.id ? '' : p.id)}
                     className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition ${
-                      presetId === p.id ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                      presetId === p.id ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-[#2A2A2A] bg-[#1A1A1A] hover:border-[#3A3A3A] text-gray-300'
                     }`}
                   >
                     <span className="text-lg">{p.emoji}</span>
-                    <span className="min-w-0"><span className="block font-medium truncate">{p.name}</span><span className="block text-xs text-gray-400">{p.category}</span></span>
+                    <span className="min-w-0"><span className="block font-medium truncate">{p.name}</span><span className="block text-xs text-gray-500">{p.category}</span></span>
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="mt-4 flex items-center gap-3">
-              <select value={size} onChange={(e) => setSize(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+              <select value={size} onChange={(e) => setSize(e.target.value)} className="border border-[#2A2A2A] bg-[#101010] text-gray-200 rounded-lg px-3 py-2 text-sm">
                 <option value="1024x1024">Square 1024²</option>
                 <option value="1792x1024">Wide 16:9</option>
                 <option value="1024x1792">Tall 9:16</option>
               </select>
-              <select value={quality} onChange={(e) => setQuality(e.target.value as any)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+              <select value={quality} onChange={(e) => setQuality(e.target.value as any)} className="border border-[#2A2A2A] bg-[#101010] text-gray-200 rounded-lg px-3 py-2 text-sm">
                 <option value="standard">Standard</option>
                 <option value="hd">HD</option>
               </select>
@@ -175,9 +175,9 @@ export default function CreativeStudio() {
                 type="button"
                 onClick={() => setUseBrandKit((v) => !v)}
                 title="Use your Brand Kit palette & mood"
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm border transition ${useBrandKit ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-500'}`}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm border transition ${useBrandKit ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-[#2A2A2A] text-gray-400'}`}
               >
-                <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center ${useBrandKit ? 'bg-orange-500 border-orange-500' : 'border-gray-300'}`}>
+                <span className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center ${useBrandKit ? 'bg-orange-500 border-orange-500' : 'border-gray-600'}`}>
                   {useBrandKit && <Check className="w-3 h-3 text-white" />}
                 </span>
                 Brand Kit
@@ -185,29 +185,29 @@ export default function CreativeStudio() {
               <button
                 onClick={generate}
                 disabled={generating || !prompt.trim() || !caps?.image.available}
-                className="ml-auto inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg px-5 py-2.5 text-sm font-semibold"
+                className="ml-auto inline-flex items-center gap-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg px-5 py-2.5 text-sm font-semibold"
               >
                 {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Generate
               </button>
             </div>
             {caps && !caps.image.available && (
-              <p className="mt-2 text-xs text-rose-500">Image generation needs OPENAI_API_KEY configured.</p>
+              <p className="mt-2 text-xs text-rose-400">Image generation needs OPENAI_API_KEY configured.</p>
             )}
             {useBrandKit && brandConfigured === false && (
-              <p className="mt-2 text-xs text-amber-600">Brand Kit is empty — set your palette & mood in Content Studio → Brand Kit for on-brand imagery.</p>
+              <p className="mt-2 text-xs text-amber-400">Brand Kit is empty — set your palette & mood in Content Studio → Brand Kit for on-brand imagery.</p>
             )}
           </div>
 
           {/* Recent strip */}
           <div>
-            <div className="text-sm font-medium text-gray-700 mb-2">Recent</div>
+            <div className="text-sm font-medium text-gray-300 mb-2">Recent</div>
             <div className="grid grid-cols-2 gap-2">
               {assets.slice(0, 6).map((a) => (
-                <button key={a.id} onClick={() => setZoom(a)} className="aspect-square rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                <button key={a.id} onClick={() => setZoom(a)} className="aspect-square rounded-lg overflow-hidden bg-[#1A1A1A] border border-[#2A2A2A]">
                   {a.url ? <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" /> : null}
                 </button>
               ))}
-              {assets.length === 0 && <div className="col-span-2 text-xs text-gray-400 py-8 text-center">No images yet.</div>}
+              {assets.length === 0 && <div className="col-span-2 text-xs text-gray-500 py-8 text-center">No images yet.</div>}
             </div>
           </div>
         </div>
@@ -225,13 +225,13 @@ export default function CreativeStudio() {
       {tab === 'gallery' && (
         <div>
           {assets.length === 0 ? (
-            <div className="bg-white rounded-xl border border-dashed border-gray-200 p-12 text-center text-sm text-gray-400">
+            <div className="bg-[#141414] rounded-xl border border-dashed border-[#2A2A2A] p-12 text-center text-sm text-gray-500">
               No assets yet. Generate an image to start your gallery.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {assets.map((a) => (
-                <div key={a.id} className="group relative rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
+                <div key={a.id} className="group relative rounded-xl overflow-hidden bg-[#1A1A1A] border border-[#2A2A2A]">
                   <button onClick={() => setZoom(a)} className="block w-full aspect-square">
                     {a.url ? <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" /> : null}
                   </button>
@@ -270,20 +270,20 @@ function GatedProvider({ kind, cap }: { kind: 'video' | 'audio'; cap?: { availab
   const label = kind === 'video' ? 'Video generation' : 'Audio generation';
   if (cap?.available) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">
+      <div className="bg-[#141414] rounded-xl border border-[#2A2A2A] p-8 text-center text-sm text-gray-400">
         {label} provider is connected. (Generation UI coming next.)
       </div>
     );
   }
   return (
-    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200 p-10 text-center">
-      <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center mx-auto mb-4">
-        <Lock className="w-6 h-6 text-gray-400" />
+    <div className="bg-gradient-to-br from-[#1A1A1A] to-[#141414] rounded-xl border border-[#2A2A2A] p-10 text-center">
+      <div className="w-12 h-12 rounded-xl bg-[#0f0f0f] border border-[#2A2A2A] flex items-center justify-center mx-auto mb-4">
+        <Lock className="w-6 h-6 text-gray-500" />
       </div>
-      <h3 className="font-semibold text-gray-900 mb-1">{label} needs a provider</h3>
-      <p className="text-sm text-gray-500 max-w-md mx-auto">
+      <h3 className="font-semibold text-white mb-1">{label} needs a provider</h3>
+      <p className="text-sm text-gray-400 max-w-md mx-auto">
         OpenAI can't generate {kind}. Add one of these API keys to your Supabase secrets to unlock it:
-        <span className="block mt-2 font-mono text-xs text-gray-700">{cap?.needs}</span>
+        <span className="block mt-2 font-mono text-xs text-orange-300">{cap?.needs}</span>
       </p>
     </div>
   );

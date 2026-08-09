@@ -10,8 +10,9 @@ import {
   Share2, Plus, Video, Instagram, Facebook, Youtube, Link2,
   Trash2, CheckCircle, XCircle, ChevronRight, ExternalLink,
   Play, Eye, EyeOff, Settings, AlertCircle, Copy, RefreshCw,
-  Music2, Globe, Lock, Unlock,
+  Music2, Globe, Lock, Unlock, Loader2,
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 const API_BASE = (() => {
   try {
@@ -49,9 +50,12 @@ interface OAuthPlatform {
 const PLATFORMS: OAuthPlatform[] = [
   {
     id: 'instagram', name: 'Instagram', Icon: Instagram, color: 'from-pink-500 to-purple-600', connected: false,
+    // Instagram publishing goes through the Facebook Graph API, so it uses the
+    // SAME Facebook app credentials as the Facebook connector (not separate
+    // INSTAGRAM_* keys). The backend reads FACEBOOK_APP_ID / FACEBOOK_APP_SECRET.
     secretsNeeded: [
-      { key: 'INSTAGRAM_APP_ID', label: 'App ID', url: 'https://developers.facebook.com/apps/' },
-      { key: 'INSTAGRAM_APP_SECRET', label: 'App Secret', url: 'https://developers.facebook.com/apps/' },
+      { key: 'FACEBOOK_APP_ID', label: 'App ID', url: 'https://developers.facebook.com/apps/' },
+      { key: 'FACEBOOK_APP_SECRET', label: 'App Secret', url: 'https://developers.facebook.com/apps/' },
     ],
   },
   {
@@ -109,6 +113,46 @@ export default function SocialMediaManager() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [oauthTab, setOauthTab] = useState<OAuthPlatform['id']>('instagram');
   const [copied, setCopied] = useState('');
+  const [connecting, setConnecting] = useState<string>('');
+  const [connectError, setConnectError] = useState('');
+
+  /**
+   * Start the OAuth flow for a platform. The backend route is an AUTHENTICATED
+   * POST that returns { authUrl }; we then send the browser to that URL. (The
+   * old code navigated straight to the POST route via window.location, which is
+   * a GET with no auth header and silently 404'd — the "click does nothing"
+   * bug.)
+   */
+  async function connectPlatform(platform: OAuthPlatform['id']) {
+    setConnectError('');
+    setConnecting(platform);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setConnectError('Please sign in again, then retry connecting.');
+        return;
+      }
+      const res = await fetch(`${API_BASE}/social/connect/${platform}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.authUrl) {
+        // Surface the backend's real reason (e.g. missing app credentials).
+        setConnectError(data.error || `Could not start ${platform} connection (HTTP ${res.status}).`);
+        return;
+      }
+      // Hand off to the provider's consent screen.
+      window.location.href = data.authUrl;
+    } catch (e: any) {
+      setConnectError(`Connection error: ${e?.message || e}`);
+    } finally {
+      setConnecting('');
+    }
+  }
 
   const [form, setForm] = useState({ url: '', title: '', description: '', featured: true });
   const [formError, setFormError] = useState('');
@@ -411,14 +455,20 @@ export default function SocialMediaManager() {
                   <div>
                     <p className="font-semibold text-sm mb-3">Click Connect</p>
                     <button
-                      onClick={() => {
-                        const u = (window as any).__supabaseUser;
-                        if (!u) { alert('Please log in first.'); return; }
-                        window.location.href = `${API_BASE}/social/connect/${platformMeta.id}?userId=${u.id}`;
-                      }}
-                      className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm bg-gradient-to-r ${platformMeta.color} hover:opacity-90 transition-opacity`}>
-                      <Unlock className="w-4 h-4" /> Connect {platformMeta.name}
+                      onClick={() => connectPlatform(platformMeta.id)}
+                      disabled={connecting === platformMeta.id}
+                      className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm bg-gradient-to-r ${platformMeta.color} hover:opacity-90 transition-opacity disabled:opacity-60`}>
+                      {connecting === platformMeta.id
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Unlock className="w-4 h-4" />}
+                      {connecting === platformMeta.id ? 'Starting…' : `Connect ${platformMeta.name}`}
                     </button>
+                    {connectError && (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 px-3 py-2 text-xs">
+                        <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <span>{connectError}</span>
+                      </div>
+                    )}
                   </div>
                 </li>
               </ol>

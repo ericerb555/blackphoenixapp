@@ -124,46 +124,51 @@ export function buildPortalInviteEmail(input: PortalInviteEmailInput): { subject
 
   const subject = raw("subject");
   const trialLineHtml = input.fullAccess
-    ? `<p style="margin:0 0 18px;color:#4b5563;font-size:14px;line-height:22px;">${html("trialLine")}</p>`
+    ? `<p style="margin:0 0 18px;color:#cbd5e1;font-size:14px;line-height:22px;">${html("trialLine")}</p>`
     : "";
 
   const logoBlock = logo
     ? `<img src="${esc(logo)}" alt="${esc(company)}" width="140" style="display:block;margin:0 auto 8px;max-width:140px;height:auto;" />`
-    : `<div style="font-size:22px;font-weight:800;color:#ea580c;letter-spacing:-0.02em;">${esc(company)}</div>`;
+    : `<div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.02em;">${esc(company)}</div>`;
 
+  // Dark-themed email — matches the Black Phoenix app palette (near-black
+  // surfaces, white text, orange accent). `color-scheme: dark` hints supporting
+  // clients not to auto-invert.
   const htmlOut = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark" />
+<meta name="supported-color-schemes" content="dark" />
 <title>${esc(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:32px 12px;">
+<body style="margin:0;padding:0;background-color:#0a0a0a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0a0a;padding:32px 12px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#141414;border-radius:16px;overflow:hidden;border:1px solid #2a2a2a;">
         <!-- Header -->
         <tr><td style="background:linear-gradient(135deg,#ea580c,#c2410c);padding:28px 32px;text-align:center;">
           ${logoBlock}
-          <div style="color:#ffffff;font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;margin-top:6px;">${esc(label)} Portal Invitation</div>
+          <div style="color:#ffffff;font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;opacity:0.95;margin-top:6px;">${esc(label)} Portal Invitation</div>
         </td></tr>
         <!-- Body -->
-        <tr><td style="padding:32px;">
-          <h1 style="margin:0 0 12px;color:#111827;font-size:22px;font-weight:800;">${html("heading")}</h1>
-          <p style="margin:0 0 18px;color:#4b5563;font-size:15px;line-height:24px;">${html("intro")} ${html("blurb")}</p>
+        <tr><td style="padding:32px;background-color:#141414;">
+          <h1 style="margin:0 0 12px;color:#ffffff;font-size:22px;font-weight:800;">${html("heading")}</h1>
+          <p style="margin:0 0 18px;color:#d1d5db;font-size:15px;line-height:24px;">${html("intro")} ${html("blurb")}</p>
           ${trialLineHtml}
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;">
             <tr><td style="border-radius:10px;background-color:#ea580c;">
               <a href="${esc(url)}" target="_blank" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px;">${html("buttonLabel")}</a>
             </td></tr>
           </table>
-          <p style="margin:0 0 6px;color:#6b7280;font-size:13px;line-height:20px;">Or paste this secure link into your browser:</p>
-          <p style="margin:0 0 20px;word-break:break-all;"><a href="${esc(url)}" target="_blank" style="color:#ea580c;font-size:13px;">${esc(url)}</a></p>
-          <p style="margin:0;color:#9ca3af;font-size:12px;line-height:18px;">On first sign-in you'll complete a short application, then land right in your ${esc(label)} portal. This link is unique to you — please don't share it.</p>
+          <p style="margin:0 0 6px;color:#9ca3af;font-size:13px;line-height:20px;">Or paste this secure link into your browser:</p>
+          <p style="margin:0 0 20px;word-break:break-all;"><a href="${esc(url)}" target="_blank" style="color:#fb923c;font-size:13px;">${esc(url)}</a></p>
+          <p style="margin:0;color:#6b7280;font-size:12px;line-height:18px;">On first sign-in you'll complete a short application, then land right in your ${esc(label)} portal. This link is unique to you — please don't share it.</p>
         </td></tr>
         <!-- Footer -->
-        <tr><td style="padding:20px 32px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-          <p style="margin:0;color:#9ca3af;font-size:12px;">${html("footerNote")}</p>
+        <tr><td style="padding:20px 32px;background-color:#0f0f0f;border-top:1px solid #2a2a2a;text-align:center;">
+          <p style="margin:0;color:#6b7280;font-size:12px;">${html("footerNote")}</p>
         </td></tr>
       </table>
     </td></tr>

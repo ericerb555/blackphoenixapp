@@ -638,6 +638,15 @@ require $MA "createSignedUrl"
 require $MA "unsplashFallback"
 require $MA "response_format: 'b64_json'"
 
+# Social OAuth connect — button must call the authenticated POST + redirect to
+# authUrl, NOT navigate straight to the POST route (the old dead-end).
+SM=src/app/components/SocialMediaManager.tsx
+forbid  $SM "social/connect/\${platformMeta.id}?userId="
+require $SM "connectPlatform"
+require $SM "method: 'POST'"
+require $SM "window.location.href = data.authUrl"
+require $SM "supabase.auth.getSession"
+
 if [ $fail -eq 0 ]; then
   echo "All fixes present."
 fi
