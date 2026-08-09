@@ -6375,7 +6375,7 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
       const scopes = platform === 'instagram'
         ? 'instagram_basic,instagram_content_publish,pages_read_engagement'
         : 'pages_manage_posts,pages_read_engagement,publish_to_groups';
-      const state = Buffer.from(JSON.stringify({ userId: user.id, platform })).toString('base64');
+      const state = btoa(JSON.stringify({ userId: user.id, platform }));
       const authUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&state=${state}`;
       return c.json({ authUrl });
     }
@@ -6384,7 +6384,7 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
       if (!TIKTOK_CLIENT_KEY) {
         return c.json({ error: 'TikTok Client Key not configured. Add TIKTOK_CLIENT_KEY to Supabase secrets.' }, 503);
       }
-      const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'tiktok' })).toString('base64');
+      const state = btoa(JSON.stringify({ userId: user.id, platform: 'tiktok' }));
       const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${TIKTOK_CLIENT_KEY}&scope=user.info.basic,video.list,video.publish&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
       return c.json({ authUrl });
     }
@@ -6393,7 +6393,7 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
       if (!LINKEDIN_CLIENT_ID) {
         return c.json({ error: 'LinkedIn Client ID not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to Supabase secrets.' }, 503);
       }
-      const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'linkedin' })).toString('base64');
+      const state = btoa(JSON.stringify({ userId: user.id, platform: 'linkedin' }));
       const scopes = 'openid profile w_member_social';
       const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
       return c.json({ authUrl });
@@ -6407,9 +6407,9 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
       // callback can complete the exchange.
       const verifier = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
       const challengeBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-      const challenge = Buffer.from(new Uint8Array(challengeBuf))
-        .toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      const state = Buffer.from(JSON.stringify({ userId: user.id, platform: 'twitter' })).toString('base64');
+      const challenge = btoa(String.fromCharCode(...new Uint8Array(challengeBuf)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const state = btoa(JSON.stringify({ userId: user.id, platform: 'twitter' }));
       await kv.set(`social_pkce:${state}`, { verifier });
       const scopes = 'tweet.read tweet.write users.read offline.access';
       const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${TWITTER_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
@@ -6430,7 +6430,7 @@ app.get('/make-server-3eae23a6/social/callback', async (c) => {
     const redirectUri = SOCIAL_REDIRECT_URI;
 
     if (!state) return c.text('Missing state', 400);
-    const { userId, platform } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const { userId, platform } = JSON.parse(atob(state));
     if (!userId || !platform) return c.text('Invalid state', 400);
 
     let tokenData: Record<string, any> = {};
@@ -6484,7 +6484,7 @@ app.get('/make-server-3eae23a6/social/callback', async (c) => {
     if (platform === 'twitter') {
       const pkce = (await kv.get(`social_pkce:${state}`)) as any;
       if (!pkce?.verifier) return c.text('Twitter auth error: PKCE verifier expired. Please reconnect.', 400);
-      const basic = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+      const basic = btoa(`:`);
       const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basic}` },
