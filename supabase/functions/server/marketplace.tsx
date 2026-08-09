@@ -197,28 +197,54 @@ router.post(`${PREFIX}/marketplace/generate-image`, async (c) => {
     if (!custom && !title) return c.json({ error: "A product title or a custom prompt is required." }, 400);
 
     // A cover for a DIGITAL product: no physical mockup, clean marketable art.
-    const prompt = custom || [
-      `Professional digital product cover art for a ${category} titled "${title}".`,
-      description ? `The product is about: ${description}.` : "",
-      style ? `Visual style: ${style}.` : "Visual style: modern, premium, clean, bold typography-friendly composition with strong focal point.",
-      "Suitable as an e-commerce thumbnail, high contrast, no watermark, no gibberish text, centered subject, square framing.",
-    ].filter(Boolean).join(" ");
+    const QUALITY_DIRECTIVE =
+      "Masterpiece, award-winning commercial cover art, ultra-detailed, professional studio-grade lighting, high dynamic range, crisp focus, cohesive color grading, clean balanced composition, premium marketing aesthetic. No watermark, no logo, no gibberish text, no borders.";
+    const prompt = custom
+      ? `${custom} ${QUALITY_DIRECTIVE}`
+      : [
+          `Professional digital product cover art for a ${category} titled "${title}".`,
+          description ? `The product is about: ${description}.` : "",
+          style ? `Visual style: ${style}.` : "Visual style: modern, premium, clean, bold typography-friendly composition with a strong focal point.",
+          "Suitable as an e-commerce hero thumbnail, high contrast, centered subject, square framing.",
+          QUALITY_DIRECTIVE,
+        ].filter(Boolean).join(" ");
 
-    // Request raw bytes (b64) so we can persist them — hosted URLs expire.
-    const aiRes = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: "1024x1024", quality: "standard", response_format: "b64_json" }),
-    });
-    if (!aiRes.ok) {
-      const err = await aiRes.text();
-      console.log("OpenAI image generation failed:", err);
-      return c.json({ error: `AI image generation failed: ${err}` }, 502);
+    // Top-tier: try gpt-image-1 (highest fidelity) first, fall back to DALL·E 3
+    // HD/vivid if the org isn't verified. Both return b64 so we can persist.
+    async function genImage(): Promise<{ b64: string; revised: string }> {
+      const primary = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "high" }),
+      });
+      if (primary.ok) {
+        const d = await primary.json();
+        const b = d?.data?.[0]?.b64_json;
+        if (b) return { b64: b, revised: d?.data?.[0]?.revised_prompt || prompt };
+      } else {
+        console.log("gpt-image-1 failed, falling back to dall-e-3 HD:", await primary.text());
+      }
+      const fb = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: "1024x1024", quality: "hd", style: "vivid", response_format: "b64_json" }),
+      });
+      if (!fb.ok) throw new Error(await fb.text());
+      const d = await fb.json();
+      const b = d?.data?.[0]?.b64_json;
+      if (!b) throw new Error("AI returned no image data.");
+      return { b64: b, revised: d?.data?.[0]?.revised_prompt || prompt };
     }
-    const aiData = await aiRes.json();
-    const b64 = aiData?.data?.[0]?.b64_json;
-    const revisedPrompt = aiData?.data?.[0]?.revised_prompt || prompt;
-    if (!b64) return c.json({ error: "AI returned no image data." }, 502);
+
+    let b64: string, revisedPrompt: string;
+    try {
+      const out = await genImage();
+      b64 = out.b64;
+      revisedPrompt = out.revised;
+    } catch (err) {
+      console.log("OpenAI image generation failed:", err);
+      return c.json({ error: `AI image generation failed: ${String(err)}` }, 502);
+    }
 
     // Decode base64 → bytes and upload to the private bucket.
     const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));

@@ -122,26 +122,51 @@ creativeStudioRouter.post("/creative-studio/generate", async (c) => {
     const preset = body.presetId ? PRESETS.find((p) => p.id === body.presetId) : undefined;
     // Apply Brand Kit (opt-in via useBrandKit) so imagery uses the brand palette.
     const brandStyle = body.useBrandKit ? await loadBrandVisual() : "";
-    const finalPrompt = [subject, preset ? preset.suffix : "", brandStyle].filter(Boolean).join(". ");
+    const QUALITY_DIRECTIVE =
+      "Masterpiece, award-winning, ultra-detailed, professional studio-grade lighting, high dynamic range, crisp focus, cohesive color grading, clean composition. No watermark, no logo, no gibberish text.";
+    const finalPrompt = [subject, preset ? preset.suffix : "", brandStyle, QUALITY_DIRECTIVE].filter(Boolean).join(". ");
 
     const sizeIn = String(body.size || "1024x1024");
     const size = ["1024x1024", "1792x1024", "1024x1792"].includes(sizeIn) ? sizeIn : "1024x1024";
     const quality = body.quality === "hd" ? "hd" : "standard";
+    const wantHd = quality === "hd";
+    const gptSize = size === "1792x1024" ? "1536x1024" : size === "1024x1792" ? "1024x1536" : "1024x1024";
 
-    const aiRes = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, quality, response_format: "b64_json" }),
-    });
-    if (!aiRes.ok) {
-      const err = await aiRes.text();
-      console.log("[Creative Studio] image gen failed:", err.slice(0, 300));
-      return c.json({ success: false, error: `Image generation failed: ${err.slice(0, 300)}` }, 502);
+    // Top-tier: gpt-image-1 (highest fidelity) first, fall back to DALL·E 3 HD/vivid.
+    async function genImage(): Promise<{ b64: string; revised: string }> {
+      const primary = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-image-1", prompt: finalPrompt, n: 1, size: gptSize, quality: wantHd ? "high" : "medium" }),
+      });
+      if (primary.ok) {
+        const d = await primary.json();
+        const b = d?.data?.[0]?.b64_json;
+        if (b) return { b64: b, revised: d?.data?.[0]?.revised_prompt || finalPrompt };
+      } else {
+        console.log("[Creative Studio] gpt-image-1 failed, falling back to dall-e-3 HD:", (await primary.text()).slice(0, 300));
+      }
+      const fb = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, quality: "hd", style: "vivid", response_format: "b64_json" }),
+      });
+      if (!fb.ok) throw new Error((await fb.text()).slice(0, 300));
+      const d = await fb.json();
+      const b = d?.data?.[0]?.b64_json;
+      if (!b) throw new Error("AI returned no image data.");
+      return { b64: b, revised: d?.data?.[0]?.revised_prompt || finalPrompt };
     }
-    const aiData = await aiRes.json();
-    const b64 = aiData?.data?.[0]?.b64_json;
-    const revisedPrompt = aiData?.data?.[0]?.revised_prompt || finalPrompt;
-    if (!b64) return c.json({ success: false, error: "AI returned no image data." }, 502);
+
+    let b64: string, revisedPrompt: string;
+    try {
+      const out = await genImage();
+      b64 = out.b64;
+      revisedPrompt = out.revised;
+    } catch (err) {
+      console.log("[Creative Studio] image gen failed:", String(err).slice(0, 300));
+      return c.json({ success: false, error: `Image generation failed: ${String(err).slice(0, 300)}` }, 502);
+    }
 
     await ensureBucket();
     const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
