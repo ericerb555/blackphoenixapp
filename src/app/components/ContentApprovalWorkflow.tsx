@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card } from './ui/card';
-import { Button } from './ui/button';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
 import { Textarea } from './ui/textarea';
-import { Badge } from './ui/badge';
+import { Badge } from './ui/Badge';
 import { Check, X, MessageSquare, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import {
   useContentManagement,

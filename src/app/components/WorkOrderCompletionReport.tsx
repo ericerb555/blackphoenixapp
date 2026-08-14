@@ -28,7 +28,7 @@ import {
   Eye,
   Image as ImageIcon,
 } from 'lucide-react';
-import { Button } from './ui/button';
+import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 

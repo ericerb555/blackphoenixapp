@@ -6,10 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingCart, Sparkles, Download, Eye, Palette, RefreshCw, AlertCircle, Video, Play, Film, Music, Volume2, Headphones } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Card } from './ui/card';
-import { Badge } from './ui/badge';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { Card } from './ui/Card';
+import { Badge } from './ui/Badge';
 import {
   Select,
   SelectContent,

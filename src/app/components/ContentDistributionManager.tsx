@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
-import { Input } from './ui/input';
+import { Input } from './ui/Input';
 import {
   Send,
   Calendar,

@@ -73,7 +73,7 @@ import type {
   PaymentGateway,
   GatewayConfig
 } from '../lib/services/unifiedPaymentService';
-import { PrimaryButton, SecondaryButton } from '../components/ui/button';
+import { PrimaryButton, SecondaryButton } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 
 type TabType = 'all' | 'gateways' | 'analytics';

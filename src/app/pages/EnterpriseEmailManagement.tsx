@@ -22,7 +22,7 @@ import {
   Crown, Star, Sparkles, Target, Box, Layers, Grid, List
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { IconButton } from '../components/ui/button';
+import { IconButton } from '../components/ui/Button';
 import { DataTable } from '../components/ui/table/DataTable';
 import type { DataTableColumn } from '../components/ui/table/DataTable';
 
