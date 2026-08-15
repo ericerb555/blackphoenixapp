@@ -20,6 +20,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+// Only used for the invitation email. Every other call on this page goes
+// straight to Postgres — sending mail is the one thing that needs a secret the
+// browser must not hold.
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -274,7 +280,40 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
       ).select();
       if (error) throw error;
       if (!data?.length) throw new Error('Those invitations were not accepted. You may not own this request.');
-      toast.success(`Invited ${data.length} provider${data.length === 1 ? '' : 's'}.`);
+
+      // The invitation row is the source of truth and is already written. Email
+      // is a courtesy on top, so a send failure must not read as a failed
+      // invite — it is reported separately and the invitation stands.
+      let notice = `Invited ${data.length} provider${data.length === 1 ? '' : 's'}.`;
+      try {
+        const res = await fetch(`${SERVER}/bid-room/notify-invites`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+          },
+          body: JSON.stringify({ bidRequestId: request.id, orgIds }),
+        });
+        const out = await res.json().catch(() => null);
+        if (res.ok && out?.success) {
+          const failed = (out.results || []).filter((r: any) => !r.sent);
+          notice += out.sent ? ` ${out.sent} notified by email.` : '';
+          if (failed.length) {
+            toast.error(
+              `Not notified: ${failed.map((f: any) => `${f.org} (${f.reason})`).join(', ')}. ` +
+              `They will still see the invitation when they open the bid room.`,
+              { duration: 9000 },
+            );
+          }
+        } else {
+          toast.error('Invitations saved, but the notification email could not be sent.');
+        }
+      } catch (notifyErr) {
+        console.error('[BidRoom] notify failed:', notifyErr);
+        toast.error('Invitations saved, but the notification email could not be sent.');
+      }
+
+      toast.success(notice);
       await load();
     } catch (err: any) {
       console.error('[BidRoom] invite:', err);

@@ -2519,6 +2519,129 @@ app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
 });
 
+// ── BID ROOM — invitation notifications ──────────────────────────────────────
+//
+// The invitation rows themselves are written by the browser straight to
+// Postgres, where RLS decides whether the write is allowed (migrations 003-005).
+// Only the *sending* needs a server, because RESEND_API_KEY and the Twilio
+// credentials must not reach the client.
+//
+// So this route deliberately does NOT use the service role. It builds a client
+// carrying the caller's own JWT, which means every query below is still subject
+// to RLS: if the caller cannot see the request, or cannot see the provider org,
+// the row simply does not come back and nothing is sent. Authorization stays in
+// the database rather than being re-implemented here in TypeScript — which is
+// the whole reason the platform core exists.
+function userScopedClient(c: any) {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  return createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: `Bearer ${token}` } } },
+  );
+}
+
+app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in to send invitations.' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const requestId = String(body.bidRequestId || '').trim();
+    const orgIds: string[] = Array.isArray(body.orgIds) ? body.orgIds.map(String) : [];
+    if (!requestId || orgIds.length === 0) {
+      return c.json({ success: false, error: 'A bid request and at least one provider are required.' }, 400);
+    }
+
+    const asUser = userScopedClient(c);
+
+    // RLS gate #1 — can this person see the request at all?
+    const { data: reqRows, error: reqErr } = await asUser
+      .from('bid_requests').select('id, org_id, title, trade, due_at, site_address, status').eq('id', requestId);
+    if (reqErr) return c.json({ success: false, error: reqErr.message }, 400);
+    const request = reqRows?.[0];
+    if (!request) return c.json({ success: false, error: 'That bid request was not found.' }, 404);
+
+    // RLS gate #2 — do they OWN it? Being merely invited is not enough to send
+    // mail on the platform's behalf.
+    const { data: myMems } = await asUser
+      .from('organization_members').select('org_id, status').eq('status', 'active');
+    const myOrgIds = new Set((myMems || []).map((m: any) => m.org_id));
+    if (!myOrgIds.has(request.org_id)) {
+      return c.json({ success: false, error: 'Only the organization that posted this request can notify providers.' }, 403);
+    }
+
+    // RLS gate #3 — the provider directory. An operator can read provider orgs
+    // (005); anyone else gets nothing back and therefore emails nobody.
+    const { data: providers } = await asUser
+      .from('organizations').select('id, name, email').in('id', orgIds);
+    if (!providers?.length) {
+      return c.json({ success: false, error: 'Those providers could not be found.' }, 404);
+    }
+
+    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+    const COMPANY_NAME = resolveCompanyName();
+    const APP_URL = Deno.env.get('APP_PUBLIC_URL') || 'https://www.theblackphoenixcompany.com';
+
+    const due = request.due_at
+      ? new Date(request.due_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'No deadline set';
+
+    const results: any[] = [];
+    for (const p of providers) {
+      const to = String(p.email || '').trim();
+      // A provider with no email on file is reported, not silently skipped —
+      // otherwise an invitation looks sent when nobody was told.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        results.push({ org: p.name, sent: false, reason: 'no email on file' });
+        continue;
+      }
+      if (!RESEND_API_KEY) {
+        results.push({ org: p.name, sent: false, reason: 'RESEND_API_KEY is not set' });
+        continue;
+      }
+
+      const subject = `You're invited to bid: ${request.title}`;
+      const text =
+        `${COMPANY_NAME} has invited ${p.name} to bid on a job.\n\n` +
+        `Job: ${request.title}\n` +
+        (request.trade ? `Trade: ${request.trade}\n` : '') +
+        (request.site_address ? `Site: ${request.site_address}\n` : '') +
+        `Bids due: ${due}\n\n` +
+        `Open the bid room to review the scope and submit your price:\n${APP_URL}/bid-room\n\n` +
+        `Your bid is sealed — other providers cannot see your price.`;
+
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: `${COMPANY_NAME} <${NOTIFICATION_FROM_EMAIL}>`,
+            reply_to: REPLY_TO_EMAIL,
+            to: [to], subject, text,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          console.error('[bid-room/notify-invites] resend error:', err);
+          results.push({ org: p.name, sent: false, reason: 'email provider rejected the message' });
+        } else {
+          results.push({ org: p.name, sent: true });
+        }
+      } catch (err: any) {
+        console.error('[bid-room/notify-invites] send failed:', err);
+        results.push({ org: p.name, sent: false, reason: err?.message || 'send failed' });
+      }
+    }
+
+    const sent = results.filter(r => r.sent).length;
+    return c.json({ success: true, sent, total: results.length, results });
+  } catch (error: any) {
+    console.error('[bid-room/notify-invites]', error);
+    return c.json({ success: false, error: error.message || 'Unable to notify those providers.' }, 500);
+  }
+});
+
 // ── LABOR RATES — global rate card used by the auto-quote generator ────────────
 app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
   try {
