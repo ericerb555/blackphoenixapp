@@ -406,8 +406,12 @@ Output ONLY the JSON object.`;
         raw = completion.choices?.[0]?.message?.content || '{}';
       }
     } catch (err: any) {
-      console.log(`[page-pilot] ${provider} request failed: ${err?.message || err}`);
-      return c.json({ error: 'The AI could not be reached. Please try again.' }, 502);
+      // Pass the upstream message through. This is an operator-only endpoint,
+      // and "could not be reached" alone turns a wrong model name or an unfunded
+      // account into a log-digging exercise.
+      const detail = err?.error?.error?.message || err?.message || String(err);
+      console.log(`[page-pilot] ${provider} request failed: ${detail}`);
+      return c.json({ error: 'The AI could not be reached. Please try again.', detail }, 502);
     }
     console.log(`[page-pilot] wrote page via ${provider} in ${Date.now() - startedAt}ms`);
 

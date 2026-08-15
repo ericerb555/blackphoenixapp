@@ -12,6 +12,7 @@
  * route paths are relative.
  */
 import { Hono } from "npm:hono";
+import Anthropic from "npm:@anthropic-ai/sdk";
 import * as kv from "./kv_store.tsx";
 
 export const contentStudioRouter = new Hono();
@@ -22,6 +23,90 @@ const PLAN_KEY = "content_studio:plan";
 
 function id(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Ask Claude for JSON. Reels are the one place currently pointed at it: a reel
+ * lives or dies on the hook, and the prompt is a long list of rules — distinct
+ * archetypes, on-screen text for muted viewers, no invented statistics — which
+ * is the kind of brief where following every rule matters more than raw prose.
+ *
+ * Sampling parameters are rejected outright, so where the OpenAI path uses
+ * temperature 0.8 to loosen up, variety here has to come from the named
+ * archetypes in the prompt.
+ */
+async function anthropicJson(system: string, user: string, maxTokens = 2500): Promise<any> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
+
+  const client = new Anthropic({ apiKey: key });
+  const message = await client.messages.create({
+    model: Deno.env.get("CONTENT_STUDIO_ANTHROPIC_MODEL") || "claude-opus-5",
+    // Thinking counts against this limit, so a budget sized for the JSON alone
+    // would truncate the script mid-object. Give the reasoning its own room.
+    max_tokens: Math.max(8000, maxTokens * 3),
+    output_config: { effort: (Deno.env.get("CONTENT_STUDIO_EFFORT") || "medium") as any },
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+
+  const raw = message.content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("")
+    .trim();
+
+  // Held to JSON by the prompt rather than a response format, so it will
+  // occasionally arrive fenced or wrapped in a sentence. That is a formatting
+  // quirk, not a failed generation — recover the object.
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fenced ? fenced[1].trim() : raw;
+  const first = body.indexOf("{");
+  const last = body.lastIndexOf("}");
+  const candidate = first !== -1 && last > first ? body.slice(first, last + 1) : body;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    throw new Error("Claude returned an unparseable response.");
+  }
+}
+
+/**
+ * Generate JSON, preferring one provider but never failing the request because
+ * of that preference — an unfunded account or a transient outage falls back to
+ * the other rather than leaving the operator with nothing.
+ *
+ * The fallback is reported, not hidden. Silently degrading to a second-choice
+ * engine is how this codebase ended up serving stock photos while appearing to
+ * generate images; the caller gets `provider` and `fallbackReason` so the
+ * substitution is visible in the response.
+ */
+async function aiJson(
+  system: string,
+  user: string,
+  maxTokens: number,
+  prefer: "anthropic" | "openai" = "openai",
+): Promise<{ data: any; provider: string; fallbackReason: string | null }> {
+  const override = (Deno.env.get("CONTENT_STUDIO_PROVIDER") || "").toLowerCase();
+  const first = override === "anthropic" || override === "openai"
+    ? (override as "anthropic" | "openai")
+    : prefer;
+
+  try {
+    const data = first === "anthropic"
+      ? await anthropicJson(system, user, maxTokens)
+      : await openaiJson(system, user, maxTokens);
+    return { data, provider: first, fallbackReason: null };
+  } catch (err: any) {
+    const second = first === "anthropic" ? "openai" : "anthropic";
+    const reason = err?.error?.error?.message || err?.message || String(err);
+    console.log(`[Content Studio] ${first} failed (${reason}); falling back to ${second}.`);
+    const data = second === "anthropic"
+      ? await anthropicJson(system, user, maxTokens)
+      : await openaiJson(system, user, maxTokens);
+    return { data, provider: second, fallbackReason: `${first}: ${reason}` };
+  }
 }
 
 async function openaiJson(system: string, user: string, maxTokens = 2500): Promise<any> {
@@ -793,7 +878,12 @@ contentStudioRouter.post("/content-studio/reel", async (c) => {
       offer ? `Offer to land: ${offer}` : "",
     ].filter(Boolean).join("\n\n");
 
-    const result = await openaiJson(system, user, Math.min(6000, 1800 + hookCount * 380));
+    const { data: result, provider: writtenBy, fallbackReason } = await aiJson(
+      system,
+      user,
+      Math.min(6000, 1800 + hookCount * 380),
+      "anthropic",
+    );
 
     const hooks = (Array.isArray(result.hooks) ? result.hooks : [])
       .slice(0, hookCount)
@@ -838,6 +928,11 @@ contentStudioRouter.post("/content-studio/reel", async (c) => {
       subject,
       platform,
       targetSeconds: seconds,
+      // Which model wrote this, and — when the preferred one could not be
+      // reached — why. Surfaced rather than swallowed so a script produced by
+      // the fallback is never mistaken for one produced by the first choice.
+      writtenBy,
+      fallbackReason,
       hooks,
       bestHookIndex,
       bestHookReason: String(result.bestHookReason || ""),
