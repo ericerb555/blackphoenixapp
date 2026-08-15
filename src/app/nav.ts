@@ -103,6 +103,7 @@ export const navigationSections: NavSection[] = [
     name: "Operations",
     icon: "Workflow",
     items: [
+      { name: "Bid Room",           path: "bid-room",            badge: "NEW" },
       { name: "eCommerce Store",    path: "enterprise-content-center?tab=ecommerce", badge: "HUB" },
       { name: "Maintenance Plans",  path: "maintenance-plans",   badge: "NEW" },
       { name: "Materials Center",   path: "materials-center",    badge: "NEW" },

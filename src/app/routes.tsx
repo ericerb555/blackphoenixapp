@@ -151,6 +151,7 @@ const AdCreator = lazy(() => import("./pages/AdCreator"));
 const DocumentViewer = lazy(() => import("./pages/DocumentViewer"));
 const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
+const BidRoom = lazy(() => import("./pages/BidRoom"));
 const Services = lazy(() => import("./pages/Services"));
 const PortalDemoHub = lazy(() => import("./pages/PortalDemoHub"));
 const PortalGlobalSettings = lazy(() => import("./pages/PortalGlobalSettings"));
@@ -538,6 +539,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "property-management-test": PropertyManagementTest,
   "enterprise-hr":            HREmployeeHub,
   "subcontractor-enterprise": SubcontractorEnterprise,
+  "bid-room":                BidRoom,
   "enterprise-reporting":     EnterpriseReporting,
 
   // Portals
