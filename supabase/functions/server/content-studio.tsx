@@ -287,6 +287,21 @@ const PLATFORM_SPEC: Record<string, string> = {
   twitter: "Twitter/X: punchy, under 280 characters, 1-3 hashtags, strong hook.",
   youtube: "YouTube: a compelling video title + description with keywords and chapters-style structure.",
   tiktok: "TikTok: trend-aware, energetic, short hook-driven caption, 3-6 hashtags.",
+
+  // Long-form and direct formats. Without these, anything that is not a social
+  // post fell through to the Instagram spec — so a blog article or a customer
+  // email came back as an emoji-heavy caption with fifteen hashtags. The
+  // Content Center's generator asks for blog, email and ad copy, so those
+  // formats need to be described rather than approximated.
+  blog: "Blog article: a clear headline followed by structured long-form prose with " +
+    "subheadings, short paragraphs, and a natural keyword-rich style for SEO. " +
+    "No hashtags, no emoji clutter. Open with the reader's problem and close with a call to action.",
+  email: "Email: begin with a subject line on its own first line, then a greeting, " +
+    "scannable short paragraphs and bullets, one clear call to action, and a sign-off. " +
+    "No hashtags. Plain, direct, professional — it is going to an inbox, not a feed.",
+  ad: "Paid advertisement: a short attention-grabbing headline, one or two lines of " +
+    "benefit-led body copy, and an explicit call to action. Tight and punchy — " +
+    "every word earns its place. No long paragraphs.",
 };
 
 contentStudioRouter.post("/content-studio/compose", async (c) => {

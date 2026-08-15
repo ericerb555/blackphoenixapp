@@ -32,6 +32,9 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 import AIContentStudio from '../components/AIContentStudio';
 import { ContentApprovalWorkflow } from '../components/ContentApprovalWorkflow';
 import { ContentDistributionManager } from '../components/ContentDistributionManager';
@@ -954,9 +957,76 @@ export default function EnterpriseContentCenter() {
   };
 
   // AI Content Generation Templates
+  /**
+   * Real AI generation, via the OpenAI-backed content studio the server already
+   * runs (`/content-studio/compose` — brand voice, platform specs and a
+   * compliance score).
+   *
+   * Everything below used to be produced by generateContentText(), which
+   * returns fixed template strings with the company name interpolated. That is
+   * fine as an offline fallback, but it was being presented as AI output behind
+   * simulated "Analyzing brand context…" progress steps, so the same generic
+   * paragraph came back for every topic.
+   *
+   * Returns null when the service cannot be reached, so the caller can fall
+   * back to a template AND say so, rather than passing boilerplate off as
+   * generated work.
+   */
+  const composeWithAI = async (
+    type: string,
+    settings: typeof generationSettings,
+    topic: string,
+  ): Promise<{ text: string; complianceScore?: number; complianceIssues?: string[] } | null> => {
+    // Map the studio's content types onto what the compose endpoint expects.
+    // These keys must exist in PLATFORM_SPEC on the server, or the request
+    // silently falls back to the Instagram spec and a blog post comes back as
+    // a hashtag-laden caption.
+    const platformFor: Record<string, string> = {
+      social: 'instagram', ad: 'ad', video: 'youtube',
+      blog: 'blog', email: 'email', image: 'instagram',
+    };
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SERVER}/content-studio/compose`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+        },
+        body: JSON.stringify({
+          topic,
+          platform: platformFor[type] || 'instagram',
+          contentType: type,
+          tone: `${settings.tone}, written for ${settings.audience}`,
+          includeHashtags: type === 'social' || type === 'ad',
+          context: `Length: ${settings.length}. Company: ${companyInfo.name}, ${companyInfo.address.city} ${companyInfo.address.state}. Contact ${companyInfo.contact.phone} / ${companyInfo.contact.website}.`,
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data?.success) return null;
+
+      const body = String(data.caption || '').trim();
+      if (!body) return null;
+      const tags = Array.isArray(data.hashtags) && data.hashtags.length
+        ? '\n\n' + data.hashtags.map((h: string) => (h.startsWith('#') ? h : `#${h}`)).join(' ')
+        : '';
+      const title = String(data.title || '').trim();
+
+      return {
+        text: (title ? `${title}\n\n` : '') + body + tags,
+        complianceScore: typeof data.complianceScore === 'number' ? data.complianceScore : undefined,
+        complianceIssues: Array.isArray(data.complianceIssues) ? data.complianceIssues : undefined,
+      };
+    } catch (err) {
+      console.error('[ContentCenter] compose failed:', err);
+      return null;
+    }
+  };
+
   const generateContentText = (type: string, settings: typeof generationSettings) => {
     const { tone, audience, length } = settings;
-    
+
     const templates: Record<string, any> = {
       blog: {
         short: `Transform Your Space: Expert ${companyInfo.name} Tips\n\nDiscover how professional craftsmanship can elevate your home or business. Our team specializes in bringing your vision to life with precision and care.\n\nKey benefits:\n• Professional quality workmanship\n• Attention to detail\n• Customer satisfaction guaranteed\n\nContact us today to discuss your project!`,
@@ -996,28 +1066,43 @@ export default function EnterpriseContentCenter() {
       description: `Generating ${typeObj?.name || 'content'} using ${companyInfo.name} branding...`
     });
 
-    // Simulate AI analysis with progress
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setGenerationProgress(25);
+    // Progress now tracks real work rather than sleeps. The old version stepped
+    // 25→50→75→100 on timers while the "content" was a fixed template, so the
+    // brand-analysis and SEO messages described work that never happened.
+    setGenerationProgress(20);
 
-    toast.info('🧠 Analyzing Brand Context', {
-      description: `Processing ${companyInfo.name} brand guidelines and target audience...`
-    });
+    // What the piece should actually be about. Without a brief every request
+    // would return the same generic company blurb — which is exactly what the
+    // template path did.
+    const brief = (generationSettings as any).topic?.trim?.()
+      || (generationSettings as any).prompt?.trim?.()
+      || `${typeObj?.name || 'content'} for ${companyInfo.name}, a ${companyInfo.industry || 'construction and property services'} company in ${companyInfo.address.city}, ${companyInfo.address.state}`;
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setGenerationProgress(50);
+    setGenerationProgress(45);
+    const ai = await composeWithAI(type, generationSettings, brief);
+    setGenerationProgress(85);
 
-    // Generate the actual content
-    const contentText = generateContentText(type, generationSettings);
-    
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setGenerationProgress(75);
+    // Fall back to the offline template if the service is unreachable — but say
+    // so plainly. Presenting boilerplate as AI output is what made this feature
+    // look functional while producing the same paragraph every time.
+    const usedAI = Boolean(ai?.text);
+    const contentText = ai?.text || generateContentText(type, generationSettings);
 
-    toast.info('✨ Finalizing Content', {
-      description: 'Optimizing for engagement and SEO...'
-    });
+    if (!usedAI) {
+      toast.error('AI service unavailable — inserted a starter template instead', {
+        description: 'This is a generic draft, not generated content. Try again, or edit it directly.',
+        duration: 8000,
+      });
+    } else if (typeof ai?.complianceScore === 'number') {
+      const issues = ai.complianceIssues?.length
+        ? ` · ${ai.complianceIssues.length} suggestion${ai.complianceIssues.length === 1 ? '' : 's'}`
+        : '';
+      toast.info(`Brand compliance: ${ai.complianceScore}/100${issues}`, {
+        description: ai.complianceIssues?.slice(0, 2).join(' ') || 'Matches your brand voice.',
+        duration: 7000,
+      });
+    }
 
-    await new Promise(resolve => setTimeout(resolve, 800));
     setGenerationProgress(100);
 
     // Create the new content piece — save to localStorage + try backend
@@ -1030,9 +1115,12 @@ export default function EnterpriseContentCenter() {
         content_format: type,
         excerpt: contentText.substring(0, 200),
         status: 'draft',
-        is_ai_generated: true,
+        // Honest: only true when the content studio actually produced this.
+        // A template fallback is labelled as such so the library does not fill
+        // up with boilerplate marked "AI generated".
+        is_ai_generated: usedAI,
         created_at: new Date().toISOString(),
-        tags: [type, 'ai-generated'],
+        tags: [type, usedAI ? 'ai-generated' : 'template-draft'],
       };
 
       // Always save to localStorage first (works without company setup)
@@ -1050,12 +1138,18 @@ export default function EnterpriseContentCenter() {
           content_format: type,
           excerpt: newPiece.excerpt,
           status: 'draft',
-          is_ai_generated: true,
+          is_ai_generated: usedAI,
           ai_generation_metadata: {
             tone: generationSettings.tone,
             audience: generationSettings.audience,
             length: generationSettings.length,
-            model: generationSettings.aiModel,
+            // Record what actually produced it, plus the brand-compliance
+            // grade the studio returned, so a reviewer can see why a piece
+            // scored the way it did instead of guessing.
+            source: usedAI ? 'content-studio/compose' : 'offline-template',
+            brief,
+            complianceScore: ai?.complianceScore,
+            complianceIssues: ai?.complianceIssues,
           },
           current_workflow_stage: 1,
           total_impressions: 0,
