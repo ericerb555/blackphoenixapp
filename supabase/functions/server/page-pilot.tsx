@@ -19,7 +19,74 @@
 // Everything is KV-backed and best-effort so the tool works out of the box.
 import { Hono } from 'npm:hono';
 import OpenAI from 'npm:openai@4';
+import Anthropic from 'npm:@anthropic-ai/sdk';
 import * as kv from './kv_store.tsx';
+
+// ── Which model writes the page ─────────────────────────────────────────────
+// Set PAGE_PILOT_PROVIDER=anthropic to write pages with Claude instead of
+// gpt-4o. Defaults to openai, so an unset variable changes nothing. The prompt
+// is byte-identical on both paths — the point is to compare the writing, not
+// two different briefs.
+//
+// One real difference the flag cannot hide: the OpenAI call passes
+// temperature 0.8 to loosen it up, and Claude rejects sampling parameters
+// outright. Variety there has to come from the prompt, which is what the
+// "directions already in use" block does.
+// `override` is the per-request escape hatch: comparing the two writers by
+// changing a deployed secret and waiting for a redeploy makes the comparison
+// too slow to actually do, so the generate call accepts a provider directly.
+// Both targets are already-configured providers, so this grants no access the
+// caller didn't have — an unrecognised value falls through to the default.
+function pagePilotProvider(override?: unknown): 'anthropic' | 'openai' {
+  const pick = String(override || Deno.env.get('PAGE_PILOT_PROVIDER') || '').toLowerCase();
+  if (pick === 'anthropic' || pick === 'claude') return 'anthropic';
+  if (pick === 'openai') return 'openai';
+  return 'openai';
+}
+
+/**
+ * Ask Claude for the campaign JSON. Returns the raw text; the caller parses and
+ * validates it exactly as it does the OpenAI response.
+ */
+async function writeWithClaude(system: string, user: string): Promise<string> {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set.');
+
+  const client = new Anthropic({ apiKey });
+  const message = await client.messages.create({
+    model: Deno.env.get('PAGE_PILOT_ANTHROPIC_MODEL') || 'claude-opus-5',
+    // Thinking is on by default and counts against max_tokens, so a limit sized
+    // for the JSON alone would truncate the page mid-object. The JSON runs
+    // ~2.5k tokens; the rest is headroom for reasoning.
+    max_tokens: 16000,
+    // Someone is watching a spinner while this runs. Medium keeps the wait
+    // reasonable; raise it if the writing is worth the extra seconds.
+    output_config: { effort: (Deno.env.get('PAGE_PILOT_EFFORT') || 'medium') as any },
+    system,
+    messages: [{ role: 'user', content: user }],
+  });
+
+  return message.content
+    .filter((b: any) => b.type === 'text')
+    .map((b: any) => b.text)
+    .join('');
+}
+
+/**
+ * Pull a JSON object out of a model response. gpt-4o is held to JSON mode and
+ * returns bare JSON; Claude is asked for JSON in the prompt and will sometimes
+ * wrap it in a fence or a sentence, which is a formatting quirk rather than a
+ * failure — recover it instead of erroring the whole generation.
+ */
+function extractJson(raw: string): string {
+  const text = raw.trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) return text.slice(first, last + 1);
+  return text;
+}
 
 const pagePilotRouter = new Hono();
 
@@ -197,9 +264,13 @@ pagePilotRouter.post(`${PREFIX}/page-pilot/generate`, async (c) => {
       return c.json({ error: 'Select at least one product to build a campaign page.' }, 400);
     }
 
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!apiKey) return c.json({ error: 'AI is not configured (missing OPENAI_API_KEY).' }, 500);
-    const openai = new OpenAI({ apiKey });
+    const provider = pagePilotProvider(body.provider);
+    const apiKey = Deno.env.get(provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+    if (!apiKey) {
+      return c.json({
+        error: `AI is not configured (missing ${provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'}).`,
+      }, 500);
+    }
 
     const productLines = products
       .map((p, i) => `  ${i + 1}. ${p.name} — $${p.price}${p.originalPrice ? ` (was $${p.originalPrice})` : ''}${p.category ? ` [${p.category}]` : ''}${p.audience?.length ? ` {for: ${p.audience.join(', ')}}` : ''}${p.features?.length ? ` {includes: ${p.features.slice(0, 6).join('; ')}}` : ''}${p.description ? ` — ${p.description.slice(0, 200)}` : ''}`)
@@ -315,23 +386,36 @@ Return JSON with EXACTLY this shape:
 }
 Output ONLY the JSON object.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature: 0.8,
-      max_tokens: 2500,
-      response_format: { type: 'json_object' },
-    });
+    let raw: string;
+    const startedAt = Date.now();
+    try {
+      if (provider === 'anthropic') {
+        raw = await writeWithClaude(system, user);
+      } else {
+        const openai = new OpenAI({ apiKey });
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.8,
+          max_tokens: 2500,
+          response_format: { type: 'json_object' },
+        });
+        raw = completion.choices?.[0]?.message?.content || '{}';
+      }
+    } catch (err: any) {
+      console.log(`[page-pilot] ${provider} request failed: ${err?.message || err}`);
+      return c.json({ error: 'The AI could not be reached. Please try again.' }, 502);
+    }
+    console.log(`[page-pilot] wrote page via ${provider} in ${Date.now() - startedAt}ms`);
 
-    const raw = completion.choices?.[0]?.message?.content || '{}';
     let content: any;
     try {
-      content = JSON.parse(raw);
+      content = JSON.parse(extractJson(raw || '{}'));
     } catch (parseErr) {
-      console.log(`[page-pilot] failed to parse model JSON: ${parseErr}. Raw: ${raw.slice(0, 400)}`);
+      console.log(`[page-pilot] failed to parse ${provider} JSON: ${parseErr}. Raw: ${raw.slice(0, 400)}`);
       return c.json({ error: 'The AI returned an unexpected format. Please try again.' }, 502);
     }
 
@@ -390,6 +474,10 @@ Output ONLY the JSON object.`;
       // renderer should prefer content.design.palette.accent — that is the one
       // chosen for this specific product.
       accent: design.palette.accent,
+      // Which writer produced this page. Without it a saved campaign gives no
+      // way to tell the two apart after the fact, which is the whole point of
+      // running them side by side.
+      writtenBy: provider,
       products,
       content,
       views: 0,
