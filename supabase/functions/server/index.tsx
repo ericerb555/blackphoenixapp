@@ -244,6 +244,28 @@ app.route("/", projectVisionRouter);
 app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
 app.route("/make-server-3eae23a6/analytics", storeAnalyticsRouter);
+// ── Supplier routes are administrator-only ───────────────────────────────────
+//
+// The /cj/* and /zendrop/* routers resolve their supplier API key from a server
+// secret and then act on it, but carried no authorization of their own — the
+// neighbouring /dropshipper/* routes are all gated by dropshipAdmin() and these
+// were simply missed. Because the function only requires *a* valid JWT, the
+// public anon key that ships inside the frontend bundle was enough to call them:
+// anyone could trigger catalog imports against the CJ account, and /cj/debug
+// forces a token refresh that CJ rate-limits, so it doubles as an abuse vector.
+//
+// Mounted as middleware ahead of the routers so every current and future route
+// in those families inherits the check, rather than each one remembering it.
+const supplierAdminGuard = async (c: any, next: any) => {
+  const actor = await intakeActor(c);
+  if (!actor || !(await intakeIsAdmin(actor))) {
+    return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  }
+  await next();
+};
+app.use('/make-server-3eae23a6/cj/*', supplierAdminGuard);
+app.use('/make-server-3eae23a6/zendrop/*', supplierAdminGuard);
+
 app.route("/", zendropRouter);
 app.route("/", cjRouter);
 app.route("/", seoEngineRouter);
