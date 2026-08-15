@@ -98,7 +98,10 @@ export interface UseAllProductsResult {
   reload: () => void;
 }
 
-export function useAllProducts(limit = 200): UseAllProductsResult {
+// Default high enough to cover the whole catalog rather than silently cutting
+// it off — suppliers import in batches (CJ caps at 50/page) so the product
+// count only grows. Callers that genuinely want a preview pass their own limit.
+export function useAllProducts(limit = 5000): UseAllProductsResult {
   const [products, setProducts] = useState<UnifiedProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

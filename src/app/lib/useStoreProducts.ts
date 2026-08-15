@@ -68,7 +68,8 @@ export interface UseStoreProductsResult {
   reload: () => void;
 }
 
-export function useStoreProducts(fallback: StoreCatalogProduct[] = [], limit = 200): UseStoreProductsResult {
+// See useAllProducts — default covers the full catalog instead of truncating it.
+export function useStoreProducts(fallback: StoreCatalogProduct[] = [], limit = 5000): UseStoreProductsResult {
   const [products, setProducts] = useState<StoreCatalogProduct[]>(fallback);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);

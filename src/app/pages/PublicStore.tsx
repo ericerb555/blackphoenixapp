@@ -216,15 +216,40 @@ export default function PublicStore() {
     async function loadDropshipProducts() {
       setLoadingProducts(true);
       try {
-        console.log('[PublicStore] Fetching live products from', `${SERVER}/products?isActive=true&limit=100`);
-        const res = await fetch(`${SERVER}/products?isActive=true&limit=100`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
-        });
-        console.log('[PublicStore] /products response status:', res.status);
-        if (res.ok) {
+        // The storefront shows the WHOLE catalog — no product cap. The server
+        // paginates (`page`/`limit`) and reports `total`, so walk the pages
+        // until we've collected them all. A fixed `limit` here would silently
+        // hide everything past it as the catalog grows; suppliers cap their
+        // own import page size (CJ allows 50 at a time), so the catalog only
+        // ever gets bigger.
+        const PAGE_SIZE = 200;
+        const MAX_PAGES = 100; // runaway guard only — 20k products
+        const raw: any[] = [];
+        let page = 1;
+        let total = Infinity;
+
+        while (page <= MAX_PAGES && raw.length < total) {
+          const url = `${SERVER}/products?isActive=true&page=${page}&limit=${PAGE_SIZE}`;
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+          if (!res.ok) {
+            // Page 1 failing is a real error; a later page failing just means we
+            // show what we already have rather than an empty store.
+            console.error('[PublicStore] ❌ /products page', page, 'failed with status', res.status);
+            break;
+          }
           const data = await res.json();
-          console.log('[PublicStore] live products received:', (data.products || data.inventory || []).length);
-          const items = (data.products || data.inventory || []).map((p: any) => ({
+          const batch = data.products || data.inventory || [];
+          raw.push(...batch);
+
+          if (typeof data.total === 'number') total = data.total;
+          // No total reported, or a short page: nothing left to walk.
+          if (!Number.isFinite(total) || batch.length < PAGE_SIZE) break;
+          page += 1;
+        }
+
+        console.log('[PublicStore] live products received:', raw.length, 'of', Number.isFinite(total) ? total : 'unknown');
+        {
+          const items = raw.map((p: any) => ({
             id: p.id || p.sku || `ds-${Math.random()}`,
             name: p.name || p.title,
             description: p.description || '',
@@ -271,8 +296,6 @@ export default function PublicStore() {
           } else {
             console.warn('[PublicStore] ⚠️ 0 live products returned from server');
           }
-        } else {
-          console.error('[PublicStore] ❌ /products fetch failed with status', res.status);
         }
       } catch (err) {
         console.error('[PublicStore] ❌ /products fetch threw:', err);
