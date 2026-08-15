@@ -17,6 +17,7 @@ import projectsCrudRouter from "./projects-crud.tsx";
 import investmentsRouter from "./investments-kv.tsx";
 import variancesRouter from "./variances-kv.tsx";
 import pagePilotRouter from "./page-pilot.tsx";
+import mediaRouter from "./media-library.tsx";
 import authRouter from "./auth.tsx";
 import { entitlementsRouter, recordEntitlementEvent } from "./entitlements.tsx";
 import paymentProcessingRouter from "./payment-processing.tsx";
@@ -231,6 +232,9 @@ app.route("/", projectsCrudRouter);
 app.route("/", investmentsRouter);
 app.route("/", variancesRouter);
 app.route("/", pagePilotRouter);
+// Routes carry the full path prefix themselves, so this mounts at the root
+// rather than at /make-server-3eae23a6 like the bare-path routers do.
+app.route("/", mediaRouter);
 app.route("/", authRouter);
 app.route("/", entitlementsRouter);
 app.route("/make-server-3eae23a6/payment", paymentProcessingRouter);

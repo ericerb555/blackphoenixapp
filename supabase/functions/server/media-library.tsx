@@ -12,8 +12,10 @@
  * - PUT    /make-server-3eae23a6/media/:mediaId            → Update media metadata
  * - GET    /make-server-3eae23a6/media/folder/:folderId    → Get media by folder
  * 
+ * All routes require a signed-in user.
+ *
  * STORAGE:
- * - Bucket: make-824f083c-media (private)
+ * - Bucket: make-3eae23a6-media (private)
  * - Path:   media/:year/:month/:filename
  * - Signed URLs valid for 24 hours
  * 
@@ -34,7 +36,30 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-const BUCKET_NAME = "make-824f083c-media";
+/**
+ * Every route here is signed in. The anon key ships in the browser bundle, so
+ * without this an unauthenticated caller could fill the project's storage with
+ * arbitrary files and read back everyone else's uploads. These routes run on
+ * the service-role client, which bypasses RLS — the token check is the only
+ * thing standing between the public internet and the bucket.
+ */
+mediaRouter.use('/make-server-3eae23a6/media', requireSignedIn);
+mediaRouter.use('/make-server-3eae23a6/media/*', requireSignedIn);
+
+async function requireSignedIn(c: any, next: any) {
+  const header = c.req.header('Authorization') || '';
+  if (!header.startsWith('Bearer ')) {
+    return c.json({ error: 'Sign in to use the media library.' }, 401);
+  }
+  const { data, error } = await supabase.auth.getUser(header.substring(7));
+  if (error || !data?.user) {
+    return c.json({ error: 'Sign in to use the media library.' }, 401);
+  }
+  c.set('mediaUser', data.user);
+  await next();
+}
+
+const BUCKET_NAME = "make-3eae23a6-media";
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB (project storage cap; 100MB caused a 413 on bucket creation)
 
 // Supported file types
