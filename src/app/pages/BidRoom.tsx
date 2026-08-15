@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Gavel, Plus, Loader2, RefreshCw, Users, Clock, CheckCircle2, X,
-  AlertTriangle, Send, Trophy, FileText, Building2, Inbox,
+  AlertTriangle, Send, Trophy, FileText, Building2, Inbox, UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
@@ -128,6 +128,11 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
   const [tab, setTab] = useState<'posted' | 'invited'>('posted');
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  // Provider directory. Only populated for platform operators — migration 005
+  // grants them, and only them, read access to provider-type orgs. Everyone
+  // else gets an empty list from RLS, which is why the invite UI simply does
+  // not render for them rather than being conditionally hidden.
+  const [directory, setDirectory] = useState<Org[]>([]);
 
   const myOrgIds = useMemo(() => new Set(myOrgs.map(o => o.id)), [myOrgs]);
 
@@ -189,6 +194,16 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
         (named || []).forEach((o: any) => { map[o.id] = o.name; });
         setOrgNames(map);
       }
+
+      // Providers available to invite. RLS decides whether this returns
+      // anything at all, so no permission check is duplicated here.
+      const { data: dir } = await supabase
+        .from('organizations')
+        .select('id, name, slug, type')
+        .in('type', ['subcontractor', 'vendor'])
+        .eq('status', 'active')
+        .order('name');
+      setDirectory((dir || []) as Org[]);
     } catch (err: any) {
       console.error('[BidRoom] load failed:', err);
       setFatal(err?.message || 'Could not load the bid room.');
@@ -243,6 +258,43 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
     } catch (err: any) {
       console.error('[BidRoom] submitBid:', err);
       toast.error(err?.message || 'Could not submit that bid.');
+    }
+  };
+
+  const inviteProviders = async (request: BidRequest, orgIds: string[]) => {
+    if (!orgIds.length) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { error, data } = await supabase.from('bid_invitations').insert(
+        orgIds.map(id => ({
+          bid_request_id: request.id,
+          org_id: id,
+          invited_by: session?.user?.id || null,
+        })),
+      ).select();
+      if (error) throw error;
+      if (!data?.length) throw new Error('Those invitations were not accepted. You may not own this request.');
+      toast.success(`Invited ${data.length} provider${data.length === 1 ? '' : 's'}.`);
+      await load();
+    } catch (err: any) {
+      console.error('[BidRoom] invite:', err);
+      // The unique (bid_request_id, org_id) constraint is the backstop against
+      // double-inviting; say so plainly instead of surfacing a Postgres code.
+      const msg = /duplicate key|unique/i.test(err?.message || '')
+        ? 'One of those providers was already invited.'
+        : err?.message || 'Could not send those invitations.';
+      toast.error(msg);
+    }
+  };
+
+  const uninviteProvider = async (invitation: Invitation) => {
+    try {
+      const { error } = await supabase.from('bid_invitations').delete().eq('id', invitation.id);
+      if (error) throw error;
+      await load();
+      toast.success('Invitation withdrawn.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not withdraw that invitation.');
     }
   };
 
@@ -484,8 +536,11 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
                         bids={rBids}
                         invitations={rInvites}
                         orgNames={orgNames}
+                        directory={directory}
                         onAward={b => awardBid(request, b)}
                         onStatus={s => setRequestStatus(request, s)}
+                        onInvite={ids => inviteProviders(request, ids)}
+                        onUninvite={uninviteProvider}
                       />
                     ) : (
                       <ProviderPanel
@@ -523,10 +578,11 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
 
 // ── owner panel ──────────────────────────────────────────────────────────────
 
-function OwnerPanel({ request, bids, invitations, orgNames, onAward, onStatus }: {
+function OwnerPanel({ request, bids, invitations, orgNames, directory, onAward, onStatus, onInvite, onUninvite }: {
   request: BidRequest; bids: Bid[]; invitations: Invitation[];
-  orgNames: Record<string, string>;
+  orgNames: Record<string, string>; directory: Org[];
   onAward: (b: Bid) => void; onStatus: (s: RequestStatus) => void;
+  onInvite: (orgIds: string[]) => void; onUninvite: (i: Invitation) => void;
 }) {
   const sorted = [...bids].sort((a, b) => (a.amount ?? Infinity) - (b.amount ?? Infinity));
   const notBid = invitations.filter(i => !bids.some(b => b.org_id === i.org_id));
@@ -589,9 +645,166 @@ function OwnerPanel({ request, bids, invitations, orgNames, onAward, onStatus }:
         </div>
       )}
 
+      <InvitePanel
+        request={request}
+        invitations={invitations}
+        bids={bids}
+        orgNames={orgNames}
+        directory={directory}
+        onInvite={onInvite}
+        onUninvite={onUninvite}
+      />
+
       {notBid.length > 0 && (
-        <p className="text-xs text-gray-500">
-          Awaiting: {notBid.map(i => orgNames[i.org_id] || 'provider').join(', ')}
+        <p className="text-xs text-gray-500 mt-3">
+          Awaiting a bid from: {notBid.map(i => orgNames[i.org_id] || 'provider').join(', ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── invite panel ─────────────────────────────────────────────────────────────
+
+function InvitePanel({ request, invitations, bids, orgNames, directory, onInvite, onUninvite }: {
+  request: BidRequest; invitations: Invitation[]; bids: Bid[];
+  orgNames: Record<string, string>; directory: Org[];
+  onInvite: (orgIds: string[]) => void; onUninvite: (i: Invitation) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  const invitedIds = useMemo(() => new Set(invitations.map(i => i.org_id)), [invitations]);
+
+  const candidates = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return directory
+      .filter(o => !invitedIds.has(o.id))
+      .filter(o => !q || o.name.toLowerCase().includes(q) || (o.type || '').toLowerCase().includes(q));
+  }, [directory, invitedIds, query]);
+
+  const toggle = (id: string) => setPicked(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const send = async () => {
+    setBusy(true);
+    try {
+      await onInvite(Array.from(picked));
+      setPicked(new Set());
+      setQuery('');
+      setOpen(false);
+    } finally { setBusy(false); }
+  };
+
+  // An awarded or cancelled request should not gain new bidders.
+  const canInvite = request.status === 'draft' || request.status === 'open';
+
+  return (
+    <div className="mt-5 pt-5 border-t border-[#2A2A2A]">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold text-white uppercase tracking-wide">
+          Invited providers ({invitations.length})
+        </h4>
+        {canInvite && (
+          <button onClick={() => setOpen(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+            style={{ background: open ? 'rgba(255,255,255,0.08)' : '#ea580c' }}>
+            {open ? <>Close</> : <><UserPlus className="w-3.5 h-3.5" /> Invite providers</>}
+          </button>
+        )}
+      </div>
+
+      {invitations.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {invitations.map(i => {
+            // Withdrawing an invitation after they have priced the work would
+            // orphan a real bid, so that is not offered.
+            const hasBid = bids.some(b => b.org_id === i.org_id);
+            return (
+              <span key={i.id}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #2A2A2A', color: '#e5e7eb' }}>
+                <Building2 className="w-3.5 h-3.5 text-gray-500" />
+                {orgNames[i.org_id] || 'Provider'}
+                {hasBid
+                  ? <span style={{ color: '#34d399' }}>bid in</span>
+                  : canInvite && (
+                      <button onClick={() => onUninvite(i)} title="Withdraw invitation"
+                        className="text-gray-600 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+                    )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {open && (
+        <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
+          {directory.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No providers available to invite. Provider organizations appear here once they
+              have completed onboarding.
+            </p>
+          ) : (
+            <>
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search providers by name or trade…"
+                className="w-full mb-3 px-3 py-2 rounded-xl bg-[#0F0F0F] border border-[#2A2A2A] text-white text-sm outline-none focus:border-orange-500/50"
+              />
+              <div className="max-h-56 overflow-y-auto space-y-1.5 mb-3">
+                {candidates.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-2">
+                    {invitedIds.size > 0 && !query
+                      ? 'Everyone in your directory is already invited.'
+                      : 'No providers match that search.'}
+                  </p>
+                ) : candidates.map(o => {
+                  const on = picked.has(o.id);
+                  return (
+                    <button key={o.id} onClick={() => toggle(o.id)}
+                      className="w-full flex items-center justify-between gap-3 p-2.5 rounded-lg text-left transition-colors"
+                      style={{
+                        background: on ? 'rgba(234,88,12,0.12)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${on ? 'rgba(234,88,12,0.45)' : '#2A2A2A'}`,
+                      }}>
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <Building2 className="w-4 h-4 text-gray-500 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-sm text-white truncate">{o.name}</span>
+                          <span className="block text-xs text-gray-500 capitalize">{o.type}</span>
+                        </span>
+                      </span>
+                      {on && <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: '#ea580c' }} />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-gray-500">
+                  {picked.size ? `${picked.size} selected` : 'Select providers to invite'}
+                </span>
+                <button onClick={send} disabled={busy || picked.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+                  style={{ background: '#ea580c' }}>
+                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Send {picked.size || ''} invitation{picked.size === 1 ? '' : 's'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {request.status === 'draft' && invitations.length > 0 && (
+        <p className="text-xs text-gray-500 mt-3">
+          Invited providers cannot see this request until you open it for bids.
         </p>
       )}
     </div>
