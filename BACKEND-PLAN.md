@@ -112,12 +112,35 @@ exactly:
 
 **Deploy decision: deploy nothing.** The live function already equals the repo.
 
-**New risk surfaced — the stale function is still armed.** `make-server-57095a78`
-is ACTIVE and its `kv_store.tsx` points at `kv_store_57095a78`, the same table
-holding all 1,390 live rows. Two servers with different code can mutate one
-dataset. The frontend calls it from zero files, so the safe move is to
-**disable/delete `make-server-57095a78`** before any migration work starts.
-Do that first, and confirm nothing external calls it.
+**New risk surfaced — the stale function was still armed.** ✅ RESOLVED
+2026-08-15. `make-server-57095a78` was ACTIVE and its `kv_store.tsx` pointed at
+`kv_store_57095a78`, the same table holding every live row — a second, older
+server with write access to production data.
+
+It was **not** simply deleted, because checking first showed it was still being
+called: 334 requests in 24 hours on an exact 60-second cadence. The caller could
+not be identified (`edge_logs` does not record function invocations;
+`function_logs` carries no path or user-agent). Probing the function directly
+explained the shape of it — `/health` returned 200 while every other route
+returned `401 Sign in required`, the root-mount `use('*')` bug in `plans.tsx`
+that this deployment never got the fix for. So the poller is almost certainly an
+uptime monitor on `/health`, and nothing was successfully reading data.
+
+Replaced with a stub (`supabase/functions/make-server-57095a78-stub/`) that
+answers `/health` exactly as before and returns **410 Gone** with a pointer to
+`make-server-3eae23a6` for everything else. The stub holds no database
+credentials and imports no kv module, so the write access to
+`kv_store_57095a78` is gone. Verified after deploy: `/health` 200,
+`/products` `/plans` `/` all 410, live function unaffected, 1,125 kv rows and
+the paid order intact.
+
+The exact retired deployment is archived with restore instructions at
+`supabase/functions/_retired/make-server-57095a78-2026-08-15/` — it is not
+reconstructible from the rest of the repo, since the deployed `index.tsx` was
+74 lines against the working tree's 8,000+.
+
+Delete the function outright once you have confirmed what polls `/health` and
+repointed it.
 
 ### 1. Core schema — schema VALIDATED on a branch (2026-08-15), backfill still open
 
