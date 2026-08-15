@@ -8973,7 +8973,34 @@ app.post('/make-server-3eae23a6/intake/my-onboarding/profile', async (c) => {
     await kv.set(`intake:onboarding:${applicationId}`, intake);
     // Mark the owner-provisioned invite as ACCEPTED so the Sent Invites page flips to "Accepted".
     try { const prov = await kv.get(`owner_provision:${applicationId}`) as any; if (prov) await kv.set(`owner_provision:${applicationId}`, { ...prov, inviteStatus: 'accepted', acceptedAt: now, updatedAt: now }); } catch (_e) { /* non-fatal */ }
-    const accessKey = `portal_access:${String(user.email).toLowerCase()}:${intake.portalType}`; const prior = await kv.get(accessKey) as any; const access = { ...(prior || {}), applicationId, email: String(user.email).toLowerCase(), portalType: intake.portalType, applicantName: fullName, status: 'active', onboardingStatus: 'active', freeProvisioned: Boolean(intake.ownerProvisioned), updatedAt: now, createdAt: prior?.createdAt || now }; await kv.set(accessKey, access);
+    // Activate EVERY portal this person was invited to — not only the one named
+    // on their intake record.
+    //
+    // `intake:email:<email>` holds a SINGLE application per person, but
+    // portal_access is per (email, portalType). Someone invited to two portals
+    // therefore completed one application and the second invite was stranded in
+    // `onboarding` forever, with no route in the product to finish it. Seen
+    // live: ericerb555@yahoo.com went active on landlord while his
+    // subcontractor invite stayed stuck; three more accounts were queued up to
+    // hit the same wall as soon as they completed.
+    //
+    // Finishing the application process is the gate, and they have finished it,
+    // so every portal they were invited to opens.
+    const emailLc = String(user.email).toLowerCase();
+    const invitedAccess = ((await kv.getByPrefix(`portal_access:${emailLc}:`)) as any[] || []).filter(Boolean);
+    const portalTypes = Array.from(new Set(
+      [intake.portalType, ...invitedAccess.map((a: any) => a?.portalType)].filter(Boolean),
+    ));
+    let access: any = null;
+    for (const portalType of portalTypes) {
+      const accessKey = `portal_access:${emailLc}:${portalType}`;
+      const prior = await kv.get(accessKey) as any;
+      const updated = { ...(prior || {}), applicationId, email: emailLc, portalType, applicantName: fullName, status: 'active', onboardingStatus: 'active', freeProvisioned: Boolean(intake.ownerProvisioned), updatedAt: now, createdAt: prior?.createdAt || now };
+      await kv.set(accessKey, updated);
+      // The response keeps returning the intake's own portal so existing
+      // callers (which redirect using `access.portalType`) are unchanged.
+      if (portalType === intake.portalType) access = updated;
+    }
     if (['subscription', 'maintenance', 'both'].includes(planInterest)) await kv.set(`plan_interest:${String(user.email).toLowerCase()}`, { email: String(user.email).toLowerCase(), name: fullName, phone, company, address, portalType: intake.portalType, planInterest, source: 'owner-provisioned-onboarding', status: 'requested', applicationId, requestedAt: now });
     return c.json({ success: true, intake: stripBase64(intake), access, next: 'portal' });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save your profile.' }, 500); }
@@ -8988,7 +9015,23 @@ app.get('/make-server-3eae23a6/intake/my-access', async (c) => {
     if (!intake) { const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => String(item.email || '').toLowerCase() === String(user.email).toLowerCase() && ['approved', 'active'].includes(String(item.status || '').toLowerCase())); if (application) { intake = await ensureIntake(application); applicationId = intake.applicationId; } }
     const application = intake ? ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === intake.applicationId) : null;
     const access = intake ? await syncPortalAccess(application || { id: intake.applicationId, email: user.email, name: intake.applicantName, type: intake.portalType }, intake) : null;
-    return c.json({ success: true, canEnterPortal: access?.status === 'active', access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null });
+    // A person can be invited to several portals, but `intake` names only one.
+    // Returning just that one made every other granted portal unreachable — the
+    // sign-in screen compares the chosen portal against this single value and
+    // rejects anything else. Return the full set so callers can honour all of
+    // them. `access` is unchanged for existing callers.
+    const emailLc = String(user.email).toLowerCase();
+    const portals = ((await kv.getByPrefix(`portal_access:${emailLc}:`)) as any[] || [])
+      .filter(Boolean)
+      .map((a: any) => ({
+        portalType: a.portalType,
+        status: a.status,
+        onboardingStatus: a.onboardingStatus,
+        applicationId: a.applicationId,
+        active: a.status === 'active',
+      }))
+      .filter((p: any) => p.portalType);
+    return c.json({ success: true, canEnterPortal: access?.status === 'active' || portals.some((p: any) => p.active), access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null, portals });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load portal access.' }, 500); }
 });
 

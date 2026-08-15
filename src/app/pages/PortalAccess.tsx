@@ -170,13 +170,26 @@ export default function PortalAccess() {
       if (!session?.access_token) throw new Error('Your sign-in session could not be verified.');
       const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data?.access?.active) throw new Error('Your application is not active yet. Complete onboarding or contact Black Phoenix for assistance.');
       const roleForAccess: Record<string, UserRole> = { subcontractor: 'subcontractor', vendor: 'vendor', employee: 'employee', investor: 'investor' };
-      const grantedRole = roleForAccess[String(data.access.portalType || '')];
-      if (!grantedRole || grantedRole !== selectedRole) throw new Error(`Your approved access is for the ${String(data.access.portalType || 'assigned').replace(/_/g, ' ')} portal. Choose that portal to continue.`);
+      // A person can hold access to several portals. The server returns the full
+      // set in `portals`; `access` is only the one named on their intake record,
+      // so gating on it alone locked people out of portals they had been granted.
+      // Fall back to `access` for older server builds that predate `portals`.
+      const activePortals: string[] = Array.isArray(data?.portals)
+        ? data.portals.filter((p: any) => p?.active).map((p: any) => String(p.portalType))
+        : (data?.access?.active ? [String(data.access.portalType || '')] : []);
+
+      if (!activePortals.length) throw new Error('Your application is not active yet. Complete onboarding or contact Black Phoenix for assistance.');
+
+      const grantedRoles = activePortals.map(p => roleForAccess[p]).filter(Boolean) as UserRole[];
+      if (!selectedRole || !grantedRoles.includes(selectedRole)) {
+        const readable = activePortals.map(p => p.replace(/_/g, ' ')).join(' or ');
+        throw new Error(`Your approved access is for the ${readable || 'assigned'} portal. Choose that portal to continue.`);
+      }
       const destinations: Record<Exclude<UserRole, null>, string> = { subcontractor: '/subcontractor-portal', investor: '/investor-portal', vendor: '/vendor-portal', employee: '/employee-portal' };
       toast.success('Sign-in verified. Opening your portal…');
-      window.location.assign(destinations[grantedRole]);
+      // selectedRole is verified above to be one of the granted portals.
+      window.location.assign(destinations[selectedRole as Exclude<UserRole, null>]);
     } catch (error: any) {
       toast.error(error?.message || 'Unable to verify portal access.');
     } finally { setLoading(false); }
