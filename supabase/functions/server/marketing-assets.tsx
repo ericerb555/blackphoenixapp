@@ -141,25 +141,72 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
           prompt = customPrompt || `Professional web banner design for ${productName}. ${productDescription}. Clean modern design, product featured, commercial banner ad style, ${dimensions} dimensions, attention-grabbing composition.`;
         }
 
+        // Any assetType outside the four branches above left `prompt` as the
+        // empty string, and an empty prompt is rejected outright
+        // ("Invalid 'prompt': empty string") — so the asset silently degraded
+        // to a stock photo and looked like a model failure rather than a
+        // missing branch. Note customPrompt was unreachable in that case too,
+        // because it is only consulted inside the branches.
+        if (!prompt.trim()) {
+          prompt = customPrompt || [
+            `Professional marketing photography for ${productName || 'this product'}.`,
+            productDescription || '',
+            `Styled for ${platform}. Natural lighting, premium commercial quality,`,
+            'product clearly featured, no text or logos in the image.',
+          ].filter(Boolean).join(' ');
+        }
+
         // Call OpenAI DALL-E API. We request b64_json (not url) so we get the
         // raw bytes and can persist them ourselves — DALL-E's hosted URLs are
         // temporary (~1h) and were the reason saved ads later broke.
-        const imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+        // Model availability differs per account. Verified against this
+        // project: 'dall-e-3' returns "The model 'dall-e-3' does not exist",
+        // and `style` returns "Unknown parameter: 'style'" — so every asset
+        // generated here was silently falling through to the Unsplash stock
+        // fallback instead of a real branded image. Try the current model
+        // first, exactly as creative-studio.tsx and marketplace.tsx already do,
+        // and send only parameters both accept (b64 is the default).
+        let imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${openaiKey}`,
             'Content-Type': 'application/json',
           },
+          // Exactly the parameter set verified working against this account in
+          // content-studio: model, prompt, n, size. `quality`, `style` and
+          // `response_format` are each rejected by one model or the other, and
+          // any rejection here silently degrades the asset to a stock photo.
           body: JSON.stringify({
-            model: 'dall-e-3',
+            model: 'gpt-image-1',
             prompt: prompt,
             n: 1,
-            size: '1024x1024', // DALL-E 3 standard size
-            quality: 'standard',
-            style: 'natural',
-            response_format: 'b64_json',
+            size: '1024x1024',
           }),
         });
+
+        if (!imageResponse.ok) {
+          // Log the provider's own message — a bare status here cost real time
+          // diagnosing, because the reason a model is refused (unknown
+          // parameter vs unknown model vs content policy) changes the fix.
+          const why = await imageResponse.clone().text().catch(() => '');
+          console.log(`[marketing-assets] gpt-image-1 failed (HTTP ${imageResponse.status}): ${why.slice(0, 300)}`);
+          imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${openaiKey}`,
+              'Content-Type': 'application/json',
+            },
+            // No response_format: this endpoint rejects it outright
+            // ("Unknown parameter: 'response_format'"), which is what made the
+            // fallback fail too. b64 is returned by default.
+            body: JSON.stringify({
+              model: 'dall-e-3',
+              prompt: prompt,
+              n: 1,
+              size: '1024x1024',
+            }),
+          });
+        }
 
         if (!imageResponse.ok) {
           const errorData = await imageResponse.json().catch(() => ({}));

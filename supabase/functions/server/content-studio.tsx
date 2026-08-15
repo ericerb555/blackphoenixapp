@@ -438,4 +438,220 @@ contentStudioRouter.post("/content-studio/recreate-script", async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// CONTENT PACKAGE — one call, one publishable asset set.
+//
+// /compose answers "write me a caption". Real content work needs more than one
+// option and more than one artefact: a marketer wants distinct angles to choose
+// between, the same idea sized for each channel it will run on, the SEO fields
+// a CMS demands, and art direction that matches. Assembling that meant four
+// round trips through four different screens, so in practice people shipped the
+// first draft of one thing.
+//
+// Deliberate choices here:
+//
+//   • All variants are produced in ONE model call rather than N parallel calls.
+//     The model can then make them genuinely different from each other — a
+//     proof angle, a pain angle, a story angle — instead of returning three
+//     rewordings of the same sentence, which is what independent calls at
+//     temperature 0.8 actually give you.
+//   • Every variant carries a `rationale` and an honest `score`, and the model
+//     nominates a `bestVariantIndex` with reasoning. A recommendation you can
+//     argue with beats a silent pick.
+//   • Image generation is opt-in and non-fatal. DALL-E is slow and metered, so
+//     a failed or skipped image never costs you the copy — the prompt is always
+//     returned so the visual can be made later.
+// ---------------------------------------------------------------------------
+
+const PACKAGE_MAX_VARIANTS = 5;
+
+contentStudioRouter.post("/content-studio/package", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const topic = String(body.topic || body.brief || "").trim();
+    if (!topic) return c.json({ success: false, error: "A topic or brief is required." }, 400);
+
+    const platforms: string[] = Array.isArray(body.platforms) && body.platforms.length
+      ? body.platforms.map((p: any) => String(p).toLowerCase()).filter((p: string) => PLATFORM_SPEC[p])
+      : ["instagram"];
+    if (!platforms.length) {
+      return c.json({
+        success: false,
+        error: `No supported platform requested. Supported: ${Object.keys(PLATFORM_SPEC).join(", ")}.`,
+      }, 400);
+    }
+
+    const variantCount = Math.max(1, Math.min(PACKAGE_MAX_VARIANTS, Number(body.variants) || 3));
+    const tone = String(body.tone || "professional and friendly");
+    const audience = String(body.audience || "").trim();
+    const context = String(body.context || "").trim();
+    const wantImage = body.withImage === true;
+
+    const brandVoice = await loadBrandContext();
+
+    const system = [
+      "You are a senior content strategist and copywriter producing a publishable content package.",
+      brandVoice ? `Brand voice & guidelines to follow strictly:\n${brandVoice}` : "",
+      audience ? `Primary audience: ${audience}.` : "",
+      `Desired tone: ${tone}.`,
+      "",
+      "Produce DISTINCT angles, not paraphrases. Each variant must take a genuinely different " +
+        "approach — for example one led by proof or numbers, one by the reader's pain, one by a " +
+        "short story or example. If two variants could be swapped without a reader noticing, you " +
+        "have failed the brief.",
+      "",
+      "Score honestly. A score above 90 should be rare and earned. List concrete, actionable " +
+        "issues rather than praise.",
+      "",
+      "Platform requirements to honour exactly:",
+      ...platforms.map((p) => `- ${p}: ${PLATFORM_SPEC[p]}`),
+      "",
+      "Return STRICT JSON with keys:",
+      "  variants: array of exactly " + variantCount + " objects, each with " +
+        "{ angle (short label), rationale (why this angle suits the brief), " +
+        "score (integer 0-100), issues (string[]), " +
+        "channels: { <platform>: { title, body, hashtags (string[]) } } } " +
+        "— channels MUST contain an entry for every requested platform.",
+      "  bestVariantIndex: integer index into variants.",
+      "  bestVariantReason: string, one sentence.",
+      "  seo: { title (<=60 chars), metaDescription (<=155 chars), slug (kebab-case), keywords (string[]) }.",
+      "  imagePrompt: a single vivid art-direction prompt for the hero visual. " +
+        "Describe subject, composition, lighting and mood. No text or logos in the image.",
+    ].filter(Boolean).join("\n");
+
+    const user = [
+      `Topic / brief: ${topic}`,
+      context ? `Additional context:\n${context}` : "",
+      `Platforms: ${platforms.join(", ")}`,
+    ].filter(Boolean).join("\n\n");
+
+    // Scale the budget with the work asked for, or long packages get truncated
+    // mid-JSON and fail to parse.
+    const budget = Math.min(8000, 1200 + variantCount * platforms.length * 420);
+    const result = await openaiJson(system, user, budget);
+
+    const rawVariants = Array.isArray(result.variants) ? result.variants : [];
+    if (!rawVariants.length) {
+      return c.json({ success: false, error: "The model returned no variants." }, 502);
+    }
+
+    const variants = rawVariants.slice(0, variantCount).map((v: any, i: number) => {
+      const channels: Record<string, any> = {};
+      for (const p of platforms) {
+        const ch = v?.channels?.[p] || {};
+        channels[p] = {
+          title: String(ch.title || ""),
+          body: String(ch.body || ""),
+          hashtags: Array.isArray(ch.hashtags) ? ch.hashtags.map((h: any) => String(h)).filter(Boolean) : [],
+          // Surfaced so a caller can flag a channel the model skipped rather
+          // than rendering an empty card with no explanation.
+          missing: !ch.body,
+        };
+      }
+      let score = Number(v?.score);
+      if (!Number.isFinite(score)) score = 0;
+      return {
+        index: i,
+        angle: String(v?.angle || `Variant ${i + 1}`),
+        rationale: String(v?.rationale || ""),
+        score: Math.max(0, Math.min(100, Math.round(score))),
+        issues: Array.isArray(v?.issues) ? v.issues.map((s: any) => String(s)) : [],
+        channels,
+      };
+    });
+
+    let bestIndex = Number(result.bestVariantIndex);
+    if (!Number.isInteger(bestIndex) || bestIndex < 0 || bestIndex >= variants.length) {
+      // Fall back to the highest score rather than silently defaulting to 0.
+      bestIndex = variants.reduce((b: number, v: any, i: number, a: any[]) => (v.score > a[b].score ? i : b), 0);
+    }
+
+    const seo = result.seo || {};
+    const imagePrompt = String(result.imagePrompt || "").trim();
+
+    // Image is a bonus, never a blocker.
+    let imageBase64: string | null = null;
+    let imageError: string | null = null;
+    if (wantImage && imagePrompt) {
+      const openaiKey = Deno.env.get("OPENAI_API_KEY");
+      if (!openaiKey) {
+        imageError = "OPENAI_API_KEY is not set.";
+      } else {
+        try {
+          // Reuse the same visual brand directive Creative Studio feeds its
+          // image generator, so a package hero looks like the rest of the brand.
+          const visual = await loadBrandVisual().catch(() => "");
+          const prompt = [imagePrompt, visual, "No text, words or logos anywhere in the image."]
+            .filter(Boolean).join(" ");
+          const wide = platforms.includes("blog");
+
+          // Image model availability differs per account, and the older
+          // dall-e-3-only parameters (`style`, `response_format`) are rejected
+          // outright by the current endpoint. Verified against this project:
+          // sending `style` returns "Unknown parameter: 'style'", and after
+          // removing it, "The model 'dall-e-3' does not exist" — so the
+          // hardcoded model was wrong too.
+          //
+          // Try the current model first and fall back, sending only parameters
+          // both accept. OPENAI_IMAGE_MODEL overrides the list entirely.
+          const forced = Deno.env.get("OPENAI_IMAGE_MODEL");
+          const candidates = forced ? [forced] : ["gpt-image-1", "dall-e-3"];
+          const sizeFor = (model: string) =>
+            wide ? (model === "dall-e-3" ? "1792x1024" : "1536x1024") : "1024x1024";
+
+          const failures: string[] = [];
+          for (const model of candidates) {
+            const res = await fetch("https://api.openai.com/v1/images/generations", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ model, prompt, n: 1, size: sizeFor(model) }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              imageBase64 = data?.data?.[0]?.b64_json || null;
+              if (imageBase64) break;
+              failures.push(`${model}: returned no image data`);
+              continue;
+            }
+            const detail = await res.text().catch(() => "");
+            let msg = "";
+            try { msg = JSON.parse(detail)?.error?.message || ""; } catch { /* not JSON */ }
+            failures.push(`${model}: ${msg || `HTTP ${res.status}`}`);
+            console.log(`[Content Studio] image ${model} ${res.status}: ${detail.slice(0, 300)}`);
+          }
+
+          // Surface the provider's own message rather than a bare status code —
+          // a status alone sent me digging through function logs to find a
+          // rejected parameter.
+          if (!imageBase64) imageError = `No image model available — ${failures.join("; ")}`;
+        } catch (err: any) {
+          imageError = String(err?.message || err);
+          console.log(`[Content Studio] image failed: ${imageError}`);
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      topic,
+      platforms,
+      variants,
+      bestVariantIndex: bestIndex,
+      bestVariantReason: String(result.bestVariantReason || ""),
+      seo: {
+        title: String(seo.title || ""),
+        metaDescription: String(seo.metaDescription || ""),
+        slug: String(seo.slug || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        keywords: Array.isArray(seo.keywords) ? seo.keywords.map((k: any) => String(k)) : [],
+      },
+      imagePrompt,
+      image: imageBase64 ? `data:image/png;base64,${imageBase64}` : null,
+      imageError,
+    });
+  } catch (error) {
+    console.log(`[Content Studio] package error: ${error}`);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
 export default contentStudioRouter;

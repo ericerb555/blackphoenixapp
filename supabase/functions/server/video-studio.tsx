@@ -192,11 +192,26 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
     const style = String(body.style || "cinematic, high detail, vibrant, professional");
     const finalPrompt = `${visualPrompt}. ${style}. No text, no watermark, no logos.`;
 
-    const aiRes = await fetch("https://api.openai.com/v1/images/generations", {
+    // Model availability differs per account — 'dall-e-3' does not exist on
+    // this project, so scene generation failed outright every time. Try the
+    // current model first (matching creative-studio.tsx and marketplace.tsx),
+    // then fall back. gpt-image-1 uses 1536-wide/tall rather than 1792 and
+    // returns b64 without being asked.
+    const gptSize = aspect === "landscape" ? "1536x1024" : aspect === "square" ? "1024x1024" : "1024x1536";
+    let aiRes = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, response_format: "b64_json" }),
+      // Same minimal parameter set verified working in content-studio.
+      body: JSON.stringify({ model: "gpt-image-1", prompt: finalPrompt, n: 1, size: gptSize }),
     });
+    if (!aiRes.ok) {
+      console.log(`[Video Studio] gpt-image-1 unavailable (HTTP ${aiRes.status}), trying dall-e-3`);
+      aiRes = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, response_format: "b64_json" }),
+      });
+    }
     if (!aiRes.ok) {
       const err = await aiRes.text();
       console.log("[Video Studio] scene image failed:", err.slice(0, 300));
