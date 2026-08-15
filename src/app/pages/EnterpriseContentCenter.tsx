@@ -359,6 +359,9 @@ export default function EnterpriseContentCenter() {
   // AI Video Editing State
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  // Real duration of the uploaded clip, read from its metadata on upload.
+  // Null until known — callers must not silently substitute a guess.
+  const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
   const [aiVideoSuggestions, setAiVideoSuggestions] = useState<any>(null);
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
@@ -1399,6 +1402,21 @@ export default function EnterpriseContentCenter() {
       setVideoFile(file);
       const url = URL.createObjectURL(file);
       setVideoPreviewUrl(url);
+
+      // Read the real duration. Beat-sync and audio trimming previously used a
+      // hardcoded 60 seconds, so transition points and trimmed music were wrong
+      // for any clip that was not exactly a minute long.
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.onloadedmetadata = () => {
+        if (Number.isFinite(probe.duration) && probe.duration > 0) {
+          setVideoDurationSec(probe.duration);
+        }
+        // The probe owns its own object URL; the preview keeps `url`.
+        URL.revokeObjectURL(probe.src);
+      };
+      probe.src = URL.createObjectURL(file);
+
       toast.success('Video uploaded successfully!');
     } else {
       toast.error('Please upload a valid video file');
@@ -1420,7 +1438,6 @@ export default function EnterpriseContentCenter() {
       });
 
       setVideoProgress(25);
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
       toast.info('🧠 Processing Video Frames', {
         description: 'Detecting scenes, transitions, and optimal cuts...'
@@ -1561,16 +1578,15 @@ export default function EnterpriseContentCenter() {
     // Save to library first
     saveVideoToLibrary();
 
-    // Navigate to ad creator
-    toast.info('Opening Product Ad Creator...', {
-      description: 'Your video is ready to use in ads!',
+    // Actually go to the ad creator. This previously announced "Opening
+    // Product Ad Creator…" and then, after a timer, told the user to go and
+    // open it themselves — the button never navigated anywhere. The Ad Studio
+    // is a tab on this same page, so switching to it keeps the video in hand
+    // rather than sending them out of the flow.
+    setActiveTab('ad-studio');
+    toast.success('Video saved to your library — Ad Studio is open', {
+      description: 'Pick it from the library to build a video ad.',
     });
-
-    // In a real app with routing, this would navigate to the ad creator
-    // For now, just show a message
-    setTimeout(() => {
-      toast.success('💡 Tip: Open the Product Ad Creator from the Vendor Advertising Hub to create video ads!');
-    }, 1500);
   };
 
   // Music & Audio Functions
@@ -1615,21 +1631,40 @@ export default function EnterpriseContentCenter() {
       return;
     }
 
-    toast.info('🎵 Analyzing video for music suggestions...');
+    // Derive keywords from the clip actually uploaded. This used a fixed list
+    // — ['professional','business','corporate','presentation'] — so every
+    // video, whatever it showed, got an identical set of "AI recommendations".
+    const nameWords = (videoFile.name || '')
+      .replace(/\.[^.]+$/, '')              // drop extension
+      .split(/[^a-zA-Z0-9]+/)               // split on separators
+      .map(w => w.trim().toLowerCase())
+      .filter(w => w.length > 2 && !/^\d+$/.test(w));
 
-    // Simulate AI analysis
-    setTimeout(() => {
-      // Mock keywords based on video name or content
-      const videoKeywords = ['professional', 'business', 'corporate', 'presentation'];
-      const suggestions = suggestMusicForVideo(videoKeywords, 'professional', 60);
-      
-      setMusicSuggestions(suggestions);
-      setShowMusicLibrary(true);
-      
-      toast.success(`✨ Found ${suggestions.length} music suggestions!`, {
-        description: 'Browse AI-recommended tracks for your video',
+    // Fall back to the brand's own industry rather than a generic guess, so a
+    // file named "IMG_4821" still gets something relevant to this business.
+    const videoKeywords = nameWords.length
+      ? Array.from(new Set(nameWords)).slice(0, 8)
+      : [String(companyInfo.industry || 'construction').toLowerCase(), 'professional'];
+
+    const suggestions = suggestMusicForVideo(
+      videoKeywords,
+      generationSettings.tone || 'professional',
+      videoDurationSec ?? selectedMusic?.duration ?? 60,
+    );
+
+    setMusicSuggestions(suggestions);
+    setShowMusicLibrary(true);
+
+    if (suggestions.length === 0) {
+      toast.error('No matching tracks in your music library', {
+        description: `Searched for: ${videoKeywords.join(', ')}. Upload tracks or rename the clip to describe it.`,
+        duration: 8000,
       });
-    }, 1000);
+    } else {
+      toast.success(`✨ Found ${suggestions.length} music suggestion${suggestions.length === 1 ? '' : 's'}`, {
+        description: `Matched on: ${videoKeywords.slice(0, 4).join(', ')}`,
+      });
+    }
   };
 
   const applyMusicToVideo = (music: MusicAsset) => {
@@ -1785,26 +1820,34 @@ export default function EnterpriseContentCenter() {
       return;
     }
     
-    toast.info('🎵 Analyzing beats...');
-    
-    setTimeout(() => {
+    // The beat maths below is real and runs instantly; the timer that used to
+    // wrap it only made it look like analysis was happening.
+    if (!videoDurationSec) {
+      toast.error('Still reading the video length — try again in a moment.');
+      return;
+    }
+
+    {
       const markers = generateBeatMarkers(
         selectedMusic.bpm!,
         selectedMusic.duration,
         4 // beats per bar
       );
-      
+
       setBeatMarkers(markers);
       setBeatSyncEnabled(true);
       setShowBeatSync(true);
-      
-      // Generate transition suggestions
-      const videoDuration = 60; // mock duration
+
+      // Transition suggestions against the clip's ACTUAL length. This was
+      // hardcoded to 60s, so every suggestion past the real end of a shorter
+      // video was unusable, and a longer video got no suggestions at all past
+      // the first minute.
+      const videoDuration = videoDurationSec;
       const transitions = suggestTransitionPoints(markers, videoDuration, 4, 8);
       setTransitionPoints(transitions);
       
       toast.success(`✨ Found ${markers.length} beat markers and ${transitions.length} transition points!`);
-    }, 800);
+    }
   };
 
   const trimMusicToVideo = () => {
@@ -1818,8 +1861,14 @@ export default function EnterpriseContentCenter() {
       return;
     }
     
-    const videoDuration = 60; // mock - would get from actual video
-    
+    // Real clip length. Trimming to a hardcoded 60s produced music that ran
+    // past the end of a short video, or stopped early on a long one.
+    if (!videoDurationSec) {
+      toast.error('Still reading the video length — try again in a moment.');
+      return;
+    }
+    const videoDuration = videoDurationSec;
+
     const trimmed = trimAudioToVideo(selectedMusic, videoDuration, {
       preferFadeOut: true,
       allowLooping: true,
