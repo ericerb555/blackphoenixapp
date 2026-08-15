@@ -36,6 +36,7 @@ import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 import AIContentStudio from '../components/AIContentStudio';
+import ContentPackageGenerator from '../components/ContentPackageGenerator';
 import { ContentApprovalWorkflow } from '../components/ContentApprovalWorkflow';
 import { ContentDistributionManager } from '../components/ContentDistributionManager';
 import UserContextSelector from '../components/UserContextSelector';
@@ -1305,9 +1306,20 @@ export default function EnterpriseContentCenter() {
         content_format: 'video_reel',
         excerpt: `${slides.length} photos · ${totalDuration.toFixed(1)}s`,
         status: 'draft',
-        is_ai_generated: true,
+        // A slideshow is assembled from the owner's own photos — no model wrote
+        // it. Flagging it AI-generated made the library's AI filter meaningless.
+        is_ai_generated: false,
         featured_image_url: firstImage?.image || firstImage?.url || firstImage?.src || '',
-        ai_generation_metadata: { slideCount: slides.length, totalDuration, music: music?.title || null },
+        ai_generation_metadata: {
+          source: 'photo-to-video',
+          slideCount: slides.length,
+          totalDuration,
+          music: music?.title || null,
+          // The rendered .webm is downloaded to the user's machine by
+          // VideoExportOptions; the library holds the recipe and a thumbnail,
+          // not the file. Recorded so nobody assumes the video is hosted here.
+          videoStored: false,
+        },
         created_at: new Date().toISOString(),
         tags: ['video', 'slideshow'],
       };
@@ -2401,10 +2413,65 @@ export default function EnterpriseContentCenter() {
           {/* Create Tab - AI Generator */}
           {activeTab === 'create' && (
             <div className="space-y-6">
+              {/* The package generator leads, because it is the one that gives
+                  you a choice: several distinct angles, scored, each written for
+                  every channel, with SEO fields and an optional hero image. The
+                  single-draft generator below it is kept for a quick one-off. */}
+              <ContentPackageGenerator
+                onSave={({ title, body, hashtags, platform, angle, score, seo, image }) => {
+                  const text = hashtags.length
+                    ? `${body}\n\n${hashtags.map(h => `#${h}`).join(' ')}`
+                    : body;
+                  const piece: any = {
+                    id: `pkg_${Date.now()}`,
+                    title: title || `${platform} — ${angle}`,
+                    content: text,
+                    content_body: text,
+                    content_format: platform === 'blog' ? 'blog' : platform === 'email' ? 'email' : 'social',
+                    excerpt: seo.metaDescription || text.slice(0, 200),
+                    status: 'draft',
+                    is_ai_generated: true,
+                    featured_image_url: image || '',
+                    created_at: new Date().toISOString(),
+                    tags: [platform, 'ai-generated', 'package'],
+                    ai_generation_metadata: {
+                      source: 'content-studio/package',
+                      angle, score, platform,
+                      seo,
+                      // The hero is a data URI held on this record only; it is
+                      // not uploaded anywhere, so note that rather than implying
+                      // a hosted asset exists.
+                      imageInline: Boolean(image),
+                    },
+                  };
+                  saveToUserStorage(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, [
+                    piece,
+                    ...loadFromUserStorage<any[]>(userContext, CONTENT_CENTER_KEYS.CONTENT_PIECES, []),
+                  ]);
+                  setContentPieces(prev => [piece, ...prev]);
+                  createContentPiece({
+                    title: piece.title,
+                    content_body: text,
+                    content_format: piece.content_format,
+                    excerpt: piece.excerpt,
+                    status: 'draft',
+                    is_ai_generated: true,
+                    featured_image_url: image || undefined,
+                    ai_generation_metadata: piece.ai_generation_metadata,
+                    current_workflow_stage: 1,
+                    total_impressions: 0,
+                    total_clicks: 0,
+                    total_engagement: 0,
+                    total_conversions: 0,
+                  }).catch(() => { /* localStorage save already succeeded */ });
+                  toast.success(`Saved "${angle}" for ${platform} to your library`);
+                }}
+              />
+
               <div className="text-center mb-8">
                 <h2 className="text-3xl font-bold text-white mb-3 flex items-center justify-center gap-3">
                   <Brain className="w-8 h-8 text-[#ea580c]" />
-                  AI Content Generator
+                  Quick single draft
                 </h2>
                 <p className="text-gray-400">Select content type to generate with AI using {companyInfo.name} branding</p>
               </div>
