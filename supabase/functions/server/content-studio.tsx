@@ -500,8 +500,26 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
         "short story or example. If two variants could be swapped without a reader noticing, you " +
         "have failed the brief.",
       "",
-      "Score honestly. A score above 90 should be rare and earned. List concrete, actionable " +
-        "issues rather than praise.",
+      // Hashtags were being written into the body AND returned in the array, so
+      // any caller rendering both — the obvious thing to do — published them
+      // twice. The body must be publishable exactly as written.
+      "NEVER put hashtags inside `body`. Hashtags belong only in the `hashtags` array. " +
+        "`body` must be publishable verbatim, with no trailing tag block.",
+      "",
+      // A tone of "plain-spoken, no marketing fluff" was returning "where dreams
+      // meet reality" and "#MahoganyMagic". Tone has to be enforced, not hinted.
+      `The requested tone is: ${tone}. Obey it literally. If the tone rules out marketing ` +
+        "language, then do not use it anywhere — not in the body, not in the title, not in the " +
+        "hashtags. Words like 'magic', 'dreams', 'bliss', 'transform your space' and " +
+        "'where X meets Y' are marketing filler; use them only if the requested tone clearly " +
+        "invites them.",
+      "",
+      "Do not promise media that may not exist — no 'swipe through', 'watch the video' or " +
+        "'link in bio' unless the brief says those exist.",
+      "",
+      "Score honestly against the brief AND the tone. A variant that ignores the requested tone " +
+        "cannot score above 70, and the tone miss must be listed in issues. A score above 90 " +
+        "should be rare and earned. List concrete, actionable issues rather than praise.",
       "",
       "Platform requirements to honour exactly:",
       ...platforms.map((p) => `- ${p}: ${PLATFORM_SPEC[p]}`),
@@ -539,13 +557,29 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
       const channels: Record<string, any> = {};
       for (const p of platforms) {
         const ch = v?.channels?.[p] || {};
+
+        // Belt and braces on the "no hashtags in body" rule. The prompt asks for
+        // it, but a caller rendering body + hashtags must never double-post
+        // them, so strip any trailing tag block the model still emits rather
+        // than trusting instruction-following.
+        let body = String(ch.body || "").replace(/\s*(?:^|\n)\s*(?:#[\wÀ-ɏ]+\s*){2,}$/u, "").trimEnd();
+
+        const tags = Array.isArray(ch.hashtags)
+          ? ch.hashtags.map((h: any) => String(h).trim().replace(/^#+/, "")).filter(Boolean)
+          : [];
+
         channels[p] = {
           title: String(ch.title || ""),
-          body: String(ch.body || ""),
-          hashtags: Array.isArray(ch.hashtags) ? ch.hashtags.map((h: any) => String(h)).filter(Boolean) : [],
+          body,
+          // Normalised without the leading '#' so callers can render them
+          // consistently; the model was inconsistent about including it.
+          hashtags: tags,
           // Surfaced so a caller can flag a channel the model skipped rather
           // than rendering an empty card with no explanation.
-          missing: !ch.body,
+          // Checked against the cleaned body: a channel whose only content was
+          // a hashtag block is empty in practice, and should be reported as
+          // missing rather than rendered as a blank card.
+          missing: !body,
         };
       }
       let score = Number(v?.score);
