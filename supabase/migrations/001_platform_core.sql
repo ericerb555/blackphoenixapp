@@ -7,6 +7,17 @@
 -- Nothing here touches kv_store_* or the existing companies table.
 -- It is additive: run it alongside what you have, migrate one
 -- portal at a time, delete nothing until each portal has moved.
+--
+-- PREREQUISITE: the `companies` table must exist (organizations.
+-- legacy_company_id references companies(id), which is text). On
+-- production it does — but it was created outside the tracked
+-- migrations, so a fresh environment (a Supabase branch, a local
+-- stack) will NOT have it and this file fails there until it is
+-- created. Discovered applying this to a branch on 2026-08-15.
+--
+-- STATUS: validated on branch `platform-core` (2026-08-15). Applies
+-- cleanly, RLS verified to isolate tenants, two blocking defects in
+-- the first draft found and fixed here. Not yet applied to production.
 -- ============================================================
 
 
@@ -17,12 +28,25 @@
 -- customer household or business. One table, distinguished by type.
 -- ------------------------------------------------------------
 
+-- Values verified against live portal_access data on 2026-08-15:
+--   customer 4 · landlord 4 · employee 1 · subcontractor 1 · vendor 1
+--
+-- `landlord` was missing from the first draft despite being tied for the most
+-- common portal type — added here.
+--
+-- `employee` is deliberately NOT an org type. An employee is a person inside
+-- the operator org, which is what organization_members.role already models.
+-- Making them their own organization would read wrong the moment bids, orders
+-- and invoices start hanging off org_id.
+--
+-- `advertiser` is retained with zero rows today — it is a planned portal.
 create type org_type as enum (
   'operator',        -- you; the company running the platform
   'subcontractor',
   'vendor',
   'advertiser',
-  'customer'
+  'customer',
+  'landlord'
 );
 
 create table organizations (
@@ -136,22 +160,56 @@ as $$
   where user_id = auth.uid() and status = 'active';
 $$;
 
+-- Admin/owner subset of my_org_ids(). This MUST be a security-definer function
+-- rather than an inline subquery: policies on organization_members that query
+-- organization_members directly re-enter themselves and Postgres aborts with
+-- "infinite recursion detected in policy" (42P17). Verified on a branch — the
+-- first draft's inline version made every read of organizations and
+-- organization_members fail outright.
+create or replace function my_admin_org_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select org_id from organization_members
+  where user_id = auth.uid()
+    and role in ('owner','admin')
+    and status = 'active';
+$$;
+
+-- Security definer means this bypasses RLS, so it must scope itself: without
+-- the membership guard any authenticated user could call it over PostgREST RPC
+-- for an arbitrary org id and enumerate that org's entitlements. Confirmed on a
+-- branch before the guard existed. Service-role callers have no auth.uid() and
+-- stay unrestricted — they are trusted and must answer for arbitrary orgs.
 create or replace function org_has_feature(p_org uuid, p_feature text)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (
-    select 1 from subscriptions s
-    join plans p on p.id = s.plan_id
-    where s.org_id = p_org
-      and s.status in ('trialing','active')
-      and p_feature = any(p.features)
-  ) or exists (
-    select 1 from feature_grants g
-    where g.org_id = p_org
-      and g.feature = p_feature
-      and (g.expires_at is null or g.expires_at > now())
-  );
+  select
+    (
+      auth.uid() is null
+      or exists (
+        select 1 from organization_members m
+        where m.org_id = p_org
+          and m.user_id = auth.uid()
+          and m.status = 'active'
+      )
+    )
+    and (
+      exists (
+        select 1 from subscriptions s
+        join plans p on p.id = s.plan_id
+        where s.org_id = p_org
+          and s.status in ('trialing','active')
+          and p_feature = any(p.features)
+      )
+      or exists (
+        select 1 from feature_grants g
+        where g.org_id = p_org
+          and g.feature = p_feature
+          and (g.expires_at is null or g.expires_at > now())
+      )
+    );
 $$;
 
 
@@ -174,10 +232,7 @@ create policy org_read on organizations
 
 create policy org_update on organizations
   for update to authenticated
-  using (id in (
-    select org_id from organization_members
-    where user_id = auth.uid() and role in ('owner','admin') and status = 'active'
-  ));
+  using (id in (select my_admin_org_ids()));
 
 create policy member_read on organization_members
   for select to authenticated
@@ -185,10 +240,7 @@ create policy member_read on organization_members
 
 create policy member_manage on organization_members
   for all to authenticated
-  using (org_id in (
-    select org_id from organization_members
-    where user_id = auth.uid() and role in ('owner','admin') and status = 'active'
-  ));
+  using (org_id in (select my_admin_org_ids()));
 
 -- plans are the public price list
 create policy plans_read on plans

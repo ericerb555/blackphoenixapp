@@ -119,17 +119,56 @@ dataset. The frontend calls it from zero files, so the safe move is to
 **disable/delete `make-server-57095a78`** before any migration work starts.
 Do that first, and confirm nothing external calls it.
 
-### 1. Core schema
+### 1. Core schema — schema VALIDATED on a branch (2026-08-15), backfill still open
 
-Apply `001_platform_core.sql` to a Supabase branch. Three tables plus two
-helper functions (`my_org_ids()`, `org_has_feature()`) that make every later
-RLS policy a one-liner.
+Applied to branch `platform-core` (`mnyehqyymljhqdbtoqoy`). Five tables, three
+helper functions, seven RLS policies. **17/17 isolation tests pass** against a
+from-scratch apply of the repo file.
 
-- [ ] Confirm the `org_type` enum matches reality — especially whether
-      customers are organizations or individuals
-- [ ] Map existing `auth_profile:` / `account:` / `staff:` / `portal_access:` /
-      `feature_grant:` keys onto the new tables
+- [x] Confirm the `org_type` enum matches reality
+- [x] Apply to a Supabase branch and verify RLS actually isolates tenants
+- [ ] Decide whether `customer` and `landlord` are organizations or individuals
+      — still a business call, see below
+- [ ] Map existing `owner_provision:` / `portal_access:` / `feature_grant:` keys
+      onto the new tables
 - [ ] Backfill from kv, verify counts match
+
+**Three defects the branch caught before any of this reached production:**
+
+1. **Infinite recursion in RLS (blocking).** `member_manage` was a policy *on*
+   `organization_members` whose `USING` clause queried `organization_members`
+   directly, so evaluating it re-entered itself — Postgres aborted with 42P17
+   and *every* read of organizations and members failed. `org_update` had the
+   same flaw. Fixed by resolving the admin org set in a new security-definer
+   helper, `my_admin_org_ids()`, which is what the already-working
+   `my_org_ids()` policies rely on.
+2. **`org_has_feature()` leaked across orgs (security).** Being security
+   definer, it answered for *any* org id: on the branch, Bob called it against
+   Alice's org and got `true`, so any authenticated user could enumerate another
+   org's entitlements over PostgREST RPC. Now guarded by a membership check;
+   service-role callers (no `auth.uid()`) stay unrestricted.
+3. **Undeclared dependency on `companies`.** `organizations.legacy_company_id`
+   references `companies(id)`, but `companies` was created outside the tracked
+   migrations, so it does not exist in a fresh environment and the file cannot
+   apply there until it is created.
+
+**Enum, corrected from live data** (`portal_access` counts: customer 4,
+landlord 4, employee 1, subcontractor 1, vendor 1). `landlord` was missing from
+the draft despite being tied for the most common type — added. `employee` is
+deliberately *not* an org type; it is a person inside the operator org, which
+`organization_members.role` already models. `advertiser` stays, unused for now.
+
+**Identity mapping is clean but needs a resolution step the draft omits.**
+`portal_access` is keyed by *email* (`portal_access:<email>:<portalType>`) while
+`organization_members.user_id` expects a `uuid` into `auth.users`. All 7 distinct
+portal_access emails resolve to real auth users (7/7 of 10 total), so the join
+is lossless — but the backfill must do it explicitly.
+
+**Open business question before backfilling.** Whether `customer` and `landlord`
+should be organizations at all. Also worth confirming the 11 `portal_access`
+rows are real signups rather than test runs — several are Eric's own addresses
+and most are `status: onboarding`, so they are thin evidence for a schema
+decision.
 
 ### 2. First portal: bid room
 
