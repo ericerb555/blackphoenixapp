@@ -798,6 +798,84 @@ cjRouter.get(`${PREFIX}/cj/status`, async (c) => {
 /**
  * Diagnostics: confirm the secret is present and the key authenticates.
  */
+/**
+ * Read-only trial of the detail-enrichment pass.
+ *
+ * The catalog was imported from `/product/list`, which carries one thumbnail and
+ * a bare title — the stored "description" on almost every product is its own
+ * name repeated back. That is thin material for a reel, which needs several
+ * visuals and something true to say.
+ *
+ * `/product/query` returns the full record: `productImageSet` (the real product
+ * photography) plus a genuine description. `pickImages` already knows how to
+ * read that field; it has simply never been handed one.
+ *
+ * This route fetches the detail for a few products and reports what WOULD
+ * change. It writes nothing — the point is to see the gain on real records
+ * before touching a live catalog.
+ */
+cjRouter.get(`${PREFIX}/cj/enrich-preview`, async (c) => {
+  const apiKey = resolveKey();
+  if (!apiKey) return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
+
+  const limit = Math.min(5, Math.max(1, Number(c.req.query("limit")) || 3));
+
+  try {
+    const all = ((await kv.getByPrefix("product_cj_")) || []) as any[];
+    const sample = all.filter((p) => p?.providerProductId).slice(0, limit);
+    if (!sample.length) {
+      return c.json({ success: false, error: "No CJ products with a providerProductId to preview." }, 404);
+    }
+
+    const results: any[] = [];
+    for (const p of sample) {
+      const before = {
+        images: Array.isArray(p.images) ? p.images.length : 0,
+        description: String(p.description || ""),
+      };
+      try {
+        const detail = await cjFetch(apiKey, "/product/query", {
+          query: { pid: String(p.providerProductId) },
+        });
+        const d = detail?.data || {};
+        const images = pickImages(d);
+        const description = String(d?.description || d?.productDescEn || "");
+        results.push({
+          sku: p.sku,
+          name: p.name,
+          before,
+          after: { images: images.length, description },
+          gain: {
+            images: images.length - before.images,
+            // The stored description is usually the title verbatim, so "longer"
+            // is not the same as "real". Report whether it actually differs.
+            descriptionIsNew: description.length > 0 && description.trim() !== before.description.trim(),
+            descriptionChars: description.length,
+          },
+          sampleImages: images.slice(0, 6),
+        });
+      } catch (err: any) {
+        results.push({ sku: p.sku, name: p.name, before, error: String(err?.message || err) });
+      }
+    }
+
+    const ok = results.filter((r) => !r.error);
+    return c.json({
+      success: true,
+      wroteAnything: false,
+      previewed: results.length,
+      totals: {
+        imagesBefore: ok.reduce((n, r) => n + r.before.images, 0),
+        imagesAfter: ok.reduce((n, r) => n + r.after.images, 0),
+        descriptionsGained: ok.filter((r) => r.gain.descriptionIsNew).length,
+      },
+      results,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: String(err?.message || err) }, 500);
+  }
+});
+
 cjRouter.get(`${PREFIX}/cj/debug`, async (c) => {
   const apiKey = resolveKey();
   if (!apiKey) {
