@@ -688,4 +688,176 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// REEL — hooks first, then the structure that keeps people watching.
+//
+// /recreate-script returns one hook and a linear script. The hook is the single
+// biggest lever on a short-form video — almost all the drop-off happens in the
+// first two seconds — so being handed exactly one, with no way to compare, is
+// the weakest part of that flow. Same fix as the content package: generate
+// several deliberately different hooks in ONE call so the model has to make
+// them distinct, score them, and say which it would run.
+//
+// The rest of what this returns is not decoration. Each field maps to something
+// that measurably affects reach on Reels/TikTok/Shorts:
+//
+//   onScreenText   most short-form is watched muted; a beat with no text is a
+//                  beat most viewers experience as silence
+//   openLoop       a question posed early and paid off late is what carries
+//                  someone past the 3-second cliff
+//   loopBack       an ending that runs into the opening frame earns replays,
+//                  and replays count as watch time
+//   commentBait    comments weigh heavily in distribution; a real question
+//                  beats "thoughts?"
+//   retentionRisks the model naming where it expects to lose people is more
+//                  useful than a score claiming it won't
+//
+// HONESTY: there is no virality score here on purpose. Nothing predicts a hit,
+// and a confident number would be invented. What this does is force the
+// structural choices that give a video its best chance, and say plainly where
+// it is weak.
+// ---------------------------------------------------------------------------
+
+const REEL_MAX_HOOKS = 6;
+
+contentStudioRouter.post("/content-studio/reel", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const subject = String(body.subject || body.productName || body.topic || "").trim();
+    if (!subject) {
+      return c.json({ success: false, error: "A subject (or productName) is required." }, 400);
+    }
+
+    const platform = String(body.platform || "tiktok").toLowerCase();
+    const hookCount = Math.max(2, Math.min(REEL_MAX_HOOKS, Number(body.hooks) || 4));
+    const seconds = Math.max(10, Math.min(90, Number(body.seconds) || 30));
+    const audience = String(body.audience || "").trim();
+    const tone = String(body.tone || "direct and energetic").trim();
+    const context = String(body.context || body.description || "").trim();
+    const offer = String(body.offer || "").trim();
+
+    const brandVoice = await loadBrandContext();
+
+    // Named hook archetypes, because "write different hooks" reliably returns
+    // the same interrogative opener reworded. Forcing one archetype per hook is
+    // what actually produces variety.
+    const ARCHETYPES = [
+      "contrarian — challenge something the audience believes",
+      "demonstration — lead with the visible result, no preamble",
+      "specific-number — a concrete figure that is hard to scroll past",
+      "callout — name the exact person this is for",
+      "mistake — the thing they are getting wrong right now",
+      "story-open — drop into the middle of a moment",
+    ].slice(0, hookCount);
+
+    const system = [
+      "You are a short-form video strategist who has shipped hundreds of Reels, TikToks and Shorts.",
+      brandVoice ? `Brand voice & guidelines to follow strictly:\n${brandVoice}` : "",
+      audience ? `Audience: ${audience}.` : "",
+      `Tone: ${tone}. Platform: ${platform}. Target length: about ${seconds} seconds.`,
+      "",
+      "HOOKS. Write exactly " + hookCount + " hooks, each using a DIFFERENT archetype, in this order:",
+      ...ARCHETYPES.map((a, i) => `  ${i + 1}. ${a}`),
+      "A hook is one or two spoken lines that fit in the first 2 seconds. No preamble, no " +
+        "'in this video', no greeting. If two hooks could be swapped without changing the " +
+        "opening frame, you have failed.",
+      "",
+      "Score each hook 0-100 on SCROLL-STOP POWER only — how likely a stranger mid-scroll is to " +
+        "stop. Be harsh: most hooks are 60-75. Above 85 must be genuinely arresting. Say in " +
+        "`why` what specifically earns or loses the score.",
+      "",
+      "SCRIPT. Build the beat sheet around your strongest hook. Every beat needs onScreenText, " +
+        "because most viewers watch muted — that text is what they actually read. Keep it short " +
+        "enough to read at a glance.",
+      "",
+      "Never invent statistics, medical claims, or named testimonials presented as real people.",
+      "If you write a testimonial, mark it clearly as a placeholder to be replaced with a real one.",
+      "",
+      "Return STRICT JSON with keys:",
+      "  hooks: array of " + hookCount + " objects { archetype, line, why, score (0-100), " +
+        "firstFrame (what is literally on screen as it is said) }",
+      "  bestHookIndex: integer, bestHookReason: string",
+      "  beats: array of { label, startSec, endSec, voiceover, onScreenText, bRoll }",
+      "  openLoop: the question posed early that is only answered near the end",
+      "  loopBack: how the final line runs back into the first frame so it replays cleanly",
+      "  commentBait: one genuine question worth answering in the comments",
+      "  soundNote: what kind of audio or trend to pair with this, and why",
+      "  retentionRisks: string[] — where you expect to lose viewers, and the fix",
+      "  caption: platform-native caption. NO hashtags inside it.",
+      "  hashtags: string[]",
+    ].filter(Boolean).join("\n");
+
+    const user = [
+      `Subject: ${subject}`,
+      context ? `Details: ${context}` : "",
+      offer ? `Offer to land: ${offer}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    const result = await openaiJson(system, user, Math.min(6000, 1800 + hookCount * 380));
+
+    const hooks = (Array.isArray(result.hooks) ? result.hooks : [])
+      .slice(0, hookCount)
+      .map((h: any, i: number) => {
+        let score = Number(h?.score);
+        if (!Number.isFinite(score)) score = 0;
+        return {
+          index: i,
+          archetype: String(h?.archetype || ARCHETYPES[i] || "").split("—")[0].trim(),
+          line: String(h?.line || ""),
+          why: String(h?.why || ""),
+          firstFrame: String(h?.firstFrame || ""),
+          score: Math.max(0, Math.min(100, Math.round(score))),
+        };
+      })
+      .filter((h: any) => h.line);
+
+    if (!hooks.length) {
+      return c.json({ success: false, error: "The model returned no usable hooks." }, 502);
+    }
+
+    let bestHookIndex = Number(result.bestHookIndex);
+    if (!Number.isInteger(bestHookIndex) || bestHookIndex < 0 || bestHookIndex >= hooks.length) {
+      bestHookIndex = hooks.reduce((b: number, h: any, i: number, a: any[]) => (h.score > a[b].score ? i : b), 0);
+    }
+
+    const beats = (Array.isArray(result.beats) ? result.beats : []).map((b: any, i: number) => ({
+      index: i,
+      label: String(b?.label || `Beat ${i + 1}`),
+      startSec: Number(b?.startSec) || 0,
+      endSec: Number(b?.endSec) || 0,
+      voiceover: String(b?.voiceover || ""),
+      onScreenText: String(b?.onScreenText || ""),
+      bRoll: String(b?.bRoll || ""),
+      // Surfaced rather than silently tolerated: a beat with no on-screen text
+      // is invisible to a muted viewer, which is most of them.
+      missingOnScreenText: !String(b?.onScreenText || "").trim(),
+    }));
+
+    return c.json({
+      success: true,
+      subject,
+      platform,
+      targetSeconds: seconds,
+      hooks,
+      bestHookIndex,
+      bestHookReason: String(result.bestHookReason || ""),
+      beats,
+      openLoop: String(result.openLoop || ""),
+      loopBack: String(result.loopBack || ""),
+      commentBait: String(result.commentBait || ""),
+      soundNote: String(result.soundNote || ""),
+      retentionRisks: Array.isArray(result.retentionRisks) ? result.retentionRisks.map((s: any) => String(s)) : [],
+      // Caption is sanitised the same way the package is: tags live in their own
+      // array so a caller rendering both cannot double-post them.
+      caption: String(result.caption || "").replace(/\s*(?:^|\n)\s*(?:#[\wÀ-ɏ]+\s*){2,}$/u, "").trimEnd(),
+      hashtags: Array.isArray(result.hashtags)
+        ? result.hashtags.map((h: any) => String(h).trim().replace(/^#+/, "")).filter(Boolean)
+        : [],
+    });
+  } catch (error) {
+    console.log(`[Content Studio] reel error: ${error}`);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
 export default contentStudioRouter;
