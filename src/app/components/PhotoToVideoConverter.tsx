@@ -632,7 +632,14 @@ export default function PhotoToVideoConverter({
           slides={slides}
           totalDuration={totalDuration}
           music={music}
-          onExport={onExport}
+          // VideoExportOptions reports completion as onExport(settings), but this
+          // component's own onExport contract is (slides, totalDuration, music).
+          // Passing the prop straight through handed the settings object in as
+          // `slides` and left the other two undefined, so the parent's handler
+          // hit `totalDuration.toFixed(1)` and threw on every successful export —
+          // the file downloaded, then the library save blew up. Adapt instead of
+          // forwarding.
+          onExport={() => onExport?.(slides, totalDuration, music)}
           onClose={() => setShowExportOptions(false)}
         />
       )}
