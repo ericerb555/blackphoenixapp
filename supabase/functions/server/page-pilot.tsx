@@ -195,6 +195,13 @@ SOURCE / INSPIRATION URL: ${sourceUrl || '(none)'}
 PRODUCTS ON THIS PAGE (max ${MAX_PRODUCTS}):
 ${productLines}
 
+You are also the ART DIRECTOR for this page. Every campaign currently renders in
+the same layout with the same orange accent, so every product looks identical.
+Choose a direction that belongs to THIS product and this audience — a Y2K camera,
+a bridal dress and a Christmas tree should not look remotely alike. Pick the
+palette from the product's own world, not from a generic "ecommerce" palette, and
+make it entertaining to read as well as informative.
+
 Return JSON with EXACTLY this shape:
 {
   "title": string,                     // short internal campaign name
@@ -204,10 +211,35 @@ Return JSON with EXACTLY this shape:
   "ctaLabel": string,                  // button text, e.g. "Get Yours 40% Off"
   "benefits": [ { "title": string, "body": string } ],   // 3-4 benefit blocks
   "story": string,                     // 2-3 short paragraphs of advertorial body copy (use \\n\\n between paragraphs)
-  "socialProof": [ { "quote": string, "author": string } ], // 3 realistic testimonials (clearly illustrative, not fake named people)
+  "socialProof": [ { "quote": string, "author": string } ], // 3 illustrative testimonials — mark the author as a placeholder, never a fake named real person
   "faq": [ { "q": string, "a": string } ],   // 4 objection-handling Q&As
   "urgency": string,                   // one urgency/scarcity line (honest, no fake countdowns)
-  "closingPitch": string               // final push paragraph before the CTA
+  "closingPitch": string,              // final push paragraph before the CTA
+  "funFacts": [ string ],              // 2-3 genuinely interesting, TRUE facts about this product or its category — the entertaining part. No invented statistics.
+  "design": {
+    "archetype": "editorial" | "bold" | "demo" | "story" | "luxe",
+        // editorial = magazine advertorial, long copy, serif, image-led
+        // bold      = huge type, high contrast, punchy, minimal copy
+        // demo      = product-forward, specs and comparison, technical
+        // story     = narrative scroll, before/after, emotional
+        // luxe      = restrained, whitespace, elegant, understated
+    "palette": {
+      "accent": string,      // hex — the product's signature colour, NOT a default orange
+      "accentDeep": string,  // hex — darker partner for gradients and hovers
+      "ground": string,      // hex — page background
+      "surface": string,     // hex — card background, must sit on ground
+      "ink": string          // hex — body text, must pass contrast on ground AND surface
+    },
+    "display": "serif" | "grotesk" | "condensed" | "mono",
+    "hero": "split" | "full-bleed" | "stacked" | "centered",
+    "mood": string,          // 3-6 words describing the feel
+    "rationale": string,     // one sentence: why this direction suits THIS product
+    "imagePrompts": {
+      "hero": string,        // art direction for the hero image — composition, light, vantage
+      "lifestyle": string,   // the product in use, in its natural context
+      "detail": string       // a close macro shot of the thing that justifies the price
+    }
+  }
 }
 Output ONLY the JSON object.`;
 
@@ -231,6 +263,46 @@ Output ONLY the JSON object.`;
       return c.json({ error: 'The AI returned an unexpected format. Please try again.' }, 502);
     }
 
+    // The design block drives real CSS, so a malformed value would render an
+    // unreadable page rather than fail loudly. Validate every field against a
+    // known set and fall back per-field — never discard the whole direction
+    // because one hex was wrong.
+    const HEX = /^#[0-9a-fA-F]{6}$/;
+    const ARCHETYPES = ['editorial', 'bold', 'demo', 'story', 'luxe'];
+    const DISPLAYS = ['serif', 'grotesk', 'condensed', 'mono'];
+    const HEROES = ['split', 'full-bleed', 'stacked', 'centered'];
+    const pick = (v: any, allowed: string[], fallback: string) =>
+      allowed.includes(String(v)) ? String(v) : fallback;
+    const hex = (v: any, fallback: string) => (HEX.test(String(v)) ? String(v) : fallback);
+
+    const rawDesign = content.design || {};
+    const rawPalette = rawDesign.palette || {};
+    const design = {
+      archetype: pick(rawDesign.archetype, ARCHETYPES, 'editorial'),
+      display: pick(rawDesign.display, DISPLAYS, 'grotesk'),
+      hero: pick(rawDesign.hero, HEROES, 'split'),
+      mood: String(rawDesign.mood || ''),
+      rationale: String(rawDesign.rationale || ''),
+      palette: {
+        // `accent` falls back to the caller's value only as a last resort — the
+        // whole point is that pages stop sharing one orange.
+        accent: hex(rawPalette.accent, accent),
+        accentDeep: hex(rawPalette.accentDeep, '#7c2d12'),
+        ground: hex(rawPalette.ground, '#ffffff'),
+        surface: hex(rawPalette.surface, '#f8f6f4'),
+        ink: hex(rawPalette.ink, '#171412'),
+      },
+      imagePrompts: {
+        hero: String(rawDesign.imagePrompts?.hero || ''),
+        lifestyle: String(rawDesign.imagePrompts?.lifestyle || ''),
+        detail: String(rawDesign.imagePrompts?.detail || ''),
+      },
+    };
+    content.design = design;
+    content.funFacts = Array.isArray(content.funFacts)
+      ? content.funFacts.map((f: any) => String(f)).filter(Boolean).slice(0, 3)
+      : [];
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const finalTitle = String(content.title || title || products[0].name).trim();
@@ -242,7 +314,10 @@ Output ONLY the JSON object.`;
       title: finalTitle,
       angle,
       sourceUrl,
-      accent,
+      // Kept for older campaigns and the editor's colour picker, but the
+      // renderer should prefer content.design.palette.accent — that is the one
+      // chosen for this specific product.
+      accent: design.palette.accent,
       products,
       content,
       views: 0,

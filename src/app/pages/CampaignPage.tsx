@@ -126,76 +126,177 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
     );
   }
 
-  const accent = campaign.accent || '#ea580c';
   const c = campaign.content || {};
+
+  // Art direction chosen per product by /page-pilot/generate. Every campaign
+  // used to render in this one layout with a single orange accent, so a camera,
+  // a bridal dress and a Christmas tree all looked identical. The design block
+  // drives palette, typography and layout; older campaigns generated before it
+  // existed fall back to the previous look rather than breaking.
+  const design = (c as any).design || {};
+  const pal = design.palette || {};
+  const accent = pal.accent || campaign.accent || '#ea580c';
+  const accentDeep = pal.accentDeep || '#dc2626';
+  const ground = pal.ground || '#ffffff';
+  const surface = pal.surface || '#fafafa';
+  const ink = pal.ink || '#171717';
+  const archetype: string = design.archetype || 'editorial';
+  const heroStyle: string = design.hero || 'split';
+
+  // Typeface families per direction. These are stacks rather than webfonts —
+  // the page must render the same offline and inside an email preview.
+  const FAMILY: Record<string, string> = {
+    serif: 'Iowan Old Style, Palatino, Georgia, serif',
+    grotesk: 'Inter, ui-sans-serif, system-ui, -apple-system, sans-serif',
+    condensed: '"Haettenschweiler", "Arial Narrow", Impact, ui-sans-serif, sans-serif',
+    mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+  };
+  const displayFamily = FAMILY[design.display as string] || FAMILY.grotesk;
+
+  // How loud the hero type is, by archetype. `bold` shouts, `luxe` whispers.
+  const HEADLINE: Record<string, string> = {
+    editorial: 'text-4xl md:text-5xl font-bold leading-tight tracking-tight',
+    bold: 'text-5xl md:text-7xl font-black leading-[0.95] tracking-tighter uppercase',
+    demo: 'text-3xl md:text-4xl font-bold leading-snug tracking-tight',
+    story: 'text-4xl md:text-5xl font-semibold leading-tight',
+    luxe: 'text-4xl md:text-5xl font-light leading-tight tracking-wide',
+  };
+  const headlineClass = HEADLINE[archetype] || HEADLINE.editorial;
+
+  const softAccent = `${accent}1f`;
   const primary = campaign.products?.[0];
   // With a single featured product, the hero/closing CTA adds it straight to cart;
   // multi-product pages send shoppers to the store to choose.
   const primaryCta = () => (campaign.products.length === 1 && primary ? shopProduct(primary.id) : goToStore());
 
-  return (
-    <div className="min-h-screen bg-white text-neutral-900">
-      {/* Hero */}
-      <section className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${accent}14, #ffffff 60%)` }}>
-        <div className="max-w-5xl mx-auto px-6 py-16 md:py-24 grid md:grid-cols-2 gap-10 items-center">
-          <div>
-            {c.heroTagline && (
-              <span className="inline-block text-xs font-bold tracking-widest uppercase mb-4 px-3 py-1 rounded-full" style={{ background: `${accent}1f`, color: accent }}>
-                {c.heroTagline}
-              </span>
-            )}
-            <h1 className="text-4xl md:text-5xl font-extrabold leading-tight mb-4">{c.headline || campaign.title}</h1>
-            {c.subheadline && <p className="text-lg text-neutral-600 mb-6">{c.subheadline}</p>}
-            <div className="flex items-center gap-1 mb-6">
-              {[...Array(5)].map((_, i) => <Star key={i} className="w-5 h-5 fill-current" style={{ color: accent }} />)}
-              <span className="ml-2 text-sm text-neutral-500">Loved by thousands of customers</span>
-            </div>
-            <button onClick={primaryCta} className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold shadow-lg hover:opacity-90 transition"
-              style={{ background: `linear-gradient(90deg, ${accent}, #dc2626)` }}>
-              <ShoppingBag className="w-5 h-5" /> {c.ctaLabel || 'Shop Now'}
-            </button>
-            {c.urgency && <p className="mt-3 text-sm font-medium" style={{ color: accent }}>{c.urgency}</p>}
-          </div>
-          {primary && (
-            <div className="relative">
-              <ImageWithFallback src={primary.image} alt={primary.name} className="w-full rounded-2xl shadow-2xl object-cover aspect-square" />
-            </div>
-          )}
+  // Hero composition varies by direction: `centered` and `stacked` put the copy
+  // over/above the image, `split` keeps the classic two-column.
+  const stackedHero = heroStyle === 'centered' || heroStyle === 'stacked';
+  const fullBleed = heroStyle === 'full-bleed';
+
+  const heroCopy = (
+    <div className={stackedHero ? 'text-center max-w-3xl mx-auto' : ''}>
+      {c.heroTagline && (
+        <span className="inline-block text-xs font-bold tracking-widest uppercase mb-4 px-3 py-1 rounded-full"
+              style={{ background: softAccent, color: accent }}>
+          {c.heroTagline}
+        </span>
+      )}
+      <h1 className={`${headlineClass} mb-4`} style={{ fontFamily: displayFamily, color: ink }}>
+        {c.headline || campaign.title}
+      </h1>
+      {c.subheadline && (
+        <p className="text-lg mb-6" style={{ color: `${ink}b0` }}>{c.subheadline}</p>
+      )}
+      {/* The five-star row is claim-like, so it is shown only where the direction
+          is overtly promotional — a luxe or editorial page asserting "loved by
+          thousands" with no data reads as cheap. */}
+      {(archetype === 'bold' || archetype === 'demo') && (
+        <div className={`flex items-center gap-1 mb-6 ${stackedHero ? 'justify-center' : ''}`}>
+          {[...Array(5)].map((_, i) => <Star key={i} className="w-5 h-5 fill-current" style={{ color: accent }} />)}
         </div>
-      </section>
+      )}
+      <button onClick={primaryCta}
+        className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl text-white font-semibold shadow-lg hover:opacity-90 transition"
+        style={{ background: `linear-gradient(90deg, ${accent}, ${accentDeep})` }}>
+        <ShoppingBag className="w-5 h-5" /> {c.ctaLabel || 'Shop Now'}
+      </button>
+      {c.urgency && <p className="mt-3 text-sm font-medium" style={{ color: accent }}>{c.urgency}</p>}
+    </div>
+  );
+
+  const heroImage = primary && (
+    <ImageWithFallback
+      src={primary.image}
+      alt={primary.name}
+      className={`w-full object-cover ${fullBleed ? 'aspect-[16/9] md:aspect-[21/9]' : 'rounded-2xl shadow-2xl aspect-square'}`}
+    />
+  );
+
+  return (
+    <div className="min-h-screen" style={{ background: ground, color: ink }}>
+      {/* Hero */}
+      {fullBleed ? (
+        <section className="relative overflow-hidden">
+          {heroImage}
+          <div className="max-w-5xl mx-auto px-6 py-12 md:py-16">{heroCopy}</div>
+        </section>
+      ) : (
+        <section className="relative overflow-hidden"
+                 style={{ background: `linear-gradient(135deg, ${accent}14, ${ground} 60%)` }}>
+          <div className={`max-w-5xl mx-auto px-6 py-16 md:py-24 ${
+            stackedHero ? 'space-y-10' : 'grid md:grid-cols-2 gap-10 items-center'}`}>
+            {heroCopy}
+            {primary && <div className="relative">{heroImage}</div>}
+          </div>
+        </section>
+      )}
 
       {/* Trust bar */}
-      <div className="border-y border-neutral-100 bg-neutral-50">
-        <div className="max-w-5xl mx-auto px-6 py-4 grid grid-cols-3 gap-4 text-center text-sm text-neutral-600">
+      <div style={{ background: surface, borderTop: `1px solid ${ink}12`, borderBottom: `1px solid ${ink}12` }}>
+        <div className="max-w-5xl mx-auto px-6 py-4 grid grid-cols-3 gap-4 text-center text-sm" style={{ color: `${ink}a0` }}>
           <div className="flex items-center justify-center gap-2"><Truck className="w-4 h-4" style={{ color: accent }} /> Fast shipping</div>
           <div className="flex items-center justify-center gap-2"><ShieldCheck className="w-4 h-4" style={{ color: accent }} /> Secure checkout</div>
           <div className="flex items-center justify-center gap-2"><RefreshCcw className="w-4 h-4" style={{ color: accent }} /> Easy returns</div>
         </div>
       </div>
 
-      {/* Benefits */}
+      {/* Benefits — laid out per direction rather than always three centred circles */}
       {!!(c.benefits && c.benefits.length) && (
         <section className="max-w-5xl mx-auto px-6 py-16">
-          <div className="grid md:grid-cols-3 gap-8">
-            {c.benefits.map((b, i) => (
-              <div key={i} className="text-center">
-                <div className="w-12 h-12 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: `${accent}1f` }}>
-                  <Check className="w-6 h-6" style={{ color: accent }} />
+          <div className={archetype === 'demo' || archetype === 'story'
+            ? 'space-y-5 max-w-3xl mx-auto'
+            : 'grid md:grid-cols-3 gap-8'}>
+            {c.benefits.map((b, i) => {
+              const inline = archetype === 'demo' || archetype === 'story';
+              return (
+                <div key={i} className={inline ? 'flex gap-4 items-start' : 'text-center'}>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${inline ? '' : 'mx-auto mb-4'}`}
+                       style={{ background: softAccent }}>
+                    <Check className="w-6 h-6" style={{ color: accent }} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg mb-2" style={{ fontFamily: displayFamily, color: ink }}>{b.title}</h3>
+                    <p className="text-sm leading-relaxed" style={{ color: `${ink}b0` }}>{b.body}</p>
+                  </div>
                 </div>
-                <h3 className="font-bold text-lg mb-2">{b.title}</h3>
-                <p className="text-neutral-600 text-sm leading-relaxed">{b.body}</p>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Worth knowing — the entertaining half. Only true, checkable facts;
+          the generator is told never to invent statistics. */}
+      {!!((c as any).funFacts && (c as any).funFacts.length) && (
+        <section className="py-14" style={{ background: surface }}>
+          <div className="max-w-3xl mx-auto px-6">
+            <h2 className="text-xs font-bold tracking-widest uppercase mb-5" style={{ color: accent }}>
+              Worth knowing
+            </h2>
+            <ul className="space-y-3">
+              {(c as any).funFacts.map((f: string, i: number) => (
+                <li key={i} className="flex gap-3 items-start">
+                  <span className="font-bold tabular-nums shrink-0" style={{ color: accent }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="text-lg leading-relaxed" style={{ color: `${ink}d0` }}>{f}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
       )}
 
       {/* Advertorial story */}
       {c.story && (
-        <section className="bg-neutral-50 py-16">
-          <div className="max-w-3xl mx-auto px-6 prose prose-neutral">
+        <section className="py-16" style={{ background: ground }}>
+          <div className="max-w-3xl mx-auto px-6">
             {c.story.split('\n\n').map((para, i) => (
-              <p key={i} className="text-neutral-700 leading-relaxed mb-4 text-lg">{para}</p>
+              <p key={i} className="leading-relaxed mb-4 text-lg"
+                 style={{ color: `${ink}c8`, fontFamily: design.display === 'serif' ? displayFamily : undefined }}>
+                {para}
+              </p>
             ))}
           </div>
         </section>
@@ -234,17 +335,19 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Social proof */}
       {!!(c.socialProof && c.socialProof.length) && (
-        <section className="bg-neutral-50 py-16">
+        <section className="py-16" style={{ background: surface }}>
           <div className="max-w-5xl mx-auto px-6">
-            <h2 className="text-2xl font-bold mb-8 text-center">What customers are saying</h2>
+            <h2 className="text-2xl font-bold mb-8 text-center"
+                style={{ fontFamily: displayFamily, color: ink }}>What customers are saying</h2>
             <div className="grid md:grid-cols-3 gap-6">
               {c.socialProof.map((t, i) => (
-                <div key={i} className="bg-white rounded-2xl p-6 border border-neutral-200">
+                <div key={i} className="rounded-2xl p-6"
+                     style={{ background: ground, border: `1px solid ${ink}18` }}>
                   <div className="flex gap-1 mb-3">
                     {[...Array(5)].map((_, s) => <Star key={s} className="w-4 h-4 fill-current" style={{ color: accent }} />)}
                   </div>
-                  <p className="text-neutral-700 italic mb-4">“{t.quote}”</p>
-                  <p className="text-sm font-semibold text-neutral-500">— {t.author}</p>
+                  <p className="italic mb-4" style={{ color: `${ink}c8` }}>“{t.quote}”</p>
+                  <p className="text-sm font-semibold" style={{ color: `${ink}90` }}>— {t.author}</p>
                 </div>
               ))}
             </div>
@@ -255,15 +358,17 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       {/* FAQ */}
       {!!(c.faq && c.faq.length) && (
         <section className="max-w-3xl mx-auto px-6 py-16">
-          <h2 className="text-2xl font-bold mb-8 text-center">Frequently asked</h2>
+          <h2 className="text-2xl font-bold mb-8 text-center"
+              style={{ fontFamily: displayFamily, color: ink }}>Frequently asked</h2>
           <div className="space-y-4">
             {c.faq.map((f, i) => (
-              <details key={i} className="group border border-neutral-200 rounded-xl p-4">
-                <summary className="flex items-center justify-between cursor-pointer font-semibold list-none">
+              <details key={i} className="group rounded-xl p-4" style={{ border: `1px solid ${ink}20` }}>
+                <summary className="flex items-center justify-between cursor-pointer font-semibold list-none"
+                         style={{ color: ink }}>
                   {f.q}
-                  <ChevronRight className="w-5 h-5 transition group-open:rotate-90 text-neutral-400" />
+                  <ChevronRight className="w-5 h-5 transition group-open:rotate-90" style={{ color: `${ink}70` }} />
                 </summary>
-                <p className="mt-3 text-neutral-600 leading-relaxed">{f.a}</p>
+                <p className="mt-3 leading-relaxed" style={{ color: `${ink}b0` }}>{f.a}</p>
               </details>
             ))}
           </div>
