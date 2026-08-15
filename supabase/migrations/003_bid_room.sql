@@ -170,13 +170,24 @@ create policy bid_request_read on bid_requests
     or id in (select my_invited_bid_request_ids())
   );
 
--- The poster sees the full invite list. An invited provider sees only its own
--- invitation — the competitor list is not theirs to read.
+-- The poster sees the full invite list, drafts included. An invited provider
+-- sees only its OWN invitation — the competitor list is not theirs to read —
+-- and only once the request has left draft.
+--
+-- That draft condition was missing in the first version and a branch test
+-- caught it: bid_request_read correctly hid a draft request, but the provider
+-- could still read their own invitation row, which carries bid_request_id. The
+-- title and budget stayed hidden, yet the existence of an unannounced job and
+-- their pre-selection for it leaked. my_invited_bid_request_ids() already
+-- excludes drafts, so gating on it closes the hole.
 create policy bid_invitation_read on bid_invitations
   for select to authenticated
   using (
     bid_request_id in (select my_owned_bid_request_ids())
-    or org_id in (select my_org_ids())
+    or (
+      org_id in (select my_org_ids())
+      and bid_request_id in (select my_invited_bid_request_ids())
+    )
   );
 
 -- THE IMPORTANT ONE. A provider sees only its own bid. The org that posted the
