@@ -876,6 +876,133 @@ cjRouter.get(`${PREFIX}/cj/enrich-preview`, async (c) => {
   }
 });
 
+/**
+ * CJ returns descriptions as HTML. Fed to a copywriter as-is, the markup is
+ * noise competing with the words for attention, so reduce it to plain text
+ * while keeping the line structure that separates one spec from the next.
+ */
+function htmlToText(html: string): string {
+  return String(html || "")
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*\/\s*(p|div|li|tr|h[1-6])\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n").map((l) => l.trim()).join("\n")
+    .trim();
+}
+
+/**
+ * Enrich stored CJ products from the detail endpoint — the write counterpart to
+ * /cj/enrich-preview, which measured the gain first.
+ *
+ * Batched via limit/offset rather than sweeping all 120 in one request: at the
+ * one-per-second rate CJ enforces, the whole catalog would sit close to the
+ * function's wall-clock limit, and a timeout partway through leaves you unable
+ * to tell which products were already done. Small batches are resumable.
+ *
+ * Merges rather than replaces. A product that already has good data must not
+ * come out worse because a supplier response was thin — every field keeps the
+ * better of the two values.
+ */
+cjRouter.post(`${PREFIX}/cj/enrich`, async (c) => {
+  const apiKey = resolveKey();
+  if (!apiKey) return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
+
+  const body = await c.req.json().catch(() => ({} as any));
+  const limit = Math.min(30, Math.max(1, Number(body.limit) || 20));
+  const offset = Math.max(0, Number(body.offset) || 0);
+
+  try {
+    const all = ((await kv.getByPrefix("product_cj_")) || []) as any[];
+    // Stable order, so offset means the same thing across calls.
+    const ordered = all
+      .filter((p) => p?.providerProductId && p?.id)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const batch = ordered.slice(offset, offset + limit);
+
+    const changed: any[] = [];
+    const failed: any[] = [];
+    let imagesAdded = 0;
+    let descriptionsFilled = 0;
+
+    for (const p of batch) {
+      try {
+        const detail = await cjFetch(apiKey, "/product/query", {
+          query: { pid: String(p.providerProductId) },
+        });
+        const d = detail?.data || {};
+
+        const existing: string[] = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
+        const incoming = pickImages(d);
+        // Existing first so the image the storefront already shows stays the
+        // lead; append only URLs not already present.
+        const merged = [...existing];
+        for (const url of incoming) if (!merged.includes(url)) merged.push(url);
+
+        const storedDesc = String(p.description || "").trim();
+        const incomingDesc = htmlToText(d?.description || d?.productDescEn || "");
+        // The stored description is typically the product's own name. Take the
+        // supplier's only when it actually says more than that.
+        const descIsBetter =
+          incomingDesc.length > 40 &&
+          incomingDesc.toLowerCase() !== storedDesc.toLowerCase() &&
+          incomingDesc.length > storedDesc.length;
+
+        const addedHere = merged.length - existing.length;
+        if (addedHere === 0 && !descIsBetter) continue;
+
+        const updated = {
+          ...p,
+          images: merged,
+          primaryImage: p.primaryImage || merged[0] || "",
+          description: descIsBetter ? incomingDesc : p.description,
+          enrichedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await kv.set(`product_${p.id}`, updated);
+
+        imagesAdded += addedHere;
+        if (descIsBetter) descriptionsFilled++;
+        changed.push({
+          sku: p.sku,
+          name: p.name,
+          images: `${existing.length} -> ${merged.length}`,
+          descriptionChars: descIsBetter ? incomingDesc.length : 0,
+        });
+      } catch (err: any) {
+        // One bad product must not abandon the rest of the batch.
+        failed.push({ sku: p.sku, error: String(err?.message || err).slice(0, 200) });
+      }
+    }
+
+    const nextOffset = offset + batch.length;
+    return c.json({
+      success: true,
+      total: ordered.length,
+      processed: batch.length,
+      offset,
+      nextOffset: nextOffset < ordered.length ? nextOffset : null,
+      remaining: Math.max(0, ordered.length - nextOffset),
+      updated: changed.length,
+      unchanged: batch.length - changed.length - failed.length,
+      imagesAdded,
+      descriptionsFilled,
+      failed,
+      changed,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: String(err?.message || err) }, 500);
+  }
+});
+
 cjRouter.get(`${PREFIX}/cj/debug`, async (c) => {
   const apiKey = resolveKey();
   if (!apiKey) {
