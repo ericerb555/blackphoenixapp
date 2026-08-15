@@ -8,14 +8,19 @@ Working doc. Drop this at the repo root so Claude Code can read it.
 
 **Supabase project:** `plzsvzwwcdopnawtiwzm` (Pro plan, Postgres 17, 455 MB)
 
-**Four edge functions, four kv tables — one per Figma Make project:**
+**Four edge functions, four kv tables — but they do NOT pair up one-to-one.**
+Verified 2026-08-13. Function slug and storage table are decoupled: both
+`57095a78` and `3eae23a6` read and write the *same* table, `kv_store_57095a78`.
 
-| Function | Table | Rows | Contents |
+| Function | Reads/writes | Row count of same-named table | Status |
 |---|---|---|---|
-| `make-server-57095a78` | `kv_store_57095a78` | 1,390 | commerce, quotes, vendors, auth/tenancy |
-| `make-server-12c91054` | `kv_store_12c91054` | 45 | permits, plot plans, deck renders |
-| `make-server-3eae23a6` | `kv_store_3eae23a6` | 0 | unknown — deployed, maintained, empty |
-| `make-server-824f083c` | `kv_store_824f083c` | 0 | unknown — deployed, maintained, empty |
+| `make-server-3eae23a6` | `kv_store_57095a78` | (`kv_store_3eae23a6` = 0) | **LIVE** — the only slug the frontend calls (257 files). v256, deployed Aug 9 |
+| `make-server-57095a78` | `kv_store_57095a78` | 1,390 | **STALE** — v470, deployed Aug 3. Frontend calls it from 0 files, but it still has write access to live data |
+| `make-server-12c91054` | — | 45 | permits, plot plans, deck renders |
+| `make-server-824f083c` | — | 60 | was 0, now 60 — something is writing to it |
+
+`kv_store_3eae23a6` is an orphan table auto-created by Figma Make. It has 0 rows
+because nothing writes to it — not because data is missing.
 
 Plus `smart-processor` and `swift-processor`, both untouched since creation.
 
@@ -23,9 +28,16 @@ Plus `smart-processor` and `swift-processor`, both untouched since creation.
 `investment_opportunities`, `investor_commitments`, `payout_distributions`,
 `investment_documents` — all 0 rows, all with real foreign keys.
 
-**The core already exists in code.** `server/` contains `auth`, `tenants`,
-`entitlements`, `plans`, `tier-features`, `companies`, `api-gateway`. The design
-is done. It just has no database under it.
+**The core exists in code, but only half of it is running.** Verified 2026-08-13
+against the deployed bundle:
+
+| Live (imported by `index.tsx`) | Dead file (never deployed) |
+|---|---|
+| `auth`, `entitlements`, `plans`, `tier-features` | `tenants`, `companies`, `api-gateway` |
+
+So it is not just "no database under it" — the multi-tenancy layer specifically
+(`tenants`, `companies`, `api-gateway`) has never run in production at all. Treat
+those three as unproven code, not as a working design awaiting tables.
 
 ---
 
@@ -71,15 +83,41 @@ One codebase. Merging back is a pull request, not a re-typing exercise.
 
 ## Phases
 
-### 0. Establish the baseline — BLOCKING
+### 0. Establish the baseline — ✅ DONE (2026-08-13)
 
-Nothing below is safe until this is done.
+- [x] Finish the deployed-vs-local diff on `make-server-57095a78`.
+- [x] Answer: is the repo ahead of production, behind it, or diverged?
+- [x] Only then decide whether anything gets deployed.
 
-- [ ] Finish the deployed-vs-local diff on `make-server-57095a78`.
-      Layouts differ: deployed has files loose in the function folder, repo has
-      them under `server/`. Deployed `updated_at` ≈ Aug 3.
-- [ ] Answer: is the repo ahead of production, behind it, or diverged?
-- [ ] Only then decide whether anything gets deployed.
+**Answer: the repo is strictly AHEAD. Not diverged. Nothing in production is
+missing from the repo, so there is nothing to recover.**
+
+The diff was run against the wrong function. `make-server-57095a78` is not what
+the app talks to — `make-server-3eae23a6` is, and that one matches the repo
+exactly:
+
+- **All 62 files of deployed `make-server-3eae23a6` are byte-identical to
+  `supabase/functions/server/`.** Zero differences, zero deployed-only files.
+  `index.tsx` included.
+- The repo holds **52 additional modules** (`bidRoom`, `companies`, `tenants`,
+  `api-gateway`, `growth-tools`…) that are **not imported by `index.tsx`** and
+  therefore not deployed. Confirmed by exact-match import scan: 0 of 52 are
+  wired in. They are dead files, not pending work.
+- vs the stale `make-server-57095a78`: 11 of 13 differing files differ *only* by
+  the slug string `57095a78` → `3eae23a6`. The repo also carries a real bug fix
+  the stale function lacks — `plans.tsx` scopes its auth guard to the plans
+  prefix, where deployed uses `use('*')` on a root-mounted router and rejects
+  every request in the server with "Sign in required." CORS was dropped from
+  `plans.tsx` only because `index.tsx:162` applies it globally.
+
+**Deploy decision: deploy nothing.** The live function already equals the repo.
+
+**New risk surfaced — the stale function is still armed.** `make-server-57095a78`
+is ACTIVE and its `kv_store.tsx` points at `kv_store_57095a78`, the same table
+holding all 1,390 live rows. Two servers with different code can mutate one
+dataset. The frontend calls it from zero files, so the safe move is to
+**disable/delete `make-server-57095a78`** before any migration work starts.
+Do that first, and confirm nothing external calls it.
 
 ### 1. Core schema
 

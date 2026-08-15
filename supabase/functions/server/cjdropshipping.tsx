@@ -124,14 +124,42 @@ export async function getAccessToken(apiKey: string, force = false): Promise<str
 }
 
 /**
- * Authenticated CJ request. Re-auths once on an auth failure. `apiKey` is used
- * to (re)mint the access token; `path` is relative to API_BASE.
+ * CJ enforces a hard global QPS limit of 1 request/second across the whole
+ * API. Exceeding it returns HTTP 429 / code 1600200 with a null payload —
+ * which, before this gate existed, silently degraded batch imports: variant
+ * lookups failed, products were written without a `vid`, and stock came back
+ * unknown for most of the catalog.
+ *
+ * Every CJ call is serialized through this promise chain so at most one is in
+ * flight per interval, no matter how many callers there are.
+ */
+const CJ_MIN_INTERVAL_MS = 1100;
+let cjGate: Promise<void> = Promise.resolve();
+let cjLastCallAt = 0;
+
+function cjThrottle(): Promise<void> {
+  const next = cjGate.then(async () => {
+    const wait = CJ_MIN_INTERVAL_MS - (Date.now() - cjLastCallAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    cjLastCallAt = Date.now();
+  });
+  // Keep the chain alive even if a link rejects, so one failure can't wedge
+  // every subsequent CJ call.
+  cjGate = next.catch(() => {});
+  return next;
+}
+
+/**
+ * Authenticated CJ request. Re-auths once on an auth failure, and backs off and
+ * retries when the QPS limiter trips. `apiKey` is used to (re)mint the access
+ * token; `path` is relative to API_BASE.
  */
 async function cjFetch(
   apiKey: string,
   path: string,
   init: { method?: string; query?: Record<string, any>; body?: any } = {},
   _retried = false,
+  _rateRetries = 0,
 ): Promise<any> {
   const token = await getAccessToken(apiKey);
 
@@ -144,6 +172,8 @@ async function cjFetch(
     const s = qs.toString();
     if (s) url += `?${s}`;
   }
+
+  await cjThrottle();
 
   const res = await fetch(url, {
     method: init.method || "GET",
@@ -162,6 +192,15 @@ async function cjFetch(
     throw new Error(`CJ ${path} returned non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
   }
 
+  // QPS limiter tripped despite the gate (concurrent isolates share the quota).
+  // Back off and retry — this returns data:null, so treating it as a real
+  // response is what previously produced phantom "no stock" results.
+  const rateLimited = res.status === 429 || data?.code === 1600200;
+  if (rateLimited && _rateRetries < 3) {
+    await new Promise((r) => setTimeout(r, CJ_MIN_INTERVAL_MS * (_rateRetries + 1)));
+    return cjFetch(apiKey, path, init, _retried, _rateRetries + 1);
+  }
+
   // CJ signals an expired/invalid token via code 1600xx or a message about the
   // access token. Re-auth once and retry.
   const looksLikeAuthError =
@@ -170,7 +209,7 @@ async function cjFetch(
     /access[- ]?token/i.test(String(data?.message || ""));
   if (looksLikeAuthError && !_retried) {
     await getAccessToken(apiKey, true); // force refresh
-    return cjFetch(apiKey, path, init, true);
+    return cjFetch(apiKey, path, init, true, _rateRetries);
   }
 
   if (!res.ok || (data?.result === false && data?.code !== 200)) {
@@ -180,6 +219,49 @@ async function cjFetch(
 
   return data;
 }
+
+/**
+ * Real sellable stock for a variant.
+ *
+ * `/product/list` exposes `listedNum`, which is how many times sellers have
+ * listed the product — NOT inventory. It reads 0 for most of the catalog even
+ * when CJ is holding thousands of units, so mapping it to stock marked live
+ * products as out of stock and blocked their sales.
+ *
+ * Actual inventory lives behind `/product/stock/queryByVid`, which returns one
+ * row per warehouse/area, e.g.
+ *   [{ areaEn: "China Warehouse", totalInventoryNum: 8099,
+ *      cjInventoryNum: 0, factoryInventoryNum: 8099 }]
+ *
+ * We sum `totalInventoryNum` across areas: CJ-held and factory-backed units are
+ * both fulfillable, they just ship on different timelines.
+ *
+ * Returns null when the figure genuinely can't be determined (transient CJ
+ * error, or no rows) so the caller can decide rather than record a false zero.
+ */
+async function fetchVariantStock(apiKey: string, vid: string): Promise<number | null> {
+  try {
+    const res = await cjFetch(apiKey, "/product/stock/queryByVid", { query: { vid } });
+    const rows: any[] = Array.isArray(res?.data) ? res.data : res?.data?.list || [];
+    if (!rows.length) return null;
+    const total = rows.reduce(
+      (sum, r) => sum + num(r?.totalInventoryNum ?? r?.storageNum ?? 0, 0),
+      0,
+    );
+    return Number.isFinite(total) ? total : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stock to persist for an imported product. A known figure (including a real
+ * 0) is used as-is. When CJ won't tell us, fall back to the historical
+ * optimistic default rather than 0 — the storefront gates purchases on
+ * `inventoryQuantity > 0`, so a transient API failure must not silently pull
+ * the whole catalog off sale.
+ */
+const STOCK_UNKNOWN_FALLBACK = 100;
 
 // ---------------------------------------------------------------------------
 // Address normalization
@@ -434,7 +516,10 @@ function toCjCandidate(p: any): CjCandidate | null {
     description: String(p?.description || p?.productNameEn || ""),
     category: String(p?.categoryName || p?.category || "General"),
     cost, suggestedPrice: +(cost * 1.3).toFixed(2) || cost,
-    images: pickImages(p), stock: num(p?.listedNum ?? 100, 100), rating: 4.6,
+    // Scan-time placeholder only. `/product/list` carries no inventory figure,
+    // so real stock is resolved per-variant at import (see fetchVariantStock).
+    // Never persist this value.
+    images: pickImages(p), stock: 0, rating: 4.6,
     createdAt: p?.createTime || p?.createdAt || undefined,
   };
 }
@@ -471,9 +556,13 @@ export async function importCandidates(
       const variants: any[] = Array.isArray(vres?.data) ? vres.data : vres?.data?.list || [];
       vid = variants[0]?.vid ? String(variants[0].vid) : undefined;
     } catch { /* lazy at order time */ }
+    // `cand.stock` is a scan-time placeholder (see toCjCandidate) — replace it
+    // with CJ's real per-variant inventory before anything is persisted.
+    const liveStock = vid ? await fetchVariantStock(apiKey, vid) : null;
+    const stock = liveStock ?? STOCK_UNKNOWN_FALLBACK;
     const inventoryRecord = {
       sku: cand.sku, name: cand.name, description: cand.description, category: cand.category,
-      price: cand.suggestedPrice, cost: cand.cost, shippingCost: 0, stock: cand.stock,
+      price: cand.suggestedPrice, cost: cand.cost, shippingCost: 0, stock,
       images: cand.images, rating: cand.rating, providerId: PROVIDER_ID, providerProductId: cand.pid, vid,
     };
     const storeId = `cj_${cand.sku}`;
@@ -483,7 +572,7 @@ export async function importCandidates(
       id: storeId, vendorId: PROVIDER_ID, vendorName: "CJdropshipping",
       name: cand.name, description: cand.description, category: cand.category,
       price: cand.suggestedPrice, compare_at_price: cand.suggestedPrice ? +(cand.suggestedPrice * 1.3).toFixed(2) : undefined,
-      cost_price: cand.cost, shippingCost: 0, inventoryQuantity: cand.stock, trackInventory: true,
+      cost_price: cand.cost, shippingCost: 0, inventoryQuantity: stock, trackInventory: true,
       images: cand.images, primaryImage: cand.images[0] || "",
       isActive: true, isFeatured: opts?.featuredSkus?.has(cand.sku) || false,
       slug, sku: cand.sku, rating: cand.rating, viewCount: 0, orderCount: 0,
@@ -541,6 +630,11 @@ export async function importProducts(
       // leave vid undefined
     }
 
+    // Real inventory, not `listedNum`. Needs the vid, so it piggybacks on the
+    // variant lookup above; without one we can't ask, so fall back.
+    const liveStock = vid ? await fetchVariantStock(apiKey, vid) : null;
+    const stock = liveStock ?? STOCK_UNKNOWN_FALLBACK;
+
     const inventoryRecord = {
       sku,
       name,
@@ -549,7 +643,7 @@ export async function importProducts(
       price,
       cost,
       shippingCost: 0,
-      stock: num(p?.listedNum ?? 100, 100),
+      stock,
       images,
       rating: 4.6,
       providerId: PROVIDER_ID,

@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# Data exports pulled from the kv store — may contain API keys / customer data.
+# Keep these out of git; they are local restore points only.
+zendrop-backup-*.json
 .vercel/
 .env
 .env.*

@@ -76,6 +76,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savingAll, setSavingAll] = useState(false);
   const [refreshingShip, setRefreshingShip] = useState(false);
+  const [syncingStore, setSyncingStore] = useState(false);
   const [query, setQuery] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('');
   const [globalMarkup, setGlobalMarkup] = useState('');
@@ -167,6 +168,49 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
       console.error('[ProductCatalogAdmin] refreshLiveShipping:', err);
       toast.error(err.message || 'Could not refresh live shipping.');
     } finally { setRefreshingShip(false); }
+  }, [load]);
+
+  /**
+   * Sync to store — pull the latest catalog from every enabled dropshipper
+   * (CJ, etc.) into the live store, then reload the price desk.
+   *
+   * The importer writes each product one row at a time, so a large batch can
+   * exceed Postgres' statement timeout and return 500 *after* some rows have
+   * already landed. That is a partial success, not a no-op — so we reload the
+   * catalog on failure too and tell the owner to re-run rather than leaving
+   * them staring at a stale grid.
+   */
+  const syncToStore = useCallback(async () => {
+    setSyncingStore(true);
+    try {
+      const token = await adminToken();
+      const res = await fetch(`${SERVER}/dropshipper/sync-inventory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const msg = data?.error || data?.errors?.join(', ') || `Sync failed (${res.status})`;
+        await load();
+        // A timeout means rows were still being written when Postgres cut it off.
+        if (/timeout/i.test(msg)) {
+          toast.error('Supplier sync timed out part-way through. Some products were imported — run it again to pull the rest.', { duration: 9000 });
+        } else {
+          toast.error(msg);
+        }
+        return;
+      }
+
+      await load();
+      toast.success(`Synced ${data.synced ?? 0} product${data.synced === 1 ? '' : 's'} to the store.`);
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] syncToStore:', err);
+      await load();
+      toast.error(err.message || 'Could not sync products to the store.');
+    } finally {
+      setSyncingStore(false);
+    }
   }, [load]);
 
   // ── Adult-content filter controls ──────────────────────────────────────────
@@ -495,6 +539,12 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
           title="Let AI suggest market prices (and estimate shipping) for the selected or visible items">
           <Sparkles className="w-4 h-4" /> AI price{selectedCount > 0 ? ` (${selectedCount})` : ''}
+        </button>
+        <button onClick={syncToStore} disabled={syncingStore}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+          title="Pull the latest products from every connected supplier into the live store">
+          {syncingStore ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4 text-orange-400" />} Sync to store
         </button>
         <button onClick={refreshLiveShipping} disabled={refreshingShip}
           className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
