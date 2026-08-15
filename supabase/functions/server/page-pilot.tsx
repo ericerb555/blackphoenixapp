@@ -44,19 +44,40 @@ function slugify(input: string): string {
 function normalizeProducts(products: any[]): any[] {
   return (Array.isArray(products) ? products : [])
     .slice(0, MAX_PRODUCTS)
-    .map((p) => ({
-      id: String(p.id ?? p.sku ?? crypto.randomUUID()),
-      name: String(p.name ?? p.title ?? 'Product'),
-      description: String(p.description ?? ''),
-      price: Number(p.price) || 0,
-      originalPrice: p.originalPrice != null ? Number(p.originalPrice) : undefined,
-      image: String(p.image ?? p.primaryImage ?? (Array.isArray(p.images) ? p.images[0] : '') ?? ''),
-      images: Array.isArray(p.images) ? p.images.filter((u: any) => typeof u === 'string' && u.trim()) : undefined,
-      category: p.category ? String(p.category) : undefined,
-      rating: typeof p.rating === 'number' ? p.rating : undefined,
-      reviews: typeof p.reviews === 'number' ? p.reviews : undefined,
-      badge: p.badge ? String(p.badge) : undefined,
-    }));
+    .map((p) => {
+      // Digital products (`marketplace_product:` rows — ebooks, templates,
+      // calculators, AI reports) store price in CENTS and use `title` rather
+      // than `name`. Passing one through unconverted advertised a $129 report
+      // as "$12900". Convert only when the caller says so, or when the row is
+      // explicitly flagged digital — never guess from magnitude, since a real
+      // physical product can legitimately cost $12,900.
+      const isDigital = p.isDigital === true || p.kind === 'digital' || p.type === 'digital';
+      const inCents = p.priceInCents === true || (isDigital && p.priceInCents !== false);
+      const money = (v: any) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return undefined;
+        return inCents ? Math.round(n) / 100 : n;
+      };
+
+      return {
+        id: String(p.id ?? p.sku ?? crypto.randomUUID()),
+        name: String(p.name ?? p.title ?? 'Product'),
+        description: String(p.description ?? p.subtitle ?? ''),
+        price: money(p.price) ?? 0,
+        originalPrice: p.originalPrice != null ? money(p.originalPrice) : undefined,
+        image: String(p.image ?? p.primaryImage ?? (Array.isArray(p.images) ? p.images[0] : '') ?? ''),
+        images: Array.isArray(p.images) ? p.images.filter((u: any) => typeof u === 'string' && u.trim()) : undefined,
+        category: p.category ? String(p.category) : undefined,
+        rating: typeof p.rating === 'number' ? p.rating : undefined,
+        reviews: typeof p.reviews === 'number' ? p.reviews : undefined,
+        badge: p.badge ? String(p.badge) : undefined,
+        // Carried through so the copywriter can address the right reader —
+        // digital products already record who they are for.
+        audience: Array.isArray(p.audience) ? p.audience.map((a: any) => String(a)) : undefined,
+        features: Array.isArray(p.features) ? p.features.map((f: any) => String(f)) : undefined,
+        isDigital,
+      };
+    });
 }
 
 async function allCampaigns(): Promise<any[]> {
@@ -181,12 +202,62 @@ pagePilotRouter.post(`${PREFIX}/page-pilot/generate`, async (c) => {
     const openai = new OpenAI({ apiKey });
 
     const productLines = products
-      .map((p, i) => `  ${i + 1}. ${p.name} — $${p.price}${p.originalPrice ? ` (was $${p.originalPrice})` : ''}${p.category ? ` [${p.category}]` : ''}${p.description ? ` — ${p.description.slice(0, 200)}` : ''}`)
+      .map((p, i) => `  ${i + 1}. ${p.name} — $${p.price}${p.originalPrice ? ` (was $${p.originalPrice})` : ''}${p.category ? ` [${p.category}]` : ''}${p.audience?.length ? ` {for: ${p.audience.join(', ')}}` : ''}${p.features?.length ? ` {includes: ${p.features.slice(0, 6).join('; ')}}` : ''}${p.description ? ` — ${p.description.slice(0, 200)}` : ''}`)
       .join('\n');
 
-    const system = `You are a direct-response DTC copywriter who writes high-converting advertorial landing pages (the "editorial-style" pages that top Meta/TikTok dropshipping brands run cold traffic to). You write with a specific, benefit-led, emotionally resonant voice — not generic marketing fluff. You never invent fake statistics or medical/false claims. Output ONLY valid JSON.`;
+    // A downloadable report sold with "fast shipping" and "easy returns" reads
+    // as a template nobody adapted. Tell the writer what it is actually selling.
+    const allDigital = products.length > 0 && products.every((p) => p.isDigital);
+    const digitalNote = allDigital
+      ? `\nIMPORTANT — these are DIGITAL products (instant download / online delivery). Never mention shipping, delivery times, packaging, or physical returns. Sell the outcome the buyer gets and how fast they get it. Objections to handle are about format, what is actually included, whether it applies to their situation, and refund policy — not postage.`
+      : '';
 
-    const user = `Write one advertorial landing page that sells the following product(s) as a focused funnel.
+    // Each page used to be designed blind, so the model kept reaching for the
+    // same safe defaults — asked for three products it returned luxe/serif twice
+    // and serif three times out of three. Show it what is already on the shelf
+    // and require something different. This is the only reliable way to get a
+    // varied SET rather than three independently reasonable pages that happen to
+    // look alike.
+    let varietyNote = '';
+    try {
+      const existing = await allCampaigns();
+      const used = existing
+        .map((c: any) => c?.content?.design)
+        .filter(Boolean)
+        .slice(0, 12);
+      if (used.length) {
+        const archetypes = used.map((d: any) => d.archetype).filter(Boolean);
+        const displays = used.map((d: any) => d.display).filter(Boolean);
+        const accents = used.map((d: any) => d?.palette?.accent).filter(Boolean);
+        const tally = (arr: string[]) =>
+          Object.entries(arr.reduce((m: any, v) => ((m[v] = (m[v] || 0) + 1), m), {}))
+            .map(([k, n]) => `${k} x${n}`).join(', ');
+
+        varietyNote = `
+
+DIRECTIONS ALREADY IN USE ON THIS STORE — do NOT repeat them unless this product
+genuinely demands it, and if you do repeat one, say why in the rationale:
+  archetypes: ${tally(archetypes) || 'none yet'}
+  typefaces : ${tally(displays) || 'none yet'}
+  accents   : ${accents.slice(0, 8).join(', ') || 'none yet'}
+
+These pages sit side by side in one store. A shopper who lands on two of them
+should not feel they are looking at the same template with the words swapped.
+Pick the archetype that genuinely fits THIS product — and if the obvious choice
+is already used twice, take the second-best fit instead and make it work.
+Choose an accent that is visibly distinct from the ones listed above, not a
+neighbouring shade of them.`;
+      }
+    } catch (err) {
+      // Variety guidance is a nice-to-have; never block generation on it.
+      console.log(`[page-pilot] could not load existing designs: ${err}`);
+    }
+
+    const system = `You are a direct-response DTC copywriter AND art director who writes high-converting advertorial landing pages (the "editorial-style" pages that top Meta/TikTok dropshipping brands run cold traffic to). You write with a specific, benefit-led, emotionally resonant voice — not generic marketing fluff. You never invent fake statistics or medical/false claims.
+
+On art direction you are deliberately varied. "Luxe" and "serif" are your defaults and you must resist them: reach for those only when the product is genuinely a premium, restrained object. A budget gadget, a novelty item, a tool, a toy and a technical product each deserve a different look, and a page for one should be visually unmistakable from a page for another. Output ONLY valid JSON.`;
+
+    const user = `Write one advertorial landing page that sells the following product(s) as a focused funnel.${varietyNote}
 
 CAMPAIGN TITLE (working name): ${title || '(none — infer a compelling one)'}
 DESIRED ANGLE / HOOK: ${angle || '(none — choose the strongest angle for these products)'}
@@ -194,6 +265,7 @@ SOURCE / INSPIRATION URL: ${sourceUrl || '(none)'}
 
 PRODUCTS ON THIS PAGE (max ${MAX_PRODUCTS}):
 ${productLines}
+${digitalNote}
 
 You are also the ART DIRECTOR for this page. Every campaign currently renders in
 the same layout with the same orange accent, so every product looks identical.
