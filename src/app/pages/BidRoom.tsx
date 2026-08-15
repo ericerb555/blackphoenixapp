@@ -296,21 +296,28 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
         });
         const out = await res.json().catch(() => null);
         if (res.ok && out?.success) {
-          const failed = (out.results || []).filter((r: any) => !r.sent);
-          notice += out.sent ? ` ${out.sent} notified by email.` : '';
-          if (failed.length) {
+          // Report the channels separately — "notified" is ambiguous when a
+          // provider got a text but the email bounced.
+          const parts: string[] = [];
+          if (out.emailed) parts.push(`${out.emailed} emailed`);
+          if (out.texted) parts.push(`${out.texted} texted`);
+          if (parts.length) notice += ` ${parts.join(', ')}.`;
+
+          const unreached = (out.results || []).filter((r: any) => !r.sent);
+          if (unreached.length) {
             toast.error(
-              `Not notified: ${failed.map((f: any) => `${f.org} (${f.reason})`).join(', ')}. ` +
+              `Not reached: ${unreached.map((f: any) =>
+                `${f.org} (${f.emailReason || f.smsReason || 'no contact details'})`).join(', ')}. ` +
               `They will still see the invitation when they open the bid room.`,
               { duration: 9000 },
             );
           }
         } else {
-          toast.error('Invitations saved, but the notification email could not be sent.');
+          toast.error('Invitations saved, but the notifications could not be sent.');
         }
       } catch (notifyErr) {
         console.error('[BidRoom] notify failed:', notifyErr);
-        toast.error('Invitations saved, but the notification email could not be sent.');
+        toast.error('Invitations saved, but the notifications could not be sent.');
       }
 
       toast.success(notice);
