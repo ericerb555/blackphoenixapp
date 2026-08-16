@@ -45,20 +45,36 @@ export default function DeckPermitPacket({
   const captures = useRef<Partial<Record<ViewMode, () => string | null>>>({});
   const [images, setImages] = useState<Partial<Record<ViewMode, string>>>({});
   const [building, setBuilding] = useState(false);
+  /**
+   * Which drawing is mounted right now, or null for none.
+   *
+   * Every WebGL view is its own graphics context, and browsers cap how many can
+   * exist at once, then silently drop the oldest. Mounting all four of these
+   * alongside the designer's own viewer went past that limit, and a dropped
+   * context renders black — which is what opening the packet did.
+   *
+   * Only one is alive at a time now, and none at all once the captures exist.
+   */
+  const [mounted, setMounted] = useState<ViewMode | null>(null);
 
   const generate = useCallback(async () => {
     setBuilding(true);
+    const next: Partial<Record<ViewMode, string>> = {};
     try {
-      // Let the renderer paint at least one frame per view before reading the
-      // buffer — a capture taken in the same tick comes back blank.
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
-      const next: Partial<Record<ViewMode, string>> = {};
       for (const v of VIEWS) {
+        setMounted(v.mode);
+        // Wait for the view to mount and actually paint. WebGL clears its
+        // buffer between frames, so reading before a real paint returns blank.
+        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
         const url = captures.current[v.mode]?.();
         if (url && url.length > 1000) next[v.mode] = url;
+        setImages({ ...next });
       }
-      setImages(next);
     } finally {
+      // Release the context. The captured images are what the packet prints, so
+      // nothing needs to stay live once they exist.
+      setMounted(null);
       setBuilding(false);
     }
   }, []);
@@ -109,19 +125,37 @@ export default function DeckPermitPacket({
         </div>
       </div>
 
-      {/* Live views, kept small on screen. They must stay mounted and rendered
-          for the capture to work — a display:none canvas produces nothing. */}
+      {/* One drawing is live at a time — see the note on `mounted`. Everything
+          else shows its captured image, or a placeholder if not captured yet. */}
       <div className="no-print grid grid-cols-4 gap-2 mb-4">
         {VIEWS.map(v => (
           <div key={v.mode}>
-            <DeckViewer3D
-              model={model}
-              mode={v.mode}
-              hideTabs
-              height={150}
-              onCaptureReady={fn => { captures.current[v.mode] = fn; }}
-            />
-            <p className="text-[10px] text-gray-500 mt-1 text-center capitalize">{v.mode}</p>
+            {mounted === v.mode ? (
+              v.mode === 'framing-detail' ? (
+                <div className="h-[150px] overflow-hidden rounded-xl border border-[#2A2A2A] bg-white">
+                  <FramingPlanCanvas model={model}
+                    onCaptureReady={fn => { captures.current[v.mode] = fn; }} />
+                </div>
+              ) : (
+                <DeckViewer3D
+                  model={model}
+                  mode={v.mode}
+                  hideTabs
+                  height={150}
+                  onCaptureReady={fn => { captures.current[v.mode] = fn; }}
+                />
+              )
+            ) : images[v.mode] ? (
+              <img src={images[v.mode]} alt={v.title}
+                className="w-full h-[150px] object-contain rounded-xl border border-[#2A2A2A] bg-white" />
+            ) : (
+              <div className="h-[150px] rounded-xl border border-dashed border-[#2A2A2A] flex items-center justify-center text-[10px] text-gray-600">
+                not captured
+              </div>
+            )}
+            <p className="text-[10px] text-gray-500 mt-1 text-center capitalize">
+              {v.mode.replace('-', ' ')}
+            </p>
           </div>
         ))}
       </div>
