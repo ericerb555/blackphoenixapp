@@ -25,6 +25,8 @@ import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import HouseCapture from '../components/HouseCapture';
 import DeckFinishPicker from '../components/DeckFinishPicker';
+import ConnectionDetails from '../components/ConnectionDetails';
+import SketchImport from '../components/SketchImport';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
@@ -432,6 +434,10 @@ function DesignerSession({ session, onSession }: {
               <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
             </div>
 
+            <PanelErrorBoundary name="Read a sketch">
+              <SketchImport model={model} onApply={patch => setModel(m => ({ ...m, ...patch }))} />
+            </PanelErrorBoundary>
+
             <PanelErrorBoundary name="Finishes">
               <DeckFinishPicker model={model} onChange={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
@@ -466,6 +472,10 @@ function DesignerSession({ session, onSession }: {
             <PanelErrorBoundary name="Loads and footings"><DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} /></PanelErrorBoundary>
 
             <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
+
+            <PanelErrorBoundary name="Connection details">
+              <ConnectionDetails model={model} />
+            </PanelErrorBoundary>
 
             <PanelErrorBoundary name="Build specification"><DeckBuildSpecPanel model={model} site={site} /></PanelErrorBoundary>
 

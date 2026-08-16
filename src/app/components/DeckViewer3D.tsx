@@ -78,6 +78,7 @@ const RENDER_COLOR: Record<string, string> = {
   footing: '#9c9a94',
   rail: '#7d6244',
   stair: '#b98d5c',
+  blocking: '#9a7f55',
 };
 
 /**

@@ -451,4 +451,125 @@ app.post("/photoreal", async (c) => {
   }
 });
 
+const SKETCH_SYSTEM = `You are reading a builder's hand-drawn framing sketch and turning it into a
+structural model. Treat it as a drawing to be transcribed, not a design to be
+improved: report what is on the paper.
+
+Sketches are dimensioned inconsistently. Some numbers are written on the drawing,
+some are implied by a note ("2x10 @ 16"), and some are simply not there. For
+every value say which of those it was. A dimension you inferred from the
+proportions of a hand sketch is worthless — hand sketches are not to scale — so
+if a number is not written down or stated in a note, mark it as not given rather
+than estimating it from the geometry.
+
+Read for:
+  · overall width along the house and depth out from it
+  · joist size and spacing, and which way the joists run
+  · beam size, how many plies, and where it sits relative to the outer edge
+  · post size, how many, and their spacing
+  · whether it is ledger-attached to the house or free-standing
+  · cantilever past the beam, if any
+  · stairs — width, and which side they come off
+  · guardrail, and any note about the infill
+  · blocking, hangers, fasteners or any other note written on the drawing
+
+Return ONLY a JSON object, no prose and no code fence:
+{
+  "model": {
+    "widthFt": null, "depthFt": null, "heightFt": null,
+    "joistSize": null, "joistSpacing": null,
+    "beamSize": null, "beamPlies": null,
+    "postSize": null, "postSpacingFt": null,
+    "ledgerAttached": null, "cantileverFt": null,
+    "deckingDirection": null,
+    "guardrail": null, "stairs": null, "stairWidthFt": null
+  },
+  "sources": { "<field>": "written | noted | not given" },
+  "confidence": { "<field>": "high | medium | low" },
+  "notesOnDrawing": ["any text written on the sketch, transcribed"],
+  "couldNotRead": ["what was illegible, ambiguous or missing"],
+  "conflicts": ["anywhere the drawing contradicts itself"],
+  "summary": "two or three sentences describing the structure as drawn"
+}
+
+joistSize, beamSize must be one of 2x6, 2x8, 2x10, 2x12. postSize must be 4x4 or
+6x6. joistSpacing must be 12, 16 or 24. deckingDirection is "parallel" when the
+boards run along the house or "perpendicular" when they run out from it. Use null
+for anything not given — never a plausible default.`;
+
+/**
+ * Read a hand-drawn framing sketch.
+ *
+ * The honest scope: this transcribes a drawing into the model, it does not
+ * guarantee an exact reproduction. A hand sketch is not to scale, so anything
+ * not written down cannot be recovered from it — which is why every field comes
+ * back with whether it was written on the paper, implied by a note, or absent,
+ * and why nothing is applied until someone has looked at it.
+ */
+app.post("/read-sketch", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const images: string[] = Array.isArray(body?.images) ? body.images.slice(0, MAX_IMAGES) : [];
+    const note: string = typeof body?.note === "string" ? body.note.slice(0, 800) : "";
+
+    if (!images.length) return c.json({ error: "Add a photo of the sketch." }, 400);
+
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!key) return c.json({ error: "Sketch reading is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
+
+    const blocks: any[] = [];
+    for (const uri of images) {
+      const parts = splitDataUri(uri);
+      if (!parts) continue;
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: parts.mediaType, data: parts.base64 },
+      });
+    }
+    if (!blocks.length) return c.json({ error: "That image could not be read. Try a JPEG or PNG." }, 400);
+
+    blocks.push({
+      type: "text",
+      text: [
+        `${blocks.length} image${blocks.length > 1 ? "s" : ""} of a hand-drawn framing sketch.`,
+        note ? `What the builder said about it: ${note}` : "",
+        "Transcribe it as JSON.",
+      ].filter(Boolean).join("\n\n"),
+    });
+
+    const client = new Anthropic({ apiKey: key });
+    const message = await client.messages.create({
+      model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
+      max_tokens: 8000,
+      thinking: { type: "adaptive" },
+      system: SKETCH_SYSTEM,
+      messages: [{ role: "user", content: blocks }],
+    });
+
+    const raw = message.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("")
+      .trim();
+
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const text = fenced ? fenced[1].trim() : raw;
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    const candidate = first !== -1 && last > first ? text.slice(first, last + 1) : text;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      return c.json({ error: "The reading came back unreadable. Try a clearer photo." }, 502);
+    }
+
+    return c.json({ sketch: parsed });
+  } catch (err: any) {
+    console.log(`[house] read-sketch failed: ${err?.message || err}`);
+    return c.json({ error: `Could not read that sketch: ${err?.message || err}` }, 500);
+  }
+});
+
 export default app;

@@ -100,7 +100,7 @@ export const DEFAULT_DECK: DeckModel = {
 /** A single physical piece of lumber, positioned in world space. */
 export interface Member {
   id: string;
-  kind: 'ledger' | 'joist' | 'rim' | 'beam' | 'post' | 'decking' | 'footing' | 'rail' | 'stair';
+  kind: 'ledger' | 'joist' | 'rim' | 'beam' | 'post' | 'decking' | 'footing' | 'rail' | 'stair' | 'blocking';
   /** Centre position, feet. x = along house, y = up, z = out from house. */
   pos: [number, number, number];
   /** Size in feet. */
@@ -241,6 +241,64 @@ export function buildMembers(m: DeckModel): Member[] {
       const x = -halfW + i * (boardW + gap) + boardW / 2;
       if (x > halfW) break;
       out.push({ id: `deck-${i}`, kind: 'decking', pos: [x, m.heightFt - deckingT / 2, m.depthFt / 2], size: [boardW, deckingT, m.depthFt] });
+    }
+  }
+
+  // Blocking.
+  //
+  // It was missing entirely, which is the kind of omission a plans examiner
+  // circles: joists sitting on a beam with nothing between them roll over under
+  // load, and a guard post bolted to a rim joist with no block behind it is
+  // relying on the rim in weak-axis bending — which is what fails when someone
+  // leans on a railing.
+  //
+  // Three places need it, for three different reasons:
+  //   · over the beam, to stop the joists rotating and to tie them together
+  //   · at mid-span on long joists, per IRC R502.7.1
+  //   · behind every guard post, so the post load goes into the framing
+  const blockLen = spacingFt - joistW;
+  if (blockLen > 0.2) {
+    const blockRow = (z: number, tag: string, label?: string) => {
+      for (let i = 0; i < joistCount - 1; i++) {
+        const x = -halfW + i * spacingFt + spacingFt / 2;
+        if (x > halfW) break;
+        out.push({
+          id: `block-${tag}-${i}`,
+          kind: 'blocking',
+          pos: [x, joistCentreY, z],
+          size: [blockLen, joistH, joistW],
+          label: i === 0 ? label : undefined,
+        });
+      }
+    };
+
+    blockRow(beamZ, 'beam', `${m.joistSize} solid blocking over beam`);
+
+    // IRC R502.7.1: bridging or blocking at intervals not over 8ft for deep
+    // joists. Placed at mid-span, which is where it does the most good.
+    const span = m.depthFt - m.cantileverFt;
+    if (span > 8) {
+      blockRow(span / 2, 'mid', `${m.joistSize} mid-span blocking`);
+    }
+
+    // Behind the guard posts. Positioned from the same run geometry the railing
+    // uses, so a post can never end up with its block somewhere else.
+    if (m.guardrail) {
+      const bays = Math.max(1, Math.ceil(m.widthFt / 6));
+      for (let i = 0; i <= bays; i++) {
+        const x = -halfW + (m.widthFt * i) / bays;
+        out.push({
+          id: `block-guard-${i}`,
+          kind: 'blocking',
+          pos: [
+            Math.max(-halfW + blockLen / 2, Math.min(halfW - blockLen / 2, x)),
+            joistCentreY,
+            m.depthFt - joistW - joistW / 2,
+          ],
+          size: [blockLen, joistH, joistW],
+          label: i === 0 ? 'Solid blocking behind each guard post' : undefined,
+        });
+      }
     }
   }
 
@@ -543,10 +601,11 @@ export const MEMBER_COLOR: Record<Member['kind'], string> = {
   footing: '#9ca3af',
   rail: '#a06a35',
   stair: '#c89860',
+  blocking: '#9a7f55',
 };
 
 /** What the framing view shows — decking and rails hide the structure. */
-export const STRUCTURAL_KINDS: Member['kind'][] = ['ledger', 'joist', 'rim', 'beam', 'post', 'footing'];
+export const STRUCTURAL_KINDS: Member['kind'][] = ['ledger', 'joist', 'rim', 'beam', 'post', 'footing', 'blocking'];
 
 /** Quantities for a materials schedule, derived rather than typed twice. */
 export function takeoff(m: DeckModel) {
