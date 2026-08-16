@@ -202,12 +202,84 @@ export function buildMembers(m: DeckModel): Member[] {
   }
 
   // Guardrail — required by code above 30in, but drawn whenever asked for.
+  //
+  // Built out of the pieces a railing is actually made of: posts, a top and
+  // bottom rail between them, and balusters. It used to be three solid slabs
+  // the full height and length of each side, which is not a guardrail — it is a
+  // parapet wall, and it read that way in every rendering and every plan.
+  //
+  // Baluster spacing is the code rule rather than a look: R312.1.3 says a 4in
+  // sphere must not pass through, so with 1.5in stock the centres have to stay
+  // under 5.5in. Posts follow the usual 6ft maximum.
   if (m.guardrail) {
-    const railH = 3;
-    const railY = m.heightFt + railH / 2;
-    out.push({ id: 'rail-out', kind: 'rail', pos: [0, railY, m.depthFt], size: [m.widthFt, railH, IN(1.5)] });
-    out.push({ id: 'rail-l', kind: 'rail', pos: [-halfW, railY, m.depthFt / 2], size: [IN(1.5), railH, m.depthFt] });
-    out.push({ id: 'rail-r', kind: 'rail', pos: [halfW, railY, m.depthFt / 2], size: [IN(1.5), railH, m.depthFt] });
+    const railH = IN(36);          // top of rail above the deck surface
+    const postSq = IN(3.5);        // 4x4 nominal
+    const balSq = IN(1.5);         // 2x2 nominal
+    const railTh = IN(1.5);
+    const deckY = m.heightFt;
+    const MAX_BAL_SPACING = IN(5.5);
+    const MAX_POST_SPACING = 6;
+
+    /** One run of railing between two points along a straight side. */
+    const run = (
+      id: string,
+      from: [number, number],   // x,z
+      to: [number, number],
+      ) => {
+      const dx = to[0] - from[0];
+      const dz = to[1] - from[1];
+      const len = Math.hypot(dx, dz);
+      if (len < 0.5) return;
+      const along = len;
+      const horizontal = Math.abs(dx) > Math.abs(dz);
+
+      // Posts, evenly divided so no bay exceeds the maximum.
+      const bays = Math.max(1, Math.ceil(along / MAX_POST_SPACING));
+      for (let i = 0; i <= bays; i++) {
+        const t = i / bays;
+        const x = from[0] + dx * t;
+        const z = from[1] + dz * t;
+        out.push({
+          id: `${id}-post-${i}`, kind: 'rail',
+          pos: [x, deckY + railH / 2, z],
+          size: [postSq, railH, postSq],
+        });
+      }
+
+      // Top and bottom rails, and the balusters between them.
+      const railW = horizontal ? along : railTh;
+      const railD = horizontal ? railTh : along;
+      const cx = (from[0] + to[0]) / 2;
+      const cz = (from[1] + to[1]) / 2;
+
+      out.push({
+        id: `${id}-top`, kind: 'rail',
+        pos: [cx, deckY + railH - IN(0.75), cz],
+        size: [railW, IN(1.5), railD],
+      });
+      out.push({
+        id: `${id}-bottom`, kind: 'rail',
+        pos: [cx, deckY + IN(3.75), cz],
+        size: [railW, IN(1.5), railD],
+      });
+
+      const balCount = Math.max(1, Math.ceil(along / MAX_BAL_SPACING) - 1);
+      const balH = railH - IN(6);
+      for (let i = 1; i <= balCount; i++) {
+        const t = i / (balCount + 1);
+        const x = from[0] + dx * t;
+        const z = from[1] + dz * t;
+        out.push({
+          id: `${id}-bal-${i}`, kind: 'rail',
+          pos: [x, deckY + IN(4.5) + balH / 2, z],
+          size: [balSq, balH, balSq],
+        });
+      }
+    };
+
+    run('rail-out', [-halfW, m.depthFt], [halfW, m.depthFt]);
+    run('rail-l', [-halfW, 0], [-halfW, m.depthFt]);
+    run('rail-r', [halfW, 0], [halfW, m.depthFt]);
   }
 
   // Stairs — one tread per riser, stepping down and out from the deck edge.

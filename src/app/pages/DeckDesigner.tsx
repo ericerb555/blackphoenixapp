@@ -23,6 +23,7 @@ import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
 import DeckStructuralPanel from '../components/DeckStructuralPanel';
 import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
+import HouseCapture from '../components/HouseCapture';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
@@ -429,6 +430,15 @@ function DesignerSession({ session, onSession }: {
             <div className={card}>
               <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
             </div>
+
+            {/* Sits directly under the drawings: the measured views and the
+                photo of the real house are the two ways of looking at the same
+                deck, and keeping them adjacent makes the difference between
+                them obvious rather than something stated in fine print. */}
+            <PanelErrorBoundary name="The existing house">
+              <HouseCapture model={model} site={site}
+                onApply={patch => setModel(m => ({ ...m, ...patch }))} />
+            </PanelErrorBoundary>
 
             {advisories.length > 0 && (
               <div className={card}>

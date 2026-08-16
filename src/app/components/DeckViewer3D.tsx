@@ -1,52 +1,147 @@
 /**
  * DeckViewer3D — the 3D, framing and plan views, all from one model.
  *
- * Replaces the hand-rolled canvas "3D" that drew fake isometric with gradients.
- * That approach had no geometry behind it, so it could never produce a framing
- * plan or a dimensioned drawing — only a picture that resembled one.
+ * The members come from buildMembers(), and each view is a different camera and
+ * filter over the same geometry:
  *
- * Here the members come from buildMembers(), and each view is a different camera
- * and filter over the same geometry:
- *
- *   3D       — everything, perspective, shadows
- *   Framing  — structure only, decking and rails hidden
+ *   3D       — a presentation rendering: sky, sun, textured lumber, real house
+ *   Framing  — structure only, decking and rails hidden, edges outlined
  *   Plan     — orthographic from above with dimensions
  *
- * Because all three read the same array, a joist that moves moves everywhere. A
- * framing plan that disagrees with the rendering is the thing a plans examiner
+ * Because all of them read the same array, a joist that moves moves everywhere.
+ * A framing plan that disagrees with the rendering is the thing a plans examiner
  * catches, and drawing the views separately is how that happens.
+ *
+ * THE RULE THIS FILE KEEPS: nothing is fetched at runtime. Two bugs in this
+ * project came from breaking it — drei's Text fetches a font from Google and
+ * rendered a framing plan with no labels when it failed, and Environment
+ * preset="park" fetches an HDRI, which left the 3D view lit by two bare
+ * directional lights and looking like moulded plastic. So the sky is the
+ * procedural shader, the environment is built from in-scene lightformers, every
+ * texture is drawn on a canvas, and every label is a canvas texture rather than
+ * a webfont. All of it also means the capture for the permit packet contains
+ * exactly what is on screen, because it is all real WebGL.
  */
 import { Suspense, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, Line, Text } from '@react-three/drei';
+import { OrbitControls, Grid, Environment, Lightformer, Line, Sky, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import { Box, Layers, Ruler, Hammer } from 'lucide-react';
 import {
   buildMembers, MEMBER_COLOR, STRUCTURAL_KINDS,
   type DeckModel, type Member,
 } from '../lib/deckModel';
+import {
+  woodTexture, woodRoughness, grassTexture, sidingTexture, concreteTexture, shingleTexture,
+} from '../lib/deckTextures';
 import FramingPlanCanvas from './FramingPlanCanvas';
 
 export type ViewMode = '3d' | 'framing' | 'plan' | 'framing-detail';
 
+/** Where the sun is. Shared by the sky shader and the shadow-casting light so
+ *  the shadows fall where the bright part of the sky says they should. */
+const SUN = new THREE.Vector3(22, 20, 12);
+
+/** Presentation colours — warmer and more varied than the flat diagram set. */
+const RENDER_COLOR: Record<string, string> = {
+  ledger: '#9a7f55',
+  joist: '#a98a5f',
+  rim: '#9a7f55',
+  beam: '#8a6f4a',
+  post: '#8a6f4a',
+  decking: '#b98d5c',
+  footing: '#9c9a94',
+  rail: '#7d6244',
+  stair: '#b98d5c',
+};
+
+/**
+ * Textures are cached by kind and by how many times they tile, because a
+ * CanvasTexture uploads to the GPU on first use. Cloning per repeat rather than
+ * mutating a shared texture keeps a 16ft joist and a 4in baluster from fighting
+ * over the same repeat value.
+ */
+const texCache = new Map<string, THREE.Texture>();
+
+function tiled(kind: string, seed: number, rx: number, ry: number): THREE.Texture {
+  const qx = Math.max(1, Math.round(rx));
+  const qy = Math.max(1, Math.round(ry));
+  const key = `${kind}:${seed}:${qx}:${qy}`;
+  const hit = texCache.get(key);
+  if (hit) return hit;
+
+  const base = kind === 'footing' ? concreteTexture() : woodTexture(RENDER_COLOR[kind] || '#a98a5f', seed);
+  const t = base.clone();
+  t.needsUpdate = true;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(qx, qy);
+  texCache.set(key, t);
+  return t;
+}
+
 /**
  * One piece of lumber.
  *
- * Framing view gets a visible edge outline, because in a structural drawing the
- * joint between two members matters more than the surface of either.
+ * Framing view gets a visible edge outline and flat colour, because in a
+ * structural drawing the joint between two members matters more than the
+ * surface of either. The 3D view gets grain, a roughness map so light catches
+ * the surface unevenly, and a small per-member tone shift — a deck where every
+ * board is the identical colour is the single clearest sign of a render.
  */
-function MemberMesh({ member, outlined }: { member: Member; outlined: boolean }) {
+function MemberMesh({ member, outlined, realistic }: {
+  member: Member; outlined: boolean; realistic: boolean;
+}) {
   const geo = useMemo(() => new THREE.BoxGeometry(...member.size), [member.size]);
   const edges = useMemo(() => (outlined ? new THREE.EdgesGeometry(geo) : null), [geo, outlined]);
+
+  // Stable per-member seed, so a board keeps its grain and its tone as the
+  // camera moves rather than shimmering between frames.
+  const seed = useMemo(() => {
+    let h = 0;
+    for (let i = 0; i < member.id.length; i++) h = (h * 31 + member.id.charCodeAt(i)) >>> 0;
+    return (h % 8) + 1;
+  }, [member.id]);
+
+  const material = useMemo(() => {
+    if (!realistic) {
+      return new THREE.MeshStandardMaterial({
+        color: MEMBER_COLOR[member.kind],
+        roughness: member.kind === 'footing' ? 0.95 : 0.75,
+        metalness: 0,
+      });
+    }
+
+    const [sx, sy, sz] = member.size;
+    const long = Math.max(sx, sy, sz);
+
+    // Balusters are the dark metal infill on a modern railing; the posts and
+    // rails around them stay wood. They share a member kind because they share
+    // a takeoff line, so they are told apart by id.
+    const isBaluster = member.id.includes('-bal-');
+    if (isBaluster) {
+      return new THREE.MeshStandardMaterial({
+        color: '#26292c', roughness: 0.42, metalness: 0.75,
+      });
+    }
+
+    const map = tiled(member.kind, seed, Math.max(1, long / 2), 1);
+    const rough = woodRoughness(seed);
+
+    const mat = new THREE.MeshStandardMaterial({
+      map,
+      roughnessMap: member.kind === 'footing' ? undefined : rough,
+      roughness: member.kind === 'footing' ? 0.96 : 0.78,
+      metalness: 0,
+    });
+    // A slight tone shift per board. Boards from the same lift are never the
+    // same colour, and the eye reads uniformity as fake immediately.
+    mat.color.offsetHSL(0, 0, (seed - 4.5) * 0.011);
+    return mat;
+  }, [member.kind, member.id, member.size, realistic, seed]);
+
   return (
     <group position={member.pos}>
-      <mesh geometry={geo} castShadow receiveShadow>
-        <meshStandardMaterial
-          color={MEMBER_COLOR[member.kind]}
-          roughness={member.kind === 'footing' ? 0.95 : 0.75}
-          metalness={0}
-        />
-      </mesh>
+      <mesh geometry={geo} material={material} castShadow receiveShadow />
       {edges && (
         <lineSegments geometry={edges}>
           <lineBasicMaterial color="#1a1a1a" />
@@ -56,35 +151,155 @@ function MemberMesh({ member, outlined }: { member: Member; outlined: boolean })
   );
 }
 
-/** The house wall the deck attaches to — context, so the deck is not floating. */
-function HouseWall({ width, height }: { width: number; height: number }) {
+/**
+ * The house the deck attaches to.
+ *
+ * Worth the geometry: without a door and a roof edge there is no sense of
+ * scale, and a deck floating against a blank panel is most of why the old view
+ * read as a diagram. The door also shows the thing that decides deck height —
+ * the surface sits just below the threshold.
+ */
+function House({ model, realistic }: { model: DeckModel; realistic: boolean }) {
+  const wallW = model.widthFt + 16;
+  const wallH = Math.max(12, model.heightFt + 11);
+
+  const siding = useMemo(() => {
+    if (!realistic) return null;
+    const t = sidingTexture('#d9d3c7', 6).clone();
+    t.needsUpdate = true;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    // Eight courses per tile at 6in exposure, so one tile is four feet.
+    t.repeat.set(Math.max(1, Math.round(wallW / 4)), Math.max(1, Math.round(wallH / 4)));
+    return t;
+  }, [realistic, wallW, wallH]);
+
+  const shingles = useMemo(() => (realistic ? shingleTexture('#4a4744') : null), [realistic]);
+
+  // Door sill sits just above the deck surface, which is where it belongs and
+  // where anyone looking at the picture expects to see it.
+  const doorH = 6.7;
+  const doorW = 6;
+  const doorSill = model.heightFt + 0.1;
+
   return (
-    <mesh position={[0, height / 2, -0.5]} receiveShadow>
-      <boxGeometry args={[width + 8, height, 1]} />
-      <meshStandardMaterial color="#d8d2c8" roughness={0.9} />
+    <group>
+      {/* Wall */}
+      <mesh position={[0, wallH / 2, -0.5]} receiveShadow castShadow>
+        <boxGeometry args={[wallW, wallH, 1]} />
+        {realistic
+          ? <meshStandardMaterial map={siding!} roughness={0.88} metalness={0} />
+          : <meshStandardMaterial color="#d8d2c8" roughness={0.9} />}
+      </mesh>
+
+      {realistic && (
+        <>
+          {/* Slider, set into the wall so it reads as an opening. */}
+          <mesh position={[0, doorSill + doorH / 2, 0.06]}>
+            <boxGeometry args={[doorW, doorH, 0.12]} />
+            <meshStandardMaterial color="#2b3138" roughness={0.12} metalness={0.25} />
+          </mesh>
+          {/* Glass, slightly proud, catching the sky. */}
+          <mesh position={[0, doorSill + doorH / 2, 0.14]}>
+            <boxGeometry args={[doorW - 0.55, doorH - 0.5, 0.04]} />
+            <meshStandardMaterial color="#9fc4d8" roughness={0.05} metalness={0.4}
+              transparent opacity={0.72} />
+          </mesh>
+          {/* Centre stile, so it reads as a two-panel slider. */}
+          <mesh position={[0, doorSill + doorH / 2, 0.18]}>
+            <boxGeometry args={[0.18, doorH - 0.5, 0.05]} />
+            <meshStandardMaterial color="#2b3138" roughness={0.12} metalness={0.25} />
+          </mesh>
+
+          {/* Roof overhang with a soffit — gives the wall a top edge instead of
+              letting it end in mid-air. */}
+          <mesh position={[0, wallH, 0.9]} rotation={[-0.30, 0, 0]} castShadow>
+            <boxGeometry args={[wallW, 0.25, 4.5]} />
+            <meshStandardMaterial map={shingles!} roughness={0.94} metalness={0} />
+          </mesh>
+          <mesh position={[0, wallH - 0.45, 1.9]}>
+            <boxGeometry args={[wallW, 0.7, 0.3]} />
+            <meshStandardMaterial color="#efeae1" roughness={0.8} />
+          </mesh>
+
+          {/* Corner boards, which is what tells you it is a real wall. */}
+          {[-wallW / 2 + 0.3, wallW / 2 - 0.3].map((x, i) => (
+            <mesh key={i} position={[x, wallH / 2, 0.06]}>
+              <boxGeometry args={[0.6, wallH, 0.12]} />
+              <meshStandardMaterial color="#efeae1" roughness={0.85} />
+            </mesh>
+          ))}
+        </>
+      )}
+    </group>
+  );
+}
+
+/**
+ * A dimension label.
+ *
+ * Drawn to a canvas and mapped onto a plane rather than using drei's Text,
+ * which fetches a webfont and silently renders nothing when the fetch fails —
+ * exactly the bug that left the framing plan unlabelled. This also means the
+ * label survives into the permit-packet capture, because it is real geometry in
+ * the WebGL buffer rather than a DOM overlay sitting on top of it.
+ */
+function Label({ position, text, color = '#ea580c', size = 0.9 }: {
+  position: [number, number, number]; text: string; color?: string; size?: number;
+}) {
+  const { texture, aspect } = useMemo(() => {
+    const pad = 16;
+    const font = 64;
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d')!;
+    ctx.font = `700 ${font}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    const w = Math.ceil(ctx.measureText(text).width) + pad * 2;
+    const h = font + pad * 2;
+    c.width = w; c.height = h;
+
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, w, h);
+    // A soft white plate behind the text, so a dimension stays readable over
+    // grass, decking or a shadow without needing a leader line.
+    g.fillStyle = 'rgba(255,255,255,0.92)';
+    g.beginPath();
+    const r = 12;
+    g.moveTo(r, 0); g.arcTo(w, 0, w, h, r); g.arcTo(w, h, 0, h, r);
+    g.arcTo(0, h, 0, 0, r); g.arcTo(0, 0, w, 0, r); g.closePath(); g.fill();
+
+    g.font = `700 ${font}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
+    g.fillStyle = color;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, w / 2, h / 2 + 2);
+
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return { texture: t, aspect: w / h };
+  }, [text, color]);
+
+  return (
+    <mesh position={position} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[size * aspect, size]} />
+      <meshBasicMaterial map={texture} transparent depthTest={false} toneMapped={false} />
     </mesh>
   );
 }
 
 /** A dimension line with its measurement, for the plan view. */
-function Dimension({ from, to, label, offset = 0 }: {
-  from: [number, number, number]; to: [number, number, number]; label: string; offset?: number;
+function Dimension({ from, to, label }: {
+  from: [number, number, number]; to: [number, number, number]; label: string;
 }) {
-  const a: [number, number, number] = [from[0], from[1] + offset, from[2]];
-  const b: [number, number, number] = [to[0], to[1] + offset, to[2]];
-  const mid: [number, number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 0.4, (a[2] + b[2]) / 2];
+  const mid: [number, number, number] = [
+    (from[0] + to[0]) / 2, (from[1] + to[1]) / 2 + 0.4, (from[2] + to[2]) / 2,
+  ];
   return (
     <group>
-      <Line points={[a, b]} color="#ea580c" lineWidth={1.5} />
-      <Text position={mid} fontSize={0.7} color="#ea580c" anchorX="center" anchorY="middle"
-        rotation={[-Math.PI / 2, 0, 0]}>
-        {label}
-      </Text>
+      <Line points={[from, to]} color="#ea580c" lineWidth={1.5} />
+      <Label position={mid} text={label} />
     </group>
   );
 }
-
-
 
 function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   const members = useMemo(() => buildMembers(model), [model]);
@@ -95,46 +310,99 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
     [members, mode],
   );
 
-  // Both measured drawings: flat light, overhead, no shadows.
+  // The two measured drawings: flat light, overhead, no shadows.
   const isPlan = mode === 'plan' || mode === 'framing-detail';
-  const isDetail = mode === 'framing-detail';
+  const realistic = mode === '3d';
   const halfW = model.widthFt / 2;
+
+  const grass = useMemo(() => {
+    if (!realistic) return null;
+    const t = grassTexture().clone();
+    t.needsUpdate = true;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(30, 30);
+    return t;
+  }, [realistic]);
+
+  const reach = Math.max(model.widthFt, model.depthFt);
 
   return (
     <>
-      {/* Plan view is a measured drawing, so it gets flat, even light with no
-          shadows — a shadow across a dimension line is just noise there. */}
-      <ambientLight intensity={isPlan ? 1.1 : 0.55} />
-      {!isPlan && (
+      {realistic ? (
         <>
+          {/* Procedural sky — a shader, not a downloaded HDRI. */}
+          <Sky sunPosition={SUN} turbidity={5} rayleigh={1.4} mieCoefficient={0.006} mieDirectionalG={0.82} />
+
+          {/* Sky fill, warm bounce off the ground, and the sun itself. Skylight
+              is what a mid-morning exterior actually looks like; a single
+              directional light is what a diagram looks like. */}
+          <hemisphereLight args={['#cfe3f5', '#6d7a52', 0.85]} />
           <directionalLight
-            position={[18, 26, 14]} intensity={2.0} castShadow
+            position={SUN} intensity={2.6} color="#fff3e0" castShadow
             shadow-mapSize={[2048, 2048]}
-            shadow-camera-left={-30} shadow-camera-right={30}
-            shadow-camera-top={30} shadow-camera-bottom={-30}
+            shadow-bias={-0.0004}
+            shadow-normalBias={0.02}
+            shadow-camera-left={-reach * 1.6} shadow-camera-right={reach * 1.6}
+            shadow-camera-top={reach * 1.6} shadow-camera-bottom={-reach * 1.6}
+            shadow-camera-near={0.5} shadow-camera-far={reach * 6}
           />
-          <directionalLight position={[-14, 10, -10]} intensity={0.4} />
+          {/* Cool fill from the opposite side so shadowed faces are readable
+              rather than black, as a bounce card would do on a real shoot. */}
+          <directionalLight position={[-reach, reach * 0.6, -reach * 0.5]} intensity={0.35} color="#bcd4ea" />
+
+          {/* Reflections, built in-scene. Environment renders these lightformers
+              to a cubemap, so there is nothing to download and nothing to fail. */}
+          <Environment resolution={256}>
+            <Lightformer intensity={1.3} color="#ffffff" position={[0, 12, 0]} scale={[24, 24, 1]}
+              rotation={[Math.PI / 2, 0, 0]} />
+            <Lightformer intensity={0.6} color="#a8c8e8" position={[-14, 6, -8]} scale={[16, 10, 1]} />
+            <Lightformer intensity={0.5} color="#f0e0c8" position={[14, 5, 8]} scale={[16, 10, 1]} />
+            <Lightformer intensity={0.35} color="#7b8a5c" position={[0, -6, 0]} scale={[30, 30, 1]}
+              rotation={[-Math.PI / 2, 0, 0]} />
+          </Environment>
+        </>
+      ) : (
+        <>
+          <ambientLight intensity={isPlan ? 1.1 : 0.55} />
+          {!isPlan && (
+            <>
+              <directionalLight
+                position={[18, 26, 14]} intensity={2.0} castShadow
+                shadow-mapSize={[2048, 2048]}
+                shadow-camera-left={-30} shadow-camera-right={30}
+                shadow-camera-top={30} shadow-camera-bottom={-30}
+              />
+              <directionalLight position={[-14, 10, -10]} intensity={0.4} />
+            </>
+          )}
         </>
       )}
 
-      {mode === '3d' && <Suspense fallback={null}><Environment preset="park" /></Suspense>}
-
-      {mode !== 'plan' && <HouseWall width={model.widthFt} height={Math.max(10, model.heightFt + 8)} />}
+      {mode !== 'plan' && <House model={model} realistic={realistic} />}
 
       {visible.map(m => (
-        <MemberMesh key={m.id} member={m} outlined={mode !== '3d'} />
+        <MemberMesh key={m.id} member={m} outlined={mode !== '3d'} realistic={realistic} />
       ))}
 
       {/* Ground plane, so shadows land on something and height reads correctly. */}
       {!isPlan && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
-          <planeGeometry args={[120, 120]} />
-          <meshStandardMaterial color="#6f7d58" roughness={1} />
+          <planeGeometry args={[160, 160]} />
+          {realistic
+            ? <meshStandardMaterial map={grass!} roughness={1} metalness={0} />
+            : <meshStandardMaterial color="#6f7d58" roughness={1} />}
         </mesh>
       )}
 
+      {/* Soft occlusion where the structure meets the lawn. The directional
+          shadow gives the hard sun edge; this gives the darkening right under
+          the deck that stops it looking pasted onto the grass. */}
+      {realistic && (
+        <ContactShadows position={[0, 0.01, model.depthFt / 2]}
+          scale={reach * 3} blur={2.4} opacity={0.55} far={model.heightFt + 4} resolution={1024} />
+      )}
 
-      {isPlan && !isDetail && (
+      {isPlan && mode !== 'framing-detail' && (
         <>
           <Grid position={[0, -0.01, 0]} args={[80, 80]} cellSize={1} cellColor="#d4d4d4"
             sectionSize={5} sectionColor="#a3a3a3" fadeDistance={90} infiniteGrid />
@@ -157,10 +425,14 @@ function CameraRig({ model, mode }: { model: DeckModel; mode: ViewMode }) {
     done.current = key;
     const reach = Math.max(model.widthFt, model.depthFt);
     if (mode === 'plan' || mode === 'framing-detail') {
-      // Pull back further for the detail view: the callouts sit well outside
-      // the deck itself and must be in frame.
       camera.position.set(0, reach * (mode === 'framing-detail' ? 3.1 : 1.8), model.depthFt / 2 + 0.001);
       camera.lookAt(0, 0, model.depthFt / 2);
+    } else if (mode === '3d') {
+      // A three-quarter view from a bit above standing height, which is where
+      // an architectural photograph is taken from. The old camera looked down
+      // from twice the deck's width and turned everything into a model.
+      camera.position.set(reach * 1.15, model.heightFt + reach * 0.42, model.depthFt + reach * 1.25);
+      camera.lookAt(0, model.heightFt * 0.75, model.depthFt / 2);
     } else {
       camera.position.set(reach * 0.95, reach * 0.72, model.depthFt + reach * 0.95);
       camera.lookAt(0, model.heightFt / 2, model.depthFt / 2);
@@ -204,6 +476,8 @@ export default function DeckViewer3D({
     { id: 'framing-detail', label: 'Framing detail', icon: Hammer, hint: 'Framing plan with sizes, hangers and fasteners called out' },
   ];
 
+  const isPlanish = mode === 'plan' || mode === 'framing-detail';
+
   return (
     <div className="space-y-3">
       {!hideTabs && (
@@ -235,12 +509,18 @@ export default function DeckViewer3D({
         </div>
       ) : (
       <div className="rounded-2xl overflow-hidden border border-[#2A2A2A]"
-        style={{ height, background: mode === 'plan' || mode === 'framing-detail' ? '#ffffff' : '#0d1117' }}>
+        style={{ height, background: isPlanish ? '#ffffff' : '#0d1117' }}>
         <Canvas
-          shadows={mode !== 'plan' && mode !== 'framing-detail'}
-          camera={{ fov: mode === 'plan' || mode === 'framing-detail' ? 26 : 42, near: 0.1, far: 500 }}
+          shadows={!isPlanish}
+          // A longer lens than the old 42°. Architectural photographs are shot
+          // long to keep verticals parallel; a wide lens splays the posts and
+          // is most of what made this read as a game asset rather than a house.
+          camera={{ fov: isPlanish ? 26 : mode === '3d' ? 30 : 42, near: 0.1, far: 600 }}
           gl={{ antialias: true, preserveDrawingBuffer: true }}
           onCreated={({ gl }) => {
+            gl.toneMapping = THREE.ACESFilmicToneMapping;
+            gl.toneMappingExposure = mode === '3d' ? 0.92 : 1;
+            gl.shadowMap.type = THREE.PCFSoftShadowMap;
             // Force a draw before reading, so the first capture is not blank.
             onCaptureReady?.(() => {
               try { return gl.domElement.toDataURL('image/png'); } catch { return null; }
@@ -253,11 +533,11 @@ export default function DeckViewer3D({
             <OrbitControls
               makeDefault
               enablePan
-              target={[0, mode === 'plan' || mode === 'framing-detail' ? 0 : model.heightFt / 2, model.depthFt / 2]}
+              target={[0, isPlanish ? 0 : model.heightFt / 2, model.depthFt / 2]}
               // Plan view stays overhead: letting it tilt turns a measured
               // drawing into a bad perspective view.
-              minPolarAngle={mode === 'plan' || mode === 'framing-detail' ? 0 : 0.05}
-              maxPolarAngle={mode === 'plan' || mode === 'framing-detail' ? 0.001 : Math.PI / 2.05}
+              minPolarAngle={isPlanish ? 0 : 0.05}
+              maxPolarAngle={isPlanish ? 0.001 : Math.PI / 2.05}
             />
           </Suspense>
         </Canvas>
