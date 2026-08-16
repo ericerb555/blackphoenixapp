@@ -822,6 +822,78 @@ cjRouter.get(`${PREFIX}/cj/status`, async (c) => {
  * change. It writes nothing — the point is to see the gain on real records
  * before touching a live catalog.
  */
+/**
+ * Would a paid order actually reach CJ? — read-only preflight.
+ *
+ * Forwarding runs after the customer has already paid, so a failure there is
+ * discovered by a person wondering why nothing shipped. The one part that can
+ * fail silently is the variant id: createOrderV2 needs a `vid` per line, and
+ * only some inventory records carry one. The rest depend on a live lookup by
+ * product id, which has never been exercised.
+ *
+ * This resolves the vid for a sample of products exactly as order forwarding
+ * would — and places no order, spends nothing, and ships nothing.
+ */
+cjRouter.get(`${PREFIX}/cj/order-preflight`, async (c) => {
+  const apiKey = resolveKey();
+  if (!apiKey) return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
+
+  const limit = Math.min(10, Math.max(1, Number(c.req.query("limit")) || 5));
+  // Records missing a stored vid are the ones at risk, so test those first.
+  const onlyRisky = c.req.query("risky") !== "false";
+
+  try {
+    const all = ((await kv.getByPrefix(`${INVENTORY_KEY_PREFIX}:`)) || []) as any[];
+    const parsed = all
+      .map((r) => (typeof r === "string" ? JSON.parse(r) : r))
+      .filter((r) => r?.sku);
+    const pool = onlyRisky ? parsed.filter((r) => !r.vid) : parsed;
+    const sample = pool.slice(0, limit);
+
+    if (!sample.length) {
+      return c.json({ success: true, checked: 0, note: "Nothing to check — every record already carries a vid." });
+    }
+
+    const results: any[] = [];
+    for (const rec of sample) {
+      const item: any = { sku: rec.sku, quantity: 1, providerProductId: rec.providerProductId };
+      try {
+        const vid = await resolveVid(apiKey, item);
+        results.push({
+          sku: rec.sku,
+          name: String(rec.name || "").slice(0, 48),
+          storedVid: rec.vid || null,
+          resolvedVid: vid,
+          via: rec.vid ? "inventory" : "live lookup",
+          ok: true,
+        });
+      } catch (err: any) {
+        results.push({
+          sku: rec.sku,
+          name: String(rec.name || "").slice(0, 48),
+          storedVid: rec.vid || null,
+          ok: false,
+          error: String(err?.message || err).slice(0, 180),
+        });
+      }
+    }
+
+    const failed = results.filter((r) => !r.ok);
+    return c.json({
+      success: true,
+      placedAnOrder: false,
+      checked: results.length,
+      wouldSucceed: results.length - failed.length,
+      wouldFail: failed.length,
+      poolMissingStoredVid: parsed.filter((r) => !r.vid).length,
+      totalInventory: parsed.length,
+      results,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: String(err?.message || err) }, 500);
+  }
+});
+
 cjRouter.get(`${PREFIX}/cj/enrich-preview`, async (c) => {
   const apiKey = resolveKey();
   if (!apiKey) return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
