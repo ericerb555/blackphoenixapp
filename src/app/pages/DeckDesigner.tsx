@@ -25,6 +25,7 @@ import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import HouseCapture from '../components/HouseCapture';
 import JobFolder from '../components/JobFolder';
+import { forgetFolder } from '../lib/localFolder';
 import DeckFinishPicker from '../components/DeckFinishPicker';
 import ConnectionDetails from '../components/ConnectionDetails';
 import SketchImport from '../components/SketchImport';
@@ -321,6 +322,14 @@ function DesignerSession({ session, onSession }: {
    * where to look.
    */
   const hardReset = useCallback(() => {
+    // The remembered job folder is the one thing that outlives the session. It
+    // lives in IndexedDB so the picker can open straight back into a folder, and
+    // it is keyed by slot rather than by deck — so without this, starting a new
+    // deck left the previous job's folder attached to it, which reads as the old
+    // project refusing to clear. A new deck is a different job.
+    for (const slot of ['job-folder', 'job-photos', 'sketches']) {
+      forgetFolder(slot).catch(() => { /* nothing remembered for that slot */ });
+    }
     onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
   }, [onSession]);
 
