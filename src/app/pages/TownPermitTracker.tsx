@@ -46,6 +46,7 @@ const EMPTY_TOWN = {
   combinedPdf: true, maxFileSizeMb: 0, namingConvention: '',
   requiredDocumentsText: '', requiresWetStamp: false,
   typicalReviewDays: 0, permitFeeNote: '', notes: '',
+  groundSnowPsf: 0, frostDepthIn: 0, codeEdition: '', loadSource: '',
 };
 
 export default function TownPermitTracker() {
@@ -317,6 +318,40 @@ export default function TownPermitTracker() {
                   Requires a wet stamp
                 </label>
               </div>
+              {/* The load case. Kept with the town rather than typed into every
+                  design, because it is a property of the jurisdiction — and
+                  because frost depth is published by no national source, so the
+                  building department's number entered once here is the only
+                  place it can come from. */}
+              <div className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-3 mb-2">
+                <h4 className="text-xs font-bold text-white mb-1">What this town enforces</h4>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Fills the loads on any deck designed in this town. Leave a field at zero and it
+                  stays blank in the designer rather than being guessed.
+                </p>
+                <div className="grid sm:grid-cols-3 gap-2 mb-2">
+                  <div>
+                    <span className={lbl}>Ground snow (psf)</span>
+                    <input type="number" min={0} className={input} value={townForm.groundSnowPsf}
+                      onChange={e => setTownForm({ ...townForm, groundSnowPsf: Number(e.target.value) })} />
+                  </div>
+                  <div>
+                    <span className={lbl}>Frost depth (in)</span>
+                    <input type="number" min={0} className={input} value={townForm.frostDepthIn}
+                      onChange={e => setTownForm({ ...townForm, frostDepthIn: Number(e.target.value) })} />
+                  </div>
+                  <div>
+                    <span className={lbl}>Code edition</span>
+                    <input className={input} placeholder="e.g. 2021 IRC" value={townForm.codeEdition}
+                      onChange={e => setTownForm({ ...townForm, codeEdition: e.target.value })} />
+                  </div>
+                </div>
+                <span className={lbl}>Where these came from</span>
+                <input className={input} placeholder="e.g. Building dept table, confirmed by phone 12 Mar"
+                  value={townForm.loadSource}
+                  onChange={e => setTownForm({ ...townForm, loadSource: e.target.value })} />
+              </div>
+
               <span className={lbl}>Required documents — one per line</span>
               <textarea className={`${input} min-h-[70px] mb-2`} value={townForm.requiredDocumentsText}
                 placeholder={'Plot plan\nProperty survey\nContractor license\nWorkers comp certificate'}
