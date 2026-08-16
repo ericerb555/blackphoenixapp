@@ -24,6 +24,7 @@ import DeckStructuralPanel from '../components/DeckStructuralPanel';
 import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import HouseCapture from '../components/HouseCapture';
+import DeckFinishPicker from '../components/DeckFinishPicker';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
@@ -430,6 +431,10 @@ function DesignerSession({ session, onSession }: {
             <div className={card}>
               <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
             </div>
+
+            <PanelErrorBoundary name="Finishes">
+              <DeckFinishPicker model={model} onChange={patch => setModel(m => ({ ...m, ...patch }))} />
+            </PanelErrorBoundary>
 
             {/* Sits directly under the drawings: the measured views and the
                 photo of the real house are the two ways of looking at the same

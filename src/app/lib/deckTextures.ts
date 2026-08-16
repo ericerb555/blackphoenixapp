@@ -61,8 +61,8 @@ function shade(hex: string, amount: number): string {
  * Sawn lumber. Grain runs horizontally across the canvas, which lines up with
  * the long axis of a board once the texture is repeated along it.
  */
-export function woodTexture(base: string, seed = 1, knots = true): THREE.Texture {
-  const key = `wood:${base}:${seed}:${knots}`;
+export function woodTexture(base: string, seed = 1, knots = true, grain = 1): THREE.Texture {
+  const key = `wood:${base}:${seed}:${knots}:${grain.toFixed(2)}`;
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -75,18 +75,20 @@ export function woodTexture(base: string, seed = 1, knots = true): THREE.Texture
 
   // Broad tonal banding — the difference between heartwood and sapwood, which
   // is what stops a board reading as a single flat colour from across a yard.
+  // Scaled by grain, because a PVC board genuinely has none of this and faking
+  // it would sell a customer a look the product cannot deliver.
   for (let i = 0; i < 26; i++) {
     const y = rand() * S;
     const h = 6 + rand() * 30;
-    ctx.fillStyle = shade(base, (rand() - 0.5) * 0.22);
+    ctx.fillStyle = shade(base, (rand() - 0.5) * 0.22 * grain);
     ctx.fillRect(0, y, S, h);
   }
 
   // Grain lines. Each wanders slightly so they are not parallel rules.
-  for (let i = 0; i < 190; i++) {
+  for (let i = 0; i < Math.round(190 * grain); i++) {
     const y0 = rand() * S;
-    ctx.strokeStyle = shade(base, -0.10 - rand() * 0.30);
-    ctx.globalAlpha = 0.25 + rand() * 0.45;
+    ctx.strokeStyle = shade(base, (-0.10 - rand() * 0.30) * grain);
+    ctx.globalAlpha = (0.25 + rand() * 0.45) * grain;
     ctx.lineWidth = 0.5 + rand() * 1.6;
     ctx.beginPath();
     ctx.moveTo(0, y0);
@@ -99,7 +101,7 @@ export function woodTexture(base: string, seed = 1, knots = true): THREE.Texture
   }
   ctx.globalAlpha = 1;
 
-  if (knots) {
+  if (knots && grain > 0.6) {
     for (let i = 0; i < 3; i++) {
       const kx = rand() * S;
       const ky = rand() * S;

@@ -347,32 +347,70 @@ app.post("/photoreal", async (c) => {
     const w = Number(deck?.widthFt) || 16;
     const d = Number(deck?.depthFt) || 12;
     const h = Number(deck?.heightFt) || 3;
+    const finish: string = typeof body?.finish === "string" ? body.finish.slice(0, 200) : "";
+
+    // Time of day does most of the work in an exterior render, so each preset
+    // sets the light, the sky and what the surroundings are doing — not just a
+    // colour grade over the same picture.
+    const LIGHTING: Record<string, string> = {
+      afternoon:
+        "Late afternoon, sun low and warm at about 15 degrees off the horizon behind the camera's " +
+        "shoulder. Long soft shadows raking across the lawn, warm light on the siding, deep blue " +
+        "sky with a few high clouds. Golden-hour colour temperature around 4000K.",
+      midday:
+        "Late morning, high clear sun, neutral daylight around 5600K. Short crisp shadows, a bright " +
+        "blue sky with scattered cumulus. Colours read true, which is what a material sample needs.",
+      dusk:
+        "Blue hour, ten minutes after sunset. Deep indigo sky with a warm band still on the horizon. " +
+        "The deck is lit by its own lighting: warm recessed lights in the stair risers, low post-cap " +
+        "lights along the railing, and warm interior light spilling out through the door. The lit " +
+        "deck is the brightest thing in the frame and everything else falls off into blue.",
+      overcast:
+        "Bright overcast, the whole sky acting as a softbox. No cast shadows, only soft contact " +
+        "occlusion. Even, slightly cool light that shows the decking colour and texture honestly.",
+      autumn:
+        "Mid-autumn afternoon. Low warm sun, trees turned to orange and deep red, a scatter of fallen " +
+        "leaves on the lawn and a few on the deck. Long shadows and a slightly hazy warm atmosphere.",
+    };
 
     const prompt = [
-      `Turn this 3D model view into a photorealistic architectural visualization, of the quality`,
-      `an architecture studio would put in a client presentation.`,
+      `Convert this 3D CAD viewport into a photorealistic architectural exterior visualization —`,
+      `the standard of image an architectural rendering studio delivers to a client, of the kind`,
+      `produced by Lumion, Enscape or V-Ray. It must be indistinguishable from a photograph.`,
       ``,
-      `HOLD THE GEOMETRY EXACTLY. Same camera angle, same lens, same composition. The deck stays`,
-      `${w} feet along the house by ${d} feet out, ${h} feet above grade. Keep the railing exactly`,
-      `where it is, keep the stairway in the same position with the same opening in the guard, keep`,
-      `the post positions, the joist and beam layout, and the roof and door on the house. Do not`,
-      `move, resize, add or remove any part of the structure.`,
+      `HOLD THE GEOMETRY EXACTLY. This is a render of a specific structure, not an interpretation.`,
+      `Same camera position, same lens, same composition, same proportions. The deck stays ${w} feet`,
+      `along the house by ${d} feet out, ${h} feet above grade. Keep every post, joist and beam where`,
+      `it is. Keep the railing layout, the stair position, and the break in the railing at the top of`,
+      `the stairs. Keep the house wall, its door and its roof line. Do not move, resize, restyle, add`,
+      `or remove any part of the structure or the building.`,
       ``,
-      `CHANGE ONLY THE RENDERING QUALITY:`,
-      `· real pressure-treated and composite timber with grain, subtle colour variation board to`,
-      `  board, softened edges and visible fasteners`,
-      `· true late-afternoon sunlight with warm directional light, long soft shadows, and bounced`,
-      `  light filling the underside of the deck`,
-      `· global illumination and ambient occlusion in the corners, under the framing and where the`,
-      `  posts meet the ground`,
-      `· real lawn with depth and individual blades near the camera, natural planting beds and`,
-      `  shrubs at the foundation, a mature tree casting dappled light`,
-      `· photographic depth of field, slight atmospheric haze at distance, realistic sky with cloud`,
-      `· crisp material detail on the siding, glass in the door reflecting the sky and the yard`,
-      style ? `· ${style}` : ``,
+      finish ? `MATERIALS — the customer has specified ${finish}. Render exactly that: correct colour,`
+        : `MATERIALS — render the decking and railing exactly as coloured in the source image:`,
+      `correct sheen, correct amount of grain. A composite board is uniform and low-sheen; a PVC board`,
+      `has almost no grain; sawn cedar and pressure-treated pine vary strongly board to board. Show`,
+      `the gaps between deck boards, softened board edges, hidden or countersunk fasteners, and the`,
+      `slight unevenness of a real installed surface.`,
       ``,
-      `Shot as architectural photography: tripod height, verticals parallel, no fisheye. No people,`,
-      `no text, no watermark, no dimension lines, no CAD overlay.`,
+      `LIGHTING — ${LIGHTING[style] || LIGHTING.afternoon}`,
+      ``,
+      `RENDERING — full global illumination with colour bleeding from the lawn onto the underside of`,
+      `the deck. Ambient occlusion where posts meet the ground, in the framing bays, under the stair`,
+      `treads and in every inside corner. Physically correct reflections and specular response per`,
+      `material. Subtle atmospheric perspective with distance.`,
+      ``,
+      `SETTING — put the deck on a real property. Mown lawn with visible depth and individual blades`,
+      `near the camera, mature planting beds against the foundation, shrubs and a tree in the middle`,
+      `distance casting dappled light, a neighbouring roofline barely visible beyond. Natural`,
+      `imperfection everywhere: nothing perfectly clean, nothing perfectly straight.`,
+      ``,
+      `CAMERA — shot on a full-frame body at 35mm, f/5.6, from tripod height. Verticals perfectly`,
+      `parallel with no keystoning or fisheye. Mild depth of field with the deck sharp. Natural`,
+      `photographic dynamic range: real highlight rolloff, open shadows, no HDR halos, no oversharp`,
+      `edges, no CGI plastic sheen.`,
+      ``,
+      `Absolutely no people, no text, no logos, no watermark, no dimension lines, no annotations, and`,
+      `no trace of the CAD viewport — no gridlines, no gizmos, no flat-shaded polygons.`,
     ].filter(Boolean).join("\n");
 
     const form = new FormData();

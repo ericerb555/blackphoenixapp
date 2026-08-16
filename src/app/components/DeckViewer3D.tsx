@@ -38,8 +38,26 @@ import {
   woodTexture, woodRoughness, grassTexture, sidingTexture, concreteTexture, shingleTexture,
 } from '../lib/deckTextures';
 import FramingPlanCanvas from './FramingPlanCanvas';
+import {
+  deckingFinish, railFinish, finishSummary,
+  type DeckingFinish, type RailFinish,
+} from '../lib/deckFinishes';
 
 export type ViewMode = '3d' | 'framing' | 'plan' | 'framing-detail';
+
+/**
+ * Render treatments, the way a visualisation studio would offer them. Time of
+ * day is doing most of the work here: the same deck at golden hour and at dusk
+ * with the lights on sells two different things, and dusk is the one that sells
+ * a lighting package.
+ */
+export const RENDER_STYLES = [
+  { id: 'afternoon', label: 'Late afternoon', hint: 'Warm low sun, long shadows — the standard listing shot' },
+  { id: 'midday', label: 'Bright midday', hint: 'Clean and neutral, shows colour most accurately' },
+  { id: 'dusk', label: 'Dusk, lights on', hint: 'Deck lighting glowing against a blue hour sky' },
+  { id: 'overcast', label: 'Soft overcast', hint: 'Even light, no harsh shadows — best for showing material' },
+  { id: 'autumn', label: 'Autumn', hint: 'Turned leaves and low warm light' },
+];
 
 /** Where the sun is. Shared by the sky shader and the shadow-casting light so
  *  the shadows fall where the bright part of the sky says they should. */
@@ -66,14 +84,18 @@ const RENDER_COLOR: Record<string, string> = {
  */
 const texCache = new Map<string, THREE.Texture>();
 
-function tiled(kind: string, seed: number, rx: number, ry: number): THREE.Texture {
+function tiled(
+  kind: string, seed: number, rx: number, ry: number,
+  hex?: string, grain = 1,
+): THREE.Texture {
   const qx = Math.max(1, Math.round(rx));
   const qy = Math.max(1, Math.round(ry));
-  const key = `${kind}:${seed}:${qx}:${qy}`;
+  const colour = hex || RENDER_COLOR[kind] || '#a98a5f';
+  const key = `${kind}:${seed}:${qx}:${qy}:${colour}:${grain.toFixed(2)}`;
   const hit = texCache.get(key);
   if (hit) return hit;
 
-  const base = kind === 'footing' ? concreteTexture() : woodTexture(RENDER_COLOR[kind] || '#a98a5f', seed);
+  const base = kind === 'footing' ? concreteTexture() : woodTexture(colour, seed, true, grain);
   const t = base.clone();
   t.needsUpdate = true;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -91,8 +113,9 @@ function tiled(kind: string, seed: number, rx: number, ry: number): THREE.Textur
  * the surface unevenly, and a small per-member tone shift — a deck where every
  * board is the identical colour is the single clearest sign of a render.
  */
-function MemberMesh({ member, outlined, realistic }: {
+function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
   member: Member; outlined: boolean; realistic: boolean;
+  deckFin: DeckingFinish; railFin: RailFinish;
 }) {
   const geo = useMemo(() => {
     if (member.shape === 'round') {
@@ -125,14 +148,48 @@ function MemberMesh({ member, outlined, realistic }: {
     const [sx, sy, sz] = member.size;
     const long = Math.max(sx, sy, sz);
 
-    // Balusters are the dark metal infill on a modern railing; the posts and
-    // rails around them stay wood. They share a member kind because they share
-    // a takeoff line, so they are told apart by id.
-    const isBaluster = member.id.includes('-bal-');
-    if (isBaluster) {
+    // Railings take their look from the chosen finish rather than from the
+    // member kind, because a cable rail and a wood rail are the same kind.
+    if (member.kind === 'rail') {
+      if (member.part === 'infill') {
+        const glass = railFin.infill === 'glass';
+        return new THREE.MeshStandardMaterial({
+          color: railFin.infillHex,
+          roughness: railFin.infillRoughness,
+          metalness: railFin.infillMetalness,
+          transparent: glass,
+          opacity: railFin.infillOpacity,
+          side: glass ? THREE.DoubleSide : THREE.FrontSide,
+        });
+      }
+      const hex = member.part === 'hand' ? railFin.handHex : railFin.frameHex;
+      // A wooden frame still wants grain; a powder-coated or vinyl one does not.
+      const woodFrame = railFin.frameMetalness < 0.2 && railFin.frameRoughness > 0.7;
       return new THREE.MeshStandardMaterial({
-        color: '#26292c', roughness: 0.42, metalness: 0.75,
+        color: hex,
+        map: woodFrame ? tiled('rail', seed, Math.max(1, long / 2), 1, hex, 0.85) : undefined,
+        roughness: railFin.frameRoughness,
+        metalness: railFin.frameMetalness,
       });
+    }
+
+    // The walking surface and the stair treads are the finish the customer
+    // picked; everything below them is framing lumber and stays framing lumber.
+    const isSurface = member.kind === 'decking'
+      || (member.kind === 'stair' && !member.id.startsWith('stringer'));
+
+    if (isSurface) {
+      const mat = new THREE.MeshStandardMaterial({
+        map: tiled('decking', seed, Math.max(1, long / 2), 1, deckFin.hex, deckFin.grain),
+        roughnessMap: deckFin.grain > 0.3 ? woodRoughness(seed) : undefined,
+        roughness: deckFin.roughness,
+        metalness: 0,
+      });
+      // Board-to-board variation, scaled by how much the product actually
+      // varies. Sawn cedar is all over the place; a PVC board is not, and
+      // rendering them with the same scatter misrepresents both.
+      mat.color.offsetHSL(0, 0, (seed - 4.5) * 0.014 * deckFin.variation);
+      return mat;
     }
 
     const map = tiled(member.kind, seed, Math.max(1, long / 2), 1);
@@ -148,7 +205,7 @@ function MemberMesh({ member, outlined, realistic }: {
     // same colour, and the eye reads uniformity as fake immediately.
     mat.color.offsetHSL(0, 0, (seed - 4.5) * 0.011);
     return mat;
-  }, [member.kind, member.id, member.size, realistic, seed]);
+  }, [member.kind, member.id, member.part, member.size, realistic, seed, deckFin, railFin]);
 
   return (
     <group position={member.pos} rotation={member.rot ?? [0, 0, 0]}>
@@ -336,6 +393,8 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   }, [realistic]);
 
   const reach = Math.max(model.widthFt, model.depthFt);
+  const deckFin = useMemo(() => deckingFinish(model.deckingFinish), [model.deckingFinish]);
+  const railFin = useMemo(() => railFinish(model.railFinish), [model.railFinish]);
 
   return (
     <>
@@ -392,7 +451,8 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
       {mode !== 'plan' && <House model={model} realistic={realistic} />}
 
       {visible.map(m => (
-        <MemberMesh key={m.id} member={m} outlined={mode !== '3d'} realistic={realistic} />
+        <MemberMesh key={m.id} member={m} outlined={mode !== '3d'} realistic={realistic}
+          deckFin={deckFin} railFin={railFin} />
       ))}
 
       {/* Ground plane, so shadows land on something and height reads correctly. */}
@@ -485,6 +545,7 @@ export default function DeckViewer3D({
   const grab = useRef<(() => string | null) | null>(null);
   const [rendering, setRendering] = useState(false);
   const [shot, setShot] = useState<{ url: string; disclaimer: string } | null>(null);
+  const [style, setStyle] = useState('afternoon');
 
   const photoreal = async () => {
     const frame = grab.current?.();
@@ -501,7 +562,14 @@ export default function DeckViewer3D({
             Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
             apikey: publicAnonKey,
           },
-          body: JSON.stringify({ shot: frame, deck: model }),
+          body: JSON.stringify({
+            shot: frame,
+            deck: model,
+            style,
+            // The renderer is told the actual product names, so a PVC deck does
+            // not come back looking like oiled cedar.
+            finish: finishSummary(model.deckingFinish, model.railFinish),
+          }),
         },
       );
       const json = await res.json();
@@ -547,12 +615,19 @@ export default function DeckViewer3D({
           // they say "photoreal" is an offline path-traced image. This does
           // that pass over whatever is currently on screen, so the angle you
           // set up is the angle you get back.
-          <button onClick={photoreal} disabled={rendering}
-            className="ml-auto flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
-            style={{ background: 'rgba(234,88,12,0.16)', border: '1px solid rgba(234,88,12,0.5)' }}>
-            {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {rendering ? 'Rendering' : 'Photoreal render'}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <select value={style} onChange={e => setStyle(e.target.value)}
+              title={RENDER_STYLES.find(s => s.id === style)?.hint}
+              className="px-2.5 py-2 rounded-xl text-sm bg-[#0A0A0A] border border-[#2A2A2A] text-gray-300 focus:outline-none focus:border-[#ea580c]">
+              {RENDER_STYLES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <button onClick={photoreal} disabled={rendering}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+              style={{ background: 'rgba(234,88,12,0.16)', border: '1px solid rgba(234,88,12,0.5)' }}>
+              {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {rendering ? 'Rendering' : 'Photoreal render'}
+            </button>
+          </div>
         )}
       </div>
       )}

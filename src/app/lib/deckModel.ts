@@ -12,6 +12,8 @@
  * are handled in inches, since 2x8 is a name rather than a measurement.
  */
 
+import { railFinish } from './deckFinishes';
+
 export type LumberSize = '2x6' | '2x8' | '2x10' | '2x12';
 export type PostSize = '4x4' | '6x6';
 export type JoistSpacing = 12 | 16 | 24;
@@ -54,6 +56,24 @@ export interface DeckModel {
   guardrail: boolean;
   stairs: boolean;
   stairWidthFt: number;
+
+  /**
+   * Finish selections, by id from deckFinishes.ts. They carry no structural
+   * meaning — a joist is a joist whatever the boards on top of it cost — but
+   * the railing choice does change the geometry, because cable and glass are
+   * not balusters in a different colour.
+   */
+  deckingFinish: string;
+  railFinish: string;
+
+  /**
+   * A second, graspable rail mounted inboard on the stairs, in addition to the
+   * guard. Off by default and deliberately so: the stair railing is the deck's
+   * railing carried down the flight, and its top rail is the graspable one. An
+   * extra inner rail is something a customer asks for, not something the code
+   * reference makes appear in a drawing they are being sold from.
+   */
+  innerHandrail: boolean;
 }
 
 export const DEFAULT_DECK: DeckModel = {
@@ -72,6 +92,9 @@ export const DEFAULT_DECK: DeckModel = {
   guardrail: true,
   stairs: true,
   stairWidthFt: 4,
+  deckingFinish: 'comp-saddle',
+  railFinish: 'wood-black',
+  innerHandrail: false,
 };
 
 /** A single physical piece of lumber, positioned in world space. */
@@ -96,6 +119,12 @@ export interface Member {
    * edge would show a rail that fails the rule it exists to meet.
    */
   shape?: 'box' | 'round';
+  /**
+   * Which piece of a railing this is. The renderer needs it to apply a finish —
+   * a cable rail is stainless infill in a dark frame, and telling them apart by
+   * picking substrings out of the id worked only until an id changed.
+   */
+  part?: 'frame' | 'infill' | 'hand';
   label?: string;
 }
 
@@ -236,6 +265,9 @@ export function buildMembers(m: DeckModel): Member[] {
   // sphere must not pass through, so with 1.5in stock the centres have to stay
   // under 5.5in. Posts follow the usual 6ft maximum.
   if (m.guardrail) {
+    // What fills the bays comes from the chosen finish, because it is geometry
+    // rather than colour.
+    const infill = railFinish(m.railFinish).infill;
     const railH = IN(36);          // top of rail above the deck surface
     const postSq = IN(3.5);        // 4x4 nominal
     const balSq = IN(1.5);         // 2x2 nominal
@@ -264,7 +296,7 @@ export function buildMembers(m: DeckModel): Member[] {
         const x = from[0] + dx * t;
         const z = from[1] + dz * t;
         out.push({
-          id: `${id}-post-${i}`, kind: 'rail',
+          id: `${id}-post-${i}`, kind: 'rail', part: 'frame',
           pos: [x, deckY + railH / 2, z],
           size: [postSq, railH, postSq],
         });
@@ -277,27 +309,56 @@ export function buildMembers(m: DeckModel): Member[] {
       const cz = (from[1] + to[1]) / 2;
 
       out.push({
-        id: `${id}-top`, kind: 'rail',
+        id: `${id}-top`, kind: 'rail', part: 'frame',
         pos: [cx, deckY + railH - IN(0.75), cz],
         size: [railW, IN(1.5), railD],
       });
       out.push({
-        id: `${id}-bottom`, kind: 'rail',
+        id: `${id}-bottom`, kind: 'rail', part: 'frame',
         pos: [cx, deckY + IN(3.75), cz],
         size: [railW, IN(1.5), railD],
       });
 
-      const balCount = Math.max(1, Math.ceil(along / MAX_BAL_SPACING) - 1);
-      const balH = railH - IN(6);
-      for (let i = 1; i <= balCount; i++) {
-        const t = i / (balCount + 1);
-        const x = from[0] + dx * t;
-        const z = from[1] + dz * t;
+      // What fills the bay. Cable and glass are not balusters in a different
+      // colour — they are different things, and a finish picker that only
+      // recoloured the spindles would be showing the customer a lie.
+      if (infill === 'glass') {
+        const glassH = railH - IN(9);
         out.push({
-          id: `${id}-bal-${i}`, kind: 'rail',
-          pos: [x, deckY + IN(4.5) + balH / 2, z],
-          size: [balSq, balH, balSq],
+          id: `${id}-glass`, kind: 'rail', part: 'infill',
+          pos: [cx, deckY + IN(4.5) + glassH / 2, cz],
+          size: [horizontal ? along - IN(4) : IN(0.5), glassH, horizontal ? IN(0.5) : along - IN(4)],
         });
+      } else if (infill === 'cable') {
+        // Horizontal runs, spaced under 3in so the 4in sphere still fails to
+        // pass — cable spacing is tighter than baluster spacing because the
+        // cables deflect when someone leans on them.
+        const cableGap = IN(3);
+        const cables = Math.max(2, Math.floor((railH - IN(9)) / cableGap));
+        for (let i = 0; i < cables; i++) {
+          const y = deckY + IN(5) + i * cableGap;
+          out.push({
+            id: `${id}-cable-${i}`, kind: 'rail', part: 'infill', shape: 'round',
+            pos: [cx, y, cz],
+            size: [IN(0.3), IN(0.3), along],
+            // A cylinder lies along its local Y, so a horizontal run needs a
+            // quarter turn — about Z when it runs in x, about X when in z.
+            rot: horizontal ? [0, 0, Math.PI / 2] : [Math.PI / 2, 0, 0],
+          });
+        }
+      } else {
+        const balCount = Math.max(1, Math.ceil(along / MAX_BAL_SPACING) - 1);
+        const balH = railH - IN(6);
+        for (let i = 1; i <= balCount; i++) {
+          const t = i / (balCount + 1);
+          const x = from[0] + dx * t;
+          const z = from[1] + dz * t;
+          out.push({
+            id: `${id}-bal-${i}`, kind: 'rail', part: 'infill',
+            pos: [x, deckY + IN(4.5) + balH / 2, z],
+            size: [balSq, balH, balSq],
+          });
+        }
       }
     };
 
@@ -361,10 +422,15 @@ export function buildMembers(m: DeckModel): Member[] {
       });
     });
 
-    // A rail down each open side of the flight, following the pitch. Both sides
-    // are open here: the right one is the deck's outside edge, the left one is
-    // the gap the guardrail was broken to make.
+    // The deck's railing, carried down each open side of the flight on the
+    // stair pitch. It is deliberately the same system as the guard on the deck
+    // — same posts, same infill, same finish — because that is what gets built
+    // and what the customer is looking at. Its top rail is the one you hold.
+    //
+    // Both sides are open: the right one is the deck's outside edge, the left
+    // one is the gap the guardrail was broken to make.
     if (m.guardrail) {
+      const rf = railFinish(m.railFinish);
       const railH = IN(36);
       const postSq = IN(3.5);
       const balSq = IN(1.5);
@@ -372,75 +438,83 @@ export function buildMembers(m: DeckModel): Member[] {
       [stairLeftX + IN(1.75), stairRightX - IN(1.75)].forEach((x, side) => {
         // Newel at the bottom, standing on the landing.
         out.push({
-          id: `stair-newel-${side}`,
-          kind: 'rail',
+          id: `stair-newel-${side}`, kind: 'rail', part: 'frame',
           pos: [x, m.heightFt - totalRise + railH / 2, m.depthFt + totalRun - IN(2)],
           size: [postSq, railH, postSq],
         });
 
-        // Top and bottom rails on the rake. Measured off the nosing line, which
-        // is what the 34–38in handrail height is measured from.
-        // Guard top at 38in so the graspable handrail, which the code puts at
-        // 34in to 38in, sits below it rather than poking through.
-        [[IN(38), 'top'], [IN(4), 'bot']].forEach(([up, tag]) => {
+        // Top and bottom rails on the rake, measured off the nosing line —
+        // which is what the 34in to 38in graspable height is measured from, so
+        // the top rail lands at 36in and satisfies it directly.
+        [[IN(36), 'top'], [IN(4), 'bot']].forEach(([up, tag]) => {
           out.push({
-            id: `stair-rail-${side}-${tag}`,
-            kind: 'rail',
+            id: `stair-rail-${side}-${tag}`, kind: 'rail', part: 'frame',
+            // The top rail is the graspable one, so it takes a round profile
+            // rather than a flat cap you cannot close a hand around.
+            shape: tag === 'top' ? 'round' : 'box',
             pos: [x, m.heightFt - totalRise / 2 + (up as number), m.depthFt + totalRun / 2],
-            size: [IN(1.5), IN(1.5), rakeLen],
+            size: [IN(1.75), IN(1.75), rakeLen],
+            rot: tag === 'top' ? [pitch + Math.PI / 2, 0, 0] : [pitch, 0, 0],
+          });
+        });
+
+        // Infill on the rake, matching whatever the deck railing uses.
+        if (rf.infill === 'glass') {
+          const glassH = railH - IN(9);
+          out.push({
+            id: `stair-glass-${side}`, kind: 'rail', part: 'infill',
+            pos: [x, m.heightFt - totalRise / 2 + IN(4.5) + glassH / 2, m.depthFt + totalRun / 2],
+            size: [IN(0.5), glassH, rakeLen],
             rot: [pitch, 0, 0],
           });
-        });
+        } else if (rf.infill === 'cable') {
+          const cableGap = IN(3);
+          const cables = Math.max(2, Math.floor((railH - IN(9)) / cableGap));
+          for (let i = 0; i < cables; i++) {
+            out.push({
+              id: `stair-cable-${side}-${i}`, kind: 'rail', part: 'infill', shape: 'round',
+              pos: [x, m.heightFt - totalRise / 2 + IN(5) + i * cableGap, m.depthFt + totalRun / 2],
+              size: [IN(0.3), IN(0.3), rakeLen],
+              rot: [pitch + Math.PI / 2, 0, 0],
+            });
+          }
+        } else {
+          // Balusters stay vertical rather than raked — they hang between the
+          // two rails, and the 4in sphere rule applies along the slope.
+          const balCount = Math.max(1, Math.ceil(rakeLen / IN(5.5)) - 1);
+          for (let i = 1; i <= balCount; i++) {
+            const t = i / (balCount + 1);
+            out.push({
+              id: `stair-bal-${side}-${i}`, kind: 'rail', part: 'infill',
+              pos: [x, m.heightFt - totalRise * t + IN(19), m.depthFt + totalRun * t],
+              size: [balSq, railH - IN(8), balSq],
+            });
+          }
+        }
 
-        // The graspable handrail. This is a different thing from the guard
-        // above: the guard stops you falling off the side, the handrail is the
-        // one you hold, and R311.7.8 requires it on any flight of four or more
-        // risers. It is mounted inboard on brackets so there is knuckle room
-        // behind it, and it runs the height range the code gives — 34in to 38in
-        // above the line of the nosings.
-        const handY = m.heightFt - totalRise / 2 + IN(34);
-        const inboard = side === 0 ? IN(2.5) : -IN(2.5);
-        out.push({
-          id: `stair-handrail-${side}`,
-          kind: 'rail',
-          shape: 'round',
-          pos: [x + inboard, handY, m.depthFt + totalRun / 2],
-          // Diameter, diameter, length — a 1.5in round, mid-range for grip.
-          size: [IN(1.5), IN(1.5), rakeLen],
-          // A cylinder's axis is its local Y, so it needs the extra quarter
-          // turn the raking boxes do not.
-          rot: [pitch + Math.PI / 2, 0, 0],
-        });
-
-        // Brackets holding it off the posts.
-        [0.2, 0.5, 0.8].forEach((t, b) => {
+        // A second graspable rail inboard, only when it has been asked for.
+        // Off by default: the railing above already is the handrail, and adding
+        // this automatically put a rail in the drawing that nobody ordered.
+        if (m.innerHandrail) {
+          const inboard = side === 0 ? IN(3) : -IN(3);
           out.push({
-            id: `stair-hb-${side}-${b}`,
-            kind: 'rail',
-            // The handrail sits a fixed 36in above the nosing line, so a
-            // bracket at fraction t along the flight sits at that same offset
-            // above the nosing directly below it.
-            pos: [
-              x + inboard / 2,
-              m.heightFt - totalRise * t + IN(34),
-              m.depthFt + totalRun * t,
-            ],
-            size: [Math.abs(inboard), IN(1.25), IN(1.25)],
+            id: `stair-handrail-${side}`, kind: 'rail', part: 'hand', shape: 'round',
+            pos: [x + inboard, m.heightFt - totalRise / 2 + IN(34), m.depthFt + totalRun / 2],
+            size: [IN(1.5), IN(1.5), rakeLen],
+            rot: [pitch + Math.PI / 2, 0, 0],
           });
-        });
-
-        // Balusters, vertical rather than raked — they hang between the two
-        // rails, and the 4in sphere rule applies along the slope.
-        const balCount = Math.max(1, Math.ceil(rakeLen / IN(5.5)) - 1);
-        for (let i = 1; i <= balCount; i++) {
-          const t = i / (balCount + 1);
-          const y = m.heightFt - totalRise * t;
-          const z = m.depthFt + totalRun * t;
-          out.push({
-            id: `stair-bal-${side}-${i}`,
-            kind: 'rail',
-            pos: [x, y + IN(19), z],
-            size: [balSq, railH - IN(8), balSq],
+          // Brackets holding it off the posts, at the same 34in above the
+          // nosing directly below each one.
+          [0.2, 0.5, 0.8].forEach((t, b) => {
+            out.push({
+              id: `stair-hb-${side}-${b}`, kind: 'rail', part: 'hand',
+              pos: [
+                x + inboard / 2,
+                m.heightFt - totalRise * t + IN(34),
+                m.depthFt + totalRun * t,
+              ],
+              size: [Math.abs(inboard), IN(1.25), IN(1.25)],
+            });
           });
         }
       });
