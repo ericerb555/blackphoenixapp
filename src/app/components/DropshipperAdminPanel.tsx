@@ -3,7 +3,7 @@
  * Enterprise-grade dropshipper integration with AI-powered features
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect , RotateCcw } from 'react';
 import { 
   Package, Settings, RefreshCw, AlertCircle, CheckCircle, Clock,
   TrendingUp, Box, Truck, Activity, Eye, EyeOff, Plus, Trash2, Edit,
@@ -17,6 +17,7 @@ import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
 import { StandardButton } from './ui/button/StandardButton';
 import ProductCatalogBrowser from './ProductCatalogBrowser';
 import ProductCatalogAdmin from '../pages/ProductCatalogAdmin';
+import ReturnsAdmin from './ReturnsAdmin';
 
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -48,7 +49,7 @@ interface DropshipperConfig {
   lastSync?: string;
 }
 
-export type StoreTab = 'overview' | 'providers' | 'catalog' | 'pricing' | 'inventory' | 'orders' | 'errors';
+export type StoreTab = 'overview' | 'providers' | 'catalog' | 'pricing' | 'inventory' | 'orders' | 'returns' | 'errors';
 
 export default function DropshipperAdminPanel({
   embedded = false,
@@ -218,6 +219,7 @@ export default function DropshipperAdminPanel({
       {tab === 'pricing' && <ProductCatalogAdmin />}
       {tab === 'inventory' && <InventoryTab />}
       {tab === 'orders' && <OrdersTab />}
+      {tab === 'returns' && <ReturnsAdmin />}
       {tab === 'errors' && <ErrorsTab />}
     </>
   );
@@ -351,6 +353,7 @@ export default function DropshipperAdminPanel({
           { id: 'pricing', label: 'Pricing', icon: DollarSign },
           { id: 'inventory', label: 'Inventory', icon: Package },
           { id: 'orders', label: 'Orders', icon: ShoppingCart },
+          { id: 'returns', label: 'Returns', icon: RotateCcw },
           { id: 'errors', label: 'Error Logs', icon: AlertCircle },
         ].map((tab) => {
           const Icon = tab.icon;

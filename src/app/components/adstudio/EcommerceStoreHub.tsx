@@ -16,7 +16,7 @@
  * Pilot, the public storefront, the Content Center, etc.) can still be opened in
  * full via `onNavigate`, surfaced under "Open full pages" at the bottom of the rail.
  */
-import { useState } from 'react';
+import { useState , RotateCcw } from 'react';
 import {
   Store, ShoppingBag, ShoppingCart, Box, Link2, DollarSign, Package,
   AlertCircle, Activity, Rocket, Zap, Bot, RefreshCw, Star, Tag,
@@ -81,6 +81,7 @@ const GROUPS: Group[] = [
     icon: Tag,
     sections: [
       { id: 'pricing', name: 'Store Pricing', desc: 'Product pricing & markup rules', icon: DollarSign, storeTab: 'pricing' },
+      { id: 'returns', name: 'Returns', desc: 'Refunds, store credit & the review queue', icon: RotateCcw, badge: 'NEW', storeTab: 'returns' },
       { id: 'store-boosters', name: 'Store Boosters', desc: 'AOV-boosting merchandising', icon: Zap, render: () => <StoreBoostersManager /> },
       { id: 'promotions-engine', name: 'Promotions Engine', desc: 'Scheduled discounts & volume pricing', icon: Tag, render: () => <PromotionsEngineManager /> },
     ],
