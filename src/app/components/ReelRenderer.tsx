@@ -1,22 +1,20 @@
 /**
- * ReelRenderer — turns a storyboard into a video file you can post.
+ * ReelRenderer — turns a storyboard into a video worth posting.
  *
- * The Content Studio writes the script and /content-studio/reel/storyboard
+ * The Content Studio writes the script; /content-studio/reel/storyboard
  * resolves every beat into a picture, a caption and a narration track. This is
- * the last step: draw those beats to a canvas, record the canvas, and hand back
- * a WebM.
+ * the last stage: draw those beats and record them.
  *
- * Why a purpose-built renderer rather than the existing photo-to-video exporter:
- * a reel is vertical, its captions are burned in because most viewers watch
- * muted, and its audio is per-beat narration rather than one music bed. Those
- * are different enough that reusing the slideshow exporter would mean bending
- * it out of shape.
+ * Everything happens in the browser — no frames uploaded, no render service.
  *
- * Everything happens in the browser. No frames are uploaded, and no render
- * service is involved.
+ * The choices here are what separate a reel from a slideshow with words on it:
+ * captions land word by word in time with the narration, stills drift rather
+ * than sit, and beats cross-dissolve instead of blinking through black. Those
+ * are the tells a viewer reads as "made" versus "generated", and they cost
+ * almost nothing to get right.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Loader2, Play, Square, AlertTriangle, Film } from 'lucide-react';
+import { Download, Loader2, Square, AlertTriangle, Film, Settings2 } from 'lucide-react';
 
 export interface ReelSlide {
   id: string;
@@ -41,22 +39,29 @@ export interface ReelStoryboard {
 }
 
 const FPS = 30;
+const DISSOLVE = 0.4; // seconds of overlap between beats
 
 /**
- * Pick the best container the browser will actually record.
- *
- * Chrome and Firefox differ on codec support, and MediaRecorder throws rather
- * than degrading when handed a type it does not know. Ask before committing.
+ * Vertical video's usable area. TikTok, Reels and Shorts all lay their own
+ * controls over the frame; text outside this band gets covered by a caption
+ * field, a follow button or a progress bar depending on the app.
  */
-function pickMimeType(): string | null {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
+const SAFE_TOP = 0.14;
+const SAFE_BOTTOM = 0.78;
+
+function pickMimeType(): { mimeType: string; ext: string } | null {
+  // VP9 first: markedly better detail per bit than VP8 at the bitrates a reel
+  // needs, and text edges are exactly where weak compression shows.
+  const candidates: Array<[string, string]> = [
+    ['video/webm;codecs=vp9,opus', 'webm'],
+    ['video/webm;codecs=vp8,opus', 'webm'],
+    ['video/mp4;codecs=h264,aac', 'mp4'],
+    ['video/webm', 'webm'],
   ];
-  for (const t of candidates) {
-    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
+  for (const [mimeType, ext] of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mimeType)) {
+      return { mimeType, ext };
+    }
   }
   return null;
 }
@@ -64,79 +69,168 @@ function pickMimeType(): string | null {
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    // Required for the canvas to stay untainted. The storyboard re-hosts
-    // supplier images onto our own storage precisely so this succeeds.
+    // The storyboard re-hosts supplier images onto our own storage so this
+    // succeeds; without it the canvas is tainted and captureStream throws.
     img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`Could not load image: ${url.slice(0, 80)}`));
     img.src = url;
   });
 }
 
-/** Cover-fit: fill the frame without distorting the photograph. */
-function drawCover(
+/** Ease-in-out — linear motion is the thing that reads as "computer did this". */
+const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+/**
+ * Cover-fit with a slow drift. Real Ken Burns moves the frame as well as
+ * scaling it; zoom alone looks like a stuck lens. The pan direction is derived
+ * from the slide index so consecutive beats never drift the same way.
+ */
+function drawKenBurns(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   w: number,
   h: number,
-  scale: number,
+  progress: number,
+  index: number,
+  zoomIn: boolean,
 ) {
+  const t = ease(Math.max(0, Math.min(1, progress)));
+  const zoom = zoomIn ? 1.04 + 0.10 * t : 1.14 - 0.10 * t;
+
   const ar = img.width / img.height;
   const target = w / h;
   let dw = ar > target ? h * ar : w;
   let dh = ar > target ? h : w / ar;
-  dw *= scale;
-  dh *= scale;
-  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  dw *= zoom;
+  dh *= zoom;
+
+  // Only pan as far as the overflow allows, so the frame never shows an edge.
+  const slackX = Math.max(0, dw - w) / 2;
+  const slackY = Math.max(0, dh - h) / 2;
+  const dirX = [1, -1, 1, -1][index % 4];
+  const dirY = [1, 1, -1, -1][index % 4];
+  const panX = dirX * slackX * 0.5 * (t - 0.5) * 2;
+  const panY = dirY * slackY * 0.3 * (t - 0.5) * 2;
+
+  ctx.drawImage(img, (w - dw) / 2 + panX, (h - dh) / 2 + panY, dw, dh);
 }
 
 /**
- * Caption styling is the difference between a reel and a slideshow with words
- * on it. Heavy weight, tight leading, a scrim behind the text so it stays
- * readable over a busy photograph, and generous bottom margin to clear the
- * platform's own UI.
+ * A vignette and a slight lift in contrast. Supplier photography is shot on
+ * many different days under many different lights; a shared grade is what makes
+ * six of them read as one video rather than six pictures in a row.
  */
-function drawCaption(ctx: CanvasRenderingContext2D, text: string, w: number, h: number) {
-  if (!text.trim()) return;
+function grade(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const g = ctx.createRadialGradient(w / 2, h * 0.45, h * 0.22, w / 2, h * 0.5, h * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+}
 
-  const fontSize = Math.round(w * 0.072);
-  const lineHeight = fontSize * 1.16;
-  ctx.font = `800 ${fontSize}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+interface Word { text: string; at: number }
+
+/** Spread a caption's words across the beat so they can land in time. */
+function timeWords(caption: string, duration: number): Word[] {
+  const words = caption.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  // Land them across the first 55% of the beat: the line needs to be complete
+  // and readable well before the picture changes.
+  const window = duration * 0.55;
+  const per = window / words.length;
+  return words.map((text, i) => ({ text, at: i * per }));
+}
+
+/**
+ * Burned captions, revealed word by word.
+ *
+ * This is the loudest signal that a reel was made rather than assembled. Words
+ * appearing in time with the voice hold attention through the first seconds,
+ * which is the whole game — and most viewers watch muted, so the words are also
+ * the only script they get.
+ */
+function drawCaption(
+  ctx: CanvasRenderingContext2D,
+  words: Word[],
+  elapsed: number,
+  w: number,
+  h: number,
+) {
+  if (!words.length) return;
+
+  const fontSize = Math.round(w * 0.075);
+  const lineHeight = fontSize * 1.14;
+  const font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  const maxWidth = w * 0.86;
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let line = '';
+  const visible = words.filter((word) => elapsed >= word.at);
+  if (!visible.length) return;
+
+  // Wrap on the full caption, not the visible part, so the block does not
+  // reflow as words arrive — a line jumping mid-reveal looks broken.
+  const maxWidth = w * 0.84;
+  const lines: Word[][] = [];
+  let line: Word[] = [];
   for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
+    const test = [...line, word].map((x) => x.text).join(' ');
+    if (ctx.measureText(test).width > maxWidth && line.length) {
       lines.push(line);
-      line = word;
+      line = [word];
     } else {
-      line = test;
+      line.push(word);
     }
   }
-  if (line) lines.push(line);
+  if (line.length) lines.push(line);
 
-  // Sit above the platform's own controls rather than under them.
   const blockH = lines.length * lineHeight;
-  const bottom = h * 0.82;
+  const bottom = h * SAFE_BOTTOM;
   const top = bottom - blockH;
 
-  const pad = fontSize * 0.5;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, top - pad, w, blockH + pad * 2);
+  lines.forEach((lineWords, li) => {
+    const shown = lineWords.filter((word) => elapsed >= word.at);
+    if (!shown.length) return;
 
-  lines.forEach((l, i) => {
-    const y = top + lineHeight * i + lineHeight / 2;
-    ctx.lineWidth = Math.max(4, fontSize * 0.13);
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.lineJoin = 'round';
-    ctx.strokeText(l, w / 2, y);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(l, w / 2, y);
+    const y = top + lineHeight * li + lineHeight / 2;
+    const full = lineWords.map((x) => x.text).join(' ');
+    const startX = w / 2 - ctx.measureText(full).width / 2;
+
+    let x = startX;
+    for (const word of lineWords) {
+      const wordW = ctx.measureText(`${word.text} `).width;
+      if (elapsed < word.at) { x += wordW; continue; }
+
+      // A brief scale-up as each word lands, then settle.
+      const age = elapsed - word.at;
+      const pop = age < 0.16 ? 1 + 0.22 * (1 - age / 0.16) : 1;
+      const cx = x + ctx.measureText(word.text).width / 2;
+
+      ctx.save();
+      ctx.translate(cx, y);
+      ctx.scale(pop, pop);
+
+      // Outline rather than a box: it keeps the words legible over any
+      // photograph without hiding the product behind a slab.
+      ctx.lineWidth = Math.max(6, fontSize * 0.16);
+      ctx.strokeStyle = 'rgba(0,0,0,0.92)';
+      ctx.lineJoin = 'round';
+      ctx.miterLimit = 2;
+      ctx.font = font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText(word.text, 0, 0);
+
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = fontSize * 0.22;
+      ctx.fillStyle = age < 0.16 ? '#ffe9c7' : '#ffffff';
+      ctx.fillText(word.text, 0, 0);
+      ctx.restore();
+
+      x += wordW;
+    }
   });
 }
 
@@ -153,6 +247,8 @@ export default function ReelRenderer({
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [ext, setExt] = useState('webm');
+  const [quality, setQuality] = useState<'high' | 'max'>('high');
 
   const { width, height, slides } = storyboard;
   const renderable = slides.filter((s) => s.url);
@@ -164,12 +260,13 @@ export default function ReelRenderer({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const mimeType = pickMimeType();
-    if (!mimeType) {
+    const codec = pickMimeType();
+    if (!codec) {
       setError('This browser cannot record video. Chrome or Firefox will work.');
       setStatus('error');
       return;
     }
+    setExt(codec.ext);
 
     cancelRef.current = false;
     setError(null);
@@ -177,51 +274,73 @@ export default function ReelRenderer({
     setStatus('loading');
     setProgress(0);
 
-    try {
-      // Load every image up front. Decoding mid-record drops frames, and a
-      // missing image should stop us before recording rather than halfway in.
-      const images = await Promise.all(renderable.map((s) => loadImage(s.url)));
+    let audioCtx: AudioContext | null = null;
 
-      const ctx = canvas.getContext('2d');
+    try {
+      // Decode everything before recording. Decoding mid-record drops frames,
+      // and a missing image should stop the run before recording rather than
+      // halfway through.
+      const images = await Promise.all(renderable.map((s) => loadImage(s.url)));
+      const captions = renderable.map((s) => timeWords(s.caption, s.duration));
+
+      const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) throw new Error('Could not get a 2D canvas context.');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       const stream = canvas.captureStream(FPS);
 
-      // Mix the per-beat narration into one track. Web Audio lets several
-      // clips share a destination, which MediaRecorder can then record
-      // alongside the video.
-      const audioSlides = renderable.filter((s) => s.audioUrl);
-      let audioCtx: AudioContext | null = null;
-      const sources: { node: AudioBufferSourceNode; at: number }[] = [];
+      // Narration is one mixed track scheduled against the beat timings, so
+      // each voice clip stays with the picture it belongs to.
+      const starts: number[] = [];
+      let clock = 0;
+      for (const s of renderable) { starts.push(clock); clock += s.duration; }
 
-      if (audioSlides.length) {
+      const scheduled: { node: AudioBufferSourceNode; at: number }[] = [];
+      if (renderable.some((s) => s.audioUrl)) {
         audioCtx = new AudioContext();
         const dest = audioCtx.createMediaStreamDestination();
-        let clock = 0;
-        for (const s of renderable) {
-          if (s.audioUrl) {
-            try {
-              const buf = await fetch(s.audioUrl).then((r) => r.arrayBuffer());
-              const decoded = await audioCtx.decodeAudioData(buf);
-              const node = audioCtx.createBufferSource();
-              node.buffer = decoded;
-              node.connect(dest);
-              sources.push({ node, at: clock });
-            } catch {
-              // A beat without narration is still a beat — keep its picture.
-            }
+
+        // TTS clips come back at inconsistent levels. A compressor keeps the
+        // quiet ones audible over a phone speaker without the loud ones
+        // clipping, which is the difference between "narrated" and "amateur".
+        const comp = audioCtx.createDynamicsCompressor();
+        comp.threshold.value = -20;
+        comp.ratio.value = 4;
+        comp.attack.value = 0.004;
+        comp.release.value = 0.2;
+        const gain = audioCtx.createGain();
+        gain.gain.value = 1.25;
+        comp.connect(gain).connect(dest);
+
+        for (let i = 0; i < renderable.length; i++) {
+          const s = renderable[i];
+          if (!s.audioUrl) continue;
+          try {
+            const buf = await fetch(s.audioUrl).then((r) => r.arrayBuffer());
+            const decoded = await audioCtx.decodeAudioData(buf);
+            const node = audioCtx.createBufferSource();
+            node.buffer = decoded;
+            node.connect(comp);
+            scheduled.push({ node, at: starts[i] });
+          } catch {
+            // A beat without narration is still a beat — keep its picture.
           }
-          clock += s.duration;
         }
         dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
       }
 
       const chunks: BlobPart[] = [];
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+      const recorder = new MediaRecorder(stream, {
+        mimeType: codec.mimeType,
+        // Vertical 1080 with moving text needs real headroom; text edges are
+        // the first thing to smear when the encoder is starved.
+        videoBitsPerSecond: quality === 'max' ? 16_000_000 : 10_000_000,
+        audioBitsPerSecond: 192_000,
+      });
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-
       const finished = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: codec.mimeType }));
       });
 
       setStatus('rendering');
@@ -229,51 +348,62 @@ export default function ReelRenderer({
 
       const startedAt = performance.now();
       if (audioCtx) {
-        const base = audioCtx.currentTime + 0.08;
-        for (const s of sources) s.node.start(base + s.at);
+        // A beat of lead-in so the first word is not clipped by the recorder
+        // still spinning up.
+        const base = audioCtx.currentTime + 0.12;
+        for (const s of scheduled) s.node.start(base + s.at);
       }
 
-      const totalMs = renderable.reduce((n, s) => n + s.duration, 0) * 1000;
+      const totalMs = clock * 1000;
+      let lastDrawn = -1;
 
-      // Drive frames from the wall clock rather than a frame counter, so the
-      // video stays in step with the audio even if a frame is slow to draw.
       await new Promise<void>((resolve) => {
         const frame = () => {
           if (cancelRef.current) { resolve(); return; }
 
+          // Wall clock, not a frame counter — the audio is running on its own
+          // clock and the picture has to follow it, not the other way round.
           const elapsed = performance.now() - startedAt;
           if (elapsed >= totalMs) { resolve(); return; }
 
-          let acc = 0;
-          let index = 0;
+          // Displays run at 60 or 120Hz; drawing more often than the recorder
+          // samples just burns CPU and risks dropping real frames.
+          const slot = Math.floor((elapsed / 1000) * FPS);
+          if (slot === lastDrawn) { requestAnimationFrame(frame); return; }
+          lastDrawn = slot;
+
+          const now = elapsed / 1000;
+          let index = renderable.length - 1;
           for (let i = 0; i < renderable.length; i++) {
-            const ms = renderable[i].duration * 1000;
-            if (elapsed < acc + ms) { index = i; break; }
-            acc += ms;
-            index = i;
+            if (now < starts[i] + renderable[i].duration) { index = i; break; }
           }
 
           const slide = renderable[index];
-          const img = images[index];
-          const local = (elapsed - acc) / (slide.duration * 1000);
+          const local = now - starts[index];
+          const p = local / slide.duration;
 
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, width, height);
 
-          // Slow push in or out — a still with no motion reads as a slideshow.
-          const zoom = slide.effect === 'ken-burns-out'
-            ? 1.08 - 0.08 * local
-            : 1.0 + 0.08 * local;
-          drawCover(ctx, img, width, height, zoom);
+          drawKenBurns(ctx, images[index], width, height, p, index, slide.effect !== 'ken-burns-out');
 
-          // Cross-fade by dipping to black at the boundary: cheap, and it reads
-          // as a deliberate cut rather than a glitch.
-          if (slide.transition === 'fade' && local < 0.12) {
-            ctx.fillStyle = `rgba(0,0,0,${(1 - local / 0.12) * 0.85})`;
-            ctx.fillRect(0, 0, width, height);
+          // A true cross-dissolve into the next beat. Dipping through black
+          // reads as a fault; two pictures overlapping reads as an edit.
+          const remaining = slide.duration - local;
+          const next = renderable[index + 1];
+          if (next && remaining < DISSOLVE) {
+            const alpha = 1 - remaining / DISSOLVE;
+            ctx.save();
+            ctx.globalAlpha = ease(alpha);
+            drawKenBurns(
+              ctx, images[index + 1], width, height,
+              0, index + 1, next.effect !== 'ken-burns-out',
+            );
+            ctx.restore();
           }
 
-          drawCaption(ctx, slide.caption, width, height);
+          grade(ctx, width, height);
+          drawCaption(ctx, captions[index], local, width, height);
 
           setProgress(Math.min(99, Math.round((elapsed / totalMs) * 100)));
           requestAnimationFrame(frame);
@@ -283,7 +413,6 @@ export default function ReelRenderer({
 
       recorder.stop();
       const blob = await finished;
-      if (audioCtx) await audioCtx.close().catch(() => {});
 
       setVideoUrl(URL.createObjectURL(blob));
       setProgress(100);
@@ -292,10 +421,15 @@ export default function ReelRenderer({
       console.error('[ReelRenderer]', err);
       setError(err?.message || 'Rendering failed.');
       setStatus('error');
+    } finally {
+      // Always tear the audio graph down — an AudioContext left open holds the
+      // device's audio hardware awake for the life of the tab.
+      if (audioCtx) await audioCtx.close().catch(() => {});
     }
-  }, [renderable, width, height]);
+  }, [renderable, width, height, quality]);
 
   const busy = status === 'loading' || status === 'rendering';
+  const seconds = Math.round(renderable.reduce((n, s) => n + s.duration, 0));
 
   return (
     <div className="space-y-4">
@@ -310,17 +444,33 @@ export default function ReelRenderer({
           {busy ? 'Stop' : 'Render reel'}
         </button>
 
+        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+          <Settings2 className="w-3.5 h-3.5" />
+          {(['high', 'max'] as const).map((q) => (
+            <button
+              key={q}
+              onClick={() => setQuality(q)}
+              disabled={busy}
+              className={`px-2.5 py-1 rounded-lg font-semibold transition disabled:opacity-40 ${
+                quality === q ? 'bg-[#ea580c] text-white' : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400'
+              }`}
+            >
+              {q === 'high' ? '10 Mbps' : '16 Mbps'}
+            </button>
+          ))}
+        </div>
+
         {busy && (
           <span className="flex items-center gap-2 text-sm text-gray-400">
             <Loader2 className="w-4 h-4 animate-spin" />
-            {status === 'loading' ? 'Loading media…' : `Recording ${progress}%`}
+            {status === 'loading' ? 'Decoding media…' : `Recording ${progress}%`}
           </span>
         )}
 
         {videoUrl && (
           <a
             href={videoUrl}
-            download={`${filename}.webm`}
+            download={`${filename}.${ext}`}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
             style={{ background: 'rgba(22,163,74,0.9)' }}
           >
@@ -328,6 +478,13 @@ export default function ReelRenderer({
           </a>
         )}
       </div>
+
+      {busy && status === 'rendering' && (
+        <p className="text-xs text-gray-500">
+          Recording happens in real time — {seconds}s of video takes about {seconds}s. Keep this
+          tab in front; browsers throttle background tabs and that would drop frames.
+        </p>
+      )}
 
       {skipped > 0 && (
         <p className="flex items-start gap-2 text-sm text-yellow-400">
@@ -343,30 +500,33 @@ export default function ReelRenderer({
         </p>
       )}
 
-      {/* The canvas is the recording surface, shown at a fraction of its real
-          size so a 1080x1920 frame fits on screen. */}
       <div className="flex gap-4 flex-wrap">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          className="rounded-xl border border-[#2A2A2A] bg-black"
-          style={{ width: 216, height: 384 }}
-        />
-        {videoUrl && (
-          <video
-            src={videoUrl}
-            controls
-            playsInline
+        <div>
+          <canvas
+            ref={canvasRef}
+            width={width}
+            height={height}
             className="rounded-xl border border-[#2A2A2A] bg-black"
             style={{ width: 216, height: 384 }}
           />
+          <p className="text-[10px] text-gray-600 mt-1 text-center">recording surface</p>
+        </div>
+        {videoUrl && (
+          <div>
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              className="rounded-xl border border-[#2A2A2A] bg-black"
+              style={{ width: 216, height: 384 }}
+            />
+            <p className="text-[10px] text-gray-600 mt-1 text-center">result</p>
+          </div>
         )}
       </div>
 
       <p className="text-xs text-gray-500">
-        {renderable.length} beat{renderable.length === 1 ? '' : 's'} ·{' '}
-        {Math.round(renderable.reduce((n, s) => n + s.duration, 0))}s · {width}×{height} ·
+        {renderable.length} beat{renderable.length === 1 ? '' : 's'} · {seconds}s · {width}×{height} ·
         rendered in your browser, nothing uploaded.
       </p>
     </div>
