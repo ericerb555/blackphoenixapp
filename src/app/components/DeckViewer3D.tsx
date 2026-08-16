@@ -26,7 +26,10 @@ import { Suspense, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, Lightformer, Line, Sky, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
-import { Box, Layers, Ruler, Hammer } from 'lucide-react';
+import { Box, Layers, Ruler, Hammer, Sparkles, Loader2, Download, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 import {
   buildMembers, MEMBER_COLOR, STRUCTURAL_KINDS,
   type DeckModel, type Member,
@@ -91,7 +94,15 @@ function tiled(kind: string, seed: number, rx: number, ry: number): THREE.Textur
 function MemberMesh({ member, outlined, realistic }: {
   member: Member; outlined: boolean; realistic: boolean;
 }) {
-  const geo = useMemo(() => new THREE.BoxGeometry(...member.size), [member.size]);
+  const geo = useMemo(() => {
+    if (member.shape === 'round') {
+      // size is [diameter, diameter, length]; a cylinder's axis is its local Y,
+      // which is why the raking handrail carries the extra quarter turn.
+      const r = member.size[0] / 2;
+      return new THREE.CylinderGeometry(r, r, member.size[2], 16);
+    }
+    return new THREE.BoxGeometry(...member.size);
+  }, [member.size, member.shape]);
   const edges = useMemo(() => (outlined ? new THREE.EdgesGeometry(geo) : null), [geo, outlined]);
 
   // Stable per-member seed, so a board keeps its grain and its tone as the
@@ -140,7 +151,7 @@ function MemberMesh({ member, outlined, realistic }: {
   }, [member.kind, member.id, member.size, realistic, seed]);
 
   return (
-    <group position={member.pos}>
+    <group position={member.pos} rotation={member.rot ?? [0, 0, 0]}>
       <mesh geometry={geo} material={material} castShadow receiveShadow />
       {edges && (
         <lineSegments geometry={edges}>
@@ -469,6 +480,40 @@ export default function DeckViewer3D({
   const mode = controlledMode ?? internal;
   const setMode = onModeChange ?? setInternal;
 
+  // Kept alongside whatever the parent asked for, so the photoreal button can
+  // grab a frame without the caller having to wire a capture through.
+  const grab = useRef<(() => string | null) | null>(null);
+  const [rendering, setRendering] = useState(false);
+  const [shot, setShot] = useState<{ url: string; disclaimer: string } | null>(null);
+
+  const photoreal = async () => {
+    const frame = grab.current?.();
+    if (!frame) { toast.error('Could not read the 3D view.'); return; }
+    setRendering(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/house-capture/photoreal`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+            apikey: publicAnonKey,
+          },
+          body: JSON.stringify({ shot: frame, deck: model }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `Render failed (${res.status}).`);
+      setShot({ url: json.url, disclaimer: json.disclaimer });
+    } catch (err: any) {
+      toast.error(err?.message || 'The render failed.');
+    } finally {
+      setRendering(false);
+    }
+  };
+
   const TABS: { id: ViewMode; label: string; icon: any; hint: string }[] = [
     { id: '3d', label: '3D', icon: Box, hint: 'How it will look' },
     { id: 'framing', label: 'Framing', icon: Layers, hint: 'Structure only — decking hidden' },
@@ -497,6 +542,18 @@ export default function DeckViewer3D({
         <span className="text-xs text-gray-500 ml-1">
           {TABS.find(t => t.id === mode)?.hint} · drag to orbit, scroll to zoom
         </span>
+        {mode === '3d' && (
+          // The viewport is a live WebGL scene; the render people picture when
+          // they say "photoreal" is an offline path-traced image. This does
+          // that pass over whatever is currently on screen, so the angle you
+          // set up is the angle you get back.
+          <button onClick={photoreal} disabled={rendering}
+            className="ml-auto flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+            style={{ background: 'rgba(234,88,12,0.16)', border: '1px solid rgba(234,88,12,0.5)' }}>
+            {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {rendering ? 'Rendering' : 'Photoreal render'}
+          </button>
+        )}
       </div>
       )}
 
@@ -522,9 +579,11 @@ export default function DeckViewer3D({
             gl.toneMappingExposure = mode === '3d' ? 0.92 : 1;
             gl.shadowMap.type = THREE.PCFSoftShadowMap;
             // Force a draw before reading, so the first capture is not blank.
-            onCaptureReady?.(() => {
+            const capture = () => {
               try { return gl.domElement.toDataURL('image/png'); } catch { return null; }
-            });
+            };
+            grab.current = capture;
+            onCaptureReady?.(capture);
           }}
         >
           <Suspense fallback={null}>
@@ -542,6 +601,28 @@ export default function DeckViewer3D({
           </Suspense>
         </Canvas>
       </div>
+      )}
+
+      {shot && (
+        <div className="rounded-2xl border border-[#2A2A2A] bg-[#111] p-3">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="text-sm font-bold text-white">Presentation render</h3>
+            <button onClick={() => setShot(null)} aria-label="Close render"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <img src={shot.url} alt="Photorealistic render of the deck"
+            className="w-full rounded-xl border border-[#2A2A2A]" />
+          <div className="flex items-center justify-between gap-3 mt-2">
+            <p className="text-[11px] text-gray-500">{shot.disclaimer}</p>
+            <a href={shot.url} download="deck-presentation-render.png" target="_blank" rel="noreferrer"
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <Download className="w-4 h-4" /> Save
+            </a>
+          </div>
+        </div>
       )}
     </div>
   );

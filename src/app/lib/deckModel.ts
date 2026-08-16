@@ -82,6 +82,20 @@ export interface Member {
   pos: [number, number, number];
   /** Size in feet. */
   size: [number, number, number];
+  /**
+   * Rotation in radians, applied about the member's own centre. Only the raking
+   * members need it — stair stringers and the rails that follow them run on the
+   * stair pitch rather than square to the world, and a stair drawn out of
+   * square is the first thing an inspector notices.
+   */
+  rot?: [number, number, number];
+  /**
+   * Boxes unless said otherwise. The stair handrail is round because the code
+   * item it satisfies is graspability — R311.7.8.3 wants 1.25in to 2in round,
+   * or a shape you can actually close a hand around. Drawing it as a 2x4 on
+   * edge would show a rail that fails the rule it exists to meet.
+   */
+  shape?: 'box' | 'round';
   label?: string;
 }
 
@@ -201,6 +215,16 @@ export function buildMembers(m: DeckModel): Member[] {
     }
   }
 
+  // Where the stairway meets the deck. Worked out once, up here, because the
+  // guardrail and the stairs both have to agree about it — the rail breaks for
+  // this opening and the stringers land inside it, and the two getting out of
+  // step is exactly how a railing ends up drawn across the top of a flight.
+  const stairRightX = halfW;
+  const stairLeftX = halfW - m.stairWidthFt;
+  const stairRiser = IN(7);
+  const stairTread = IN(11);
+  const stairSteps = Math.max(1, Math.round(m.heightFt / stairRiser));
+
   // Guardrail — required by code above 30in, but drawn whenever asked for.
   //
   // Built out of the pieces a railing is actually made of: posts, a top and
@@ -277,24 +301,158 @@ export function buildMembers(m: DeckModel): Member[] {
       }
     };
 
-    run('rail-out', [-halfW, m.depthFt], [halfW, m.depthFt]);
+    // The front rail has to break for the stairway. It used to run the full
+    // width regardless, which put a guardrail straight across the top of the
+    // stairs — you would walk into it. The run() helper posts both ends of
+    // whatever it is given, so splitting the front edge either side of the
+    // opening is also what lands a post on each side of it, which is where a
+    // newel belongs: the rail has to terminate into something.
+    if (m.stairs && stairLeftX > -halfW + 0.5) {
+      run('rail-out', [-halfW, m.depthFt], [stairLeftX, m.depthFt]);
+    } else if (!m.stairs) {
+      run('rail-out', [-halfW, m.depthFt], [halfW, m.depthFt]);
+    }
+    if (m.stairs && stairRightX < halfW - 0.5) {
+      run('rail-out-r', [stairRightX, m.depthFt], [halfW, m.depthFt]);
+    }
+
     run('rail-l', [-halfW, 0], [-halfW, m.depthFt]);
     run('rail-r', [halfW, 0], [halfW, m.depthFt]);
   }
 
-  // Stairs — one tread per riser, stepping down and out from the deck edge.
+  // Stairs — treads, the stringers that carry them, and a rail down each open
+  // side. The treads used to float with nothing under them and nothing beside
+  // them, which is why the flight read as a stack of loose boards.
   if (m.stairs) {
-    const riser = IN(7);
-    const tread = IN(11);
-    const steps = Math.max(1, Math.round(m.heightFt / riser));
+    const riser = stairRiser;
+    const tread = stairTread;
+    const steps = stairSteps;
+    const centreX = (stairLeftX + stairRightX) / 2;
+
+    const totalRise = riser * steps;
+    const totalRun = tread * steps;
+    const rakeLen = Math.hypot(totalRise, totalRun);
+    // Pitch of the flight. A box's local +z maps to (0, -sin, cos) under a
+    // rotation of this angle about X, which is exactly down-and-out.
+    const pitch = Math.atan2(totalRise, totalRun);
+
     for (let i = 0; i < steps; i++) {
       out.push({
         id: `stair-${i}`,
         kind: 'stair',
-        pos: [halfW - m.stairWidthFt / 2, m.heightFt - riser * (i + 1), m.depthFt + tread * (i + 0.5)],
-        size: [m.stairWidthFt, IN(1), tread],
+        pos: [centreX, m.heightFt - riser * (i + 1), m.depthFt + tread * (i + 0.5)],
+        size: [m.stairWidthFt, IN(1.25), tread],
       });
     }
+
+    // Cut stringers, one under each side plus a middle one once the flight is
+    // wide enough that the treads would flex between two.
+    const stringerXs = m.stairWidthFt > 3
+      ? [stairLeftX + IN(0.75), centreX, stairRightX - IN(0.75)]
+      : [stairLeftX + IN(0.75), stairRightX - IN(0.75)];
+
+    stringerXs.forEach((x, i) => {
+      out.push({
+        id: `stringer-${i}`,
+        kind: 'stair',
+        pos: [x, m.heightFt - totalRise / 2 - IN(5), m.depthFt + totalRun / 2],
+        size: [IN(1.5), IN(11.25), rakeLen],
+        rot: [pitch, 0, 0],
+      });
+    });
+
+    // A rail down each open side of the flight, following the pitch. Both sides
+    // are open here: the right one is the deck's outside edge, the left one is
+    // the gap the guardrail was broken to make.
+    if (m.guardrail) {
+      const railH = IN(36);
+      const postSq = IN(3.5);
+      const balSq = IN(1.5);
+
+      [stairLeftX + IN(1.75), stairRightX - IN(1.75)].forEach((x, side) => {
+        // Newel at the bottom, standing on the landing.
+        out.push({
+          id: `stair-newel-${side}`,
+          kind: 'rail',
+          pos: [x, m.heightFt - totalRise + railH / 2, m.depthFt + totalRun - IN(2)],
+          size: [postSq, railH, postSq],
+        });
+
+        // Top and bottom rails on the rake. Measured off the nosing line, which
+        // is what the 34–38in handrail height is measured from.
+        // Guard top at 38in so the graspable handrail, which the code puts at
+        // 34in to 38in, sits below it rather than poking through.
+        [[IN(38), 'top'], [IN(4), 'bot']].forEach(([up, tag]) => {
+          out.push({
+            id: `stair-rail-${side}-${tag}`,
+            kind: 'rail',
+            pos: [x, m.heightFt - totalRise / 2 + (up as number), m.depthFt + totalRun / 2],
+            size: [IN(1.5), IN(1.5), rakeLen],
+            rot: [pitch, 0, 0],
+          });
+        });
+
+        // The graspable handrail. This is a different thing from the guard
+        // above: the guard stops you falling off the side, the handrail is the
+        // one you hold, and R311.7.8 requires it on any flight of four or more
+        // risers. It is mounted inboard on brackets so there is knuckle room
+        // behind it, and it runs the height range the code gives — 34in to 38in
+        // above the line of the nosings.
+        const handY = m.heightFt - totalRise / 2 + IN(34);
+        const inboard = side === 0 ? IN(2.5) : -IN(2.5);
+        out.push({
+          id: `stair-handrail-${side}`,
+          kind: 'rail',
+          shape: 'round',
+          pos: [x + inboard, handY, m.depthFt + totalRun / 2],
+          // Diameter, diameter, length — a 1.5in round, mid-range for grip.
+          size: [IN(1.5), IN(1.5), rakeLen],
+          // A cylinder's axis is its local Y, so it needs the extra quarter
+          // turn the raking boxes do not.
+          rot: [pitch + Math.PI / 2, 0, 0],
+        });
+
+        // Brackets holding it off the posts.
+        [0.2, 0.5, 0.8].forEach((t, b) => {
+          out.push({
+            id: `stair-hb-${side}-${b}`,
+            kind: 'rail',
+            // The handrail sits a fixed 36in above the nosing line, so a
+            // bracket at fraction t along the flight sits at that same offset
+            // above the nosing directly below it.
+            pos: [
+              x + inboard / 2,
+              m.heightFt - totalRise * t + IN(34),
+              m.depthFt + totalRun * t,
+            ],
+            size: [Math.abs(inboard), IN(1.25), IN(1.25)],
+          });
+        });
+
+        // Balusters, vertical rather than raked — they hang between the two
+        // rails, and the 4in sphere rule applies along the slope.
+        const balCount = Math.max(1, Math.ceil(rakeLen / IN(5.5)) - 1);
+        for (let i = 1; i <= balCount; i++) {
+          const t = i / (balCount + 1);
+          const y = m.heightFt - totalRise * t;
+          const z = m.depthFt + totalRun * t;
+          out.push({
+            id: `stair-bal-${side}-${i}`,
+            kind: 'rail',
+            pos: [x, y + IN(19), z],
+            size: [balSq, railH - IN(8), balSq],
+          });
+        }
+      });
+    }
+
+    // Landing pad, so the flight lands on something rather than in mid-air.
+    out.push({
+      id: 'stair-pad',
+      kind: 'footing',
+      pos: [centreX, m.heightFt - totalRise - IN(2), m.depthFt + totalRun + IN(9)],
+      size: [m.stairWidthFt + 1, IN(4), 3],
+    });
   }
 
   return out;

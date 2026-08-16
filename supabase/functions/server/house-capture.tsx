@@ -315,4 +315,102 @@ app.post("/render", async (c) => {
   }
 });
 
+/**
+ * Turn the measured 3D view into a photorealistic render.
+ *
+ * This exists because of a real limit rather than a missing setting. The 3D
+ * view is WebGL running live in a browser at sixty frames a second; the
+ * renderings people mean when they say "make it look real" are offline
+ * path-traced images that take minutes a frame in Lumion or V-Ray. No amount of
+ * tuning closes that gap in a viewport, because the gap is global illumination,
+ * scanned materials and real vegetation — not settings.
+ *
+ * So the viewport stays the fast, measured, orbitable thing that the permit
+ * drawings come off, and this takes a frame from it and does the offline pass.
+ * The prompt is written to hold the geometry still and change only the
+ * rendering: same camera, same proportions, same railing and stair layout. What
+ * comes back is a presentation image, and it is labelled as one.
+ */
+app.post("/photoreal", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const shot: string = typeof body?.shot === "string" ? body.shot : "";
+    const deck = body?.deck || {};
+    const style: string = typeof body?.style === "string" ? body.style.slice(0, 300) : "";
+
+    const parts = splitDataUri(shot);
+    if (!parts) return c.json({ error: "Nothing captured from the 3D view to render." }, 400);
+
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
+
+    const w = Number(deck?.widthFt) || 16;
+    const d = Number(deck?.depthFt) || 12;
+    const h = Number(deck?.heightFt) || 3;
+
+    const prompt = [
+      `Turn this 3D model view into a photorealistic architectural visualization, of the quality`,
+      `an architecture studio would put in a client presentation.`,
+      ``,
+      `HOLD THE GEOMETRY EXACTLY. Same camera angle, same lens, same composition. The deck stays`,
+      `${w} feet along the house by ${d} feet out, ${h} feet above grade. Keep the railing exactly`,
+      `where it is, keep the stairway in the same position with the same opening in the guard, keep`,
+      `the post positions, the joist and beam layout, and the roof and door on the house. Do not`,
+      `move, resize, add or remove any part of the structure.`,
+      ``,
+      `CHANGE ONLY THE RENDERING QUALITY:`,
+      `· real pressure-treated and composite timber with grain, subtle colour variation board to`,
+      `  board, softened edges and visible fasteners`,
+      `· true late-afternoon sunlight with warm directional light, long soft shadows, and bounced`,
+      `  light filling the underside of the deck`,
+      `· global illumination and ambient occlusion in the corners, under the framing and where the`,
+      `  posts meet the ground`,
+      `· real lawn with depth and individual blades near the camera, natural planting beds and`,
+      `  shrubs at the foundation, a mature tree casting dappled light`,
+      `· photographic depth of field, slight atmospheric haze at distance, realistic sky with cloud`,
+      `· crisp material detail on the siding, glass in the door reflecting the sky and the yard`,
+      style ? `· ${style}` : ``,
+      ``,
+      `Shot as architectural photography: tripod height, verticals parallel, no fisheye. No people,`,
+      `no text, no watermark, no dimension lines, no CAD overlay.`,
+    ].filter(Boolean).join("\n");
+
+    const form = new FormData();
+    form.append("model", "gpt-image-1");
+    form.append("image", new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType }), "view.png");
+    form.append("prompt", prompt);
+    form.append("size", "1536x1024");
+    form.append("quality", "high");
+    // Keeps the structure from drifting while the materials and light change.
+    form.append("input_fidelity", "high");
+
+    const res = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const detail = await res.text();
+      console.log(`[house] photoreal failed ${res.status}: ${detail.slice(0, 400)}`);
+      return c.json({ error: `Render failed (${res.status}). ${detail.slice(0, 200)}` }, 502);
+    }
+
+    const json = await res.json();
+    const b64 = json?.data?.[0]?.b64_json;
+    if (!b64) return c.json({ error: "The render came back empty." }, 502);
+
+    const url = await putAsset(base64ToBytes(b64), "png", "image/png");
+    if (!url) return c.json({ error: "The render was made but could not be stored." }, 500);
+
+    return c.json({
+      url,
+      disclaimer: "Presentation render. The measured drawings are the permit set — this is the same deck, rendered.",
+    });
+  } catch (err: any) {
+    console.log(`[house] photoreal error: ${err?.message || err}`);
+    return c.json({ error: `Render failed: ${err?.message || err}` }, 500);
+  }
+});
+
 export default app;
