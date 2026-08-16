@@ -13,6 +13,7 @@
  */
 import { Hono } from "npm:hono";
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 
 export const contentStudioRouter = new Hono();
@@ -804,6 +805,221 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
 // ---------------------------------------------------------------------------
 
 const REEL_MAX_HOOKS = 6;
+
+// ── Reel storyboard ─────────────────────────────────────────────────────────
+// /content-studio/reel writes the script. This turns that script into something
+// renderable: every beat gets a picture and a voice track, so the client has
+// only to draw and record.
+//
+// Visuals come from the operator's own material first. The catalog now carries
+// roughly seven real photographs per product, and a real photograph of the item
+// beats a generated approximation of it every time. Generation fills the gaps.
+const REEL_BUCKET = "make-3eae23a6-reels";
+
+function reelServiceClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+async function putReelAsset(bytes: Uint8Array, ext: string, contentType: string): Promise<string | null> {
+  try {
+    const sb = reelServiceClient();
+    const { data } = await sb.storage.listBuckets();
+    if (!(data || []).some((b: any) => b.name === REEL_BUCKET)) {
+      await sb.storage.createBucket(REEL_BUCKET, { public: false });
+    }
+    const path = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
+    const { error } = await sb.storage.from(REEL_BUCKET).upload(path, bytes, { contentType, upsert: true });
+    if (error) { console.log(`[reel] upload failed: ${error.message}`); return null; }
+    const { data: signed } = await sb.storage.from(REEL_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 365);
+    return signed?.signedUrl || null;
+  } catch (err) {
+    console.log(`[reel] store failed: ${err}`);
+    return null;
+  }
+}
+
+/** Narrate one beat. Returns a durable URL, or null with the reason logged. */
+async function speakBeat(text: string, voice: string): Promise<string | null> {
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key || !text.trim()) return null;
+  for (const model of ["gpt-4o-mini-tts", "tts-1"]) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, voice, input: text.slice(0, 4000), response_format: "mp3" }),
+      });
+      if (!res.ok) {
+        console.log(`[reel] tts ${model} HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 160)}`);
+        continue;
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      return await putReelAsset(bytes, "mp3", "audio/mpeg");
+    } catch (err) {
+      console.log(`[reel] tts ${model} failed: ${err}`);
+    }
+  }
+  return null;
+}
+
+/**
+ * Copy a supplied image into our own bucket.
+ *
+ * The renderer draws each frame to a canvas and records it with
+ * captureStream(). Drawing an image from a host that sends no CORS headers
+ * taints the canvas, and captureStream then throws — so a reel built from
+ * supplier CDN URLs fails at the final step, after every image and voice track
+ * has already been paid for. Re-hosting puts every frame on storage we control,
+ * which serves the headers the canvas needs.
+ *
+ * Falls back to the original URL if the copy fails: a reel that might not
+ * record beats one that certainly has no picture.
+ */
+async function rehostImage(url: string): Promise<string> {
+  try {
+    // Already ours — signed storage URLs are CORS-safe as they stand.
+    if (url.includes("/storage/v1/object/")) return url;
+    const res = await fetch(url);
+    if (!res.ok) return url;
+    const type = res.headers.get("content-type") || "image/jpeg";
+    if (!type.startsWith("image/")) return url;
+    const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // Guard against a supplier serving something enormous into the bucket.
+    if (bytes.byteLength > 12 * 1024 * 1024) return url;
+    return (await putReelAsset(bytes, ext, type)) || url;
+  } catch (err) {
+    console.log(`[reel] rehost failed for ${url.slice(0, 80)}: ${err}`);
+    return url;
+  }
+}
+
+/** Generate one beat visual from its b-roll direction. */
+async function drawBeat(prompt: string): Promise<string | null> {
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key || !prompt.trim()) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-image-1",
+        // Vertical, because the caption and the product both need the height.
+        // Text is banned in the image: captions are burned on at render time,
+        // and a model's idea of lettering undermines them.
+        prompt: `${prompt} Vertical composition for a phone screen. Photographic, natural light. No text, words, watermarks or logos.`,
+        n: 1,
+        size: "1024x1536",
+      }),
+    });
+    if (!res.ok) {
+      console.log(`[reel] image HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      return null;
+    }
+    const data = await res.json();
+    const b64 = data?.data?.[0]?.b64_json;
+    if (!b64) return null;
+    return await putReelAsset(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), "png", "image/png");
+  } catch (err) {
+    console.log(`[reel] image failed: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Turn a reel script into a renderable storyboard.
+ *
+ * Every beat comes back with a picture, a caption, timings, and a narration
+ * track — the shape the client renderer draws directly, with no further
+ * decisions to make.
+ */
+contentStudioRouter.post("/content-studio/reel/storyboard", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({} as any));
+    const beats = Array.isArray(body?.beats) ? body.beats : [];
+    if (!beats.length) return c.json({ success: false, error: "No beats to storyboard." }, 400);
+
+    const hook = String(body?.hook || "");
+    const voice = String(body?.voice || "onyx");
+    const narrate = body?.narrate !== false;
+    // Operator-supplied pictures: product photography, media-library uploads,
+    // anything already shot. Used before anything is generated.
+    const supplied: string[] = (Array.isArray(body?.images) ? body.images : [])
+      .filter((u: any) => typeof u === "string" && u.trim());
+
+    let suppliedAt = 0;
+    let generated = 0;
+    let narrated = 0;
+    const slides: any[] = [];
+
+    for (let i = 0; i < beats.length; i++) {
+      const b = beats[i] || {};
+      const start = Number(b.startSec) || 0;
+      const end = Number(b.endSec) || start + 3;
+      const caption = String(b.onScreenText || (i === 0 ? hook : "") || "");
+      const voiceover = String(b.voiceover || "");
+
+      let url = "";
+      let visualSource: "supplied" | "generated" | "none" = "none";
+      if (suppliedAt < supplied.length) {
+        url = await rehostImage(supplied[suppliedAt++]);
+        visualSource = "supplied";
+      } else {
+        const made = await drawBeat(String(b.bRoll || b.voiceover || hook));
+        if (made) { url = made; generated++; visualSource = "generated"; }
+      }
+
+      const audioUrl = narrate ? await speakBeat(voiceover, voice) : null;
+      if (audioUrl) narrated++;
+
+      slides.push({
+        id: `beat-${i}`,
+        order: i,
+        label: String(b.label || `Beat ${i + 1}`),
+        url,
+        visualSource,
+        caption,
+        voiceover,
+        audioUrl,
+        startSec: start,
+        endSec: end,
+        duration: Math.max(1, end - start),
+        // Stills need motion or the reel reads as a slideshow. Alternating the
+        // direction stops every beat drifting the same way.
+        effect: i % 2 === 0 ? "ken-burns-in" : "ken-burns-out",
+        transition: i === 0 ? "none" : "fade",
+        transitionDuration: 0.35,
+      });
+    }
+
+    const missingVisuals = slides.filter((s) => !s.url).length;
+    return c.json({
+      success: true,
+      width: 1080,
+      height: 1920,
+      totalSeconds: slides.reduce((n, s) => n + s.duration, 0),
+      slides,
+      summary: {
+        beats: slides.length,
+        fromYourMedia: suppliedAt,
+        generated,
+        narrated,
+        missingVisuals,
+      },
+      // Say plainly when a beat has no picture. A renderer that quietly drops
+      // one produces a shorter reel than the script called for and nothing
+      // explains why.
+      note: missingVisuals
+        ? `${missingVisuals} beat(s) have no visual — supply more images or retry generation.`
+        : null,
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
 
 contentStudioRouter.post("/content-studio/reel", async (c) => {
   try {
