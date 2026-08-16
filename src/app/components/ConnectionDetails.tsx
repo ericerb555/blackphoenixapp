@@ -433,39 +433,90 @@ function GuardPostDetail({ joistH }: { joistH: number }) {
   );
 }
 
+/**
+ * Stair stringer at the deck.
+ *
+ * Drawn from the actual rise and run rather than as a rotated board. The first
+ * version rotated a rectangle and cut the notches into it, which rotated the
+ * notches too — so the treads came out sloping and the risers leaning, when
+ * level treads and plumb risers are the entire point of a cut stringer.
+ *
+ * The sawtooth is therefore built in world coordinates: out one tread, down one
+ * riser, repeat. The underside is that same rake line dropped by the throat, so
+ * the throat reads as the constant depth it actually is — and the throat is what
+ * decides whether the flight carries, since a notched stringer has only the wood
+ * below the cuts doing any work.
+ */
 function StairStringerDetail({ joistH }: { joistH: number }) {
-  const h = joistH * U;
+  const s = 4.2;                    // px per inch, sized so three steps fit
+  const tread = 11 * s;
+  const riser = 7 * s;
+  const throat = 7 * s;             // measured vertically, as drawn
+  const x0 = 92;
+  const y0 = 44;
+  const steps = 3;
+
+  // Top edge: level tread, plumb riser, repeated.
+  const top: string[] = [`${x0},${y0}`];
+  for (let i = 0; i < steps; i++) {
+    const x = x0 + (i + 1) * tread;
+    const y = y0 + i * riser;
+    top.push(`${x},${y}`);
+    top.push(`${x},${y + riser}`);
+  }
+  const endX = x0 + steps * tread;
+  const endY = y0 + steps * riser;
+
+  // Underside: the rake line dropped by the throat. Dropping a line vertically
+  // leaves it parallel, so the board keeps an even depth the whole way down.
+  const poly = [...top, `${endX},${endY + throat}`, `${x0},${y0 + throat}`].join(' ');
+
+  // Where the throat is dimensioned — mid-flight, clear of the notches.
+  const dimX = x0 + tread * 1.5;
+  const dimTop = y0 + (dimX - x0) * (riser / tread);
+  const rimH = joistH * s;
+
   return (
     <svg viewBox="0 0 300 200" className="w-full" role="img"
-      aria-label="Stair stringer connection to the deck rim">
-      {/* Deck edge */}
-      <rect x="14" y="34" width="86" height="8" fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
-      <WoodSection x={88} y={42} w={12} h={h} />
-      <Leader x1={88} y1={42 + h * 0.6} x2={30} y2={42 + h + 30} />
-      <Callout x={12} y={42 + h + 31} text="Deck rim joist" />
+      aria-label="Stair stringer connection to the deck rim, showing level tread and plumb riser cuts">
+      {/* Decking and the rim the stringer hangs off */}
+      <rect x="18" y={y0 - 8} width={x0 - 18} height="8" fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
+      <WoodSection x={x0 - 12} y={y0} w={12} h={rimH} />
+      <Callout x={20} y={y0 - 12} text="Deck" />
+      <Leader x1={x0 - 12} y1={y0 + rimH * 0.75} x2={44} y2={y0 + rimH + 26} />
+      <Callout x={14} y={y0 + rimH + 27} text="Rim joist" />
 
-      {/* Stringer running down and out */}
-      <g transform={`translate(100 ${42}) rotate(33)`}>
-        <rect x="0" y="0" width="150" height={h} fill="#eee3cd" stroke={LINE} strokeWidth="1.2" />
-        {/* The notches, which is where the depth goes */}
-        {[0, 1, 2, 3].map(i => (
-          <path key={i} d={`M ${14 + i * 34} 0 L ${14 + i * 34} 14 L ${40 + i * 34} 14 L ${40 + i * 34} 0`}
-            fill="#fff" stroke={LINE} strokeWidth="1" />
-        ))}
-      </g>
-      <Leader x1={196} y1={116} x2={236} y2={92} />
-      <Callout x={238} y={91} text="Cut stringer" anchor="end" />
+      {/* The stringer itself */}
+      <polygon points={poly} fill="#eee3cd" stroke={LINE} strokeWidth="1.3" />
 
-      {/* The remaining depth below the cut, called out because it is the number
-          that decides whether the flight is adequate. */}
-      <Leader x1={150} y1={104} x2={92} y2={150} />
-      <Callout x={10} y={158} text="Keep ≥ 5in of solid" />
-      <Callout x={10} y={169} text="stringer below the cuts" />
+      {/* The rake line through the notch corners, which the throat is measured
+          from. Dashed because it is a reference, not an edge. */}
+      <line x1={x0} y1={y0} x2={endX} y2={endY}
+        stroke={LINE} strokeWidth="0.7" strokeDasharray="4 3" opacity="0.6" />
 
-      {/* Connector at the top */}
-      <path d="M 96 42 L 96 66 L 118 74" fill="none" stroke="#6b7280" strokeWidth="2.6" />
-      <Leader x1={110} y1={70} x2={168} y2={44} />
-      <Callout x={170} y={43} text="Rated stringer connector" anchor="end" />
+      {/* Throat dimension */}
+      <line x1={dimX} y1={dimTop} x2={dimX} y2={dimTop + throat} stroke={CALL} strokeWidth="1" />
+      <line x1={dimX - 4} y1={dimTop} x2={dimX + 4} y2={dimTop} stroke={CALL} strokeWidth="1" />
+      <line x1={dimX - 4} y1={dimTop + throat} x2={dimX + 4} y2={dimTop + throat} stroke={CALL} strokeWidth="1" />
+      <Leader x1={dimX} y1={dimTop + throat / 2} x2={dimX - 46} y2={dimTop + throat + 34} />
+      <Callout x={4} y={dimTop + throat + 35} text="Throat — keep 5in min" />
+
+      {/* What makes it a stringer rather than a sloping board */}
+      <Leader x1={x0 + tread * 0.5} y1={y0} x2={x0 + tread * 0.9} y2={y0 - 20} />
+      <Callout x={x0 + tread * 0.95} y={y0 - 21} text="Level tread cut" />
+      <Leader x1={x0 + tread} y1={y0 + riser * 0.5} x2={x0 + tread + 30} y2={y0 + riser * 0.5 - 6} />
+      <Callout x={x0 + tread + 33} y={y0 + riser * 0.5 - 7} text="Plumb riser cut" />
+
+      {/* Hung off the rim on a rated connector */}
+      <path d={`M ${x0} ${y0} L ${x0} ${y0 + throat} L ${x0 + 16} ${y0 + throat + 10}`}
+        fill="none" stroke="#6b7280" strokeWidth="2.6" />
+      <Leader x1={x0 + 6} y1={y0 + throat + 6} x2={x0 - 34} y2={y0 + throat + 52} />
+      <Callout x={4} y={y0 + throat + 53} text="Rated stringer connector" />
+
+      {/* Bottom bearing */}
+      <rect x={endX - 26} y={endY + throat} width="58" height="9" fill="#d6d3ce" stroke={LINE} strokeWidth="1" />
+      <Leader x1={endX + 24} y1={endY + throat + 4} x2={endX + 40} y2={endY + throat - 8} />
+      <Callout x={296} y={endY + throat - 9} text="Landing pad" anchor="end" />
 
       <text x="150" y="194" fontSize="8" fill="#666" textAnchor="middle"
         fontFamily="ui-sans-serif, system-ui, sans-serif">
