@@ -20,7 +20,7 @@
  * views, off the model, which is why applying numbers is a deliberate action
  * with a warning rather than something that happens on analysis.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Camera, Video, Upload, Sparkles, Loader2, X, AlertTriangle, Info,
   Home, Ruler, Download, ImageIcon, CheckCircle2,
@@ -53,9 +53,23 @@ interface Props {
   model: DeckModel;
   site: { projectName: string; address: string; town: string; state: string; parcel: string };
   onApply: (patch: Partial<DeckModel>) => void;
+  /**
+   * Photos pushed in from the job folder rather than picked here.
+   *
+   * `n` is a delivery counter rather than a comparison of the files themselves:
+   * sending the same six photos twice is a thing an operator may well do on
+   * purpose, and comparing arrays would swallow the second one.
+   */
+  incoming?: { files: File[]; n: number };
+  /**
+   * Reports the read upward so the assistant can reason about the real house.
+   * Passing the whole analysis rather than a summary: the assistant is better
+   * placed than this component to decide which parts of it matter.
+   */
+  onRead?: (analysis: any) => void;
 }
 
-export default function HouseCapture({ model, site, onApply }: Props) {
+export default function HouseCapture({ model, site, onApply, incoming, onRead }: Props) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -115,6 +129,15 @@ export default function HouseCapture({ model, site, onApply }: Props) {
     for (const clip of clips) await addVideo([clip]);
   }, [addPhotos, addVideo]);
 
+  // Deliveries from the job folder land through the same handler a folder pick
+  // uses, so stills and clips are separated the one way rather than two.
+  const lastDelivery = useRef(0);
+  useEffect(() => {
+    if (!incoming || !incoming.files.length || incoming.n === lastDelivery.current) return;
+    lastDelivery.current = incoming.n;
+    fromFolder(incoming.files);
+  }, [incoming, fromFolder]);
+
   const analyze = useCallback(async () => {
     if (!photos.length) return;
 
@@ -139,13 +162,14 @@ export default function HouseCapture({ model, site, onApply }: Props) {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || `Analysis failed (${res.status}).`);
       setAnalysis(json.analysis);
+      onRead?.(json.analysis);
       toast.success('House read.');
     } catch (err: any) {
       toast.error(err?.message || 'Could not read the house.');
     } finally {
       setBusy(null);
     }
-  }, [photos, note]);
+  }, [photos, note, onRead]);
 
   const applySuggested = useCallback(() => {
     const s = analysis?.suggested;

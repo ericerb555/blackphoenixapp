@@ -15,6 +15,7 @@
 import { useCallback, useRef, useState } from 'react';
 import {
   Sparkles, Loader2, Send, CornerDownLeft, AlertTriangle, Building2, Check,
+  Wand2, Wrench,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
@@ -48,10 +49,36 @@ interface Props {
   structural: any;
   advisories: { level: string; text: string }[];
   onApply: (patch: Partial<DeckModel>) => void;
+  /** What the job folder gave up: the house read, and any drawing read. */
+  findings?: { house?: any; sketch?: any };
 }
 
+/**
+ * The two things worth a button rather than a typed question.
+ *
+ * Both are ordinary questions to the same endpoint and come back through the
+ * same propose-then-apply path — no separate privileged route where the
+ * assistant gets to edit the design directly. What the buttons buy is that the
+ * question is well-formed: "design this deck" phrased carelessly gets a lecture
+ * about decks, and "fix the problems" without naming them gets a guess at which
+ * problems were meant.
+ */
+const GENERATE_Q =
+  'Design this deck from everything you have been given — the drawing if there is one, '
+  + 'the site photos, and the town\'s load figures. Where the drawing is dimensioned use those '
+  + 'dimensions; where it is not, say what you are inferring and from what. Put every dimension '
+  + 'and member size you settle on into "changes". If something you need is missing, say which '
+  + 'and design around it conservatively rather than inventing it.';
+
+const FIX_Q =
+  'Go through the blocking problems and advisories currently showing and fix what can be fixed '
+  + 'by changing the design. For each one, say what is wrong, what you changed, and why that '
+  + 'resolves it. Put the changes in "changes". Anything that cannot be resolved by a design '
+  + 'change — a missing site figure, or something needing an engineer — list plainly instead of '
+  + 'working around it.';
+
 export default function DeckAssistant({
-  model, site, loads, takeoff, structural, advisories, onApply,
+  model, site, loads, takeoff, structural, advisories, onApply, findings,
 }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState('');
@@ -80,7 +107,7 @@ export default function DeckAssistant({
           // Only the text of prior turns; the design context is rebuilt fresh
           // each time so the assistant never answers against a stale model.
           history: turns.map(t => ({ role: t.role, content: t.content })),
-          model, site, loads, takeoff, structural, advisories,
+          model, site, loads, takeoff, structural, advisories, findings,
         }),
       });
       const json = await res.json();
@@ -101,7 +128,12 @@ export default function DeckAssistant({
     } finally {
       setBusy(false);
     }
-  }, [busy, turns, model, site, loads, takeoff, structural, advisories]);
+  }, [busy, turns, model, site, loads, takeoff, structural, advisories, findings]);
+
+  /** Something was read off the folder, so there is more than the form to go on. */
+  const hasFindings = !!(findings?.house || findings?.sketch?.model);
+  /** Something is actually wrong, so the fix button has a job to do. */
+  const wrongCount = (structural?.failures?.length || 0) + advisories.length;
 
   const applyChanges = useCallback((i: number) => {
     const turn = turns[i];
@@ -122,6 +154,28 @@ export default function DeckAssistant({
         It can see the whole design — spans, loads, footings and every warning showing above. It
         suggests changes; you decide whether to take them.
       </p>
+
+      {/* The two whole-design actions. Always available rather than only on an
+          empty conversation: fixing what is wrong is most wanted after a few
+          changes have been made, which is exactly when the starters are gone. */}
+      <div className="grid sm:grid-cols-2 gap-2 mb-3">
+        <button onClick={() => ask(GENERATE_Q)} disabled={busy}
+          className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white transition disabled:opacity-40"
+          style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
+          title={hasFindings
+            ? 'Design the deck from the drawing and photos in the job folder'
+            : 'Nothing has been read off a folder yet — it will design from the form values and the address alone'}>
+          <Wand2 className="w-4 h-4" />
+          {hasFindings ? 'Design it from the folder' : 'Design it from what is here'}
+        </button>
+        <button onClick={() => ask(FIX_Q)} disabled={busy || wrongCount === 0}
+          className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white transition disabled:opacity-40"
+          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+          title={wrongCount ? 'Work through everything flagged and propose fixes' : 'Nothing is currently flagged'}>
+          <Wrench className="w-4 h-4" />
+          {wrongCount ? `Fix what is wrong (${wrongCount})` : 'Nothing flagged'}
+        </button>
+      </div>
 
       {turns.length === 0 && (
         <div className="grid sm:grid-cols-2 gap-2 mb-3">

@@ -24,6 +24,7 @@ import DeckStructuralPanel from '../components/DeckStructuralPanel';
 import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import HouseCapture from '../components/HouseCapture';
+import JobFolder from '../components/JobFolder';
 import DeckFinishPicker from '../components/DeckFinishPicker';
 import ConnectionDetails from '../components/ConnectionDetails';
 import SketchImport from '../components/SketchImport';
@@ -31,6 +32,7 @@ import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPane
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
+import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -55,6 +57,40 @@ async function headers() {
 }
 
 const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '' };
+
+/**
+ * Where work goes when the server will not take it.
+ *
+ * 'New deck' used to refuse to clear the desk if parking failed, reasoning that
+ * clearing after failing to save is worse than not clearing at all. Losing the
+ * work is worse — but clearing and losing are only the same thing when the work
+ * has nowhere else to go. So it goes here first, on the machine in front of the
+ * user, and then the desk clears either way. A button that visibly does nothing
+ * when the network is down is not a safety feature.
+ */
+const UNPARKED_KEY = 'deck.unparked.v1';
+
+interface Unparked {
+  name: string; model: DeckModel; site: SiteInfo; loads: SiteLoads; link: DesignLink; at: string;
+}
+
+function readUnparked(): Unparked | null {
+  try {
+    const raw = localStorage.getItem(UNPARKED_KEY);
+    const v = raw ? JSON.parse(raw) : null;
+    return v?.model && v?.site ? (v as Unparked) : null;
+  } catch { return null; }
+}
+
+/** False when the browser refuses the write — private mode, or quota. */
+function writeUnparked(v: Unparked): boolean {
+  try { localStorage.setItem(UNPARKED_KEY, JSON.stringify(v)); return true; }
+  catch { return false; }
+}
+
+function clearUnparked() {
+  try { localStorage.removeItem(UNPARKED_KEY); } catch { /* already gone */ }
+}
 
 interface Session {
   key: number;
@@ -93,10 +129,87 @@ function DesignerSession({ session, onSession }: {
   const [loadingList, setLoadingList] = useState(false);
   const [parking, setParking] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
+  // Read at mount rather than watched: the session remounts on every reset, so
+  // this is re-read at exactly the moment it can have changed.
+  const [unparked, setUnparked] = useState<Unparked | null>(() => readUnparked());
 
   const set = useCallback(<K extends keyof DeckModel>(k: K, v: DeckModel[K]) => {
     setModel(m => ({ ...m, [k]: v }));
   }, []);
+
+  /**
+   * Files on their way from the job folder to the two readers.
+   *
+   * A counter rather than a comparison of the arrays: sending the same photos a
+   * second time is a deliberate thing an operator does after moving one of them
+   * to the other pile, and comparing contents would silently ignore it.
+   */
+  const [photoDrop, setPhotoDrop] = useState<{ files: File[]; n: number }>({ files: [], n: 0 });
+  const [sketchDrop, setSketchDrop] = useState<{ files: File[]; n: number }>({ files: [], n: 0 });
+
+  /**
+   * What the two readers made of the folder, held here so the assistant can see
+   * both at once. Neither reader needs the other's result; the assistant does,
+   * because the whole point is reconciling a dimensioned drawing against what
+   * the photos show of the house it has to attach to.
+   */
+  const [houseRead, setHouseRead] = useState<any>(null);
+  const [sketchRead, setSketchRead] = useState<any>(null);
+  const findings = useMemo(
+    () => ({ house: houseRead, sketch: sketchRead }),
+    [houseRead, sketchRead],
+  );
+
+  const sendFolder = useCallback((photos: File[], drawings: File[]) => {
+    if (photos.length) setPhotoDrop(d => ({ files: photos, n: d.n + 1 }));
+    if (drawings.length) setSketchDrop(d => ({ files: drawings, n: d.n + 1 }));
+  }, []);
+
+  /**
+   * What the town the deck is in enforces.
+   *
+   * The address has always been captured here and has never done anything. It
+   * is the structural input: ground snow and frost depth are what decide member
+   * sizes and how deep the footings go, and they change between neighbouring
+   * towns. So once the town is known, what that town enforces is offered.
+   *
+   * Offered, not applied. `deckStructural` is explicit that these are inputs and
+   * never inferred, and this respects that — the figures come from a record
+   * somebody typed off the building department's table, they arrive with the
+   * note saying so, and `verified` stays false until the operator ticks it.
+   */
+  const [townCase, setTownCase] = useState<TownLoadCase | null>(null);
+  useEffect(() => {
+    const ac = new AbortController();
+    setTownCase(null);
+    // Debounced: an address is typed a character at a time and this is a
+    // listing request, not a keystroke handler.
+    const t = setTimeout(() => {
+      lookupTownLoads(site.town, site.state, ac.signal).then(setTownCase).catch(() => {});
+    }, 400);
+    return () => { clearTimeout(t); ac.abort(); };
+  }, [site.town, site.state]);
+
+  /** Only worth showing while it has something the design has not already got. */
+  const townOffer = useMemo(() => {
+    if (!townCase || !hasUsableLoads(townCase)) return null;
+    const snow = townCase.groundSnowPsf > 0 && !(loads.groundSnowPsf > 0);
+    const frost = townCase.frostDepthIn > 0 && !(loads.frostDepthIn > 0);
+    return snow || frost ? { snow, frost } : null;
+  }, [townCase, loads.groundSnowPsf, loads.frostDepthIn]);
+
+  const applyTownLoads = useCallback(() => {
+    if (!townCase) return;
+    setLoads(l => ({
+      ...l,
+      // Never overwrite a figure already entered by hand — that one was typed
+      // by someone looking at something, and this one was not.
+      groundSnowPsf: l.groundSnowPsf > 0 ? l.groundSnowPsf : townCase.groundSnowPsf,
+      frostDepthIn: l.frostDepthIn > 0 ? l.frostDepthIn : townCase.frostDepthIn,
+      verified: false,
+    }));
+    toast.success(`Filled from ${townCase.townName} ${townCase.state} — confirm before this goes on a permit set.`);
+  }, [townCase]);
 
   const bom = useMemo(() => takeoff(model), [model]);
   // The assistant answers against the same figures the panels below display,
@@ -134,7 +247,10 @@ function DesignerSession({ session, onSession }: {
   const loadList = useCallback(async () => {
     setLoadingList(true);
     try {
-      const res = await fetch(`${SERVER}/design-projects?ownerKey=decks`, { headers: await headers() });
+      // `owner`, not `ownerKey` — the server reads the query as `owner` and
+      // falls back to the 'shared' namespace, so decks written under 'decks'
+      // were being listed from somewhere they had never been saved.
+      const res = await fetch(`${SERVER}/design-projects?owner=decks`, { headers: await headers() });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.projects) {
         setProjects(data.projects.filter((p: any) => p?.meta?.kind === 'deck'));
@@ -214,7 +330,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, loadList]);
+  }, [site, model, loads, bom, link, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -235,6 +351,26 @@ function DesignerSession({ session, onSession }: {
   }, [onSession]);
 
   /**
+   * Put a deck that could not be parked back on the desk.
+   *
+   * It comes back with no id, so saving it files it as a new project rather
+   * than versioning whatever it failed to reach in the first place.
+   */
+  const restoreUnparked = useCallback(() => {
+    const u = readUnparked();
+    if (!u) { setUnparked(null); return; }
+    clearUnparked();
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, id: null });
+    toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
+  }, [onSession]);
+
+  const discardUnparked = useCallback(() => {
+    clearUnparked();
+    setUnparked(null);
+    toast.success('Held deck discarded.');
+  }, []);
+
+  /**
    * Start a new deck, and park whatever was on the desk rather than losing it.
    *
    * The old behaviour asked "are you sure, unsaved changes will be lost", which
@@ -244,8 +380,12 @@ function DesignerSession({ session, onSession }: {
    * of its own under a generated reference, and can be renamed and assigned to
    * a customer later from Open.
    *
-   * If parking fails, nothing is cleared. Clearing the desk after failing to
-   * save what was on it is the one outcome worse than not clearing at all.
+   * If parking fails the desk still clears, because the work is written to this
+   * machine first and offered back from the panel on the left. The old rule was
+   * that a failed park cleared nothing, which meant a server hiccup left the
+   * button doing nothing at all — no new deck, and no way to start one short of
+   * reloading the page. The only case that still refuses is the one where the
+   * browser will not hold the work either, since then it really would be gone.
    */
   const startNew = useCallback(async () => {
     const pristine = JSON.stringify({
@@ -261,10 +401,19 @@ function DesignerSession({ session, onSession }: {
       const name = named ? site.projectName.trim() : `Unassigned deck · ${ref}`;
 
       setParking(true);
+      // The desk clears once parking resolves one way or the other, so the
+      // request is not allowed to hang. A button stuck on 'Parking…' forever is
+      // indistinguishable, to the person clicking it, from a button that does
+      // nothing — which is how this was being reported.
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 12_000);
+      let parked = false;
+      let why = '';
       try {
         const res = await fetch(`${SERVER}/design-projects`, {
           method: 'POST',
           headers: await headers(),
+          signal: abort.signal,
           body: JSON.stringify({
             // Update in place when it is already a saved project; otherwise
             // this becomes its own record rather than overwriting anything.
@@ -279,19 +428,33 @@ function DesignerSession({ session, onSession }: {
           }),
         });
         const data = await res.json().catch(() => null);
-        if (!res.ok || !data?.success) {
-          toast.error(`Could not park the current deck (${data?.error || res.status}) — nothing was cleared.`);
-          return;
-        }
+        parked = res.ok && !!data?.success;
+        if (!parked) why = String(data?.error || res.status);
+      } catch (err: any) {
+        why = abort.signal.aborted
+          ? 'the server did not answer'
+          : (err?.message || 'the server could not be reached');
+      } finally {
+        clearTimeout(timer);
+        setParking(false);
+      }
+
+      if (parked) {
+        clearUnparked();
         toast.success(
           named ? `Saved “${name}”.` : `Parked as “${name}” — rename and assign it from Open.`,
         );
         loadList();
-      } catch (err: any) {
-        toast.error(`${err?.message || 'Could not park the current deck'} — nothing was cleared.`);
+      } else if (writeUnparked({
+        name, model, site: { ...site, projectName: name }, loads, link,
+        at: new Date().toISOString(),
+      })) {
+        toast.error(`Could not park “${name}” (${why}) — it is held on this machine, restore it from the left.`);
+      } else {
+        // Nowhere at all to put the work. This is the one case where refusing to
+        // clear is the right answer.
+        toast.error(`Could not park “${name}” (${why}), and this browser would not hold it either — nothing was cleared.`);
         return;
-      } finally {
-        setParking(false);
       }
     }
 
@@ -311,7 +474,7 @@ function DesignerSession({ session, onSession }: {
   const open = useCallback(async (p: any) => {
     setOpening(p.id);
     try {
-      const res = await fetch(`${SERVER}/design-projects/${p.id}?ownerKey=decks`, {
+      const res = await fetch(`${SERVER}/design-projects/${p.id}?owner=decks`, {
         headers: await headers(),
       });
       const data = await res.json().catch(() => null);
@@ -511,6 +674,30 @@ function DesignerSession({ session, onSession }: {
               </div>
             </div>
 
+            {unparked && (
+              <div className={card} style={{ borderColor: 'rgba(234,88,12,0.5)' }}>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                  <AlertTriangle className="w-4 h-4 text-[#ea580c]" /> Held on this machine
+                </h2>
+                <p className="text-xs text-gray-400 mb-3">
+                  “{unparked.name}” could not be parked on the server, so it was kept here when the
+                  desk was cleared. Restoring puts it back as an unsaved deck.
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={restoreUnparked}
+                    className="flex-1 px-3 py-2 rounded-xl text-sm font-semibold text-white"
+                    style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
+                    Restore
+                  </button>
+                  <button onClick={discardUnparked}
+                    className="px-3 py-2 rounded-xl text-sm font-semibold text-gray-300"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+
             {projects.length > 0 && (
               <div className={card}>
                 <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
@@ -542,7 +729,7 @@ function DesignerSession({ session, onSession }: {
 
             <PanelErrorBoundary name="Assistant">
               <DeckAssistant model={model} site={site} loads={loads} takeoff={bom}
-                structural={struct} advisories={advisories}
+                structural={struct} advisories={advisories} findings={findings}
                 onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
 
@@ -550,8 +737,16 @@ function DesignerSession({ session, onSession }: {
               <ProjectLinkPanel designId={savedId} link={link} onLink={setLink} />
             </PanelErrorBoundary>
 
+            {/* One folder for the job, split between the two readers below it.
+                It sits above them because that is the order the work happens in:
+                open the folder, then look at what each reader made of its half. */}
+            <PanelErrorBoundary name="The job folder">
+              <JobFolder onSend={sendFolder} />
+            </PanelErrorBoundary>
+
             <PanelErrorBoundary name="Read a sketch">
-              <SketchImport model={model} onApply={patch => setModel(m => ({ ...m, ...patch }))} />
+              <SketchImport model={model} incoming={sketchDrop} onRead={setSketchRead}
+                onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
 
             <PanelErrorBoundary name="Finishes">
@@ -563,7 +758,7 @@ function DesignerSession({ session, onSession }: {
                 deck, and keeping them adjacent makes the difference between
                 them obvious rather than something stated in fine print. */}
             <PanelErrorBoundary name="The existing house">
-              <HouseCapture model={model} site={site}
+              <HouseCapture model={model} site={site} incoming={photoDrop} onRead={setHouseRead}
                 onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
 
@@ -582,6 +777,31 @@ function DesignerSession({ session, onSession }: {
                   These are prescriptive-code reminders, not an engineering check. Loads and
                   footing sizes come next.
                 </p>
+              </div>
+            )}
+
+            {townOffer && townCase && (
+              <div className={card} style={{ borderColor: 'rgba(234,88,12,0.5)' }}>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                  <MapPin className="w-4 h-4 text-[#ea580c]" />
+                  What {townCase.townName} {townCase.state} enforces
+                </h2>
+                <ul className="text-xs text-gray-300 space-y-0.5 mb-2">
+                  {townOffer.snow && <li>Ground snow load — {townCase.groundSnowPsf} psf</li>}
+                  {townOffer.frost && <li>Frost depth — {townCase.frostDepthIn} in</li>}
+                  {townCase.codeEdition && <li>Code in force — {townCase.codeEdition}</li>}
+                </ul>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  {townCase.loadSource
+                    ? `Source: ${townCase.loadSource}${townCase.loadsUpdatedAt ? ` · recorded ${townCase.loadsUpdatedAt.slice(0, 10)}` : ''}`
+                    : 'No source recorded against these figures — worth checking before you rely on them.'}
+                  {' '}They land unverified either way; tick them off in Loads and footings once you have confirmed them.
+                </p>
+                <button onClick={applyTownLoads}
+                  className="px-3 py-2 rounded-xl text-sm font-semibold text-white"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
+                  Use these figures
+                </button>
               </div>
             )}
 

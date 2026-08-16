@@ -32,8 +32,14 @@ interface Props {
   allowVideo?: boolean;
   /** How many can be taken in one go, so the caller's own cap is respected. */
   limit?: number;
-  /** Handed the chosen files; the caller decides what to do with them. */
-  onPick: (files: File[]) => void | Promise<void>;
+  /**
+   * Handed the chosen files; the caller decides what to do with them.
+   *
+   * Paths come along beside them, aligned by index. A caller sorting one job
+   * folder into photos and drawings needs to know a file was under `Drawings/`,
+   * and `File` alone does not carry that. Callers that do not care ignore it.
+   */
+  onPick: (files: File[], paths: string[]) => void | Promise<void>;
 }
 
 export default function LocalFolderPicker({
@@ -120,7 +126,7 @@ export default function LocalFolderPicker({
       const chosen: LocalPhoto[] = folder.photos.filter(p => picked.has(p.path));
       const files: File[] = [];
       for (const p of chosen) files.push(await p.read());
-      await onPick(files);
+      await onPick(files, chosen.map(p => p.path));
       setPicked(new Set());
     } catch (err: any) {
       toast.error(err?.message || 'Those files could not be read.');
@@ -137,7 +143,8 @@ export default function LocalFolderPicker({
       .sort((a, b) => b.lastModified - a.lastModified)
       .slice(0, limit);
     if (!images.length) { toast.error('No photos in that folder.'); return; }
-    await onPick(images);
+    // webkitRelativePath is the only place the fallback path keeps the subfolder.
+    await onPick(images, images.map(f => (f as any).webkitRelativePath || f.name));
     toast.success(`${images.length} taken from that folder.`);
   }, [allowVideo, limit, onPick]);
 
