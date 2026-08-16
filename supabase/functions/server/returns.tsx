@@ -64,6 +64,55 @@ async function getPolicy(): Promise<ReturnPolicy> {
   return { ...DEFAULT_POLICY, ...(stored || {}) };
 }
 
+const EVIDENCE_BUCKET = 'make-3eae23a6-returns';
+const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
+
+/**
+ * Store a damage photo the customer attached.
+ *
+ * There is deliberately no public upload endpoint. Shoppers are guests, so any
+ * such endpoint would be open to the internet and could be used to fill the
+ * project's storage with arbitrary files. Photos arrive inline on the return
+ * request instead, which has already proved the order number and the matching
+ * email before a single byte is written.
+ *
+ * Returns null on anything malformed rather than throwing — a claim should not
+ * be lost because one photo was bad.
+ */
+async function storeEvidence(dataUri: string, requestRef: string): Promise<string | null> {
+  try {
+    const match = /^data:(image\/(?:jpeg|jpg|png|webp|heic));base64,([A-Za-z0-9+/=]+)$/i.exec(dataUri.trim());
+    if (!match) return null;
+    const [, mime, b64] = match;
+
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    if (!bytes.byteLength || bytes.byteLength > MAX_PHOTO_BYTES) return null;
+
+    const sb = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { data: buckets } = await sb.storage.listBuckets();
+    if (!(buckets || []).some((b: any) => b.name === EVIDENCE_BUCKET)) {
+      // Private: damage photos can show a customer's home or belongings.
+      await sb.storage.createBucket(EVIDENCE_BUCKET, { public: false });
+    }
+
+    const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : mime.includes('heic') ? 'heic' : 'jpg';
+    const path = `${requestRef}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await sb.storage.from(EVIDENCE_BUCKET).upload(path, bytes, { contentType: mime, upsert: false });
+    if (error) { console.log(`[returns] photo upload failed: ${error.message}`); return null; }
+
+    // Long-lived, because a damage claim to a supplier can be settled months
+    // after the customer filed it.
+    const { data: signed } = await sb.storage.from(EVIDENCE_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 365);
+    return signed?.signedUrl || null;
+  } catch (err) {
+    console.log(`[returns] photo store failed: ${err}`);
+    return null;
+  }
+}
+
 /** Admin check, matching the pattern used elsewhere in the server. */
 async function actor(c: any): Promise<{ email: string | null; admin: boolean }> {
   const header = c.req.header('Authorization') || '';
@@ -200,6 +249,24 @@ returnsRouter.post(`${PREFIX}/returns/request`, async (c) => {
     const lines = orderLines(order).filter((l) => lineIds.includes(l.lineId));
     if (!lines.length) return c.json({ success: false, error: 'Those items are not on this order.' }, 400);
 
+    // Photos arrive inline as data URIs and are moved to storage now that the
+    // order and email have been proved. A URL that is already ours is kept.
+    const requestRef = `${order.id}`.replace(/[^A-Za-z0-9_-]/g, '') || 'order';
+    const storedPhotos: string[] = [];
+    for (const p of photos) {
+      if (p.startsWith('data:')) {
+        const url = await storeEvidence(p, requestRef);
+        if (url) storedPhotos.push(url);
+      } else if (p.includes('/storage/v1/object/')) {
+        storedPhotos.push(p);
+      }
+    }
+    // The policy asked for evidence and none of it survived — say so rather
+    // than filing a damage claim with nothing attached to it.
+    if (damaged && policy.requirePhotoForDamage && !storedPhotos.length) {
+      return c.json({ success: false, error: 'We could not read those photos. Please try a JPG or PNG under 6MB.' }, 400);
+    }
+
     const refundValue = money(lines.reduce((n, l) => n + l.price * l.quantity, 0));
     const creditValue = money(refundValue * (1 + policy.storeCreditBonusPercent / 100));
 
@@ -218,7 +285,7 @@ returnsRouter.post(`${PREFIX}/returns/request`, async (c) => {
       lines,
       reason,
       detail,
-      photos,
+      photos: storedPhotos,
       resolution,
       refundValue,
       creditValue,

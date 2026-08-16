@@ -152,6 +152,7 @@ const DocumentViewer = lazy(() => import("./pages/DocumentViewer"));
 const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
 const BidRoom = lazy(() => import("./pages/BidRoom"));
+const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const Services = lazy(() => import("./pages/Services"));
 const PortalDemoHub = lazy(() => import("./pages/PortalDemoHub"));
 const PortalGlobalSettings = lazy(() => import("./pages/PortalGlobalSettings"));
@@ -540,6 +541,11 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "enterprise-hr":            HREmployeeHub,
   "subcontractor-enterprise": SubcontractorEnterprise,
   "bid-room":                BidRoom,
+  // Public: shoppers check out as guests, so the portal must be reachable
+  // without a login. The order number alone proves nothing — the server also
+  // requires the email on the order to match.
+  "returns":                 ReturnPortal,
+  "start-a-return":          ReturnPortal,
   "enterprise-reporting":     EnterpriseReporting,
 
   // Portals

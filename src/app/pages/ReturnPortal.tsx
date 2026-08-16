@@ -12,7 +12,7 @@
  * point is to make the better option obvious, not to hide the other one.
  */
 import { useCallback, useState } from 'react';
-import { Loader2, Package, Check, AlertTriangle, ArrowLeft, Gift, CreditCard } from 'lucide-react';
+import { Loader2, Package, Check, AlertTriangle, ArrowLeft, Gift, CreditCard, Camera } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -47,6 +47,45 @@ export default function ReturnPortal() {
   const [detail, setDetail] = useState('');
   const [resolution, setResolution] = useState<'store_credit' | 'refund'>('store_credit');
   const [result, setResult] = useState<any>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  // Photos travel inline with the return, so there is no upload endpoint open
+  // to the internet. They are downscaled here first: a modern phone photo is
+  // several megabytes, and a handful of them would make the request too large
+  // to send — while a picture of a cracked item needs no more than 1600px.
+  const addPhotos = useCallback(async (files: FileList | null) => {
+    if (!files?.length) return;
+    setPhotoBusy(true);
+    try {
+      const room = Math.max(0, 6 - photos.length);
+      const next: string[] = [];
+      for (const file of Array.from(files).slice(0, room)) {
+        if (!file.type.startsWith('image/')) continue;
+        const shrunk = await new Promise<string | null>((resolve) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => {
+            const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { URL.revokeObjectURL(url); resolve(null); return; }
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(url);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+          img.src = url;
+        });
+        if (shrunk) next.push(shrunk);
+      }
+      if (next.length) setPhotos(p => [...p, ...next]);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, [photos.length]);
 
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey };
 
@@ -78,7 +117,7 @@ export default function ReturnPortal() {
         method: 'POST', headers,
         body: JSON.stringify({
           orderId: orderId.trim(), email: email.trim(),
-          lineIds: selected, reason, detail, resolution, photos: [],
+          lineIds: selected, reason, detail, resolution, photos,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -90,12 +129,19 @@ export default function ReturnPortal() {
     } finally {
       setBusy(false);
     }
-  }, [orderId, email, selected, reason, detail, resolution]);
+    // `photos` belongs here: without it the callback closes over the empty
+    // array from first render and every damage claim submits with no evidence.
+  }, [orderId, email, selected, reason, detail, resolution, photos]);
 
   const lines: Line[] = order?.items || [];
   const chosen = lines.filter(l => selected.includes(l.lineId));
   const refundValue = chosen.reduce((n, l) => n + l.price * l.quantity, 0);
   const creditValue = refundValue * (1 + bonus / 100);
+
+  // Mirrors the server rule, so the customer is told before submitting rather
+  // than after: a damage claim without evidence is rejected.
+  const needsPhoto = /damag|wrong|broken|defect|faulty/i.test(reason);
+  const blocked = !reason || (needsPhoto && photos.length === 0);
 
   const input = 'w-full px-4 py-3 bg-white border border-neutral-300 rounded-xl text-neutral-900 placeholder-neutral-400 focus:outline-none focus:border-neutral-900';
 
@@ -192,6 +238,44 @@ export default function ReturnPortal() {
                       <textarea className={`${input} min-h-[80px]`} value={detail}
                         onChange={e => setDetail(e.target.value)}
                         placeholder="Anything else we should know (optional)" />
+
+                      {/* Only asked for when it is actually needed. A photo is
+                          required to claim damage — and it is also the evidence
+                          used to recover the cost from the supplier. */}
+                      {needsPhoto && (
+                        <div className="mt-4">
+                          <div className="text-sm font-medium text-neutral-900 mb-1">
+                            Add a photo of the problem
+                          </div>
+                          <p className="text-sm text-neutral-500 mb-3">
+                            Required for damaged or incorrect items — it is what we send the
+                            supplier.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {photos.map((p, i) => (
+                              <div key={i} className="relative">
+                                <img src={p} alt={`Photo ${i + 1}`}
+                                  className="w-20 h-20 rounded-lg object-cover border border-neutral-300" />
+                                <button type="button" onClick={() => setPhotos(list => list.filter((_, j) => j !== i))}
+                                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-neutral-900 text-white text-xs flex items-center justify-center"
+                                  aria-label={`Remove photo ${i + 1}`}>
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                            {photos.length < 6 && (
+                              <label className="w-20 h-20 rounded-lg border-2 border-dashed border-neutral-300 flex flex-col items-center justify-center cursor-pointer text-neutral-500 hover:border-neutral-900 hover:text-neutral-900 transition">
+                                {photoBusy
+                                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                                  : <><Camera className="w-5 h-5" /><span className="text-[10px] mt-1">Add</span></>}
+                                <input type="file" accept="image/*" multiple capture="environment"
+                                  className="hidden" disabled={photoBusy}
+                                  onChange={e => { addPhotos(e.target.files); e.target.value = ''; }} />
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-white border border-neutral-200 rounded-2xl p-6">
@@ -225,12 +309,14 @@ export default function ReturnPortal() {
                         </button>
                       </div>
 
-                      <button onClick={submit} disabled={busy || !reason}
+                      <button onClick={submit} disabled={busy || blocked}
                         className="w-full flex items-center justify-center gap-2 bg-neutral-900 text-white font-semibold rounded-xl py-3 mt-5 disabled:opacity-40">
                         {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : null} Submit return
                       </button>
-                      {!reason && (
-                        <p className="text-sm text-neutral-500 mt-2 text-center">Pick a reason to continue.</p>
+                      {blocked && (
+                        <p className="text-sm text-neutral-500 mt-2 text-center">
+                          {!reason ? 'Pick a reason to continue.' : 'Add a photo of the problem to continue.'}
+                        </p>
                       )}
                     </div>
                   </>
