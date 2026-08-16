@@ -21,6 +21,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import DeckViewer3D, { type ViewMode } from '../components/DeckViewer3D';
 import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
 import DeckStructuralPanel from '../components/DeckStructuralPanel';
+import DeckPermitPacket from '../components/DeckPermitPacket';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
   DEFAULT_DECK, takeoff,
@@ -327,6 +328,8 @@ export default function DeckDesigner() {
             )}
 
             <DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} />
+
+            <DeckPermitPacket model={model} site={site} loads={loads} />
 
             <DeckBuildSpecPanel model={model} site={site} />
 

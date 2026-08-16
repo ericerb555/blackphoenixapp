@@ -165,11 +165,23 @@ export default function DeckViewer3D({
   mode: controlledMode,
   onModeChange,
   height = 460,
+  hideTabs = false,
+  onCaptureReady,
 }: {
   model: DeckModel;
   mode?: ViewMode;
   onModeChange?: (m: ViewMode) => void;
   height?: number;
+  /** Hide the view switcher when the caller drives the mode (permit packet). */
+  hideTabs?: boolean;
+  /**
+   * Hands back a function that grabs the current frame as a PNG data URL, so a
+   * printable set can include the actual drawings rather than a description of
+   * them. Works because the canvas is created with preserveDrawingBuffer —
+   * without it WebGL clears the buffer after each frame and the capture is
+   * blank.
+   */
+  onCaptureReady?: (capture: () => string | null) => void;
 }) {
   const [internal, setInternal] = useState<ViewMode>('3d');
   const mode = controlledMode ?? internal;
@@ -183,6 +195,7 @@ export default function DeckViewer3D({
 
   return (
     <div className="space-y-3">
+      {!hideTabs && (
       <div className="flex items-center gap-2 flex-wrap">
         {TABS.map(t => {
           const Icon = t.icon;
@@ -200,6 +213,7 @@ export default function DeckViewer3D({
           {TABS.find(t => t.id === mode)?.hint} · drag to orbit, scroll to zoom
         </span>
       </div>
+      )}
 
       <div className="rounded-2xl overflow-hidden border border-[#2A2A2A]"
         style={{ height, background: mode === 'plan' ? '#f8f8f7' : '#0d1117' }}>
@@ -207,6 +221,12 @@ export default function DeckViewer3D({
           shadows={mode !== 'plan'}
           camera={{ fov: mode === 'plan' ? 30 : 42, near: 0.1, far: 500 }}
           gl={{ antialias: true, preserveDrawingBuffer: true }}
+          onCreated={({ gl }) => {
+            // Force a draw before reading, so the first capture is not blank.
+            onCaptureReady?.(() => {
+              try { return gl.domElement.toDataURL('image/png'); } catch { return null; }
+            });
+          }}
         >
           <Suspense fallback={null}>
             <Scene model={model} mode={mode} />
