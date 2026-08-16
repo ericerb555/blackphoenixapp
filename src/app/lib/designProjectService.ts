@@ -10,22 +10,6 @@ import type { UserContext } from './userStorageManager';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
-/**
- * The namespace deck designs live in.
- *
- * Every screen that reads or writes a deck has to agree on this string, and
- * when they disagree the failure is silent: the server defaults an unknown
- * owner to 'shared', so the write succeeds, the read succeeds, and they simply
- * happen in different places. Nothing errors and the list is just empty.
- *
- * That has already happened twice. The deck designer sent `ownerKey=` on its
- * GETs where the server reads `owner`, so it listed from 'shared' while saving
- * to 'decks'. And the pipeline referred to a DESIGN_OWNER_KEY that was never
- * defined anywhere, which threw before either call was made. Exporting the one
- * constant is what stops a third variation of the same bug.
- */
-export const DESIGN_OWNER_KEY = 'decks';
-
 function headers() {
   return {
     'Content-Type': 'application/json',

@@ -15,7 +15,7 @@
  * action — because the failure mode here is a misread "2x8" quietly replacing a
  * 2x10 in a design that is already correct.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   PencilRuler, Camera, Upload, Loader2, X, AlertTriangle, CheckCircle2, Info,
 } from 'lucide-react';
@@ -57,13 +57,9 @@ async function authHeaders() {
   };
 }
 
-export default function SketchImport({ model, onApply, incoming, onRead }: {
+export default function SketchImport({ model, onApply }: {
   model: DeckModel;
   onApply: (patch: Partial<DeckModel>) => void;
-  /** Drawings pushed in from the job folder; `n` counts deliveries, not files. */
-  incoming?: { files: File[]; n: number };
-  /** Reports what was read off the drawing, so the assistant can use it. */
-  onRead?: (sketch: any) => void;
 }) {
   const [shots, setShots] = useState<string[]>([]);
   const [note, setNote] = useState('');
@@ -88,13 +84,6 @@ export default function SketchImport({ model, onApply, incoming, onRead }: {
     }
   }, []);
 
-  const lastDelivery = useRef(0);
-  useEffect(() => {
-    if (!incoming || !incoming.files.length || incoming.n === lastDelivery.current) return;
-    lastDelivery.current = incoming.n;
-    add(incoming.files);
-  }, [incoming, add]);
-
   const analyse = useCallback(async () => {
     if (!shots.length) return;
     let send = shots;
@@ -113,14 +102,13 @@ export default function SketchImport({ model, onApply, incoming, onRead }: {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || `Reading failed (${res.status}).`);
       setRead(json.sketch);
-      onRead?.(json.sketch);
       toast.success('Sketch read — check it before applying.');
     } catch (err: any) {
       toast.error(err?.message || 'Could not read that sketch.');
     } finally {
       setBusy(false);
     }
-  }, [shots, note, onRead]);
+  }, [shots, note]);
 
   /** Fields that came back with a usable value and are not being skipped. */
   const proposals = read?.model

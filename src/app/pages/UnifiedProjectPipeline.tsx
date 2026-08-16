@@ -46,10 +46,7 @@ import { EmployeeNotes } from '../components/EmployeeNotes';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
-import {
-  listDesignProjects, saveDesignProject, DESIGN_OWNER_KEY,
-  type DesignProjectSummary,
-} from '../lib/designProjectService';
+import { listDesignProjects, saveDesignProject, type DesignProjectSummary } from '../lib/designProjectService';
 import { useNavigate } from '../hooks/useNavigate';
 
 // The Design Center is a separate published Figma Make app that shares this
