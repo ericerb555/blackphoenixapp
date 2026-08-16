@@ -23,6 +23,7 @@ import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
 import DeckStructuralPanel from '../components/DeckStructuralPanel';
 import DeckPermitPacket from '../components/DeckPermitPacket';
 import PanelErrorBoundary from '../components/PanelErrorBoundary';
+import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
   DEFAULT_DECK, takeoff,
@@ -300,6 +301,7 @@ function DesignerSession({ session, onSession }: {
         <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
           {/* Controls */}
           <div className="space-y-4">
+            <DesignWorkspaceNav current="deck-designer" />
             <div className={card}>
               <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
                 <MapPin className="w-4 h-4 text-[#ea580c]" /> Project &amp; site

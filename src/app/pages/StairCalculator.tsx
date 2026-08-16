@@ -20,6 +20,7 @@ import {
   MAX_RISER_IN, MIN_TREAD_IN, MAX_RISER_VARIATION_IN,
   type StairInput,
 } from '../lib/stairCalc';
+import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 
 export default function StairCalculator() {
   const [input, setInput] = useState<StairInput>(DEFAULT_STAIR);
@@ -215,6 +216,12 @@ export default function StairCalculator() {
           Prescriptive layout per IRC R311.7 and R507.10. Verify against the code edition your
           jurisdiction has adopted.
         </p>
+
+        {/* Below the answer, not above it: on site the numbers are why you
+            opened this, and navigation should not be in the way of them. */}
+        <div className="no-print pt-2">
+          <DesignWorkspaceNav current="stairs" />
+        </div>
       </div>
     </div>
   );

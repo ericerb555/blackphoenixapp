@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -170,6 +171,8 @@ export default function TownPermitTracker() {
             </div>
           </div>
         )}
+
+        <DesignWorkspaceNav current="permits" />
 
         <div className="flex gap-2">
           {(['submissions', 'towns'] as const).map(t => (

@@ -6,6 +6,7 @@
  * of them rather than being tied to one form.
  */
 import DocumentScanner from '../components/DocumentScanner';
+import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 
 export default function TownDocumentScanner() {
   return (
@@ -18,6 +19,7 @@ export default function TownDocumentScanner() {
             size. Nothing leaves this browser.
           </p>
         </div>
+        <DesignWorkspaceNav current="scanner" />
         <DocumentScanner title="Scan a document" />
       </div>
     </div>
