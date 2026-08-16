@@ -273,6 +273,14 @@ function DesignerSession({ session, onSession }: {
                 {isDirty && <span className="text-yellow-400"> · unsaved changes</span>}
               </span>
             )}
+            {savedId && (
+              <button onClick={saveAsNew} disabled={saving}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+                title="Keep this deck under its own name, then start a new one">
+                <FolderOpen className="w-4 h-4" /> Save as new
+              </button>
+            )}
             <button onClick={startNew}
               className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white"
               style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
