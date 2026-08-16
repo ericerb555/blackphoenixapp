@@ -154,6 +154,7 @@ const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterpri
 const BidRoom = lazy(() => import("./pages/BidRoom"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
+const StairCalculator = lazy(() => import("./pages/StairCalculator"));
 const Services = lazy(() => import("./pages/Services"));
 const PortalDemoHub = lazy(() => import("./pages/PortalDemoHub"));
 const PortalGlobalSettings = lazy(() => import("./pages/PortalGlobalSettings"));
@@ -549,6 +550,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "start-a-return":          ReturnPortal,
   "deck-designer":           DeckDesigner,
   "design-center":           DeckDesigner,
+  "stair-calculator":        StairCalculator,
+  "stairs":                  StairCalculator,
   "enterprise-reporting":     EnterpriseReporting,
 
   // Portals
