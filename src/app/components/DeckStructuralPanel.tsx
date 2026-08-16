@@ -67,6 +67,40 @@ export default function DeckStructuralPanel({
           )}
         </div>
 
+        {/* Print-only header. A calculation sheet that arrives at a building
+            department without the project, the address and a date is loose
+            paper — it has to be attachable to a specific submission, and the
+            examiner has to be able to see which revision they are holding. */}
+        <div className="hidden print:block mb-4 pb-3" style={{ borderBottom: '2px solid #000' }}>
+          <div className="text-lg font-bold">Snow load and footing calculations</div>
+          <table className="w-full text-sm mt-2">
+            <tbody>
+              <tr>
+                <td className="pr-4 align-top" style={{ width: '18%' }}><strong>Project</strong></td>
+                <td style={{ width: '32%' }}>{site?.projectName || '—'}</td>
+                <td className="pr-4 align-top" style={{ width: '18%' }}><strong>Prepared</strong></td>
+                <td>{new Date().toLocaleDateString()}</td>
+              </tr>
+              <tr>
+                <td className="pr-4 align-top"><strong>Address</strong></td>
+                <td>{site?.address || '—'}</td>
+                <td className="pr-4 align-top"><strong>Town</strong></td>
+                <td>{site?.town || '—'}{site?.state ? `, ${site.state}` : ''}</td>
+              </tr>
+              <tr>
+                <td className="pr-4 align-top"><strong>Parcel</strong></td>
+                <td>{site?.parcel || '—'}</td>
+                <td className="pr-4 align-top"><strong>Structure</strong></td>
+                <td>{model.widthFt}′ × {model.depthFt}′ deck, {model.heightFt}′ above grade</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="text-xs mt-2">
+            Prescriptive sizing per IRC R301.5, IRC Table R401.4.1, IRC R403.1.4 and AWC DCA 6.
+            To be read with the framing plan and footing layout for this project.
+          </p>
+        </div>
+
         {/* Inputs. Deliberately empty by default — see the module header. */}
         <div className="no-print grid sm:grid-cols-3 gap-3 mb-4">
           <div>
@@ -89,6 +123,37 @@ export default function DeckStructuralPanel({
                 <option key={s.id} value={s.id}>{s.label} — {s.psf} psf</option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* The footing being proposed, which is a different number from the
+            minimum the load requires. A plans examiner checks one against the
+            other, and on a rebuild the proposed size is usually set by what is
+            already in the ground or by the form sizes on the truck. */}
+        <div className="no-print grid sm:grid-cols-3 gap-3 mb-4">
+          <div>
+            <span className={label}>Proposed footing</span>
+            <select className={input} value={loads.proposedFootingShape}
+              onChange={e => onLoadsChange({
+                ...loads, proposedFootingShape: e.target.value as 'round' | 'square',
+              })}>
+              <option value="round">Round pier / tube</option>
+              <option value="square">Square pad</option>
+            </select>
+          </div>
+          <div>
+            <span className={label}>
+              {loads.proposedFootingShape === 'round' ? 'Diameter (inches)' : 'Side (inches)'}
+            </span>
+            <input type="number" min={0} className={input} value={loads.proposedFootingSizeIn || ''}
+              placeholder="what you intend to pour"
+              onChange={e => onLoadsChange({ ...loads, proposedFootingSizeIn: Number(e.target.value) || 0 })} />
+          </div>
+          <div>
+            <span className={label}>Depth to underside (inches)</span>
+            <input type="number" min={0} className={input} value={loads.proposedFootingDepthIn || ''}
+              placeholder="below finished grade"
+              onChange={e => onLoadsChange({ ...loads, proposedFootingDepthIn: Number(e.target.value) || 0 })} />
           </div>
         </div>
 
@@ -174,6 +239,72 @@ export default function DeckStructuralPanel({
                 {model.postSize} posts on {r.roundFootingDiameterIn}" footings, one per post
                 ({model.postSpacingFt}ft on centre). IRC Table R401.4.1 · R403.1.4.
               </p>
+            </section>
+
+            {/* The check the building department is asking for, stated as a
+                check rather than left for the reader to do: this is the load,
+                this is what the proposed footing carries, and here is which is
+                bigger. */}
+            <section className="mb-5">
+              <h3 className="font-bold text-white border-b border-[#2A2A2A] pb-1 mb-2">
+                Proposed footing — verification
+              </h3>
+              {!r.proposed ? (
+                <p className="text-sm text-gray-400">
+                  Enter the footing you intend to pour above and this becomes a pass/fail check
+                  against the load calculated here. Without it the sheet states a required minimum
+                  only, which does not answer whether what is being built is adequate.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1.5 text-sm mb-3">
+                    <Row k="Proposed"
+                      v={r.proposed.shape === 'round'
+                        ? `${r.proposed.sizeIn}" diameter`
+                        : `${r.proposed.sizeIn}" × ${r.proposed.sizeIn}"`}
+                      note={r.proposed.depthIn ? `${r.proposed.depthIn}" below finished grade` : 'depth not entered'} />
+                    <Row k="Bearing area provided" v={`${r.proposed.areaSqFt} sq ft`}
+                      note={r.proposed.shape === 'round'
+                        ? `π × (${r.proposed.sizeIn}/2)² ÷ 144`
+                        : `${r.proposed.sizeIn}² ÷ 144`} />
+                    <Row k="Allowable capacity" v={`${r.proposed.capacityLbs.toLocaleString()} lbs`}
+                      note={`${r.proposed.areaSqFt} sq ft × ${r.soilPsf} psf`} />
+                    <Row k="Actual load per post" v={`${r.postLoadLbs.toLocaleString()} lbs`} />
+                    <Row k="Utilisation" v={`${r.proposed.utilizationPct}%`}
+                      note="Load as a percentage of what the footing can carry." strong />
+                  </div>
+
+                  <div className="rounded-xl p-3 flex items-start gap-2"
+                    style={{
+                      background: r.proposed.passes ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
+                      border: `1px solid ${r.proposed.passes ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
+                    }}>
+                    {r.proposed.passes
+                      ? <CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5 shrink-0" />
+                      : <ShieldAlert className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />}
+                    <div className="text-sm">
+                      <div className={`font-bold mb-0.5 ${r.proposed.passes ? 'text-green-300' : 'text-red-300'}`}>
+                        {r.proposed.passes ? 'ADEQUATE' : 'NOT ADEQUATE'}
+                      </div>
+                      <p className={r.proposed.passes ? 'text-green-200' : 'text-red-200'}>
+                        Bearing {r.proposed.bearingPasses ? 'passes' : 'fails'}
+                        {' — '}
+                        {r.proposed.capacityLbs.toLocaleString()} lbs capacity against a{' '}
+                        {r.postLoadLbs.toLocaleString()} lbs load.
+                        {' '}Frost depth {r.proposed.depthPasses
+                          ? `passes — footing bears at ${r.proposed.depthIn}" against a ${r.frostDepthIn}" frost line.`
+                          : `not satisfied — ${r.proposed.depthIn || 'no'} depth entered against a ${r.frostDepthIn}" frost line.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mt-2">
+                    Bearing check per IRC Table R401.4.1, frost protection per IRC R403.1.4. This
+                    verifies the soil under the footing, not the footing as a concrete element in
+                    bending or punching shear.
+                  </p>
+                </>
+              )}
             </section>
 
             {r.cautions.length > 0 && (

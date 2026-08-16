@@ -315,6 +315,61 @@ export default function DeckPermitPacket({
               entered before this sheet is valid.
             </p>
           )}
+
+          {/* The verification, stated as a conclusion. An examiner should not
+              have to divide two numbers on the sheet to find out whether the
+              footing being proposed is the one the calculation supports. */}
+          {struct.computable && (
+            <div className="mt-4 border-2 border-black p-3">
+              <div className="font-bold mb-2">Proposed footing — adequacy check</div>
+              {!struct.proposed ? (
+                <p className="text-sm">
+                  No proposed footing size has been entered. The sizes above are the calculated
+                  minimum; this sheet does not certify any particular footing until the proposed
+                  size and depth are stated.
+                </p>
+              ) : (
+                <>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {[
+                        ['Proposed footing',
+                          struct.proposed.shape === 'round'
+                            ? `${struct.proposed.sizeIn} in dia`
+                            : `${struct.proposed.sizeIn} × ${struct.proposed.sizeIn} in`,
+                          `${struct.proposed.depthIn} in below finished grade`],
+                        ['Bearing area provided', `${struct.proposed.areaSqFt} sq ft`,
+                          struct.proposed.shape === 'round'
+                            ? `π × (${struct.proposed.sizeIn}/2)² ÷ 144`
+                            : `${struct.proposed.sizeIn}² ÷ 144`],
+                        ['Allowable capacity', `${struct.proposed.capacityLbs.toLocaleString()} lbs`,
+                          `${struct.proposed.areaSqFt} sq ft × ${struct.soilPsf} psf`],
+                        ['Applied load per post', `${struct.postLoadLbs.toLocaleString()} lbs`, 'From the calculation above'],
+                        ['Utilisation', `${struct.proposed.utilizationPct}%`, 'Applied load ÷ allowable capacity'],
+                      ].map(([k, v, note]) => (
+                        <tr key={k} className="border-b border-gray-400">
+                          <td className="py-1.5 font-semibold w-52">{k}</td>
+                          <td className="py-1.5 w-40 font-bold">{v}</td>
+                          <td className="py-1.5 text-xs">{note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-sm mt-2 font-bold">
+                    {struct.proposed.passes
+                      ? `ADEQUATE — the proposed footing carries ${struct.proposed.capacityLbs.toLocaleString()} lbs against an applied load of ${struct.postLoadLbs.toLocaleString()} lbs, and bears at ${struct.proposed.depthIn} in, below the ${struct.frostDepthIn} in frost line.`
+                      : `NOT ADEQUATE as proposed — see the notes below. Bearing ${struct.proposed.bearingPasses ? 'passes' : 'fails'}; frost depth ${struct.proposed.depthPasses ? 'passes' : 'not satisfied'}.`}
+                  </p>
+                  <p className="text-xs mt-1">
+                    Bearing check per IRC Table R401.4.1; frost protection per IRC R403.1.4. This
+                    verifies the soil beneath the footing. It is not a check of the footing as a
+                    concrete element in bending or punching shear.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
           {struct.cautions.length > 0 && (
             <div className="mt-3 text-xs">
               <div className="font-semibold">Notes</div>
