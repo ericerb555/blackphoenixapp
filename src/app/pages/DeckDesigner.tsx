@@ -22,6 +22,7 @@ import DeckViewer3D, { type ViewMode } from '../components/DeckViewer3D';
 import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
 import DeckStructuralPanel from '../components/DeckStructuralPanel';
 import DeckPermitPacket from '../components/DeckPermitPacket';
+import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
   DEFAULT_DECK, takeoff,
@@ -424,7 +425,7 @@ function DesignerSession({ session, onSession }: {
           {/* Views + takeoff */}
           <div className="space-y-4">
             <div className={card}>
-              <DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} />
+              <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
             </div>
 
             {advisories.length > 0 && (
@@ -445,11 +446,11 @@ function DesignerSession({ session, onSession }: {
               </div>
             )}
 
-            <DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} />
+            <PanelErrorBoundary name="Loads and footings"><DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} /></PanelErrorBoundary>
 
-            <DeckPermitPacket model={model} site={site} loads={loads} />
+            <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
 
-            <DeckBuildSpecPanel model={model} site={site} />
+            <PanelErrorBoundary name="Build specification"><DeckBuildSpecPanel model={model} site={site} /></PanelErrorBoundary>
 
             <div className={card}>
               <h2 className="text-sm font-bold text-white mb-3">Materials</h2>
