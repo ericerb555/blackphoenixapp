@@ -16,12 +16,13 @@
  * Pilot, the public storefront, the Content Center, etc.) can still be opened in
  * full via `onNavigate`, surfaced under "Open full pages" at the bottom of the rail.
  */
-import { useState , RotateCcw } from 'react';
+import { useState } from 'react';
 import {
   Store, ShoppingBag, ShoppingCart, Box, Link2, DollarSign, Package,
   AlertCircle, Activity, Rocket, Zap, Bot, RefreshCw, Star, Tag,
   BarChart3, TrendingUp, Flame, Download, BookOpen, Image as ImageIcon,
   ChevronRight, ExternalLink, LayoutGrid, LayoutDashboard,
+  RotateCcw,
 } from 'lucide-react';
 
 import DropshipperAdminPanel, { StoreTab } from '../DropshipperAdminPanel';

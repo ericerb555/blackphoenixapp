@@ -3,13 +3,14 @@
  * Enterprise-grade dropshipper integration with AI-powered features
  */
 
-import { useState, useEffect , RotateCcw } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Package, Settings, RefreshCw, AlertCircle, CheckCircle, Clock,
   TrendingUp, Box, Truck, Activity, Eye, EyeOff, Plus, Trash2, Edit,
   PlayCircle, PauseCircle, Database, Link2, Zap, ShoppingCart, Download,
   Brain, DollarSign, BarChart3, Target, Webhook, FileDown, FileUp,
-  Sparkles, GitBranch, Shuffle, Filter, Search, ChevronDown, ChevronUp
+  Sparkles, GitBranch, Shuffle, Filter, Search, ChevronDown, ChevronUp,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
