@@ -81,6 +81,25 @@ function statusCopy(status: string, order: any, tracking?: string, carrier?: str
   }
 }
 
+/**
+ * Returns link for status emails.
+ *
+ * Only on "delivered". That is the moment a customer discovers the item is
+ * wrong or damaged, and it is the email they go back to. Offering a return on
+ * "shipped" invites one before the parcel has even arrived, and on "cancelled"
+ * there is nothing to return.
+ */
+function returnsLine(status: string, orderNumber: string): string {
+  if (status !== "delivered") return "";
+  const base = (Deno.env.get("APP_URL") || Deno.env.get("APP_PUBLIC_URL") || "https://www.theblackphoenixcompany.com").replace(/\/$/, "");
+  const href = `${base}/returns?order=${encodeURIComponent(orderNumber)}`;
+  return `<p style="color:#666;font-size:13px;border-top:1px solid #eee;padding-top:14px;margin-top:16px">
+      Something not right?
+      <a href="${href}" style="color:#ea580c;font-weight:600;text-decoration:none">Start a return</a>
+      — it takes about a minute.
+    </p>`;
+}
+
 async function requireAdmin(c: any) {
   const accessToken = c.req.header("Authorization")?.split(" ")[1];
   const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
@@ -157,6 +176,7 @@ fulfillmentRouter.put("/make-server-3eae23a6/fulfillment/orders/:id", async (c) 
         <p>Hi ${order.customerName || "there"},</p>
         <p>${copy.line}</p>
         ${order.trackingNumber ? `<p style="background:#f4f4f4;padding:12px;border-radius:8px"><strong>Tracking:</strong> ${order.trackingNumber}${order.carrier ? ` (${order.carrier})` : ""}</p>` : ""}
+        ${returnsLine(status, order.orderNumber || id)}
         <p style="color:#888;font-size:12px">Order ${order.orderNumber || id}</p>
       </div>`;
       if (order.customerEmail) notifications.email = await sendEmail(order.customerEmail, copy.subject, html);

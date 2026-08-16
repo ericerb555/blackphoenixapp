@@ -3554,6 +3554,26 @@ app.get('/make-server-3eae23a6/stripe/session/:sessionId', async (c) => {
 });
 
 // ORDER CONFIRMATION EMAIL — sent from the receipt page after a verified order.
+/**
+ * The returns line for customer order emails.
+ *
+ * A shopper looking for this reaches for the confirmation email first, and not
+ * finding it there is what turns a self-serve return into a support thread. The
+ * order number is pre-filled into the link so they only have to supply the email
+ * — the portal still requires both to match, so a pre-filled number gives away
+ * nothing.
+ */
+function returnsFooter(orderId?: unknown): string {
+  const base = (Deno.env.get('APP_URL') || Deno.env.get('APP_PUBLIC_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+  const id = String(orderId || '').trim();
+  const href = `${base}/returns${id ? `?order=${encodeURIComponent(id)}` : ''}`;
+  return `<p style="color:#666;font-size:13px;border-top:1px solid #eee;padding-top:14px;margin-top:18px">
+      Changed your mind, or something arrived wrong?
+      <a href="${href}" style="color:#ea580c;font-weight:600;text-decoration:none">Start a return</a>
+      — it takes about a minute.
+    </p>`;
+}
+
 app.post('/make-server-3eae23a6/email/order-confirmation', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
@@ -3584,6 +3604,7 @@ app.post('/make-server-3eae23a6/email/order-confirmation', async (c) => {
             <td style="padding:12px 0;border-top:1px solid #eee;text-align:right;font-weight:bold;color:#ea580c">${money(body.total)}</td></tr>
       </table>
       <p style="color:#666;font-size:13px">We'll email tracking details as soon as your order ships. Reply to this email with any questions.</p>
+      ${returnsFooter(body.orderId)}
     </div>`;
 
     const res = await fetch('https://api.resend.com/emails', {

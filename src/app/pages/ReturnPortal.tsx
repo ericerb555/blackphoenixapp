@@ -32,7 +32,13 @@ interface Line { lineId: string; name: string; sku: string; price: number; quant
 
 export default function ReturnPortal() {
   const [step, setStep] = useState<'lookup' | 'choose' | 'done'>('lookup');
-  const [orderId, setOrderId] = useState('');
+  // Order confirmation emails link here with ?order=..., so the customer only
+  // has to supply their email. Both must still match server-side, so a
+  // pre-filled number grants nothing on its own.
+  const [orderId, setOrderId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('order') || '';
+  });
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
