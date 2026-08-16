@@ -53,12 +53,13 @@ import { useNavigate } from '../hooks/useNavigate';
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
 // pass the project id so, if the Design Center reads it, the project opens
 // directly. Both apps use the "shared" owner namespace by default.
-const DESIGN_CENTER_URL = 'https://author-canon-65421010.figma.site';
-const DESIGN_OWNER_KEY = 'shared';
+// The design tools live in this app now. This used to open a Figma-published
+// prototype on another domain, whose buttons were mockups with nothing behind
+// them — so "open in Design Center" led to a dead end rather than the project.
 function openInDesignCenter(designProjectId?: string) {
   const url = designProjectId
-    ? `${DESIGN_CENTER_URL}/?projectId=${encodeURIComponent(designProjectId)}&owner=${encodeURIComponent(DESIGN_OWNER_KEY)}`
-    : DESIGN_CENTER_URL;
+    ? `/deck-designer?projectId=${encodeURIComponent(designProjectId)}`
+    : '/deck-designer';
   window.open(url, '_blank', 'noopener');
 }
 

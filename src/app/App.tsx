@@ -1183,16 +1183,17 @@ function AppContent() {
 
   const navigate = (page: string) => {
     console.log("🧭 Navigating to:", page);
-    // The Design Center lives in a SEPARATE Figma Make project, published at its
-    // own domain. Any "design/..." target is a real cross-app navigation, so do
-    // a full browser load straight to the published site. We open the published
-    // URL directly (rather than the /design proxy) because a Figma-published SPA
-    // uses root-absolute asset paths that break when served under a subpath.
-    const DESIGN_CENTER_URL = "https://author-canon-65421010.figma.site";
+    // The Design Center used to leave the app entirely for a Figma-published
+    // prototype at its own domain. That prototype's left-hand buttons — Permits
+    // & Zoning, Plot Plans, Saved Quotes — are mockups with nothing behind
+    // them, and because the redirect was a full browser load rather than a
+    // route change, there was no way back short of retyping the address.
+    //
+    // The design tools are real now and live in this app, so Design Center goes
+    // to the deck designer instead of off-site.
     const normalized = page.startsWith('/') ? page.slice(1) : page;
     if (normalized === 'design' || normalized.startsWith('design/') || normalized.startsWith('design?')) {
-      window.location.assign(DESIGN_CENTER_URL);
-      return;
+      page = 'deck-designer';
     }
     // Use startTransition to avoid suspense errors during navigation
     // Update state and URL without full page reload
