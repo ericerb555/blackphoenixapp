@@ -25,7 +25,7 @@ import {
   buildMembers, MEMBER_COLOR, STRUCTURAL_KINDS,
   type DeckModel, type Member,
 } from '../lib/deckModel';
-import { buildAnnotations } from '../lib/deckAnnotations';
+import FramingPlanCanvas from './FramingPlanCanvas';
 
 export type ViewMode = '3d' | 'framing' | 'plan' | 'framing-detail';
 
@@ -85,76 +85,6 @@ function Dimension({ from, to, label, offset = 0 }: {
 }
 
 
-/**
- * The annotated framing plan.
- *
- * Dimension strings with extension ticks, and callouts on leader lines pointing
- * at the member they describe. Everything comes from buildAnnotations, which
- * reads the model and the build spec — so a fastener size on the drawing is the
- * same one printed in the schedule.
- *
- * Rotated flat and drawn in black on white, because this sheet is read on paper
- * by someone standing in a building department.
- */
-function FramingAnnotations({ model }: { model: DeckModel }) {
-  const a = useMemo(() => buildAnnotations(model), [model]);
-  const INK = '#111827';
-  return (
-    <group>
-      {a.dimensions.map((d, i) => {
-        const mid: [number, number, number] = [
-          (d.from[0] + d.to[0]) / 2, d.from[1], (d.from[2] + d.to[2]) / 2,
-        ];
-        // Ticks perpendicular to the run, so a dimension reads as a dimension
-        // rather than a stray line across the drawing.
-        const t = 0.45;
-        const p1: [number, number, number] = d.axis === 'x'
-          ? [d.from[0], d.from[1], d.from[2] - t] : [d.from[0] - t, d.from[1], d.from[2]];
-        const p2: [number, number, number] = d.axis === 'x'
-          ? [d.from[0], d.from[1], d.from[2] + t] : [d.from[0] + t, d.from[1], d.from[2]];
-        const p3: [number, number, number] = d.axis === 'x'
-          ? [d.to[0], d.to[1], d.to[2] - t] : [d.to[0] - t, d.to[1], d.to[2]];
-        const p4: [number, number, number] = d.axis === 'x'
-          ? [d.to[0], d.to[1], d.to[2] + t] : [d.to[0] + t, d.to[1], d.to[2]];
-        return (
-          <group key={'d' + i}>
-            <Line points={[d.from, d.to]} color={INK} lineWidth={1.2} />
-            <Line points={[p1, p2]} color={INK} lineWidth={1.2} />
-            <Line points={[p3, p4]} color={INK} lineWidth={1.2} />
-            <Text position={[mid[0], mid[1], mid[2] - 0.55]} fontSize={0.62} color={INK}
-              anchorX="center" anchorY="middle" rotation={[-Math.PI / 2, 0, 0]}>
-              {d.label}
-            </Text>
-          </group>
-        );
-      })}
-
-      {a.callouts.map((c, i) => (
-        <group key={'c' + i}>
-          <Line points={[c.target, c.at]} color={INK} lineWidth={1} />
-          <mesh position={c.target} rotation={[-Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.16, 12]} />
-            <meshBasicMaterial color={INK} />
-          </mesh>
-          {c.lines.map((line, j) => (
-            <Text key={j} position={[c.at[0], c.at[1], c.at[2] + j * 0.72]} fontSize={0.55}
-              color={INK} anchorX={c.at[0] < 0 ? 'right' : 'left'} anchorY="middle"
-              rotation={[-Math.PI / 2, 0, 0]}>
-              {line}
-            </Text>
-          ))}
-        </group>
-      ))}
-
-      {a.notes.map((n, i) => (
-        <Text key={'n' + i} position={[-model.widthFt / 2 - 5, model.heightFt, model.depthFt + 7 + i * 0.8]}
-          fontSize={0.5} color={INK} anchorX="left" anchorY="middle" rotation={[-Math.PI / 2, 0, 0]}>
-          {(i === 0 ? 'NOTES:  ' : '        ') + n}
-        </Text>
-      ))}
-    </group>
-  );
-}
 
 function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   const members = useMemo(() => buildMembers(model), [model]);
@@ -203,7 +133,6 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
         </mesh>
       )}
 
-      {isDetail && <FramingAnnotations model={model} />}
 
       {isPlan && !isDetail && (
         <>
@@ -297,6 +226,14 @@ export default function DeckViewer3D({
       </div>
       )}
 
+      {mode === 'framing-detail' ? (
+        // A framing plan is a flat drawing, and 2D canvas text needs nothing
+        // fetched at runtime — the WebGL text this replaces rendered geometry
+        // with no labels whenever its font failed to load.
+        <div style={{ height }} className="overflow-auto rounded-2xl border border-[#2A2A2A] bg-white">
+          <FramingPlanCanvas model={model} onCaptureReady={onCaptureReady} />
+        </div>
+      ) : (
       <div className="rounded-2xl overflow-hidden border border-[#2A2A2A]"
         style={{ height, background: mode === 'plan' || mode === 'framing-detail' ? '#ffffff' : '#0d1117' }}>
         <Canvas
@@ -325,6 +262,7 @@ export default function DeckViewer3D({
           </Suspense>
         </Canvas>
       </div>
+      )}
     </div>
   );
 }

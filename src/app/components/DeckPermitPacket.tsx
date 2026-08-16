@@ -18,6 +18,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FileText, Loader2, Printer, ShieldAlert, Camera } from 'lucide-react';
 import DeckViewer3D, { type ViewMode } from './DeckViewer3D';
+import FramingPlanCanvas from './FramingPlanCanvas';
 import { buildSpec } from '../lib/deckBuildSpec';
 import { computeStructural, nextStandardTube, SOIL_CLASSES, type SiteLoads } from '../lib/deckStructural';
 import { takeoff, type DeckModel } from '../lib/deckModel';
