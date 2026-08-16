@@ -29,24 +29,22 @@ function isStaleChunk(error: unknown): boolean {
 }
 
 /**
- * Reload once, and only once, so a genuine failure cannot become a reload loop.
- * The marker is per tab and expires, so a stale chunk hours later still recovers.
+ * WHY THIS DOES NOT RELOAD BY ITSELF
+ *
+ * The obvious fix for a stale chunk is to reload and pick up the current build,
+ * and that was tried. It is not safe. If the reload lands on the same failure —
+ * for any reason, and there are several — it reloads again, and the result is
+ * not an error message but a spinner that never stops. That is strictly worse
+ * than the problem: an error screen tells you something is wrong and gives you
+ * a button, an endless spinner tells you nothing and gives you nothing.
+ *
+ * A guard makes a loop unlikely rather than impossible, and "unlikely" is not
+ * good enough for the code that runs when everything else has already failed.
+ *
+ * So the boundary only *recognises* the condition, and says plainly what
+ * happened and what to do. Reloading is one click, it cannot loop, and the
+ * person doing it can see whether it worked.
  */
-const RELOAD_MARK = 'bpb:stale-chunk-reload';
-const RELOAD_WINDOW_MS = 60_000;
-
-function reloadOnceForStaleChunk(): boolean {
-  try {
-    const last = Number(sessionStorage.getItem(RELOAD_MARK) || 0);
-    if (Date.now() - last < RELOAD_WINDOW_MS) return false;
-    sessionStorage.setItem(RELOAD_MARK, String(Date.now()));
-  } catch {
-    // Private browsing with storage disabled: reloading once is still better
-    // than showing an error for a page that would load fine.
-  }
-  window.location.reload();
-  return true;
-}
 
 interface Props {
   children: ReactNode;
@@ -56,6 +54,8 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  /** True when the failure was a page replaced by a deploy, not a real fault. */
+  stale: boolean;
   error: Error | null;
   errorInfo: React.ErrorInfo | null;
 }
@@ -67,26 +67,8 @@ export class ErrorBoundary extends Component<Props, State> {
       hasError: false,
       error: null,
       errorInfo: null,
+      stale: false,
     };
-  }
-
-  /**
-   * A dynamic import can also fail as an unhandled rejection, which never
-   * reaches a boundary. Catching it here means a deploy mid-session recovers
-   * the same way wherever the failure surfaces.
-   */
-  private onRejection = (e: PromiseRejectionEvent) => {
-    if (!isStaleChunk(e.reason)) return;
-    console.warn('[ErrorBoundary] Stale page chunk in a rejected import — reloading.');
-    reloadOnceForStaleChunk();
-  };
-
-  componentDidMount() {
-    window.addEventListener('unhandledrejection', this.onRejection);
-  }
-
-  componentWillUnmount() {
-    window.removeEventListener('unhandledrejection', this.onRejection);
   }
 
   static getDerivedStateFromError(error: Error): State {
@@ -101,6 +83,7 @@ export class ErrorBoundary extends Component<Props, State> {
       hasError: true,
       error,
       errorInfo: null,
+      stale: isStaleChunk(error),
     };
   }
 
@@ -111,11 +94,12 @@ export class ErrorBoundary extends Component<Props, State> {
       throw error;
     }
 
-    // A page whose chunk was replaced by a deploy. Fetch the new one rather
-    // than telling someone their app is broken when it is not.
+    // A page whose chunk was replaced by a deploy. Recorded so the fallback can
+    // say what actually happened; see the note above on why it does not reload
+    // on its own.
     if (isStaleChunk(error)) {
-      console.warn('[ErrorBoundary] Stale page chunk — reloading to pick up the current build.');
-      if (reloadOnceForStaleChunk()) return;
+      console.warn('[ErrorBoundary] Stale page chunk — the app was updated while this tab was open.');
+      this.setState({ stale: true });
     }
 
     // Suppress fetch-related errors (already handled by components)
@@ -129,6 +113,7 @@ export class ErrorBoundary extends Component<Props, State> {
         hasError: false,
         error: null,
         errorInfo: null,
+        stale: false,
       });
       return;
     }
@@ -163,7 +148,9 @@ export class ErrorBoundary extends Component<Props, State> {
             marginBottom: '16px',
             textAlign: 'center',
           }}>
-            Something went wrong loading this page
+            {this.state.stale
+              ? 'The app was updated while this tab was open'
+              : 'Something went wrong loading this page'}
           </h1>
           <p style={{
             color: '#9ca3af',
@@ -171,7 +158,11 @@ export class ErrorBoundary extends Component<Props, State> {
             textAlign: 'center',
             maxWidth: '600px',
           }}>
-            {this.state.error?.message || 'Unknown error'}
+            {this.state.stale
+              // Naming the cause matters: nothing is broken and no work has
+              // been lost, which is not what "something went wrong" suggests.
+              ? 'This page was replaced by a newer version, so your browser asked for one that no longer exists. Reload and it will pick up the current version. Nothing has been lost.'
+              : (this.state.error?.message || 'Unknown error')}
           </p>
           {this.state.errorInfo && (
             <details style={{
@@ -218,7 +209,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </button>
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: null, errorInfo: null });
+                this.setState({ hasError: false, error: null, errorInfo: null, stale: false });
                 if (this.props.onNavigate) {
                   this.props.onNavigate('unified-dashboard');
                 }
