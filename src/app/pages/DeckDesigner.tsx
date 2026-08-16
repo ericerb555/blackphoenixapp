@@ -91,6 +91,7 @@ function DesignerSession({ session, onSession }: {
   const [clean, setClean] = useState<string>('');
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [parking, setParking] = useState(false);
 
   const set = useCallback(<K extends keyof DeckModel>(k: K, v: DeckModel[K]) => {
     setModel(m => ({ ...m, [k]: v }));
@@ -232,11 +233,70 @@ function DesignerSession({ session, onSession }: {
     onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
   }, [onSession]);
 
-  const startNew = useCallback(() => {
-    if (isDirty && !confirm('Start a new deck? Unsaved changes to the current one will be lost.')) return;
+  /**
+   * Start a new deck, and park whatever was on the desk rather than losing it.
+   *
+   * The old behaviour asked "are you sure, unsaved changes will be lost", which
+   * is the wrong question: nobody wants to lose the work, and being asked to
+   * confirm a loss trains people to click through the dialog. So there is no
+   * dialog. Anything that is not a pristine default gets written as a project
+   * of its own under a generated reference, and can be renamed and assigned to
+   * a customer later from Open.
+   *
+   * If parking fails, nothing is cleared. Clearing the desk after failing to
+   * save what was on it is the one outcome worse than not clearing at all.
+   */
+  const startNew = useCallback(async () => {
+    const pristine = JSON.stringify({
+      model: DEFAULT_DECK, site: EMPTY_SITE, loads: DEFAULT_SITE_LOADS,
+    });
+    const hasWork = snapshot() !== pristine;
+
+    if (hasWork) {
+      const named = site.projectName.trim() && site.projectName.trim() !== EMPTY_SITE.projectName;
+      // A four-digit reference is short enough to read out over the phone and
+      // long enough not to collide with the last one in a day's work.
+      const ref = Math.floor(1000 + Math.random() * 9000);
+      const name = named ? site.projectName.trim() : `Unassigned deck · ${ref}`;
+
+      setParking(true);
+      try {
+        const res = await fetch(`${SERVER}/design-projects`, {
+          method: 'POST',
+          headers: await headers(),
+          body: JSON.stringify({
+            // Update in place when it is already a saved project; otherwise
+            // this becomes its own record rather than overwriting anything.
+            id: savedId || undefined,
+            ownerKey: 'decks',
+            name,
+            meta: {
+              kind: 'deck', model, site: { ...site, projectName: name },
+              loads, takeoff: bom, ...link,
+            },
+            note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.success) {
+          toast.error(`Could not park the current deck (${data?.error || res.status}) — nothing was cleared.`);
+          return;
+        }
+        toast.success(
+          named ? `Saved “${name}”.` : `Parked as “${name}” — rename and assign it from Open.`,
+        );
+        loadList();
+      } catch (err: any) {
+        toast.error(`${err?.message || 'Could not park the current deck'} — nothing was cleared.`);
+        return;
+      } finally {
+        setParking(false);
+      }
+    }
+
     hardReset();
     toast.success('New deck started.');
-  }, [isDirty, hardReset]);
+  }, [snapshot, site, model, loads, bom, link, savedId, hardReset, loadList]);
 
   const open = useCallback((p: any) => {
     // Swapping the session remounts the editor, so the deck being opened
@@ -301,11 +361,12 @@ function DesignerSession({ session, onSession }: {
                 <FolderOpen className="w-4 h-4" /> Save as new
               </button>
             )}
-            <button onClick={startNew}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white"
+            <button onClick={startNew} disabled={parking}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
               style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
-              title="Clear the desk and start a new deck">
-              <Plus className="w-4 h-4" /> New deck
+              title="Park whatever is open and start a new deck">
+              {parking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {parking ? 'Parking…' : 'New deck'}
             </button>
           <button onClick={save} disabled={saving}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
