@@ -303,6 +303,27 @@ function DesignerSession({ session, onSession }: {
    * Without this, the only way to keep an existing deck AND start a different
    * one was to save, then reset, and hope the reset took.
    */
+  /**
+   * Clear the desk and start again. The single reset both New and Save-as-new
+   * go through.
+   *
+   * Without this, opening a saved deck left savedId set forever and every
+   * subsequent save wrote over that project — there was no way back to a blank
+   * sheet short of reloading the page.
+   *
+   * DECLARED BEFORE ITS CALLERS ON PURPOSE. `saveAsNew` and `startNew` both name
+   * it in their dependency arrays, and a dependency array is an ordinary
+   * expression evaluated during render — not lazily when the callback fires. A
+   * `const` declared further down the component is still in its temporal dead
+   * zone at that moment, so listing it from above throws ReferenceError on the
+   * very first render and takes the whole page with it. It did: minified, it
+   * read "Cannot access 'We' before initialization", which says nothing about
+   * where to look.
+   */
+  const hardReset = useCallback(() => {
+    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
+  }, [onSession]);
+
   const saveAsNew = useCallback(async () => {
     const name = prompt('Save the current deck as a new project named:', `${site.projectName} (copy)`);
     if (name === null) return;
@@ -338,18 +359,6 @@ function DesignerSession({ session, onSession }: {
     [model, site, loads],
   );
   const isDirty = clean !== '' && snapshot() !== clean;
-
-  /**
-   * Clear the desk and start again.
-   *
-   * Without this, opening a saved deck left savedId set forever and every
-   * subsequent save wrote over that project — there was no way back to a blank
-   * sheet short of reloading the page.
-   */
-  /** The single reset both New and Save-as-new go through. */
-  const hardReset = useCallback(() => {
-    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
-  }, [onSession]);
 
   /**
    * Put a deck that could not be parked back on the desk.
