@@ -27,7 +27,8 @@ interface Site { projectName?: string; address?: string; town?: string; state?: 
 const VIEWS: { mode: ViewMode; title: string; caption: string }[] = [
   { mode: 'plan', title: 'Sheet 2 — Plan', caption: 'Dimensioned plan, viewed from above.' },
   { mode: 'framing', title: 'Sheet 3 — Framing plan', caption: 'Structure only. Decking, rail and stairs omitted for clarity.' },
-  { mode: '3d', title: 'Sheet 4 — Perspective', caption: 'Illustrative view of the completed structure.' },
+  { mode: 'framing-detail', title: 'Sheet 4 — Framing detail', caption: 'Member sizes, spacing, connectors and fastener callouts. Read with the schedule on the connections sheet.' },
+  { mode: '3d', title: 'Sheet 5 — Perspective', caption: 'Illustrative view of the completed structure.' },
 ];
 
 export default function DeckPermitPacket({
@@ -109,7 +110,7 @@ export default function DeckPermitPacket({
 
       {/* Live views, kept small on screen. They must stay mounted and rendered
           for the capture to work — a display:none canvas produces nothing. */}
-      <div className="no-print grid grid-cols-3 gap-2 mb-4">
+      <div className="no-print grid grid-cols-4 gap-2 mb-4">
         {VIEWS.map(v => (
           <div key={v.mode}>
             <DeckViewer3D
@@ -201,6 +202,7 @@ export default function DeckPermitPacket({
             <li>Cover, project data and design criteria</li>
             <li>Dimensioned plan</li>
             <li>Framing plan</li>
+            <li>Framing detail — sizes, connectors, fasteners</li>
             <li>Perspective view</li>
             <li>Structural calculations</li>
             <li>Connection details and fastener schedule</li>
@@ -226,6 +228,13 @@ export default function DeckPermitPacket({
                 at {model.postSpacingFt}ft on centre.
               </p>
             )}
+            {v.mode === 'framing-detail' && (
+              <p className="text-xs mt-1">
+                All framing lumber pressure-treated. Connectors and fasteners hot-dip galvanised or
+                stainless. Callouts on this sheet and the fastener schedule are generated from the
+                same model and cannot disagree.
+              </p>
+            )}
             {v.mode === '3d' && (
               <p className="text-xs mt-1">
                 Illustrative only. Refer to the plan and framing sheets for dimensions.
@@ -237,7 +246,7 @@ export default function DeckPermitPacket({
         {/* Sheet 5 — calculations */}
         <section className="sheet">
           <div className="flex items-baseline justify-between border-b border-black pb-2 mb-3">
-            <h2 className="font-bold">Sheet 5 — Structural calculations</h2>
+            <h2 className="font-bold">Sheet 6 — Structural calculations</h2>
             <span className="text-xs">{heading}</span>
           </div>
           {struct.computable ? (
@@ -284,7 +293,7 @@ export default function DeckPermitPacket({
         {/* Sheet 6 — connections */}
         <section className="sheet">
           <div className="flex items-baseline justify-between border-b border-black pb-2 mb-3">
-            <h2 className="font-bold">Sheet 6 — Connections and fastener schedule</h2>
+            <h2 className="font-bold">Sheet 7 — Connections and fastener schedule</h2>
             <span className="text-xs">{heading}</span>
           </div>
           {spec.sections.map((s, i) => (
@@ -318,7 +327,7 @@ export default function DeckPermitPacket({
         {/* Sheet 7 — materials */}
         <section className="sheet">
           <div className="flex items-baseline justify-between border-b border-black pb-2 mb-3">
-            <h2 className="font-bold">Sheet 7 — Materials</h2>
+            <h2 className="font-bold">Sheet 8 — Materials</h2>
             <span className="text-xs">{heading}</span>
           </div>
           <table className="w-full text-sm">

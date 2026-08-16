@@ -20,13 +20,14 @@ import { Suspense, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { Box, Layers, Ruler, Loader2, Maximize2 } from 'lucide-react';
+import { Box, Layers, Ruler, Hammer } from 'lucide-react';
 import {
   buildMembers, MEMBER_COLOR, STRUCTURAL_KINDS,
   type DeckModel, type Member,
 } from '../lib/deckModel';
+import { buildAnnotations } from '../lib/deckAnnotations';
 
-export type ViewMode = '3d' | 'framing' | 'plan';
+export type ViewMode = '3d' | 'framing' | 'plan' | 'framing-detail';
 
 /**
  * One piece of lumber.
@@ -83,14 +84,90 @@ function Dimension({ from, to, label, offset = 0 }: {
   );
 }
 
+
+/**
+ * The annotated framing plan.
+ *
+ * Dimension strings with extension ticks, and callouts on leader lines pointing
+ * at the member they describe. Everything comes from buildAnnotations, which
+ * reads the model and the build spec — so a fastener size on the drawing is the
+ * same one printed in the schedule.
+ *
+ * Rotated flat and drawn in black on white, because this sheet is read on paper
+ * by someone standing in a building department.
+ */
+function FramingAnnotations({ model }: { model: DeckModel }) {
+  const a = useMemo(() => buildAnnotations(model), [model]);
+  const INK = '#111827';
+  return (
+    <group>
+      {a.dimensions.map((d, i) => {
+        const mid: [number, number, number] = [
+          (d.from[0] + d.to[0]) / 2, d.from[1], (d.from[2] + d.to[2]) / 2,
+        ];
+        // Ticks perpendicular to the run, so a dimension reads as a dimension
+        // rather than a stray line across the drawing.
+        const t = 0.45;
+        const p1: [number, number, number] = d.axis === 'x'
+          ? [d.from[0], d.from[1], d.from[2] - t] : [d.from[0] - t, d.from[1], d.from[2]];
+        const p2: [number, number, number] = d.axis === 'x'
+          ? [d.from[0], d.from[1], d.from[2] + t] : [d.from[0] + t, d.from[1], d.from[2]];
+        const p3: [number, number, number] = d.axis === 'x'
+          ? [d.to[0], d.to[1], d.to[2] - t] : [d.to[0] - t, d.to[1], d.to[2]];
+        const p4: [number, number, number] = d.axis === 'x'
+          ? [d.to[0], d.to[1], d.to[2] + t] : [d.to[0] + t, d.to[1], d.to[2]];
+        return (
+          <group key={'d' + i}>
+            <Line points={[d.from, d.to]} color={INK} lineWidth={1.2} />
+            <Line points={[p1, p2]} color={INK} lineWidth={1.2} />
+            <Line points={[p3, p4]} color={INK} lineWidth={1.2} />
+            <Text position={[mid[0], mid[1], mid[2] - 0.55]} fontSize={0.62} color={INK}
+              anchorX="center" anchorY="middle" rotation={[-Math.PI / 2, 0, 0]}>
+              {d.label}
+            </Text>
+          </group>
+        );
+      })}
+
+      {a.callouts.map((c, i) => (
+        <group key={'c' + i}>
+          <Line points={[c.target, c.at]} color={INK} lineWidth={1} />
+          <mesh position={c.target} rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.16, 12]} />
+            <meshBasicMaterial color={INK} />
+          </mesh>
+          {c.lines.map((line, j) => (
+            <Text key={j} position={[c.at[0], c.at[1], c.at[2] + j * 0.72]} fontSize={0.55}
+              color={INK} anchorX={c.at[0] < 0 ? 'right' : 'left'} anchorY="middle"
+              rotation={[-Math.PI / 2, 0, 0]}>
+              {line}
+            </Text>
+          ))}
+        </group>
+      ))}
+
+      {a.notes.map((n, i) => (
+        <Text key={'n' + i} position={[-model.widthFt / 2 - 5, model.heightFt, model.depthFt + 7 + i * 0.8]}
+          fontSize={0.5} color={INK} anchorX="left" anchorY="middle" rotation={[-Math.PI / 2, 0, 0]}>
+          {(i === 0 ? 'NOTES:  ' : '        ') + n}
+        </Text>
+      ))}
+    </group>
+  );
+}
+
 function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   const members = useMemo(() => buildMembers(model), [model]);
   const visible = useMemo(
-    () => (mode === 'framing' ? members.filter(m => STRUCTURAL_KINDS.includes(m.kind)) : members),
+    () => ((mode === 'framing' || mode === 'framing-detail')
+      ? members.filter(m => STRUCTURAL_KINDS.includes(m.kind))
+      : members),
     [members, mode],
   );
 
-  const isPlan = mode === 'plan';
+  // Both measured drawings: flat light, overhead, no shadows.
+  const isPlan = mode === 'plan' || mode === 'framing-detail';
+  const isDetail = mode === 'framing-detail';
   const halfW = model.widthFt / 2;
 
   return (
@@ -126,7 +203,9 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
         </mesh>
       )}
 
-      {isPlan && (
+      {isDetail && <FramingAnnotations model={model} />}
+
+      {isPlan && !isDetail && (
         <>
           <Grid position={[0, -0.01, 0]} args={[80, 80]} cellSize={1} cellColor="#d4d4d4"
             sectionSize={5} sectionColor="#a3a3a3" fadeDistance={90} infiniteGrid />
@@ -148,8 +227,10 @@ function CameraRig({ model, mode }: { model: DeckModel; mode: ViewMode }) {
     if (done.current === key) return;
     done.current = key;
     const reach = Math.max(model.widthFt, model.depthFt);
-    if (mode === 'plan') {
-      camera.position.set(0, reach * 1.8, model.depthFt / 2 + 0.001);
+    if (mode === 'plan' || mode === 'framing-detail') {
+      // Pull back further for the detail view: the callouts sit well outside
+      // the deck itself and must be in frame.
+      camera.position.set(0, reach * (mode === 'framing-detail' ? 3.1 : 1.8), model.depthFt / 2 + 0.001);
       camera.lookAt(0, 0, model.depthFt / 2);
     } else {
       camera.position.set(reach * 0.95, reach * 0.72, model.depthFt + reach * 0.95);
@@ -191,6 +272,7 @@ export default function DeckViewer3D({
     { id: '3d', label: '3D', icon: Box, hint: 'How it will look' },
     { id: 'framing', label: 'Framing', icon: Layers, hint: 'Structure only — decking hidden' },
     { id: 'plan', label: 'Plan', icon: Ruler, hint: 'Dimensioned, from above' },
+    { id: 'framing-detail', label: 'Framing detail', icon: Hammer, hint: 'Framing plan with sizes, hangers and fasteners called out' },
   ];
 
   return (
@@ -216,10 +298,10 @@ export default function DeckViewer3D({
       )}
 
       <div className="rounded-2xl overflow-hidden border border-[#2A2A2A]"
-        style={{ height, background: mode === 'plan' ? '#f8f8f7' : '#0d1117' }}>
+        style={{ height, background: mode === 'plan' || mode === 'framing-detail' ? '#ffffff' : '#0d1117' }}>
         <Canvas
-          shadows={mode !== 'plan'}
-          camera={{ fov: mode === 'plan' ? 30 : 42, near: 0.1, far: 500 }}
+          shadows={mode !== 'plan' && mode !== 'framing-detail'}
+          camera={{ fov: mode === 'plan' || mode === 'framing-detail' ? 26 : 42, near: 0.1, far: 500 }}
           gl={{ antialias: true, preserveDrawingBuffer: true }}
           onCreated={({ gl }) => {
             // Force a draw before reading, so the first capture is not blank.
@@ -234,11 +316,11 @@ export default function DeckViewer3D({
             <OrbitControls
               makeDefault
               enablePan
-              target={[0, mode === 'plan' ? 0 : model.heightFt / 2, model.depthFt / 2]}
+              target={[0, mode === 'plan' || mode === 'framing-detail' ? 0 : model.heightFt / 2, model.depthFt / 2]}
               // Plan view stays overhead: letting it tilt turns a measured
               // drawing into a bad perspective view.
-              minPolarAngle={mode === 'plan' ? 0 : 0.05}
-              maxPolarAngle={mode === 'plan' ? 0.001 : Math.PI / 2.05}
+              minPolarAngle={mode === 'plan' || mode === 'framing-detail' ? 0 : 0.05}
+              maxPolarAngle={mode === 'plan' || mode === 'framing-detail' ? 0.001 : Math.PI / 2.05}
             />
           </Suspense>
         </Canvas>
