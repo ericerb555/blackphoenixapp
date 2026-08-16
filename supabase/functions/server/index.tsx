@@ -22,6 +22,8 @@ import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
 import houseCaptureRouter from "./house-capture.tsx";
+import designLinksRouter from "./design-links.tsx";
+import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
 import { entitlementsRouter, recordEntitlementEvent } from "./entitlements.tsx";
 import paymentProcessingRouter from "./payment-processing.tsx";
@@ -255,6 +257,8 @@ app.route("/", designProjectsRouter);
 app.route("/", projectVisionRouter);
 app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
+app.route("/make-server-3eae23a6/design-links", designLinksRouter);
+app.route("/make-server-3eae23a6/design-assistant", designAssistantRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
 app.route("/make-server-3eae23a6/analytics", storeAnalyticsRouter);
 // ── Supplier routes are administrator-only ───────────────────────────────────

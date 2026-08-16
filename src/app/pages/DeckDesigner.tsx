@@ -27,8 +27,10 @@ import HouseCapture from '../components/HouseCapture';
 import DeckFinishPicker from '../components/DeckFinishPicker';
 import ConnectionDetails from '../components/ConnectionDetails';
 import SketchImport from '../components/SketchImport';
+import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
+import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
-import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
+import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -52,11 +54,14 @@ async function headers() {
   };
 }
 
+const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '' };
+
 interface Session {
   key: number;
   model: DeckModel;
   site: SiteInfo;
   loads: SiteLoads;
+  link: DesignLink;
   id: string | null;
 }
 
@@ -79,6 +84,7 @@ function DesignerSession({ session, onSession }: {
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(session.id);
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
+  const [link, setLink] = useState<DesignLink>(session.link);
   // A snapshot of what was last saved or opened. Comparing against it is how
   // 'New deck' can tell whether there is genuinely unsaved work, instead of
   // warning every time and training the warning to be ignored.
@@ -91,6 +97,9 @@ function DesignerSession({ session, onSession }: {
   }, []);
 
   const bom = useMemo(() => takeoff(model), [model]);
+  // The assistant answers against the same figures the panels below display,
+  // so it is computed here once rather than described twice.
+  const struct = useMemo(() => computeStructural(model, loads), [model, loads]);
 
   /**
    * Flags that need saying while the design is being made, not after it is
@@ -151,7 +160,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -166,7 +175,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, savedId, loadList]);
+  }, [site, model, bom, loads, link, savedId, loadList]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -189,7 +198,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: 'decks',
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -203,7 +212,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, loadList]);
+  }, [site, model, loads, bom, link, loadList]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -220,7 +229,7 @@ function DesignerSession({ session, onSession }: {
    */
   /** The single reset both New and Save-as-new go through. */
   const hardReset = useCallback(() => {
-    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, id: null });
+    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
   }, [onSession]);
 
   const startNew = useCallback(() => {
@@ -236,6 +245,11 @@ function DesignerSession({ session, onSession }: {
       model: { ...DEFAULT_DECK, ...(p?.meta?.model || {}) },
       site: { ...EMPTY_SITE, ...(p?.meta?.site || {}) },
       loads: { ...DEFAULT_SITE_LOADS, ...(p?.meta?.loads || {}) },
+      link: {
+        customerId: p?.meta?.customerId || '',
+        customerName: p?.meta?.customerName || '',
+        jobId: p?.meta?.jobId || '',
+      },
       id: p.id,
     });
     toast.success(`Opened ${p.name}`);
@@ -434,6 +448,16 @@ function DesignerSession({ session, onSession }: {
               <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
             </div>
 
+            <PanelErrorBoundary name="Assistant">
+              <DeckAssistant model={model} site={site} loads={loads} takeoff={bom}
+                structural={struct} advisories={advisories}
+                onApply={patch => setModel(m => ({ ...m, ...patch }))} />
+            </PanelErrorBoundary>
+
+            <PanelErrorBoundary name="Customer and job">
+              <ProjectLinkPanel designId={savedId} link={link} onLink={setLink} />
+            </PanelErrorBoundary>
+
             <PanelErrorBoundary name="Read a sketch">
               <SketchImport model={model} onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
@@ -521,6 +545,7 @@ export default function DeckDesigner() {
     model: { ...DEFAULT_DECK },
     site: { ...EMPTY_SITE },
     loads: { ...DEFAULT_SITE_LOADS },
+    link: { ...NO_LINK },
     id: null,
   });
 
