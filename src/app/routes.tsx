@@ -156,6 +156,7 @@ const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
 const StairCalculator = lazy(() => import("./pages/StairCalculator"));
 const TownDocumentScanner = lazy(() => import("./pages/TownDocumentScanner"));
+const TownPermitTracker = lazy(() => import("./pages/TownPermitTracker"));
 const Services = lazy(() => import("./pages/Services"));
 const PortalDemoHub = lazy(() => import("./pages/PortalDemoHub"));
 const PortalGlobalSettings = lazy(() => import("./pages/PortalGlobalSettings"));
@@ -555,6 +556,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "stairs":                  StairCalculator,
   "document-scanner":        TownDocumentScanner,
   "scan-document":           TownDocumentScanner,
+  "permit-tracker":          TownPermitTracker,
+  "town-permits":            TownPermitTracker,
   "enterprise-reporting":     EnterpriseReporting,
 
   // Portals
