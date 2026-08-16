@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import DocumentScanner from '../components/DocumentScanner';
 import {
   FileText, Upload, Loader2, Sparkles, MapPin, User, ScrollText, Scale,
   CheckCircle2, AlertTriangle, Printer, Save, History, ChevronRight, Trash2, Paperclip, X,
@@ -264,6 +265,13 @@ export default function VariancesStudio() {
               className="hidden"
               onChange={(e) => e.target.files?.[0] && readFile(e.target.files[0])}
             />
+
+            {/* Print-accurate scanning. The upload above feeds the AI that
+                reads the form; this produces the copy that gets filed, which is
+                a different job with different requirements. */}
+            <div className="mt-4">
+              <DocumentScanner title="Scan for filing" />
+            </div>
 
             {/* Applicant */}
             <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 mt-2 mb-2"><User className="w-3.5 h-3.5" /> Applicant</p>
