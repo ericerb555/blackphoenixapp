@@ -30,6 +30,7 @@ import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
 import type { DeckModel } from '../lib/deckModel';
+import LocalFolderPicker from './LocalFolderPicker';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -67,7 +68,7 @@ export default function HouseCapture({ model, site, onApply }: Props) {
   const cameraInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
 
-  const addPhotos = useCallback(async (files: FileList | null) => {
+  const addPhotos = useCallback(async (files: FileList | File[] | null) => {
     if (!files?.length) return;
     setBusy('Reading photos');
     try {
@@ -85,8 +86,8 @@ export default function HouseCapture({ model, site, onApply }: Props) {
     }
   }, [photos.length]);
 
-  const addVideo = useCallback(async (files: FileList | null) => {
-    const file = files?.[0];
+  const addVideo = useCallback(async (files: FileList | File[] | null) => {
+    const file = files ? (Array.from(files as any)[0] as File | undefined) : undefined;
     if (!file) return;
     setBusy('Pulling frames');
     try {
@@ -101,6 +102,18 @@ export default function HouseCapture({ model, site, onApply }: Props) {
       setBusy(null);
     }
   }, [photos.length]);
+
+  /**
+   * A folder selection can hold both stills and clips, so each goes to the
+   * handler that knows what to do with it — a video still gets its frames
+   * pulled rather than being treated as one enormous photo.
+   */
+  const fromFolder = useCallback(async (files: File[]) => {
+    const stills = files.filter(f => f.type.startsWith('image/'));
+    const clips = files.filter(f => f.type.startsWith('video/'));
+    if (stills.length) await addPhotos(stills);
+    for (const clip of clips) await addVideo([clip]);
+  }, [addPhotos, addVideo]);
 
   const analyze = useCallback(async () => {
     if (!photos.length) return;
@@ -229,6 +242,10 @@ export default function HouseCapture({ model, site, onApply }: Props) {
           <Upload className="w-4 h-4" /> Files
         </button>
       </div>
+      <div className="mb-3">
+        <LocalFolderPicker slot="job-photos" allowVideo limit={MAX_PHOTOS} onPick={fromFolder} />
+      </div>
+
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={e => { addPhotos(e.target.files); e.currentTarget.value = ''; }} />
       <input ref={photoInput} type="file" accept="image/*" multiple className="hidden"

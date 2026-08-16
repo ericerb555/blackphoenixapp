@@ -24,6 +24,7 @@ import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, dataUrlBytes } from '../lib/imageCapture';
 import type { DeckModel } from '../lib/deckModel';
+import LocalFolderPicker from './LocalFolderPicker';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const MAX_PAYLOAD_BYTES = 4_000_000;
@@ -69,7 +70,7 @@ export default function SketchImport({ model, onApply }: {
   const camera = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
 
-  const add = useCallback(async (list: FileList | null) => {
+  const add = useCallback(async (list: FileList | File[] | null) => {
     if (!list?.length) return;
     setBusy(true);
     try {
@@ -154,6 +155,10 @@ export default function SketchImport({ model, onApply }: {
           <Upload className="w-4 h-4" /> Choose file
         </button>
       </div>
+      <div className="mb-3">
+        <LocalFolderPicker slot="sketches" allowVideo={false} limit={4} onPick={add} />
+      </div>
+
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={e => { add(e.target.files); e.currentTarget.value = ''; }} />
       <input ref={files} type="file" accept="image/*" multiple className="hidden"
