@@ -50,6 +50,10 @@ export default function DeckDesigner() {
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [loads, setLoads] = useState<SiteLoads>(DEFAULT_SITE_LOADS);
+  // A snapshot of what was last saved or opened. Comparing against it is how
+  // 'New deck' can tell whether there is genuinely unsaved work, instead of
+  // warning every time and training the warning to be ignored.
+  const [clean, setClean] = useState<string>('');
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
 
@@ -125,6 +129,7 @@ export default function DeckDesigner() {
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) { toast.error(data?.error || `Save failed (${res.status})`); return; }
       setSavedId(data.project.id);
+      setClean(JSON.stringify({ model, site, loads }));
       toast.success(`Saved — version ${data.project.version}`);
       loadList();
     } catch (err: any) {
@@ -134,11 +139,41 @@ export default function DeckDesigner() {
     }
   }, [site, model, bom, loads, savedId, loadList]);
 
+  const snapshot = useCallback(
+    () => JSON.stringify({ model, site, loads }),
+    [model, site, loads],
+  );
+  const isDirty = clean !== '' && snapshot() !== clean;
+
+  /**
+   * Clear the desk and start again.
+   *
+   * Without this, opening a saved deck left savedId set forever and every
+   * subsequent save wrote over that project — there was no way back to a blank
+   * sheet short of reloading the page.
+   */
+  const startNew = useCallback(() => {
+    if (isDirty && !confirm('Start a new deck? Unsaved changes to the current one will be lost.')) return;
+    setModel(DEFAULT_DECK);
+    setSite({ ...EMPTY_SITE });
+    setLoads(DEFAULT_SITE_LOADS);
+    setSavedId(null);
+    setClean('');
+    toast.success('New deck started.');
+  }, [isDirty]);
+
   const open = useCallback((p: any) => {
     if (p?.meta?.model) setModel({ ...DEFAULT_DECK, ...p.meta.model });
     if (p?.meta?.site) setSite({ ...EMPTY_SITE, ...p.meta.site });
     if (p?.meta?.loads) setLoads({ ...DEFAULT_SITE_LOADS, ...p.meta.loads });
     setSavedId(p.id);
+    // Deferred so the snapshot reflects the state just applied, not the state
+    // being replaced.
+    setTimeout(() => setClean(JSON.stringify({
+      model: { ...DEFAULT_DECK, ...(p?.meta?.model || {}) },
+      site: { ...EMPTY_SITE, ...(p?.meta?.site || {}) },
+      loads: { ...DEFAULT_SITE_LOADS, ...(p?.meta?.loads || {}) },
+    })), 0);
     toast.success(`Opened ${p.name}`);
   }, []);
 
@@ -170,12 +205,29 @@ export default function DeckDesigner() {
               so they cannot disagree.
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            {/* Which project is open, and whether it has unsaved work. Without
+                this the designer looks identical whether you are editing a saved
+                deck or a new one, which is how the wrong project gets overwritten. */}
+            {savedId && (
+              <span className="text-xs text-gray-400 mr-1">
+                Editing <strong className="text-white">{site.projectName}</strong>
+                {isDirty && <span className="text-yellow-400"> · unsaved changes</span>}
+              </span>
+            )}
+            <button onClick={startNew}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+              title="Clear the desk and start a new deck">
+              <Plus className="w-4 h-4" /> New deck
+            </button>
           <button onClick={save} disabled={saving}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {savedId ? 'Save version' : 'Save project'}
           </button>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
