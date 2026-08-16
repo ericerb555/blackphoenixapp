@@ -84,6 +84,43 @@ async function verifySignature(raw: string, header: string, secret: string): Pro
   }
 }
 
+/**
+ * Store orders are fulfilled by the main API function, which already knows how
+ * to reconcile a checkout, re-verify the session against Stripe, and create the
+ * order. That logic is not copied here — a second implementation of order
+ * fulfilment would drift from the first, and the failure mode is charging
+ * someone and not shipping.
+ *
+ * Instead this forwards the verified event to the existing route, using the
+ * service-role key as the Supabase JWT that Stripe itself cannot supply. The
+ * signature has already been checked at this point, and the downstream route
+ * re-verifies the session with Stripe regardless, so the forward adds a hop
+ * rather than a weaker check.
+ */
+async function forwardToStore(raw: string): Promise<Record<string, unknown>> {
+  const base = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!base || !serviceKey) return { forwarded: false, error: 'Server keys unavailable.' };
+
+  const res = await fetch(`${base}/functions/v1/make-server-3eae23a6/store/webhook`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+    },
+    // Forward the original bytes. The downstream route reads the event as
+    // Stripe sent it.
+    body: raw,
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // Surface as a failure so the outer handler returns 500 and Stripe retries.
+    throw new Error(`store/webhook returned ${res.status}: ${JSON.stringify(payload).slice(0, 200)}`);
+  }
+  return { forwarded: true, store: payload };
+}
+
 async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
   const object = event?.data?.object || {};
   const planId = String(object?.metadata?.plan_id || '');
@@ -192,7 +229,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const result = await handlePlanEvent(event);
+    // Route on the metadata each flow stamps onto its own checkout, rather than
+    // on event type — a checkout.session.completed can belong to either
+    // business, and guessing from the type alone would send store orders into
+    // the plan handler.
+    const object = event?.data?.object || {};
+    const isStore = !!object?.metadata?.store_checkout_id;
+
+    const result = isStore ? await forwardToStore(raw) : await handlePlanEvent(event);
     return new Response(JSON.stringify({ received: true, type: event?.type, ...result }), {
       headers: { 'Content-Type': 'application/json' },
     });
