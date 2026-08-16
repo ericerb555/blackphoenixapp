@@ -24,7 +24,10 @@
  */
 import { Suspense, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, Lightformer, Line, Sky, ContactShadows } from '@react-three/drei';
+import {
+  OrbitControls, Grid, Environment, Lightformer, Line, Sky, ContactShadows, SoftShadows,
+} from '@react-three/drei';
+import { EffectComposer, N8AO, Bloom, SMAA, Vignette, HueSaturation } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { Box, Layers, Ruler, Hammer, Sparkles, Loader2, Download, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -38,6 +41,7 @@ import {
   woodTexture, woodRoughness, grassTexture, sidingTexture, concreteTexture, shingleTexture,
 } from '../lib/deckTextures';
 import FramingPlanCanvas from './FramingPlanCanvas';
+import DeckScenery from './DeckScenery';
 import {
   deckingFinish, railFinish, finishSummary,
   type DeckingFinish, type RailFinish,
@@ -84,6 +88,34 @@ const RENDER_COLOR: Record<string, string> = {
  */
 const texCache = new Map<string, THREE.Texture>();
 
+/**
+ * Geometry cache, keyed by size.
+ *
+ * A deck is mostly repeated parts — every decking board is the same board, every
+ * baluster the same baluster. Building a BoxGeometry per member meant a couple
+ * of hundred separate buffers describing about a dozen distinct shapes, and it
+ * had to be rebuilt whenever anything upstream re-rendered. Sharing them keeps
+ * the scene light enough to afford ambient occlusion and soft shadows, which is
+ * where the realism actually comes from.
+ */
+const geoCache = new Map<string, THREE.BufferGeometry>();
+
+function geometryFor(member: Member): THREE.BufferGeometry {
+  const [sx, sy, sz] = member.size;
+  const key = `${member.shape || 'box'}:${sx.toFixed(4)}:${sy.toFixed(4)}:${sz.toFixed(4)}`;
+  const hit = geoCache.get(key);
+  if (hit) return hit;
+
+  const g = member.shape === 'round'
+    // size is [diameter, diameter, length]; a cylinder's axis is its local Y,
+    // which is why the raking pieces carry an extra quarter turn.
+    ? new THREE.CylinderGeometry(sx / 2, sx / 2, sz, 16)
+    : new THREE.BoxGeometry(sx, sy, sz);
+
+  geoCache.set(key, g);
+  return g;
+}
+
 function tiled(
   kind: string, seed: number, rx: number, ry: number,
   hex?: string, grain = 1,
@@ -117,15 +149,7 @@ function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
   member: Member; outlined: boolean; realistic: boolean;
   deckFin: DeckingFinish; railFin: RailFinish;
 }) {
-  const geo = useMemo(() => {
-    if (member.shape === 'round') {
-      // size is [diameter, diameter, length]; a cylinder's axis is its local Y,
-      // which is why the raking handrail carries the extra quarter turn.
-      const r = member.size[0] / 2;
-      return new THREE.CylinderGeometry(r, r, member.size[2], 16);
-    }
-    return new THREE.BoxGeometry(...member.size);
-  }, [member.size, member.shape]);
+  const geo = useMemo(() => geometryFor(member), [member.size, member.shape]);
   const edges = useMemo(() => (outlined ? new THREE.EdgesGeometry(geo) : null), [geo, outlined]);
 
   // Stable per-member seed, so a board keeps its grain and its tone as the
@@ -135,6 +159,33 @@ function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
     for (let i = 0; i < member.id.length; i++) h = (h * 31 + member.id.charCodeAt(i)) >>> 0;
     return (h % 8) + 1;
   }, [member.id]);
+
+  /**
+   * A fraction of an inch of misalignment on the boards, in the 3D view only.
+   *
+   * Real decking is laid by a person: boards sit a hair proud of each other and
+   * a hair out of parallel, and that tiny irregularity is a large part of what
+   * the eye uses to decide something was built rather than generated. Perfectly
+   * coincident planes also fight each other for the same pixels, which reads as
+   * a hard machine edge.
+   *
+   * Presentation only. The plan and framing views draw the members exactly where
+   * the model puts them, because those are measured drawings and a sixteenth of
+   * an inch of artistic licence has no business in one.
+   */
+  const jitter = useMemo(() => {
+    const base = { pos: member.pos, rot: member.rot ?? ([0, 0, 0] as [number, number, number]) };
+    if (!realistic || (member.kind !== 'decking' && member.kind !== 'stair')) return base;
+    const n = (seed - 4.5) / 4.5;               // -1 to 1, stable per board
+    return {
+      pos: [
+        member.pos[0] + n * 0.004,
+        member.pos[1] + Math.abs(n) * 0.003,
+        member.pos[2] + n * 0.003,
+      ] as [number, number, number],
+      rot: [base.rot[0], base.rot[1] + n * 0.0016, base.rot[2]] as [number, number, number],
+    };
+  }, [member.pos, member.rot, member.kind, realistic, seed]);
 
   const material = useMemo(() => {
     if (!realistic) {
@@ -182,6 +233,10 @@ function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
       const mat = new THREE.MeshStandardMaterial({
         map: tiled('decking', seed, Math.max(1, long / 2), 1, deckFin.hex, deckFin.grain),
         roughnessMap: deckFin.grain > 0.3 ? woodRoughness(seed) : undefined,
+        // Grain you can see across rather than only in the colour. Scaled by
+        // the finish, since a PVC board really is that smooth.
+        bumpMap: woodRoughness(seed),
+        bumpScale: 0.012 * deckFin.grain,
         roughness: deckFin.roughness,
         metalness: 0,
       });
@@ -208,7 +263,7 @@ function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
   }, [member.kind, member.id, member.part, member.size, realistic, seed, deckFin, railFin]);
 
   return (
-    <group position={member.pos} rotation={member.rot ?? [0, 0, 0]}>
+    <group position={jitter.pos} rotation={jitter.rot}>
       <mesh geometry={geo} material={material} castShadow receiveShadow />
       {edges && (
         <lineSegments geometry={edges}>
@@ -400,6 +455,12 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
     <>
       {realistic ? (
         <>
+          {/* Percentage-closer soft shadows. A real shadow is sharp where the
+              post meets the ground and spreads as it gets further away; a
+              uniformly blurry or uniformly hard shadow is one of the strongest
+              tells that an image was rendered rather than photographed. */}
+          <SoftShadows size={14} samples={12} focus={0.6} />
+
           {/* Procedural sky — a shader, not a downloaded HDRI. */}
           <Sky sunPosition={SUN} turbidity={5} rayleigh={1.4} mieCoefficient={0.006} mieDirectionalG={0.82} />
 
@@ -464,6 +525,11 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
             : <meshStandardMaterial color="#6f7d58" roughness={1} />}
         </mesh>
       )}
+
+      {/* The yard. A structure alone on an infinite green plane reads as a
+          diagram however good its materials are — there is nothing irregular in
+          frame to compare it against. */}
+      {realistic && <DeckScenery widthFt={model.widthFt} depthFt={model.depthFt} />}
 
       {/* Soft occlusion where the structure meets the lawn. The directional
           shadow gives the hard sun edge; this gives the darkening right under
@@ -673,6 +739,32 @@ export default function DeckViewer3D({
               minPolarAngle={isPlanish ? 0 : 0.05}
               maxPolarAngle={isPlanish ? 0.001 : Math.PI / 2.05}
             />
+
+            {/*
+              The pass that does most of the work.
+
+              Ambient occlusion is the single biggest difference between a real
+              image and a lit 3D scene: light does not reach into the corner
+              where a post meets a beam, and without that darkening every joint
+              looks pasted together. N8AO computes it per pixel from depth and
+              normals, which catches every inside corner in the framing that no
+              amount of lamp placement would.
+
+              Everything else here is camera behaviour rather than lighting —
+              real lenses vignette slightly, real sensors do not resolve a
+              perfect stair-step edge, and film has a little more colour in it
+              than a linear render does. Only on the 3D view: a measured drawing
+              wants none of this.
+            */}
+            {mode === '3d' && (
+              <EffectComposer multisampling={0} enableNormalPass>
+                <N8AO halfRes aoRadius={1.4} distanceFalloff={0.9} intensity={2.6} color="#1b1408" />
+                <Bloom intensity={0.16} luminanceThreshold={0.82} luminanceSmoothing={0.35} mipmapBlur />
+                <HueSaturation saturation={0.06} />
+                <Vignette offset={0.32} darkness={0.42} />
+                <SMAA />
+              </EffectComposer>
+            )}
           </Suspense>
         </Canvas>
       </div>
