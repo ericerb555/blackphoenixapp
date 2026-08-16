@@ -146,7 +146,7 @@ export function buildSpec(m: DeckModel): BuildSpec {
   fasteners.push({
     item: 'Galvanised post base with standoff (e.g. ABU/PBS)',
     qty: String(bom.footings),
-    where: 'Post to footing — anchor bolt or cast-in',
+    where: 'Post to footing — ½" drop-in anchor, drilled into the cured footing',
   });
 
   // ── Beam ──────────────────────────────────────────────────────────────────

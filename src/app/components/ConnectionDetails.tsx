@@ -108,7 +108,7 @@ export default function ConnectionDetails({ model }: Props) {
 
         <Detail
           tag="3" title="Post to footing"
-          note={`${model.postSize} post on a standoff base, ⅝in anchor set in the footing. Footing size and depth per the load calculation sheet.`}
+          note={`${model.postSize} post on a standoff base, ½in drop-in anchor drilled into the cured footing. Footing size and depth per the load calculation sheet.`}
           warn="The standoff keeps end grain up off the concrete. A post set flat on a footing wicks water and rots from the bottom, where nobody looks.">
           <PostFootingDetail postW={post.w} />
         </Detail>
@@ -122,7 +122,7 @@ export default function ConnectionDetails({ model }: Props) {
 
         <Detail
           tag="5" title="Guard post"
-          note="4x4 guard post through-bolted to the rim with two ½in bolts, solid blocking behind it, and a rated tension tie down to the joist."
+          note="4x4 guard post, full section top to bottom, through-bolted to the rim with two ½in bolts, solid blocking behind it, and a rated tension tie down to the joist. The decking is notched around the post — the post is never notched."
           warn="A guard post bolted to a rim joist with nothing behind it is holding on by the rim in weak-axis bending. It is the most common railing failure and the easiest to prevent.">
           <GuardPostDetail joistH={joist.h} />
         </Detail>
@@ -213,12 +213,6 @@ function LedgerDetail({ joistH, spacingIn }: { joistH: number; spacingIn: number
       <Leader x1={44} y1={70} x2={92} y2={52} />
       <Callout x={94} y={51} text="House rim board — fasteners land HERE" />
 
-      {/* Flashing over the ledger */}
-      <path d={`M 40 ${58} L 40 50 L 66 50 L 66 ${62 + h + 4} L 62 ${62 + h + 4}`}
-        fill="none" stroke="#3b82f6" strokeWidth="2" />
-      <Leader x1={64} y1={54} x2={128} y2={30} />
-      <Callout x={130} y={29} text="Flashing over ledger, up behind wrap" />
-
       {/* Ledger */}
       <WoodSection x={40} y={62} w={22} h={h} />
       <Callout x={44} y={62 + h + 14} text="Ledger" />
@@ -237,6 +231,21 @@ function LedgerDetail({ joistH, spacingIn }: { joistH: number; spacingIn: number
       {/* Deck joist on a hanger */}
       <WoodSection x={62} y={62} w={90} h={h} />
       <Callout x={96} y={62 + h + 14} text="Deck joist" />
+
+      {/* Flashing, drawn last so it reads as lapping over what it protects.
+          Three legs and they all matter: up the sheathing behind the wrap, flat
+          across the top of the ledger, then down the outer face to a drip that
+          turns away from the building. The first version floated clear of the
+          ledger, ran down the joist rather than the ledger, and finished with a
+          leg turned back toward the house — a drip edge pointing at the wall
+          delivers the water to the one place the flashing exists to keep it
+          out of. */}
+      <path d={`M 40 32 L 40 62 L 62 62 L 62 78 L 68 83`}
+        fill="none" stroke="#3b82f6" strokeWidth="2" />
+      <Leader x1={40} y1={44} x2={128} y2={30} />
+      <Callout x={130} y={29} text="Flashing up behind the wrap, over" />
+      <Callout x={130} y={40} text="the ledger, drip turned outward" />
+
       <path d={`M 62 62 L 62 ${62 + h} L 78 ${62 + h} L 78 ${62 + h + 5} L 60 ${62 + h + 5}`}
         fill="none" stroke="#6b7280" strokeWidth="2.4" />
       <Leader x1={70} y1={62 + h + 5} x2={150} y2={62 + h + 30} />
@@ -324,12 +333,19 @@ function PostFootingDetail({ postW }: { postW: number }) {
       <Leader x1={cx + 46} y1={150} x2={232} y2={160} />
       <Callout x={234} y={159} text="Footing per calc sheet" anchor="end" />
 
-      {/* Anchor */}
-      <line x1={cx} y1={105} x2={cx} y2={140} stroke={LINE} strokeWidth="2.6" />
-      <path d={`M ${cx} 140 L ${cx - 8} 140`} stroke={LINE} strokeWidth="2.6" fill="none" />
-      <Leader x1={cx} y1={132} x2={72} y2={148} />
-      <Callout x={10} y={147} text="⅝in anchor set in" />
-      <Callout x={10} y={158} text="wet concrete" />
+      {/* Anchor.
+          A drop-in, not a J-bolt. The difference is not the part but the
+          sequence: a cast-in bolt has to be placed while the concrete is wet,
+          which means the post location must be right before the pour. A drop-in
+          is set in a hole drilled in cured concrete, so the footing goes in
+          first and the base is located afterwards off the framing as built. */}
+      <rect x={cx - 5} y={105} width="10" height="20" fill="#b9b5b0" stroke={LINE} strokeWidth="1" />
+      <line x1={cx} y1={96} x2={cx} y2={122} stroke={LINE} strokeWidth="2.6" />
+      <path d={`M ${cx - 5} 121 L ${cx - 8} 125 M ${cx + 5} 121 L ${cx + 8} 125`}
+        stroke={LINE} strokeWidth="1.4" fill="none" />
+      <Leader x1={cx - 5} y1={115} x2={98} y2={144} />
+      <Callout x={10} y={147} text="½in drop-in anchor" />
+      <Callout x={10} y={158} text="in cured concrete" />
 
       <text x="150" y="186" fontSize="8" fill="#666" textAnchor="middle"
         fontFamily="ui-sans-serif, system-ui, sans-serif">
@@ -380,50 +396,83 @@ function BlockingDetail({ joistH }: { joistH: number }) {
   );
 }
 
+/**
+ * Guard post at the rim.
+ *
+ * The post is one full-section 4x4 running from the top of the guard down past
+ * the decking to the bottom of the rim, and it is never notched. A 4x4 is 3.5in
+ * square; a notch deep enough to sit it over the rim takes out most of the
+ * section at exactly the height the 200lb load levers against. Where the post
+ * crosses the decking it is the decking that gets cut around the post, never
+ * the other way round.
+ *
+ * The first version drew the post stopping dead at deck level with the rim joist
+ * occupying the same space, which reads as a notched post — and left the
+ * through-bolts running through empty air where the post should have been.
+ */
 function GuardPostDetail({ joistH }: { joistH: number }) {
   const h = joistH * U;
-  const cx = 120;
+  const deckY = 70;                 // top of the decking
+  const memberY = deckY + 8;        // top of the framing, under the decking
+  const rimX = 106, rimW = 12;      // 1.5in rim, seen in section
+  const postX = rimX + rimW;        // bolted to the inside face of the rim
+  const postW = 28;                 // 3.5in
+  const blockX = postX + postW, blockW = 60;
+  const joistX = blockX + blockW;
+  const postBot = memberY + h;
+  const boltY = (f: number) => memberY + h * f;
+  // Held off the footer note, which a 2x12 rim would otherwise run into.
+  const tieY = Math.min(postBot + 22, 180);
+  const tieTextY = Math.min(tieY + 7, 184);
+
   return (
     <svg viewBox="0 0 300 200" className="w-full" role="img"
-      aria-label="Guard post connection with blocking and tension tie">
-      {/* Post going up */}
-      <WoodSection x={cx - 14} y={8} w={28} h={70} />
-      <Leader x1={cx + 14} y1={24} x2={186} y2={18} />
-      <Callout x={188} y={17} text="4x4 guard post" />
-
-      {/* Decking line */}
-      <rect x="20" y="70" width="260" height="8" fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
+      aria-label="Guard post connection: a full-section 4x4 through-bolted to the rim with solid blocking behind it, the decking notched around the post">
+      {/* Decking, in two pieces because the post runs through it */}
+      <rect x={postX - 20} y={deckY} width={20} height="8" fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
+      <rect x={postX + postW} y={deckY} width={280 - postX - postW} height="8"
+        fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
       <Callout x={24} y={68} text="Decking" />
 
       {/* Rim joist in section */}
-      <WoodSection x={cx - 14} y={78} w={12} h={h} />
-      <Leader x1={cx - 14} y1={78 + h * 0.8} x2={44} y2={78 + h + 26} />
-      <Callout x={10} y={78 + h + 27} text="Rim joist" />
+      <WoodSection x={rimX} y={memberY} w={rimW} h={h} />
+      <Leader x1={rimX} y1={memberY + h / 2} x2={56} y2={memberY + h / 2 + 19} />
+      <Callout x={4} y={memberY + h / 2 + 21} text="Rim joist" />
 
       {/* THE BLOCK — the thing that is usually missing */}
-      <rect x={cx - 2} y={78} width={72} height={h} fill="#f5e6c8" stroke={LINE} strokeWidth="1.4" />
-      <Leader x1={cx + 40} y1={78 + h / 2} x2={214} y2={78 + h / 2 - 18} />
-      <Callout x={216} y={78 + h / 2 - 19} text="SOLID BLOCKING" anchor="end" />
-      <Callout x={216} y={78 + h / 2 - 8} text="behind every post" anchor="end" />
+      <rect x={blockX} y={memberY} width={blockW} height={h} fill="#f5e6c8" stroke={LINE} strokeWidth="1.4" />
+      <Leader x1={blockX + 30} y1={memberY + h / 2} x2={230} y2={92} />
+      <Callout x={296} y={91} text="SOLID BLOCKING" anchor="end" />
+      <Callout x={296} y={102} text="behind every post" anchor="end" />
 
       {/* Joist beyond */}
-      <WoodSection x={cx + 70} y={78} w={12} h={h} />
+      <WoodSection x={joistX} y={memberY} w={12} h={h} />
 
-      {/* Through bolts */}
+      {/* The post: one piece, top to bottom, drawn over everything it passes */}
+      <WoodSection x={postX} y={8} w={postW} h={postBot - 8} />
+      <Leader x1={postX + postW} y1={24} x2={206} y2={18} />
+      <Callout x={208} y={17} text="4x4 guard post" />
+      <Leader x1={postX + postW} y1={46} x2={160} y2={42} />
+      <Callout x={296} y={40} text="Full section — never notched" anchor="end" />
+      <Leader x1={postX + postW} y1={deckY + 4} x2={153} y2={64} />
+      <Callout x={296} y={62} text="Decking notched around the post" anchor="end" />
+
+      {/* Through bolts — post, then rim, with the head outboard */}
       {[0.28, 0.72].map((f, i) => (
         <g key={i}>
-          <line x1={cx - 26} y1={78 + h * f} x2={cx + 24} y2={78 + h * f} stroke={LINE} strokeWidth="2.4" />
-          <circle cx={cx - 26} cy={78 + h * f} r="2.6" fill={LINE} />
+          <line x1={rimX - 12} y1={boltY(f)} x2={postX + postW + 6} y2={boltY(f)}
+            stroke={LINE} strokeWidth="2.4" />
+          <circle cx={rimX - 12} cy={boltY(f)} r="2.6" fill={LINE} />
         </g>
       ))}
-      <Leader x1={cx - 26} y1={78 + h * 0.28} x2={54} y2={96} />
-      <Callout x={10} y={95} text="2 × ½in through-bolts" />
+      <Leader x1={rimX - 12} y1={boltY(0.28)} x2={66} y2={boltY(0.28) - 10} />
+      <Callout x={4} y={boltY(0.28) - 14} text="2 × ½in through-bolts" />
 
       {/* Tension tie down to the joist */}
-      <path d={`M ${cx + 4} ${78 + h} L ${cx + 4} ${78 + h + 22} L ${cx + 34} ${78 + h + 22}`}
+      <path d={`M ${postX + 8} ${postBot} L ${postX + 8} ${tieY} L ${postX + 38} ${tieY}`}
         fill="none" stroke="#6b7280" strokeWidth="2.6" />
-      <Leader x1={cx + 34} y1={78 + h + 22} x2={206} y2={78 + h + 30} />
-      <Callout x={208} y={78 + h + 31} text="Rated tension tie" anchor="end" />
+      <Leader x1={postX + 38} y1={tieY} x2={216} y2={tieTextY - 6} />
+      <Callout x={296} y={tieTextY} text="Rated tension tie" anchor="end" />
 
       <text x="150" y="194" fontSize="8" fill="#666" textAnchor="middle"
         fontFamily="ui-sans-serif, system-ui, sans-serif">
@@ -446,30 +495,47 @@ function GuardPostDetail({ joistH }: { joistH: number }) {
  * the throat reads as the constant depth it actually is — and the throat is what
  * decides whether the flight carries, since a notched stringer has only the wood
  * below the cuts doing any work.
+ *
+ * The bottom is a level seat cut, not a continuation of the rake. A raking
+ * underside carried through to the pad lands the board on a point, which is both
+ * wrong to build and wrong to look at; the seat cut is the face that bears. The
+ * last riser is also cut short by one tread thickness — the drop — which is the
+ * same `bottomRiserCutIn` the stair calculator reports, and without it the first
+ * step up off the pad comes out a tread thicker than every other step.
  */
 function StairStringerDetail({ joistH }: { joistH: number }) {
   const s = 4.2;                    // px per inch, sized so three steps fit
   const tread = 11 * s;
   const riser = 7 * s;
   const throat = 7 * s;             // measured vertically, as drawn
+  const drop = 1 * s;               // one tread thickness
   const x0 = 92;
   const y0 = 44;
   const steps = 3;
 
-  // Top edge: level tread, plumb riser, repeated.
+  // Top edge: level tread, plumb riser, repeated. The last riser is cut short by
+  // one tread thickness — the drop — because the bottom step has a tread on top
+  // of it and pad underneath, so cutting it full height makes that first step up
+  // off the pad taller than the rest of the flight.
   const top: string[] = [`${x0},${y0}`];
   for (let i = 0; i < steps; i++) {
     const x = x0 + (i + 1) * tread;
     const y = y0 + i * riser;
     top.push(`${x},${y}`);
-    top.push(`${x},${y + riser}`);
+    top.push(`${x},${y + (i === steps - 1 ? riser - drop : riser)}`);
   }
-  const endX = x0 + steps * tread;
-  const endY = y0 + steps * riser;
+  const toeX = x0 + steps * tread;
+  const padY = y0 + steps * riser - drop;   // top of the landing pad
 
   // Underside: the rake line dropped by the throat. Dropping a line vertically
   // leaves it parallel, so the board keeps an even depth the whole way down.
-  const poly = [...top, `${endX},${endY + throat}`, `${x0},${y0 + throat}`].join(' ');
+  //
+  // At the bottom that rake has to stop and turn level, or the board lands on
+  // the pad on a point. So the last cut is a level seat cut, run back up-slope
+  // from the toe to where the level line meets the underside — that face is what
+  // bears on the pad, and it is what the plumb bottom riser is measured off.
+  const seatX = x0 + (padY - (y0 + throat)) * (tread / riser);
+  const poly = [...top, `${seatX},${padY}`, `${x0},${y0 + throat}`].join(' ');
 
   // Where the throat is dimensioned — mid-flight, clear of the notches.
   const dimX = x0 + tread * 1.5;
@@ -478,7 +544,7 @@ function StairStringerDetail({ joistH }: { joistH: number }) {
 
   return (
     <svg viewBox="0 0 300 200" className="w-full" role="img"
-      aria-label="Stair stringer connection to the deck rim, showing level tread and plumb riser cuts">
+      aria-label="Stair stringer connection to the deck rim, showing level tread and plumb riser cuts and the level seat cut bearing on the landing pad">
       {/* Decking and the rim the stringer hangs off */}
       <rect x="18" y={y0 - 8} width={x0 - 18} height="8" fill="#e8dcc8" stroke={LINE} strokeWidth="1" />
       <WoodSection x={x0 - 12} y={y0} w={12} h={rimH} />
@@ -491,7 +557,7 @@ function StairStringerDetail({ joistH }: { joistH: number }) {
 
       {/* The rake line through the notch corners, which the throat is measured
           from. Dashed because it is a reference, not an edge. */}
-      <line x1={x0} y1={y0} x2={endX} y2={endY}
+      <line x1={x0} y1={y0} x2={toeX} y2={y0 + steps * riser}
         stroke={LINE} strokeWidth="0.7" strokeDasharray="4 3" opacity="0.6" />
 
       {/* Throat dimension */}
@@ -513,10 +579,17 @@ function StairStringerDetail({ joistH }: { joistH: number }) {
       <Leader x1={x0 + 6} y1={y0 + throat + 6} x2={x0 - 34} y2={y0 + throat + 52} />
       <Callout x={4} y={y0 + throat + 53} text="Rated stringer connector" />
 
-      {/* Bottom bearing */}
-      <rect x={endX - 26} y={endY + throat} width="58" height="9" fill="#d6d3ce" stroke={LINE} strokeWidth="1" />
-      <Leader x1={endX + 24} y1={endY + throat + 4} x2={endX + 40} y2={endY + throat - 8} />
-      <Callout x={296} y={endY + throat - 9} text="Landing pad" anchor="end" />
+      {/* Bottom bearing: the seat cut sits flat on the pad for its whole length */}
+      <rect x={seatX - 16} y={padY} width={toeX - seatX + 46} height="9"
+        fill="#d6d3ce" stroke={LINE} strokeWidth="1" />
+      <Leader x1={toeX + 30} y1={padY} x2={272} y2={padY - 9} />
+      <Callout x={296} y={padY - 12} text="Landing pad" anchor="end" />
+
+      <Leader x1={seatX + 18} y1={padY} x2={150} y2={padY + 40} />
+      <Callout x={4} y={padY + 41} text="Level seat cut bears on the pad" />
+
+      <Leader x1={toeX} y1={padY - (riser - drop) / 2} x2={toeX + 20} y2={padY - 62} />
+      <Callout x={296} y={padY - 63} text="Drop = 1 tread thickness" anchor="end" />
 
       <text x="150" y="194" fontSize="8" fill="#666" textAnchor="middle"
         fontFamily="ui-sans-serif, system-ui, sans-serif">
