@@ -153,6 +153,7 @@ const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
 const BidRoom = lazy(() => import("./pages/BidRoom"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
+const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
 const Services = lazy(() => import("./pages/Services"));
 const PortalDemoHub = lazy(() => import("./pages/PortalDemoHub"));
 const PortalGlobalSettings = lazy(() => import("./pages/PortalGlobalSettings"));
@@ -546,6 +547,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // requires the email on the order to match.
   "returns":                 ReturnPortal,
   "start-a-return":          ReturnPortal,
+  "deck-designer":           DeckDesigner,
+  "design-center":           DeckDesigner,
   "enterprise-reporting":     EnterpriseReporting,
 
   // Portals
