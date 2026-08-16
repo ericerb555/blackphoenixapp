@@ -554,26 +554,54 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   );
 }
 
-/** Frames the camera on the deck whatever its size, so it never opens off-screen. */
+/**
+ * Frames the camera on the deck whatever its size, so it never opens off-screen.
+ *
+ * It has to move the camera THROUGH the orbit controls rather than around them.
+ * OrbitControls keeps its own idea of where the camera is — an angle and a
+ * distance from its target — and reads that on every drag. Setting
+ * camera.position and calling lookAt() behind its back left those two
+ * disagreeing, so the first drag after any change snapped the camera back to
+ * the angle the controls still remembered and then span from there. That is the
+ * view "twisting around": not a wild camera, but two things each certain they
+ * own it.
+ *
+ * Writing the target and calling update() makes the controls recompute their
+ * angle and distance from where the camera actually is, so the next drag
+ * continues from what is on screen. The controls own the target outright for
+ * the same reason — a static target prop would overwrite this on every render
+ * and put the fight straight back.
+ */
 function CameraRig({ model, mode }: { model: DeckModel; mode: ViewMode }) {
   const done = useRef<string>('');
-  useFrame(({ camera }) => {
+  useFrame(({ camera, controls }) => {
     const key = `${mode}-${model.widthFt}-${model.depthFt}-${model.heightFt}`;
     if (done.current === key) return;
     done.current = key;
+
     const reach = Math.max(model.widthFt, model.depthFt);
+    const target = new THREE.Vector3();
+
     if (mode === 'plan' || mode === 'framing-detail') {
       camera.position.set(0, reach * (mode === 'framing-detail' ? 3.1 : 1.8), model.depthFt / 2 + 0.001);
-      camera.lookAt(0, 0, model.depthFt / 2);
+      target.set(0, 0, model.depthFt / 2);
     } else if (mode === '3d') {
       // A three-quarter view from a bit above standing height, which is where
       // an architectural photograph is taken from. The old camera looked down
       // from twice the deck's width and turned everything into a model.
       camera.position.set(reach * 1.15, model.heightFt + reach * 0.42, model.depthFt + reach * 1.25);
-      camera.lookAt(0, model.heightFt * 0.75, model.depthFt / 2);
+      target.set(0, model.heightFt * 0.75, model.depthFt / 2);
     } else {
       camera.position.set(reach * 0.95, reach * 0.72, model.depthFt + reach * 0.95);
-      camera.lookAt(0, model.heightFt / 2, model.depthFt / 2);
+      target.set(0, model.heightFt / 2, model.depthFt / 2);
+    }
+
+    const orbit = controls as any;
+    if (orbit?.target?.copy) {
+      orbit.target.copy(target);
+      orbit.update();
+    } else {
+      camera.lookAt(target);
     }
     camera.updateProjectionMatrix();
   });
@@ -734,7 +762,9 @@ export default function DeckViewer3D({
             <OrbitControls
               makeDefault
               enablePan
-              target={[0, isPlanish ? 0 : model.heightFt / 2, model.depthFt / 2]}
+              // No target prop: CameraRig owns it. Setting it here as well
+              // would overwrite the rig's value on every render and put the
+              // camera back to fighting itself.
               // Plan view stays overhead: letting it tilt turns a measured
               // drawing into a bad perspective view.
               minPolarAngle={isPlanish ? 0 : 0.05}
