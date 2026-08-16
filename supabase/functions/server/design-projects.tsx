@@ -63,6 +63,33 @@ function summarize(p: any) {
     elementCount,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+    /**
+     * A slim slice of meta, so a list can be filtered and labelled.
+     *
+     * The full meta is deliberately not returned — for a floor plan it carries
+     * the whole element tree and would make listing enormous. But stripping it
+     * entirely broke every caller that filters by project kind or shows who a
+     * project belongs to: the deck designer filtered on meta.kind and therefore
+     * matched nothing, so its Open list was always empty. These few fields are
+     * what a list needs and nothing more; opening a project still fetches the
+     * whole record by id.
+     */
+    meta: p.meta
+      ? {
+        kind: p.meta.kind ?? null,
+        customerId: p.meta.customerId ?? '',
+        customerName: p.meta.customerName ?? '',
+        jobId: p.meta.jobId ?? '',
+        site: p.meta.site
+          ? {
+            projectName: p.meta.site.projectName ?? '',
+            address: p.meta.site.address ?? '',
+            town: p.meta.site.town ?? '',
+            state: p.meta.site.state ?? '',
+          }
+          : null,
+      }
+      : null,
   };
 }
 

@@ -92,6 +92,7 @@ function DesignerSession({ session, onSession }: {
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
   const [parking, setParking] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
 
   const set = useCallback(<K extends keyof DeckModel>(k: K, v: DeckModel[K]) => {
     setModel(m => ({ ...m, [k]: v }));
@@ -298,21 +299,51 @@ function DesignerSession({ session, onSession }: {
     toast.success('New deck started.');
   }, [snapshot, site, model, loads, bom, link, savedId, hardReset, loadList]);
 
-  const open = useCallback((p: any) => {
-    // Swapping the session remounts the editor, so the deck being opened
-    // cannot inherit a single value from the one being closed.
-    onSession({
-      model: { ...DEFAULT_DECK, ...(p?.meta?.model || {}) },
-      site: { ...EMPTY_SITE, ...(p?.meta?.site || {}) },
-      loads: { ...DEFAULT_SITE_LOADS, ...(p?.meta?.loads || {}) },
-      link: {
-        customerId: p?.meta?.customerId || '',
-        customerName: p?.meta?.customerName || '',
-        jobId: p?.meta?.jobId || '',
-      },
-      id: p.id,
-    });
-    toast.success(`Opened ${p.name}`);
+  /**
+   * Open a saved deck.
+   *
+   * The row from the list is not the project. Listing returns a summary — it
+   * has to, because a floor-plan project's meta carries its whole element tree
+   * — so the full record is fetched by id here. Opening straight from the list
+   * row silently produced a default deck under the saved project's name, which
+   * is the worst kind of wrong: it looks like it worked.
+   */
+  const open = useCallback(async (p: any) => {
+    setOpening(p.id);
+    try {
+      const res = await fetch(`${SERVER}/design-projects/${p.id}?ownerKey=decks`, {
+        headers: await headers(),
+      });
+      const data = await res.json().catch(() => null);
+      const full = data?.project;
+      if (!res.ok || !full) {
+        toast.error(data?.error || `Could not open that project (${res.status}).`);
+        return;
+      }
+      if (!full.meta?.model) {
+        toast.error(`“${full.name}” has no deck design saved in it.`);
+        return;
+      }
+
+      // Swapping the session remounts the editor, so the deck being opened
+      // cannot inherit a single value from the one being closed.
+      onSession({
+        model: { ...DEFAULT_DECK, ...full.meta.model },
+        site: { ...EMPTY_SITE, ...(full.meta.site || {}) },
+        loads: { ...DEFAULT_SITE_LOADS, ...(full.meta.loads || {}) },
+        link: {
+          customerId: full.meta.customerId || '',
+          customerName: full.meta.customerName || '',
+          jobId: full.meta.jobId || '',
+        },
+        id: full.id,
+      });
+      toast.success(`Opened ${full.name}`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not open that project.');
+    } finally {
+      setOpening(null);
+    }
   }, [onSession]);
 
   const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
@@ -488,7 +519,7 @@ function DesignerSession({ session, onSession }: {
                 </h2>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto">
                   {projects.map(p => (
-                    <button key={p.id} onClick={() => open(p)}
+                    <button key={p.id} onClick={() => open(p)} disabled={!!opening}
                       className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
                         savedId === p.id ? 'bg-[#ea580c] text-white' : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-300 hover:text-white'
                       }`}>
