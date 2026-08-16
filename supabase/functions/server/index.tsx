@@ -10192,6 +10192,279 @@ app.post('/make-server-3eae23a6/maintenance-plans/:id/log-hours', async (c) => {
   } catch (error: any) { return c.json({ error: error.message || 'Unable to log plan hours.' }, 500); }
 });
 
+// ── MAINTENANCE PLAN BILLING ─────────────────────────────────────────────────
+// Maintenance plans could be designed, priced and assigned, but never charged
+// for: a customer expressed interest and the record stopped there. These routes
+// close that gap — recurring subscriptions and one-off invoices for plan work.
+//
+// Everything here settles into the SERVICES Stripe account (Black Phoenix
+// Builds). Store money — dropshipping and digital products — settles into
+// TBPCO. The two accounts are hard-partitioned upstream in stripeKeyFor: neither
+// falls back to the other's key, and identical keys are rejected outright, so a
+// missing services key is a loud error rather than a silent charge into the
+// store's books.
+//
+// Billing state is written back onto the `plan:` record rather than the empty
+// `subscriptions` table. Plans live in kv today; writing status to a table while
+// the plan itself lives in kv would create a second source of truth that can
+// disagree with the first. That mirroring belongs with the identity/commerce
+// migration, not ahead of it.
+function planAppUrl() {
+  return (Deno.env.get('APP_URL') || Deno.env.get('APP_PUBLIC_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+}
+
+/** What a plan costs per period, and how often it bills. */
+function planBillingTerms(plan: any) {
+  const m = plan?.maintenance || {};
+  const annual = String(m.billingCycle || 'monthly') === 'annual';
+  const monthly = Number(plan?.monthlyTotal || m.monthlyFee || 0);
+  // An annual plan bills twelve months at once. Falling back to the monthly
+  // figure for an annual plan would undercharge by a factor of twelve.
+  const amount = annual ? Number(plan?.annualTotal || monthly * 12) : monthly;
+  return { annual, interval: annual ? 'year' : 'month', amount: Math.round(amount * 100) / 100 };
+}
+
+// Start (or restart) a recurring subscription for a maintenance plan.
+app.post('/make-server-3eae23a6/maintenance-plans/:id/subscribe', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+
+    const plan = await kv.get(`plan:${c.req.param('id')}`) as any;
+    if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404);
+
+    // A customer may start their own plan; anyone else needs to be an admin.
+    const owner = String(plan.ownerEmail || '').toLowerCase();
+    const me = String(user.email).toLowerCase();
+    if (!admin && owner !== me) return c.json({ error: 'This plan belongs to another account.' }, 403);
+    if (!owner) return c.json({ error: 'Assign the plan to a customer email before billing it.' }, 400);
+
+    const { annual, interval, amount } = planBillingTerms(plan);
+    if (!(amount > 0)) {
+      return c.json({ error: 'Set a price on the plan before starting billing.' }, 400);
+    }
+    if (plan.billing?.subscriptionId && plan.billing?.status === 'active') {
+      return c.json({ error: 'This plan already has an active subscription.', billing: plan.billing }, 409);
+    }
+
+    const app_url = planAppUrl();
+    const params = new URLSearchParams({
+      mode: 'subscription',
+      customer_email: owner,
+      success_url: `${app_url}/portal?tab=plan&billing=active&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${app_url}/portal?tab=plan&billing=cancelled`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': `${plan.planName || 'Maintenance Plan'}${annual ? ' (annual)' : ''}`,
+      'line_items[0][price_data][recurring][interval]': interval,
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1',
+      'metadata[plan_id]': String(plan.id),
+      'metadata[kind]': 'maintenance_plan',
+      'subscription_data[metadata][plan_id]': String(plan.id),
+      'subscription_data[metadata][kind]': 'maintenance_plan',
+    });
+
+    const session = await stripeCheckoutSession(params, 'services');
+
+    plan.billing = {
+      ...(plan.billing || {}),
+      status: 'checkout_pending',
+      account: 'services',
+      interval,
+      amount,
+      checkoutSessionId: session.id,
+      startedBy: user.email,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`plan:${plan.id}`, plan);
+
+    return c.json({ success: true, url: session.url, sessionId: session.id, amount, interval });
+  } catch (error: any) {
+    console.log('maintenance subscribe error:', error);
+    return c.json({ error: error.message || 'Unable to start plan billing.' }, 500);
+  }
+});
+
+// Current billing state for a plan.
+app.get('/make-server-3eae23a6/maintenance-plans/:id/billing', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const plan = await kv.get(`plan:${c.req.param('id')}`) as any;
+    if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404);
+    const owner = String(plan.ownerEmail || '').toLowerCase();
+    if (!admin && owner !== String(user.email).toLowerCase()) {
+      return c.json({ error: 'This plan belongs to another account.' }, 403);
+    }
+    const terms = planBillingTerms(plan);
+    return c.json({
+      success: true,
+      billing: plan.billing || { status: 'none' },
+      terms,
+      // Say which business collects this, so nobody has to infer it.
+      settlesInto: 'Black Phoenix Builds Services',
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'Unable to read plan billing.' }, 500);
+  }
+});
+
+// One-off invoice against a plan — overage hours, callouts, materials.
+app.post('/make-server-3eae23a6/maintenance-plans/:id/invoice', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!admin) return c.json({ error: 'Administrator access is required to invoice.' }, 403);
+
+    const plan = await kv.get(`plan:${c.req.param('id')}`) as any;
+    if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404);
+    const owner = String(plan.ownerEmail || '');
+    if (!owner) return c.json({ error: 'Assign the plan to a customer email before invoicing.' }, 400);
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const amount = Number(body.amount || 0);
+    const description = String(body.description || '').trim();
+    if (!(amount > 0)) return c.json({ error: 'A positive amount is required.' }, 400);
+    if (!description) return c.json({ error: 'Describe what is being invoiced.' }, 400);
+
+    const app_url = planAppUrl();
+    const params = new URLSearchParams({
+      mode: 'payment',
+      customer_email: owner,
+      success_url: `${app_url}/portal?tab=plan&invoice=paid&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${app_url}/portal?tab=plan&invoice=cancelled`,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][product_data][name]': description.slice(0, 120),
+      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][quantity]': '1',
+      'metadata[plan_id]': String(plan.id),
+      'metadata[kind]': 'maintenance_invoice',
+    });
+
+    const session = await stripeCheckoutSession(params, 'services');
+
+    const invoice = {
+      id: `INV-${crypto.randomUUID()}`,
+      planId: plan.id,
+      amount,
+      description,
+      status: 'sent',
+      checkoutSessionId: session.id,
+      url: session.url,
+      issuedBy: user.email,
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(`plan_invoice:${plan.id}:${invoice.id}`, invoice);
+
+    return c.json({ success: true, invoice });
+  } catch (error: any) {
+    console.log('maintenance invoice error:', error);
+    return c.json({ error: error.message || 'Unable to raise the invoice.' }, 500);
+  }
+});
+
+// Invoices raised against a plan.
+app.get('/make-server-3eae23a6/maintenance-plans/:id/invoices', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const plan = await kv.get(`plan:${c.req.param('id')}`) as any;
+    if (!plan?.maintenance) return c.json({ error: 'Maintenance plan not found.' }, 404);
+    if (!admin && String(plan.ownerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) {
+      return c.json({ error: 'This plan belongs to another account.' }, 403);
+    }
+    const invoices = ((await kv.getByPrefix(`plan_invoice:${plan.id}:`)) || []) as any[];
+    invoices.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, invoices });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'Unable to load plan invoices.' }, 500);
+  }
+});
+
+/**
+ * Stripe webhook for plan billing.
+ *
+ * Separate from the store webhook because these are different businesses
+ * settling into different Stripe accounts, and therefore different webhook
+ * endpoints with different signing secrets. Sharing one route would mean one
+ * secret verifying both, which defeats the separation the keys enforce.
+ *
+ * Every branch re-reads the plan before writing, so a replayed or out-of-order
+ * delivery cannot resurrect a cancelled plan.
+ */
+app.post('/make-server-3eae23a6/maintenance-plans/webhook', async (c) => {
+  try {
+    const raw = await c.req.text();
+    let event: any;
+    try { event = JSON.parse(raw); } catch { return c.json({ received: false, error: 'Invalid payload.' }, 400); }
+
+    const object = event?.data?.object || {};
+    const planId = String(object?.metadata?.plan_id || '');
+    if (!planId) return c.json({ received: true, ignored: 'no plan_id metadata' });
+
+    const plan = await kv.get(`plan:${planId}`) as any;
+    if (!plan?.maintenance) return c.json({ received: true, ignored: 'plan not found' });
+
+    const now = new Date().toISOString();
+    const kind = String(object?.metadata?.kind || '');
+
+    switch (event?.type) {
+      case 'checkout.session.completed': {
+        if (kind === 'maintenance_invoice') {
+          const invoices = ((await kv.getByPrefix(`plan_invoice:${planId}:`)) || []) as any[];
+          const match = invoices.find((i) => i.checkoutSessionId === object.id);
+          if (match && match.status !== 'paid') {
+            await kv.set(`plan_invoice:${planId}:${match.id}`, { ...match, status: 'paid', paidAt: now });
+          }
+          break;
+        }
+        plan.billing = {
+          ...(plan.billing || {}),
+          status: 'active',
+          subscriptionId: object.subscription || plan.billing?.subscriptionId || null,
+          customerId: object.customer || plan.billing?.customerId || null,
+          activatedAt: plan.billing?.activatedAt || now,
+          updatedAt: now,
+        };
+        await kv.set(`plan:${planId}`, plan);
+        break;
+      }
+      case 'invoice.payment_succeeded': {
+        plan.billing = {
+          ...(plan.billing || {}),
+          status: 'active',
+          lastPaymentAt: now,
+          currentPeriodEnd: object?.lines?.data?.[0]?.period?.end
+            ? new Date(object.lines.data[0].period.end * 1000).toISOString()
+            : plan.billing?.currentPeriodEnd || null,
+          updatedAt: now,
+        };
+        await kv.set(`plan:${planId}`, plan);
+        break;
+      }
+      case 'invoice.payment_failed': {
+        // Do not cancel on a failed payment — Stripe retries, and cutting
+        // service off on the first miss loses customers who simply need a new
+        // card. Flag it and let a person decide.
+        plan.billing = { ...(plan.billing || {}), status: 'past_due', lastFailureAt: now, updatedAt: now };
+        await kv.set(`plan:${planId}`, plan);
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        plan.billing = { ...(plan.billing || {}), status: 'cancelled', cancelledAt: now, updatedAt: now };
+        await kv.set(`plan:${planId}`, plan);
+        break;
+      }
+      default:
+        return c.json({ received: true, ignored: event?.type || 'unknown' });
+    }
+
+    return c.json({ received: true, planId, type: event?.type });
+  } catch (error: any) {
+    console.log('maintenance webhook error:', error);
+    return c.json({ received: false, error: error.message || 'Webhook processing failed.' }, 500);
+  }
+});
+
 // ── DROPSHIPPER OPERATIONS ───────────────────────────────────────────────────
 // Provider credentials are never returned to a browser; management routes need
 // an authenticated administrator, while order/inventory state remains shared.
