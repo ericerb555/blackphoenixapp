@@ -20,6 +20,8 @@ import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import DeckViewer3D, { type ViewMode } from '../components/DeckViewer3D';
 import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
+import DeckStructuralPanel from '../components/DeckStructuralPanel';
+import { DEFAULT_SITE_LOADS, type SiteLoads } from '../lib/deckStructural';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -46,6 +48,7 @@ export default function DeckDesigner() {
   const [mode, setMode] = useState<ViewMode>('3d');
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [loads, setLoads] = useState<SiteLoads>(DEFAULT_SITE_LOADS);
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
 
@@ -114,7 +117,7 @@ export default function DeckDesigner() {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, takeoff: bom },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -128,11 +131,12 @@ export default function DeckDesigner() {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, savedId, loadList]);
+  }, [site, model, bom, loads, savedId, loadList]);
 
   const open = useCallback((p: any) => {
     if (p?.meta?.model) setModel({ ...DEFAULT_DECK, ...p.meta.model });
     if (p?.meta?.site) setSite({ ...EMPTY_SITE, ...p.meta.site });
+    if (p?.meta?.loads) setLoads({ ...DEFAULT_SITE_LOADS, ...p.meta.loads });
     setSavedId(p.id);
     toast.success(`Opened ${p.name}`);
   }, []);
@@ -321,6 +325,8 @@ export default function DeckDesigner() {
                 </p>
               </div>
             )}
+
+            <DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} />
 
             <DeckBuildSpecPanel model={model} site={site} />
 
