@@ -132,10 +132,16 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
   // Deliveries from the job folder land through the same handler a folder pick
   // uses, so stills and clips are separated the one way rather than two.
   const lastDelivery = useRef(0);
+  const [autoRead, setAutoRead] = useState(false);
   useEffect(() => {
     if (!incoming || !incoming.files.length || incoming.n === lastDelivery.current) return;
     lastDelivery.current = incoming.n;
     fromFolder(incoming.files);
+    // Sending photos from the job folder is the operator saying "read these".
+    // Dropping them in and waiting to be told to read them again is a step that
+    // only exists because of how the code is arranged, not because anyone wants
+    // it — and it was the reason the assistant had nothing to work from.
+    setAutoRead(true);
   }, [incoming, fromFolder]);
 
   const analyze = useCallback(async () => {
@@ -170,6 +176,21 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
       setBusy(null);
     }
   }, [photos, note, onRead]);
+
+  /**
+   * Run the read once the delivered photos have actually landed in state.
+   *
+   * Split from the delivery effect because `fromFolder` sets state and the new
+   * photos are not readable until the next render — firing the read in the same
+   * effect would send an empty list. Declared after `analyze` deliberately: a
+   * dependency array is evaluated during render, so naming a const from above
+   * its declaration throws.
+   */
+  useEffect(() => {
+    if (!autoRead || busy || !photos.length) return;
+    setAutoRead(false);
+    analyze();
+  }, [autoRead, busy, photos, analyze]);
 
   const applySuggested = useCallback(() => {
     const s = analysis?.suggested;

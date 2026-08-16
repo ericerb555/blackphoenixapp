@@ -89,10 +89,13 @@ export default function SketchImport({ model, onApply, incoming, onRead }: {
   }, []);
 
   const lastDelivery = useRef(0);
+  const [autoRead, setAutoRead] = useState(false);
   useEffect(() => {
     if (!incoming || !incoming.files.length || incoming.n === lastDelivery.current) return;
     lastDelivery.current = incoming.n;
     add(incoming.files);
+    // Sending a drawing over from the job folder means read it.
+    setAutoRead(true);
   }, [incoming, add]);
 
   const analyse = useCallback(async () => {
@@ -121,6 +124,18 @@ export default function SketchImport({ model, onApply, incoming, onRead }: {
       setBusy(false);
     }
   }, [shots, note, onRead]);
+
+  /**
+   * Read the drawing once the delivered shots are in state. Separate effect for
+   * the same two reasons as in HouseCapture: the shots are not readable until
+   * the next render, and `analyse` must be declared above a dependency array
+   * that names it.
+   */
+  useEffect(() => {
+    if (!autoRead || busy || !shots.length) return;
+    setAutoRead(false);
+    analyse();
+  }, [autoRead, busy, shots, analyse]);
 
   /** Fields that came back with a usable value and are not being skipped. */
   const proposals = read?.model
