@@ -35,7 +35,7 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 
 /** Ceiling for one analysis request, comfortably inside the edge limit. */
 const MAX_PAYLOAD_BYTES = 4_000_000;
-const MAX_PHOTOS = 6;
+const MAX_PHOTOS = 12;
 
 async function authHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -91,7 +91,7 @@ export default function HouseCapture({ model, site, onApply }: Props) {
     setBusy('Pulling frames');
     try {
       const room = Math.max(1, MAX_PHOTOS - photos.length);
-      const frames = await framesFromVideo(file, Math.min(4, room), undefined, (d, t) =>
+      const frames = await framesFromVideo(file, Math.min(6, room), undefined, (d, t) =>
         setBusy(`Pulling frame ${d} of ${t}`));
       setPhotos(p => [...p, ...frames].slice(0, MAX_PHOTOS));
       toast.success(`${frames.length} frames taken from the video.`);
@@ -154,13 +154,35 @@ export default function HouseCapture({ model, site, onApply }: Props) {
   const makeRender = useCallback(async () => {
     const photo = photos[renderOn];
     if (!photo) return;
+
+    // Extra views make the render match the real house, but the whole set has
+    // to fit in one request. Take as many as fit alongside the primary and drop
+    // the rest — a render from four good angles beats a request that bounces.
+    const others: string[] = [];
+    let budget = MAX_PAYLOAD_BYTES - dataUrlBytes(photo);
+    for (const [i, p] of photos.entries()) {
+      if (i === renderOn) continue;
+      const size = dataUrlBytes(p);
+      if (size > budget) continue;
+      budget -= size;
+      others.push(p);
+    }
+
     setBusy('Rendering the deck onto the photo');
     setRender(null);
     try {
       const res = await fetch(`${SERVER}/house-capture/render`, {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify({ photo, deck: model, house: analysis?.house || {}, extra }),
+        body: JSON.stringify({
+          photo,
+          // Every other photo goes along as reference so the render matches the
+          // real house rather than inventing what one angle could not show.
+          references: others,
+          deck: model,
+          house: analysis?.house || {},
+          extra,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || `Render failed (${res.status}).`);

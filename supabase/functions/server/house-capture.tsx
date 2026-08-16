@@ -30,7 +30,7 @@ const app = new Hono();
 const BUCKET = "make-3eae23a6-house";
 
 /** Largest edge we accept; the client downsizes before sending. */
-const MAX_IMAGES = 6;
+const MAX_IMAGES = 12;
 
 function serviceClient() {
   return createClient(
@@ -276,19 +276,63 @@ app.post("/render", async (c) => {
     if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
 
     const ext = parts.mediaType.includes("png") ? "png" : "jpg";
-    const form = new FormData();
-    form.append("model", "gpt-image-1");
-    form.append("image", new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType }), `house.${ext}`);
-    form.append("prompt", renderPrompt(deck, house, extra));
-    form.append("size", "1536x1024");
-    form.append("quality", "high");
-    form.append("input_fidelity", "high");
+    const prompt = renderPrompt(deck, house, extra);
 
-    const res = await fetch("https://api.openai.com/v1/images/edits", {
+    // Extra views of the same house. One photograph shows one wall from one
+    // angle, and the model has to invent everything it cannot see — which is
+    // where a render starts disagreeing with the actual house. Given the side
+    // elevation and a closer shot of the siding it has the real thing to work
+    // from instead.
+    const references: string[] = Array.isArray(body?.references)
+      ? body.references.slice(0, MAX_IMAGES - 1)
+      : [];
+
+    const blobFor = (uri: string) => {
+      const p = splitDataUri(uri);
+      if (!p) return null;
+      return new Blob([base64ToBytes(p.base64)], { type: p.mediaType });
+    };
+
+    const primary = new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType });
+
+    const buildForm = (multi: boolean) => {
+      const form = new FormData();
+      form.append("model", "gpt-image-1");
+      if (multi) {
+        // First image is the one being rendered onto; the rest are reference.
+        form.append("image[]", primary, `house.${ext}`);
+        references.forEach((uri, i) => {
+          const b = blobFor(uri);
+          if (b) form.append("image[]", b, `reference-${i}.jpg`);
+        });
+      } else {
+        form.append("image", primary, `house.${ext}`);
+      }
+      form.append("prompt", multi
+        ? `${prompt}\n\nThe FIRST image is the photograph to render. The remaining images are more views of the SAME house — use them to get the siding, trim, roof, windows and proportions right, but do not change the camera position or composition of the first image.`
+        : prompt);
+      form.append("size", "1536x1024");
+      form.append("quality", "high");
+      form.append("input_fidelity", "high");
+      return form;
+    };
+
+    const call = (multi: boolean) => fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` },
-      body: form,
+      body: buildForm(multi),
     });
+
+    let res = await call(references.length > 0);
+
+    // If the multi-image form is rejected, fall back to the single-image call
+    // rather than failing. A render from one photo is worth far more than an
+    // error message, and this path already worked.
+    if (!res.ok && references.length > 0) {
+      const detail = await res.text();
+      console.log(`[house] multi-image render failed ${res.status}, retrying with one: ${detail.slice(0, 200)}`);
+      res = await call(false);
+    }
 
     if (!res.ok) {
       const detail = await res.text();
