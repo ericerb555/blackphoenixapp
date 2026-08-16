@@ -46,18 +46,37 @@ async function headers() {
   };
 }
 
-export default function DeckDesigner() {
-  const [model, setModel] = useState<DeckModel>(DEFAULT_DECK);
-  const [site, setSite] = useState<SiteInfo>(EMPTY_SITE);
+interface Session {
+  key: number;
+  model: DeckModel;
+  site: SiteInfo;
+  loads: SiteLoads;
+  id: string | null;
+}
+
+/**
+ * One editing session.
+ *
+ * All designer state lives here and is seeded from props at mount. Starting a
+ * new deck or opening a saved one remounts this under a different key, so the
+ * previous deck's values cannot survive. There is no reset logic to get wrong,
+ * and no way for the address to clear while the dimensions quietly keep their
+ * old values — which is exactly what went wrong when reset was done by hand.
+ */
+function DesignerSession({ session, onSession }: {
+  session: Session;
+  onSession: (s: Omit<Session, 'key'>) => void;
+}) {
+  const [model, setModel] = useState<DeckModel>(session.model);
+  const [site, setSite] = useState<SiteInfo>(session.site);
   const [mode, setMode] = useState<ViewMode>('3d');
   const [saving, setSaving] = useState(false);
-  const [savedId, setSavedId] = useState<string | null>(null);
-  const [loads, setLoads] = useState<SiteLoads>(DEFAULT_SITE_LOADS);
+  const [savedId, setSavedId] = useState<string | null>(session.id);
+  const [loads, setLoads] = useState<SiteLoads>(session.loads);
   // A snapshot of what was last saved or opened. Comparing against it is how
   // 'New deck' can tell whether there is genuinely unsaved work, instead of
   // warning every time and training the warning to be ignored.
   const [clean, setClean] = useState<string>('');
-  const [resetKey, setResetKey] = useState(0);
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
 
@@ -143,6 +162,43 @@ export default function DeckDesigner() {
     }
   }, [site, model, bom, loads, savedId, loadList]);
 
+  /**
+   * File the current work as its own project, then clear the desk.
+   *
+   * Distinct from Save, which writes another version of whatever is open.
+   * Without this, the only way to keep an existing deck AND start a different
+   * one was to save, then reset, and hope the reset took.
+   */
+  const saveAsNew = useCallback(async () => {
+    const name = prompt('Save the current deck as a new project named:', `${site.projectName} (copy)`);
+    if (name === null) return;
+    if (!name.trim()) { toast.error('Give the project a name.'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${SERVER}/design-projects`, {
+        method: 'POST',
+        headers: await headers(),
+        body: JSON.stringify({
+          // No id, so the server mints a new project rather than versioning the
+          // one currently open.
+          ownerKey: 'decks',
+          name: name.trim(),
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom },
+          note: 'Saved as a new project',
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) { toast.error(data?.error || 'Could not save a copy.'); return; }
+      toast.success(`Filed as "${name.trim()}". Starting a new deck.`);
+      await loadList();
+      hardReset();
+    } catch (err) {
+      toast.error('Could not save a copy.');
+    } finally {
+      setSaving(false);
+    }
+  }, [site, model, loads, bom, loadList]);
+
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
     [model, site, loads],
@@ -156,34 +212,28 @@ export default function DeckDesigner() {
    * subsequent save wrote over that project — there was no way back to a blank
    * sheet short of reloading the page.
    */
+  /** The single reset both New and Save-as-new go through. */
+  const hardReset = useCallback(() => {
+    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, id: null });
+  }, [onSession]);
+
   const startNew = useCallback(() => {
     if (isDirty && !confirm('Start a new deck? Unsaved changes to the current one will be lost.')) return;
-    setModel({ ...DEFAULT_DECK });
-    setSite({ ...EMPTY_SITE });
-    setLoads({ ...DEFAULT_SITE_LOADS });
-    setSavedId(null);
-    setClean('');
-    // Remounts the controls and the viewers, so nothing can hold a stale value
-    // from the deck that was open.
-    setResetKey(k => k + 1);
+    hardReset();
     toast.success('New deck started.');
-  }, [isDirty]);
+  }, [isDirty, hardReset]);
 
   const open = useCallback((p: any) => {
-    if (p?.meta?.model) setModel({ ...DEFAULT_DECK, ...p.meta.model });
-    if (p?.meta?.site) setSite({ ...EMPTY_SITE, ...p.meta.site });
-    if (p?.meta?.loads) setLoads({ ...DEFAULT_SITE_LOADS, ...p.meta.loads });
-    setSavedId(p.id);
-    setResetKey(k => k + 1);
-    // Deferred so the snapshot reflects the state just applied, not the state
-    // being replaced.
-    setTimeout(() => setClean(JSON.stringify({
+    // Swapping the session remounts the editor, so the deck being opened
+    // cannot inherit a single value from the one being closed.
+    onSession({
       model: { ...DEFAULT_DECK, ...(p?.meta?.model || {}) },
       site: { ...EMPTY_SITE, ...(p?.meta?.site || {}) },
       loads: { ...DEFAULT_SITE_LOADS, ...(p?.meta?.loads || {}) },
-    })), 0);
+      id: p.id,
+    });
     toast.success(`Opened ${p.name}`);
-  }, []);
+  }, [onSession]);
 
   const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
   const label = 'block text-xs font-semibold text-gray-400 mb-1';
@@ -238,7 +288,7 @@ export default function DeckDesigner() {
           </div>
         </div>
 
-        <div key={resetKey} className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
+        <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
           {/* Controls */}
           <div className="space-y-4">
             <div className={card}>
@@ -421,5 +471,28 @@ export default function DeckDesigner() {
         </div>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Owns which session is being edited. Changing the key is the only way a deck
+ * is swapped, so a stale value cannot outlive the swap.
+ */
+export default function DeckDesigner() {
+  const [session, setSession] = useState<Session>({
+    key: 0,
+    model: { ...DEFAULT_DECK },
+    site: { ...EMPTY_SITE },
+    loads: { ...DEFAULT_SITE_LOADS },
+    id: null,
+  });
+
+  return (
+    <DesignerSession
+      key={session.key}
+      session={session}
+      onSession={next => setSession(s => ({ ...next, key: s.key + 1 }))}
+    />
   );
 }
