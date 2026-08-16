@@ -32,6 +32,9 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 
+/** Bumped when this screen changes, so a stale cached page is obvious on sight. */
+const BUILD_TAG = 'v3 · new-deck-reset';
+
 const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', state: '', parcel: '' };
 
 async function headers() {
@@ -54,6 +57,7 @@ export default function DeckDesigner() {
   // 'New deck' can tell whether there is genuinely unsaved work, instead of
   // warning every time and training the warning to be ignored.
   const [clean, setClean] = useState<string>('');
+  const [resetKey, setResetKey] = useState(0);
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState(false);
 
@@ -154,11 +158,14 @@ export default function DeckDesigner() {
    */
   const startNew = useCallback(() => {
     if (isDirty && !confirm('Start a new deck? Unsaved changes to the current one will be lost.')) return;
-    setModel(DEFAULT_DECK);
+    setModel({ ...DEFAULT_DECK });
     setSite({ ...EMPTY_SITE });
-    setLoads(DEFAULT_SITE_LOADS);
+    setLoads({ ...DEFAULT_SITE_LOADS });
     setSavedId(null);
     setClean('');
+    // Remounts the controls and the viewers, so nothing can hold a stale value
+    // from the deck that was open.
+    setResetKey(k => k + 1);
     toast.success('New deck started.');
   }, [isDirty]);
 
@@ -167,6 +174,7 @@ export default function DeckDesigner() {
     if (p?.meta?.site) setSite({ ...EMPTY_SITE, ...p.meta.site });
     if (p?.meta?.loads) setLoads({ ...DEFAULT_SITE_LOADS, ...p.meta.loads });
     setSavedId(p.id);
+    setResetKey(k => k + 1);
     // Deferred so the snapshot reflects the state just applied, not the state
     // being replaced.
     setTimeout(() => setClean(JSON.stringify({
@@ -230,7 +238,7 @@ export default function DeckDesigner() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
+        <div key={resetKey} className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
           {/* Controls */}
           <div className="space-y-4">
             <div className={card}>
