@@ -33,6 +33,7 @@ import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
+import { DESIGN_OWNER_KEY } from '../lib/designProjectService';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -248,9 +249,9 @@ function DesignerSession({ session, onSession }: {
     setLoadingList(true);
     try {
       // `owner`, not `ownerKey` — the server reads the query as `owner` and
-      // falls back to the 'shared' namespace, so decks written under 'decks'
+      // falls back to the 'shared' namespace, so decks written under DECKS
       // were being listed from somewhere they had never been saved.
-      const res = await fetch(`${SERVER}/design-projects?owner=decks`, { headers: await headers() });
+      const res = await fetch(`${SERVER}/design-projects?owner=${DESIGN_OWNER_KEY}`, { headers: await headers() });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.projects) {
         setProjects(data.projects.filter((p: any) => p?.meta?.kind === 'deck'));
@@ -273,7 +274,7 @@ function DesignerSession({ session, onSession }: {
         headers: await headers(),
         body: JSON.stringify({
           id: savedId || undefined,
-          ownerKey: 'decks',
+          ownerKey: DESIGN_OWNER_KEY,
           name: site.projectName,
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
@@ -314,7 +315,7 @@ function DesignerSession({ session, onSession }: {
         body: JSON.stringify({
           // No id, so the server mints a new project rather than versioning the
           // one currently open.
-          ownerKey: 'decks',
+          ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
           meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, ...link },
           note: 'Saved as a new project',
@@ -418,7 +419,7 @@ function DesignerSession({ session, onSession }: {
             // Update in place when it is already a saved project; otherwise
             // this becomes its own record rather than overwriting anything.
             id: savedId || undefined,
-            ownerKey: 'decks',
+            ownerKey: DESIGN_OWNER_KEY,
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
@@ -474,7 +475,7 @@ function DesignerSession({ session, onSession }: {
   const open = useCallback(async (p: any) => {
     setOpening(p.id);
     try {
-      const res = await fetch(`${SERVER}/design-projects/${p.id}?owner=decks`, {
+      const res = await fetch(`${SERVER}/design-projects/${p.id}?owner=${DESIGN_OWNER_KEY}`, {
         headers: await headers(),
       });
       const data = await res.json().catch(() => null);
