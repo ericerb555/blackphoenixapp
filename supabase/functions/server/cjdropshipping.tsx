@@ -574,7 +574,13 @@ export async function importCandidates(
       price: cand.suggestedPrice, compare_at_price: cand.suggestedPrice ? +(cand.suggestedPrice * 1.3).toFixed(2) : undefined,
       cost_price: cand.cost, shippingCost: 0, inventoryQuantity: stock, trackInventory: true,
       images: cand.images, primaryImage: cand.images[0] || "",
-      isActive: true, isFeatured: opts?.featuredSkus?.has(cand.sku) || false,
+      // Imports land staged, not live. The price they arrive with is a formula
+      // (cost x 1.3), and publishing that straight to the storefront means the
+      // operator's own pricing decision happens after the product is already
+      // for sale. `isActive: false` keeps it off the storefront — which already
+      // filters on that field — until it is published from the price desk.
+      isActive: false, storeStatus: "draft",
+      isFeatured: opts?.featuredSkus?.has(cand.sku) || false,
       slug, sku: cand.sku, rating: cand.rating, viewCount: 0, orderCount: 0,
       source: PROVIDER_ID, providerProductId: cand.pid, createdAt: nowIso, updatedAt: nowIso, ...extra,
     };
@@ -669,7 +675,9 @@ export async function importProducts(
       trackInventory: true,
       images,
       primaryImage: images[0] || "",
-      isActive: true,
+      // Staged, not live — see the note at the other import site.
+      isActive: false,
+      storeStatus: "draft",
       isFeatured: false,
       slug,
       sku,
@@ -1000,6 +1008,118 @@ cjRouter.post(`${PREFIX}/cj/enrich`, async (c) => {
     });
   } catch (err: any) {
     return c.json({ success: false, error: String(err?.message || err) }, 500);
+  }
+});
+
+/**
+ * Publish staged products to the storefront — the "sync to store" step.
+ *
+ * Imports arrive as drafts so the operator sets a price before anything is for
+ * sale. This is the gate that ends that: it flips `isActive` on, which is the
+ * field the storefront already filters by.
+ *
+ * Pass `ids` to publish a chosen set, or omit it to publish every draft. A
+ * product that was deliberately taken off sale is not a draft — it is live with
+ * `isActive` turned off and no `storeStatus`, so publishing all drafts will not
+ * quietly put it back on the shelf.
+ */
+cjRouter.post(`${PREFIX}/cj/publish`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({} as any));
+    const ids: string[] | null = Array.isArray(body?.ids) && body.ids.length
+      ? body.ids.map((x: any) => String(x))
+      : null;
+
+    const all = ((await kv.getByPrefix("product_")) || []) as any[];
+    const targets = all.filter((p: any) => {
+      if (!p?.id) return false;
+      if (ids) return ids.includes(String(p.id));
+      return p.storeStatus === "draft";
+    });
+
+    const published: any[] = [];
+    const skipped: any[] = [];
+    for (const p of targets) {
+      // Refuse to publish something with no sellable price. A zero-priced
+      // product on the storefront is worse than one that is still staged.
+      const price = Number(p.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        skipped.push({ id: p.id, name: p.name, reason: "No price set." });
+        continue;
+      }
+      await kv.set(`product_${p.id}`, {
+        ...p,
+        isActive: true,
+        storeStatus: "live",
+        publishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      published.push({ id: p.id, name: p.name, price });
+    }
+
+    return c.json({
+      success: true,
+      published: published.length,
+      skipped: skipped.length,
+      skippedDetail: skipped,
+      publishedDetail: published.slice(0, 50),
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
+/**
+ * Import across several CJ pages in one call.
+ *
+ * `/cj/import-more` takes a single page, and CJ caps a page at 50, so filling a
+ * catalog meant driving pagination by hand from the client. This walks the
+ * pages server-side. Everything it brings in lands staged, like any other
+ * import.
+ */
+cjRouter.post(`${PREFIX}/cj/import-bulk`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({} as any));
+    const apiKey = resolveKey(body?.apiKey);
+    if (!apiKey) return c.json({ success: false, error: "No CJ_API_KEY secret configured." }, 400);
+
+    const perPage = Math.min(50, Math.max(1, num(body?.perPage, 50)));
+    // Bounded per call so the request finishes inside the function's wall clock
+    // at CJ's one-per-second rate; call again with a later startPage to go on.
+    const pages = Math.min(6, Math.max(1, num(body?.pages, 3)));
+    const startPage = Math.max(1, num(body?.startPage, 1));
+    const keyword = typeof body?.keyword === "string" ? body.keyword : "";
+
+    let imported = 0;
+    let blocked = 0;
+    const perPageResults: any[] = [];
+    for (let i = 0; i < pages; i++) {
+      const pageNum = startPage + i;
+      try {
+        const r = await importProducts(apiKey, perPage, { pageNum, keyword });
+        imported += r.imported;
+        blocked += r.blocked;
+        perPageResults.push({ pageNum, imported: r.imported, blocked: r.blocked });
+        // CJ has run out of results — stop rather than burn the remaining pages.
+        if (!r.imported && !r.blocked) break;
+      } catch (err: any) {
+        perPageResults.push({ pageNum, error: String(err?.message || err).slice(0, 200) });
+        break;
+      }
+    }
+
+    return c.json({
+      success: true,
+      imported,
+      blocked,
+      keyword,
+      startPage,
+      nextStartPage: startPage + perPageResults.length,
+      perPageResults,
+      note: "Imported products are staged as drafts. Set prices, then publish from the price desk.",
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
 });
 

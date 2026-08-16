@@ -35,6 +35,15 @@ interface CatalogProduct {
   supplier: string;
   category: string;
   isActive: boolean;
+  /**
+   * 'draft'  — imported from a supplier, priced by formula, not on the
+   *            storefront yet. Waiting for the owner to set a price.
+   * 'live'   — published and for sale.
+   *
+   * Products that predate staging carry no value; they were already for sale,
+   * so they are treated as live.
+   */
+  storeStatus: 'draft' | 'live';
 }
 
 // Draft edits per product id — only what the owner has touched.
@@ -77,6 +86,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [savingAll, setSavingAll] = useState(false);
   const [refreshingShip, setRefreshingShip] = useState(false);
   const [syncingStore, setSyncingStore] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [query, setQuery] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('');
   const [globalMarkup, setGlobalMarkup] = useState('');
@@ -122,6 +132,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           supplier: p.vendorName || p.sourceLabel || p.source || 'Unknown supplier',
           category: p.category || 'General',
           isActive: p.isActive !== false,
+          storeStatus: p.storeStatus === 'draft' ? 'draft' : 'live',
         };
       });
       mapped.sort((a, b) => a.name.localeCompare(b.name));
@@ -180,6 +191,54 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
    * catalog on failure too and tell the owner to re-run rather than leaving
    * them staring at a stale grid.
    */
+  /**
+   * Publish staged products to the storefront.
+   *
+   * Distinct from "Pull from suppliers" below, which brings products IN as
+   * drafts. This is the step that puts them on sale, once the owner has set a
+   * price — the whole point of staging.
+   *
+   * Saves any unsaved price edits first. Publishing a product while an edited
+   * price is still sitting in the grid would put the OLD price on the
+   * storefront, which is the one outcome staging exists to prevent.
+   */
+  const publishDrafts = useCallback(async (ids?: string[]) => {
+    setPublishing(true);
+    try {
+      if (Object.keys(drafts).length) {
+        toast.error('Save your price changes before publishing.');
+        return;
+      }
+      const token = await adminToken();
+      const res = await fetch(`${SERVER}/cj/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
+        body: JSON.stringify(ids?.length ? { ids } : {}),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || `Publish failed (${res.status})`);
+        return;
+      }
+      await load();
+      if (data.skipped) {
+        toast.warning(
+          `Published ${data.published}. Skipped ${data.skipped} with no price set.`,
+          { duration: 8000 },
+        );
+      } else if (data.published === 0) {
+        toast.info('Nothing to publish — no staged products.');
+      } else {
+        toast.success(`Published ${data.published} product${data.published === 1 ? '' : 's'} to the store.`);
+      }
+    } catch (err: any) {
+      console.error('[ProductCatalogAdmin] publishDrafts:', err);
+      toast.error(err.message || 'Could not publish to the store.');
+    } finally {
+      setPublishing(false);
+    }
+  }, [drafts, load]);
+
   const syncToStore = useCallback(async () => {
     setSyncingStore(true);
     try {
@@ -438,6 +497,9 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   };
   const visibleIds = useMemo(() => filtered.map(p => p.id), [filtered]);
   const selectedCount = useMemo(() => visibleIds.filter(id => selected.has(id)).length, [visibleIds, selected]);
+  // Counted across the whole catalog, not just what the current filter shows —
+  // it answers "how much is waiting to go on sale", which a filter shouldn't change.
+  const draftCount = useMemo(() => products.filter(p => p.storeStatus === 'draft').length, [products]);
   const allSelected = visibleIds.length > 0 && selectedCount === visibleIds.length;
   const toggleSelectAll = () => {
     setSelected(prev => {
@@ -543,8 +605,18 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
         <button onClick={syncToStore} disabled={syncingStore}
           className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
           style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
-          title="Pull the latest products from every connected supplier into the live store">
-          {syncingStore ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4 text-orange-400" />} Sync to store
+          title="Pull the latest products from every connected supplier. They arrive staged — price them here, then publish.">
+          {syncingStore ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4 text-orange-400" />} Pull from suppliers
+        </button>
+        {/* Publishing is the deliberate step staging exists to create, so it is
+            styled as the primary action and states how many are waiting. */}
+        <button onClick={() => publishDrafts(selectedCount > 0 ? Array.from(selected) : undefined)}
+          disabled={publishing || (draftCount === 0 && selectedCount === 0)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+          style={{ background: draftCount > 0 ? 'rgba(22,163,74,0.9)' : 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
+          title="Put staged products on the storefront at the prices shown here">
+          {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+          {selectedCount > 0 ? `Publish ${selectedCount} selected` : `Publish to store${draftCount ? ` (${draftCount})` : ''}`}
         </button>
         <button onClick={refreshLiveShipping} disabled={refreshingShip}
           className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
@@ -640,7 +712,18 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
                   )}
                 </button>
                 <div className="min-w-0">
-                  <div className="text-sm text-white truncate">{p.name}</div>
+                  <div className="text-sm text-white truncate flex items-center gap-2">
+                    <span className="truncate">{p.name}</span>
+                    {/* Only staged products are badged. Live is the norm, and
+                        badging every row would bury the few that need action. */}
+                    {p.storeStatus === 'draft' && (
+                      <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                        style={{ background: 'rgba(234,179,8,0.15)', color: '#facc15', border: '1px solid rgba(234,179,8,0.35)' }}
+                        title="Staged — not on the storefront yet. Set a price, then publish.">
+                        Staged
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1 text-gray-400"><Truck className="w-3 h-3 text-orange-400/80" />{p.supplier}</span>
                     <span>· {p.category}{!p.isActive && ' · hidden'}</span>
