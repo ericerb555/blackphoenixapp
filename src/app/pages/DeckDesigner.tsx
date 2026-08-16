@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import DeckViewer3D, { type ViewMode } from '../components/DeckViewer3D';
+import DeckBuildSpecPanel from '../components/DeckBuildSpecPanel';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -320,6 +321,8 @@ export default function DeckDesigner() {
                 </p>
               </div>
             )}
+
+            <DeckBuildSpecPanel model={model} site={site} />
 
             <div className={card}>
               <h2 className="text-sm font-bold text-white mb-3">Materials</h2>
