@@ -141,7 +141,28 @@ future scripted edit: *a passing build here means the syntax parsed, nothing mor
       still load. A passing build does not prove this — it never has here.
 - [ ] **M6** Only then enforce the admin tier on the money prefixes, and only
       after M5 passes.
-- [ ] **M7** Keep `PLATFORM_OWNER_EMAILS` as just Eric for now, per his answer.
+- [x] **M8** *(new — found while scoping the materials hub, and it was a blocker)*
+      `MaterialsCenter.tsx` called `/purchase-orders` with the anon key through a
+      shared `poHeaders` constant, at five call sites. **Enforcing the admin tier
+      would have broken the materials hub**, even though `PurchaseOrders.tsx` had
+      already been converted — the same routes are reached from two screens.
+      Those five now send the session.
+
+      The rest of that page still uses the anon key on purpose: the `permit-ai`
+      chat and the `my-store` calls are not money routes, and `my-store` already
+      falls back to the anon key by design.
+
+      **The lesson for the remaining surfaces:** converting the obvious screen is
+      not enough. Any money route can be called from somewhere else, so the check
+      before enforcing a prefix is "who calls this route", not "have I fixed the
+      page named after it".
+- [x] **M7** `PLATFORM_OWNER_EMAILS` now reads the Supabase secret of the same
+      name, comma separated — the source `design-links.tsx` already used, so
+      there is one list rather than two that can disagree. Adding an
+      administrator is now editing a secret, not a code change and a deploy.
+      Eric's address stays hardcoded as a floor: an unset or mistyped secret must
+      not leave the platform with nobody able to administer it, since undoing
+      that would need the very deploy this removes. Deployed and health-checked.
 
       **But he expects to add people later "in the owner dashboard", and that
       control does not exist.** Nothing in the app manages this list; it is a
