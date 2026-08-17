@@ -1,0 +1,20 @@
+project_id = "plzsvzwwcdopnawtiwzm"
+
+# The CLI defaults a function's entrypoint to `<slug>/index.ts`. Neither server
+# in this repo matches that: both use a `.tsx` entrypoint, and the main one lives
+# in `functions/server/` rather than in a directory named after its slug. Without
+# these entries `supabase functions deploy` fails with "Entrypoint path does not
+# exist" — which is why the source and the deployed functions had drifted.
+#
+# verify_jwt is stated explicitly rather than left to the default so that a
+# deploy can never silently change it. Both functions are currently deployed
+# with it on, and it must stay on: it is the only platform-level gate in front
+# of them while the per-route auth gap (F1) is still open.
+
+[functions.make-server-3eae23a6]
+entrypoint = "./functions/server/index.tsx"
+verify_jwt = true
+
+[functions.make-server-57095a78]
+entrypoint = "./functions/make-server-57095a78/index.tsx"
+verify_jwt = true

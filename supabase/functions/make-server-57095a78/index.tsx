@@ -2633,7 +2633,12 @@ app.post('/make-server-57095a78/auth/forgot-password', async (c) => {
           if (!res.ok) console.error('[forgot-password] email error:', await res.text());
         } catch (e) { console.error('[forgot-password] email exception:', e); }
       } else {
-        console.log('ℹ️ [forgot-password] RESEND_API_KEY not set — reset link:', link);
+        // Never log the link. It is a working account-takeover token for the
+        // next hour, and logs are readable by anyone with dashboard access.
+        // Drop the token too — we cannot deliver it, so leaving it live only
+        // widens the window without helping anyone.
+        await kv.del(`pwreset:${token}`);
+        console.error('[forgot-password] RESEND_API_KEY is not set — no reset email was sent.');
       }
     }
     return c.json({ success: true });

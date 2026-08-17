@@ -10,3 +10,6 @@ zendrop-backup-*.json
 !.env.example
 *.local
 .DS_Store
+
+# Supabase CLI scratch state
+supabase/.temp/
