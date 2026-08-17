@@ -231,13 +231,22 @@ const PUBLIC_GET_PREFIXES = [
 
 // Money and back-office. A session is not enough — these need an administrator.
 // This is F3: the audit found 59 of 60 money-touching routes with no check.
+//
+// Two money routes deliberately are NOT here. The customer portal calls
+// /invoices, /contracts, /quotes and /payments/* — customers read their own
+// invoices, and approve their own quotes, contracts and change orders. Marking
+// those admin would lock paying customers out of the things the app exists to
+// let them do, which is a worse failure than the one being fixed.
+//
+// They are not safe yet, though: as "signed in" they are readable by ANY signed
+// in user, which is the money equivalent of the content centre's F2. They need
+// an ownership check — invoice belongs to this customer — before enforcement
+// reaches them. Tracked in tasks/todo.md.
 const ADMIN_PREFIXES = [
-  '/invoices',
   '/payouts',
   '/affiliate-payouts',
   '/affiliates/',
   '/purchase-orders',
-  '/change-orders',
   '/payment-gateways',
   '/investments/payouts',
   '/subscription-plan-overrides',
