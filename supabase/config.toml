@@ -16,5 +16,13 @@ entrypoint = "./functions/server/index.tsx"
 verify_jwt = true
 
 [functions.make-server-57095a78]
-entrypoint = "./functions/make-server-57095a78/index.tsx"
+# RETIRED — deploys the stub, NOT the 509-route server still sitting in
+# functions/make-server-57095a78/. That directory is kept only as the source of
+# record for what was retired; pointing this entrypoint back at it re-exposes
+# every one of those routes, with service-role privileges, against live data.
+#
+# It has happened once: the F4 deploy on 2026-08-17 named the full directory and
+# silently un-retired the function for about fifteen minutes. This line is the
+# thing that stops a repeat, which is why the full server is not the default.
+entrypoint = "./functions/make-server-57095a78-stub/index.ts"
 verify_jwt = true

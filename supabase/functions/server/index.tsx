@@ -175,6 +175,124 @@ app.use("/*", cors({
 }));
 
 app.use('*', logger(console.log));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHORISATION GATE
+//
+// This function holds SUPABASE_SERVICE_ROLE_KEY, which bypasses Row Level
+// Security. There is therefore no second line of defence behind these routes:
+// whatever this file lets through reaches the database with full privilege. The
+// audit found 1,019 of 1,153 handlers with no check of their own.
+//
+// The gate is default-deny. Anything not named below needs a session, so a route
+// added next month is protected because nobody listed it, rather than exposed
+// because nobody remembered to guard it. That is the opposite of the situation
+// this replaces, and it is the whole point.
+//
+// It is a single global middleware rather than one guard per router because most
+// routers mount at app.route("/", …) and declare their own full paths — there is
+// no prefix left to hang a per-mount guard on.
+//
+// STAGE A: AUTH_ENFORCE is false. The gate decides and logs, but blocks nothing.
+// The allowlist below is a first draft written from reading the frontend, and a
+// draft is not good enough to switch on: guessing it wrong locks Eric out of his
+// own app. So it runs in report-only first, the "would-block" lines below show
+// what real usage actually needs, and the list is corrected from evidence before
+// anything starts being refused. Flip this one constant to enforce.
+const AUTH_ENFORCE = false;
+
+const API_PREFIX = '/make-server-3eae23a6';
+
+// Reachable with no session at all. Every entry here is a deliberate decision
+// that a stranger may call it, not an oversight.
+const PUBLIC_PREFIXES = [
+  '/health',            // liveness, and the deploy check in deploy.md
+  '/auth/',             // sign in, sign up, password reset — the way in
+  '/cart',              // guest cart, keyed by an anonymous sessionId
+  '/leads/capture',     // the public store's enquiry form
+  '/store-content',     // storefront copy and banners
+  '/ecommerce/order/',  // order tracking by opaque order code
+  '/webhook',           // provider callbacks, which authenticate by signature
+  '/stripe/webhook',
+];
+
+// Public to read, protected to change. The storefront has to render these to a
+// stranger; only staff may edit them.
+const PUBLIC_GET_PREFIXES = [
+  '/products',
+  '/plans',
+  '/services-catalog',
+  '/marketplace',
+  '/flash-sales',
+  '/promotions',
+  '/coupons/validate/',
+  '/store/products',
+];
+
+// Money and back-office. A session is not enough — these need an administrator.
+// This is F3: the audit found 59 of 60 money-touching routes with no check.
+const ADMIN_PREFIXES = [
+  '/invoices',
+  '/payouts',
+  '/affiliate-payouts',
+  '/affiliates/',
+  '/purchase-orders',
+  '/change-orders',
+  '/payment-gateways',
+  '/investments/payouts',
+  '/subscription-plan-overrides',
+  '/abandoned-carts',
+  '/coupons',
+  '/promotions',
+  '/store/orders',
+  '/dev/',              // developer/purge endpoints have no business being open
+];
+
+const startsWithAny = (path: string, list: string[]) =>
+  list.some((entry) => path === entry || path.startsWith(entry));
+
+/**
+ * Which tier a request falls into.
+ *
+ * Public is checked before admin so that a path appearing in both lists — as
+ * /promotions and /coupons do — is readable by the storefront on GET and still
+ * restricted to administrators for writes.
+ */
+function authTier(path: string, method: string): 'public' | 'admin' | 'user' {
+  const p = path.startsWith(API_PREFIX) ? (path.slice(API_PREFIX.length) || '/') : path;
+  if (method === 'OPTIONS') return 'public';           // CORS preflight carries no credentials
+  if (startsWithAny(p, PUBLIC_PREFIXES)) return 'public';
+  if ((method === 'GET' || method === 'HEAD') && startsWithAny(p, PUBLIC_GET_PREFIXES)) return 'public';
+  if (startsWithAny(p, ADMIN_PREFIXES)) return 'admin';
+  return 'user';
+}
+
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const method = c.req.method;
+  const tier = authTier(path, method);
+
+  // Public routes return before any auth work. intakeActor makes a network call
+  // and intakeIsAdmin two more queries, and the storefront should not pay for a
+  // check it is exempt from.
+  if (tier === 'public') return next();
+
+  const user = await intakeActor(c);
+  const signedIn = !!user?.email;
+  const admin = tier === 'admin' ? await intakeIsAdmin(user) : false;
+  const allowed = tier === 'admin' ? (signedIn && admin) : signedIn;
+
+  if (!allowed) {
+    console.log(`[authgate] ${AUTH_ENFORCE ? 'BLOCK' : 'would-block'} ${method} ${path} tier=${tier} signedIn=${signedIn}`);
+    if (AUTH_ENFORCE) {
+      return signedIn
+        ? c.json({ success: false, error: 'Administrator access is required.' }, 403)
+        : c.json({ success: false, error: 'Sign in required.' }, 401);
+    }
+  }
+  await next();
+});
+
 app.use('/make-server-3eae23a6/pipeline/*', async (c, next) => {
   const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
   if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
