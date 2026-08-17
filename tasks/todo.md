@@ -117,23 +117,44 @@ So this is applying an existing convention consistently, not inventing one.
 
 ## Todo
 
-- [ ] **M1** Add one small `src/app/utils/authHeaders.ts` exporting an async
-      `authedHeaders()`. One module rather than nine copies, so the next change
-      here is one file.
-- [ ] **M2** Convert the 9 pages to it. Mechanical: the module-level anon
-      constant becomes a call, and each call site gains an `await`. The risk is a
-      call site that is not inside an async function, which the build catches.
-- [ ] **M3** `pnpm build`, and read the diff for any `headers: authedHeaders`
-      missing its `await` — that would send `[object Promise]` and fail at runtime
-      rather than at build time.
-- [ ] **M4** Deploy the frontend (commit + push; Vercel builds).
+- [x] **M1** `src/app/utils/authHeaders.ts` added. It throws when there is no
+      session rather than falling back to the anon key — a silent fallback turns
+      an expired session into a 401 that reads like a bug in the page.
+- [x] **M2** All 9 pages converted, 38 call sites.
+- [x] **M3** Build passes. Two `await`-in-a-non-async-arrow errors were caught by
+      parse-checking and fixed by taking the headers once before the loop, which
+      also avoids a session lookup per iteration.
+- [x] **M4** Committed and pushed as `0d47f6fd`; Vercel builds from `main`.
+
+### One bug this batch nearly shipped, and how it was caught
+
+The conversion deleted a header constant in `SupplierManagementHub.tsx` that
+**four call sites still referenced** — it was named `jsonHeaders`, not
+`authHeaders`, so the rename pass missed it. **The build passed anyway.** esbuild
+does not check for undefined identifiers, so that page would have thrown a
+`ReferenceError` on first render, exactly like the design centre outage.
+
+It was found by diffing every `const` declaration the script removed against the
+references that survived, not by building. That check is worth repeating on any
+future scripted edit: *a passing build here means the syntax parsed, nothing more.*
 - [ ] **M5** **You:** open Invoices, Purchase Orders and Coupons and confirm they
       still load. A passing build does not prove this — it never has here.
 - [ ] **M6** Only then enforce the admin tier on the money prefixes, and only
       after M5 passes.
-- [ ] **M7** Extend `PLATFORM_OWNER_EMAILS`. **Still needs the addresses from
-      you** — until then the allowlist is just your address, which is option 1
-      wearing option 2's clothes.
+- [ ] **M7** Keep `PLATFORM_OWNER_EMAILS` as just Eric for now, per his answer.
+
+      **But he expects to add people later "in the owner dashboard", and that
+      control does not exist.** Nothing in the app manages this list; it is a
+      hardcoded `Set` in `index.tsx:1034`, so adding someone today means a code
+      change and a deploy.
+
+      There is a cheaper half-step already in the codebase: `design-links.tsx`
+      reads the same list from a **`PLATFORM_OWNER_EMAILS` environment
+      variable**, comma separated. Two sources for one concept is a bug in
+      itself. Making `index.tsx` read that env var too would mean adding an
+      administrator becomes editing a Supabase secret — no code change, no
+      deploy — and it removes the inconsistency. A real owner-dashboard screen
+      can come later and read the same place.
 
 ## Ordering note
 
