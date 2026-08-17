@@ -1031,7 +1031,27 @@ const INTAKE_ADMIN_ROLES = new Set(['owner', 'platform_owner', 'business_owner',
 // Platform owner accounts that are ALWAYS treated as admins, even before any
 // company_members / user_permissions rows exist in the database. This mirrors the
 // frontend owner allowlist so the owner can provision portals immediately.
-const PLATFORM_OWNER_EMAILS = new Set(['ericerb555@proton.me']);
+/**
+ * Who counts as a platform owner.
+ *
+ * Read from the PLATFORM_OWNER_EMAILS secret, comma separated, so that adding an
+ * administrator is a change to a Supabase secret rather than a code change and a
+ * deploy. `design-links.tsx` already read the list that way; this is the same
+ * source rather than a second one, because two places to answer one question is
+ * how they end up disagreeing.
+ *
+ * The founder's address stays hardcoded as a floor. If the secret is unset,
+ * mistyped, or wiped, the platform must not end up with nobody able to
+ * administer it — a lockout would need a code deploy to undo, which is exactly
+ * the situation this is meant to get away from.
+ */
+const PLATFORM_OWNER_EMAILS = new Set<string>([
+  'ericerb555@proton.me',
+  ...(Deno.env.get('PLATFORM_OWNER_EMAILS') || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean),
+]);
 
 async function intakeActor(c: any) {
   const raw = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');

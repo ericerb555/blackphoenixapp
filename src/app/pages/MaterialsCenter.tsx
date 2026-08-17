@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import {
   Search, Package, Filter, Star, TrendingUp, ShoppingCart,
   Zap, CheckCircle, DollarSign, Truck, Award, BarChart3,
@@ -1404,10 +1405,6 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
 // ─── Shared procurement types ─────────────────────────────────────────────────
 
 const PO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const poHeaders = {
-  Authorization: `Bearer ${publicAnonKey}`,
-  'Content-Type': 'application/json',
-};
 
 interface POLineItem {
   materialId: string;
@@ -1694,7 +1691,7 @@ function ProcurementTab() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${PO_API}/purchase-orders`, { headers: poHeaders });
+      const res = await fetch(`${PO_API}/purchase-orders`, { headers: await authedHeaders() });
       if (!res.ok) {
         const detail = await res.text();
         throw new Error(`Could not load purchase orders (${res.status}): ${detail.slice(0, 200)}`);
@@ -1746,7 +1743,7 @@ function ProcurementTab() {
     try {
       const res = await fetch(`${PO_API}/purchase-orders`, {
         method: 'POST',
-        headers: poHeaders,
+        headers: await authedHeaders(),
         body: JSON.stringify({
           ...draft,
           supplier: draft.vendorName,
@@ -1775,7 +1772,7 @@ function ProcurementTab() {
     try {
       const res = await fetch(`${PO_API}/purchase-orders/${po.id}/status`, {
         method: 'PATCH',
-        headers: poHeaders,
+        headers: await authedHeaders(),
         body: JSON.stringify({ status }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1791,7 +1788,7 @@ function ProcurementTab() {
   const handleDelete = async (po: PurchaseOrderRecord) => {
     if (!window.confirm(`Delete ${po.poNumber || 'this purchase order'}?`)) return;
     try {
-      const res = await fetch(`${PO_API}/purchase-orders/${po.id}`, { method: 'DELETE', headers: poHeaders });
+      const res = await fetch(`${PO_API}/purchase-orders/${po.id}`, { method: 'DELETE', headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       toast.success('Purchase order deleted');
       load();
@@ -2041,7 +2038,7 @@ function AnalyticsTab() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${PO_API}/purchase-orders`, { headers: poHeaders });
+        const res = await fetch(`${PO_API}/purchase-orders`, { headers: await authedHeaders() });
         if (!res.ok) {
           const detail = await res.text();
           throw new Error(`Could not load purchase orders (${res.status}): ${detail.slice(0, 200)}`);
