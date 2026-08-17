@@ -1,3 +1,117 @@
+# PLAN — F1 + F3 (batch 2) — awaiting your approval, nothing started
+
+The batch that unblocks selling. Read this before I touch anything.
+
+## What I found while planning, that changes the shape of the job
+
+**1. A blanket "require sign-in" would break your store.** `PublicStore.tsx` is a
+public page and the cart is keyed by an **anonymous `sessionId`**, not a customer
+id (`hybridCartApi.ts`). Guest checkout is real. So F3 cannot be "authenticate all
+60 money routes" — some of them *must* stay open to strangers.
+
+**2. Per-mount middleware will not work.** Most routers mount as
+`app.route("/", xRouter)` and declare their full `/make-server-3eae23a6/...` paths
+internally. There is no path prefix to hang a guard on. The guard has to be one
+**global middleware with an explicit public allowlist**, which is also the
+smallest possible change: one block in `index.tsx`, not 1,000 edited handlers.
+
+**3. The second server is effectively already dead.** 24h of traffic to
+`make-server-57095a78`: 409 × `POST /data/backup` returning **410 Gone**, plus my
+own two `curl` health checks. Nothing else. So it does not need 509 routes
+guarded — it needs retiring.
+
+**4. There is a live server whose source is not in this repo.**
+`make-server-12c91054` is ACTIVE and serving **real traffic** from your browser —
+`/me`, `/materials`, `/build-details/deck` — plus 534 health polls. There is no
+source for it anywhere under `supabase/`, and the live frontend source references
+only `3eae23a6` (425 times, zero for the others). **I cannot audit or fix what I
+cannot see.** Same for `make-server-824f083c`.
+
+## The design
+
+One middleware in `server/index.tsx`, registered after CORS and before the route
+mounts, sorting every request into three tiers:
+
+| Tier | Rule | Examples |
+| --- | --- | --- |
+| **Public** | explicit allowlist only | `/health`, `/auth/*`, product browse, guest cart, order tracking by code |
+| **Signed in** | default for everything not on the list | designs, projects, media, quotes |
+| **Admin** | money and back-office | payouts, purchase orders, coupons, gateways, promotions |
+
+Default-deny is the point: a route added next month is protected because nobody
+listed it, rather than exposed because nobody guarded it.
+
+It reuses `intakeActor(c)` / `intakeIsAdmin(user)` — already used by the seven
+working guards in `index.tsx`. No new auth code.
+
+## How I avoid taking the app down
+
+The real risk is not writing the middleware, it is guessing the allowlist wrong
+and locking you out of your own app. So it ships in two stages:
+
+**Stage A — report only.** The middleware computes its verdict and **logs it,
+allowing every request through**. Nothing is blocked. Deploy, then you use the app
+normally — the store, the design centre, the content centre, an order. I read the
+logs and build the allowlist from what actually happened, not from what I guessed.
+
+**Stage B — enforce.** Flip one constant to start blocking, using the allowlist
+Stage A proved. Deploy, re-check, and the same log tells us immediately if
+something legitimate got caught.
+
+This is deliberately the slower route. A one-shot version would be blocked routes
+discovered by you hitting them.
+
+## Todo
+
+- [x] **A1** Middleware written in report-only mode with a first-draft allowlist.
+      14 classification cases unit-tested, including the overlaps where a path is
+      public to read and admin to write (`/promotions`, `/coupons`).
+- [x] **A2** Deployed to `make-server-3eae23a6`. Confirmed blocking nothing —
+      `design-projects?owner=shared` still returns 200 to the anon key — and
+      confirmed the gate is live and classifying, from production logs:
+      `[authgate] would-block POST /…/invoices tier=admin signedIn=false`.
+- [ ] **A3** **← you are here.** Use the app across its main areas: the public
+      store, sign in, the design centre, the content centre, an order, an
+      invoice. Then tell me and I will read the `[authgate] would-block` lines and
+      turn them into the real allowlist. **Nothing is being refused meanwhile**,
+      so anything that breaks in this window is not the gate.
+- [ ] **A4** Show you the allowlist and the would-block list for approval.
+- [ ] **B1** Flip to enforcing. Deploy.
+- [ ] **B2** Re-run the smoke tests, confirm public store + login still work, and
+      confirm `design-projects?owner=shared` now refuses the anon key — that is
+      the F1 proof, reversed.
+- [ ] **C1** *(F3, separate)* Money routes that must stay public — guest checkout
+      and payment intent — get server-side protection instead of auth: recompute
+      price server-side, never trust a client amount. Audit those few by hand.
+- [x] **C2** *(F1, second tree)* `make-server-57095a78` is retired. `/health`
+      returns `retired: true`, everything else 410 Gone. 509 unguarded routes
+      removed from the internet rather than guarded.
+
+      **Correction, and it was my error.** That function had *already* been
+      retired on 2026-08-15 — a stub existed at
+      `functions/make-server-57095a78-stub/`, with the original archived under
+      `_retired/`. The F4 deploy earlier today pointed `config.toml` at the full
+      `functions/make-server-57095a78/` directory instead, which **un-retired it
+      and put all 509 routes, with service-role privileges over live data, back
+      on the internet for about fifteen minutes** (roughly 20:32–20:48 UTC). I
+      found it only because planning C2 turned up a stub that should already have
+      been live. Traffic in that window was one `POST /data/backup` client, which
+      got 401 rather than its usual 410, and my own health checks.
+
+      `config.toml` now carries a comment saying why that entrypoint must never
+      be pointed back at the full directory.
+- [ ] **D1** **You:** find the source for `make-server-12c91054`. It is live,
+      it is being used, and it is outside this repo. Until then it is an
+      unauditable hole with the same service-role privileges.
+
+## What I am not doing in this batch
+
+F2 (tenant id from the client) is deliberately left for batch 3. It touches ~30
+call sites and changes behaviour rather than adding a gate; mixing it in here
+would make it impossible to tell which change broke what.
+
+---
+
 # Security audit — findings
 
 331 / Black Phoenix platform. Read-only audit. Nothing changed, written or deleted.
