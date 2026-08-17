@@ -79,7 +79,69 @@ subscription product cannot have.
       `/cms` to the gate's enforcing set would mean two layers returning the same
       401, and a second layer only makes a future failure harder to read.
 
-## Next surface — F3 (money) is blocked on one question you have to answer
+# PLAN — F3 (money routes) — awaiting approval, nothing started
+
+Eric chose **option 2**, a short allowlist. Wiring that up alone would still have
+broken things, for a reason worth stating before any code moves.
+
+## Enforcing admin today would lock you out of your own money screens
+
+Not because of the allowlist — because those pages never send a session:
+
+| Page | Sends session | Sends anon key |
+| --- | --- | --- |
+| `InvoiceBuilder.tsx` | no | 8 calls |
+| `PurchaseOrders.tsx` | no | 4 calls |
+| `CouponManager.tsx` | no | 7 calls |
+| `PromotionsManager.tsx` | no | 7 calls |
+| `AbandonedCart.tsx` | no | 5 calls |
+| `SupplierManagementHub.tsx` | no | 4 calls |
+| `CompanyPaymentRouting.tsx`, `RevenueMonetizationHub.tsx`, `JobTrackingHub.tsx` | no | 1 each |
+
+The server cannot tell an administrator from a stranger when the client sends the
+public key either way. **This is B0, scoped to the money slice** — 9 pages, 38
+calls, rather than all 136.
+
+**The pattern already exists in the repo.** `UnifiedPaymentCenter.tsx`,
+`InvoicesNew.tsx` and `UnifiedProjectPipeline.tsx` already do it right:
+
+```ts
+async function paymentCenterHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Sign in to manage payment gateways.');
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+}
+```
+
+So this is applying an existing convention consistently, not inventing one.
+
+## Todo
+
+- [ ] **M1** Add one small `src/app/utils/authHeaders.ts` exporting an async
+      `authedHeaders()`. One module rather than nine copies, so the next change
+      here is one file.
+- [ ] **M2** Convert the 9 pages to it. Mechanical: the module-level anon
+      constant becomes a call, and each call site gains an `await`. The risk is a
+      call site that is not inside an async function, which the build catches.
+- [ ] **M3** `pnpm build`, and read the diff for any `headers: authedHeaders`
+      missing its `await` — that would send `[object Promise]` and fail at runtime
+      rather than at build time.
+- [ ] **M4** Deploy the frontend (commit + push; Vercel builds).
+- [ ] **M5** **You:** open Invoices, Purchase Orders and Coupons and confirm they
+      still load. A passing build does not prove this — it never has here.
+- [ ] **M6** Only then enforce the admin tier on the money prefixes, and only
+      after M5 passes.
+- [ ] **M7** Extend `PLATFORM_OWNER_EMAILS`. **Still needs the addresses from
+      you** — until then the allowlist is just your address, which is option 1
+      wearing option 2's clothes.
+
+## Ordering note
+
+M6 comes last deliberately. Every step before it is reversible and invisible to
+you; M6 is the one that can refuse a real request. Doing it first would mean
+finding the broken pages by being locked out of them.
+
+## The admin model, for the record
 
 The gate's admin tier is written and tested, but switching it on would currently
 lock out everyone except **you**. Here is exactly why:
