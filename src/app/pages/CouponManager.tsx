@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { Tag, Plus, X, Copy, Check, TrendingUp, DollarSign, Zap, Users, Search, ToggleLeft, ToggleRight, Edit3, Trash2, Calendar, Hash, Percent, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 export interface Coupon {
   id: string;
@@ -124,13 +124,13 @@ export default function CouponManager() {
 
   async function loadCoupons() {
     try {
-      const res = await fetch(`${SERVER}/coupons`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/coupons`, { headers: await authedHeaders() });
       const json = await res.json();
       if (json.success) {
         if (json.coupons.length === 0) {
           // First run: seed default coupons then reload.
-          await Promise.all(seed().map(c => fetch(`${SERVER}/coupons`, { method: 'POST', headers: authHeaders, body: JSON.stringify(c) })));
-          const rr = await fetch(`${SERVER}/coupons`, { headers: authHeaders });
+          await Promise.all(seed().map(async c => fetch(`${SERVER}/coupons`, { method: 'POST', headers: await authedHeaders(), body: JSON.stringify(c) })));
+          const rr = await fetch(`${SERVER}/coupons`, { headers: await authedHeaders() });
           const rj = await rr.json();
           if (rj.success) setCoupons(rj.coupons);
         } else {
@@ -155,7 +155,7 @@ export default function CouponManager() {
     const next = !target.active;
     setCoupons(prev => prev.map(c => c.id === id ? { ...c, active: next } : c));
     try {
-      await fetch(`${SERVER}/coupons/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ active: next }) });
+      await fetch(`${SERVER}/coupons/${id}`, { method: 'PUT', headers: await authedHeaders(), body: JSON.stringify({ active: next }) });
     } catch (err) { console.error('Failed to toggle coupon:', err); }
   }
 
@@ -163,7 +163,7 @@ export default function CouponManager() {
     setCoupons(prev => prev.filter(c => c.id !== id));
     toast('Coupon deleted');
     try {
-      await fetch(`${SERVER}/coupons/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/coupons/${id}`, { method: 'DELETE', headers: await authedHeaders() });
     } catch (err) { console.error('Failed to delete coupon:', err); }
   }
 
@@ -195,12 +195,12 @@ export default function CouponManager() {
     };
     try {
       if (editingId) {
-        const res = await fetch(`${SERVER}/coupons/${editingId}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify(payload) });
+        const res = await fetch(`${SERVER}/coupons/${editingId}`, { method: 'PUT', headers: await authedHeaders(), body: JSON.stringify(payload) });
         const json = await res.json();
         if (json.success) { setCoupons(prev => prev.map(c => c.id === editingId ? json.coupon : c)); toast.success('Coupon updated'); }
         else { toast.error(json.error || 'Update failed'); return; }
       } else {
-        const res = await fetch(`${SERVER}/coupons`, { method: 'POST', headers: authHeaders, body: JSON.stringify(payload) });
+        const res = await fetch(`${SERVER}/coupons`, { method: 'POST', headers: await authedHeaders(), body: JSON.stringify(payload) });
         const json = await res.json();
         if (json.success) { setCoupons(prev => [json.coupon, ...prev]); toast.success('Coupon created!'); }
         else { toast.error(json.error || 'Create failed'); return; }

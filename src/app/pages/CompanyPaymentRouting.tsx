@@ -14,7 +14,8 @@ import {
   DollarSign, Pencil, Save, X, ExternalLink, KeyRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -50,10 +51,7 @@ interface RevenueRow {
 async function api(path: string, method: 'GET' | 'POST' = 'GET', body?: any) {
   const res = await fetch(`${SERVER}${path}`, {
     method,
-    headers: {
-      Authorization: `Bearer ${publicAnonKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers: await authedHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));

@@ -13,7 +13,8 @@ import {
   X, Save, Key, Globe, Phone, MapPin, Building2
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner@2.0.3';
 import { SupplierRfqTab } from '../components/suppliers/SupplierRfqTab';
 import { SupplierAuditTab } from '../components/suppliers/SupplierAuditTab';
@@ -21,10 +22,6 @@ import { SupplierAuditTab } from '../components/suppliers/SupplierAuditTab';
 type TabType = 'connect' | 'respond' | 'audit' | 'purchase-orders';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const jsonHeaders = {
-  Authorization: `Bearer ${publicAnonKey}`,
-  'Content-Type': 'application/json',
-};
 
 export default function SupplierManagementHub() {
   const [activeTab, setActiveTab] = useState<TabType>('connect');
@@ -39,7 +36,7 @@ export default function SupplierManagementHub() {
 
   const loadSuppliers = async () => {
     try {
-      const res = await fetch(`${API_BASE}/suppliers`, { headers: jsonHeaders });
+      const res = await fetch(`${API_BASE}/suppliers`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
       setSuppliers(data.suppliers || []);
@@ -51,7 +48,7 @@ export default function SupplierManagementHub() {
 
   const loadPurchaseOrders = async () => {
     try {
-      const res = await fetch(`${API_BASE}/purchase-orders`, { headers: jsonHeaders });
+      const res = await fetch(`${API_BASE}/purchase-orders`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data = await res.json();
       setPurchaseOrders(data.orders || []);
@@ -70,7 +67,7 @@ export default function SupplierManagementHub() {
     try {
       const res = await fetch(`${API_BASE}/suppliers`, {
         method: 'POST',
-        headers: jsonHeaders,
+        headers: await authedHeaders(),
         body: JSON.stringify(formData),
       });
       const data = await res.json().catch(() => ({}));
@@ -88,7 +85,7 @@ export default function SupplierManagementHub() {
     try {
       const res = await fetch(`${API_BASE}/purchase-orders`, {
         method: 'POST',
-        headers: jsonHeaders,
+        headers: await authedHeaders(),
         body: JSON.stringify({
           ...formData,
           items: Number(formData.items) || 0,

@@ -18,10 +18,10 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { toast } from 'sonner@2.0.3';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const DEFAULT_PROMOS = [
     {
@@ -140,15 +140,16 @@ export default function PromotionsManager() {
 
   async function loadPromos() {
     try {
-      const res = await fetch(`${SERVER}/promotions`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/promotions`, { headers: await authedHeaders() });
       const json = await res.json();
       if (json.success) {
         if (json.promotions.length === 0) {
           // Seed the database with defaults on first run.
+          const seedHeaders = await authedHeaders();
           await Promise.all(DEFAULT_PROMOS.map(p =>
-            fetch(`${SERVER}/promotions`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) })
+            fetch(`${SERVER}/promotions`, { method: 'POST', headers: seedHeaders, body: JSON.stringify(p) })
           ));
-          const re = await fetch(`${SERVER}/promotions`, { headers: authHeaders });
+          const re = await fetch(`${SERVER}/promotions`, { headers: await authedHeaders() });
           const reJson = await re.json();
           setPromos(reJson.promotions || []);
         } else {
@@ -179,14 +180,14 @@ export default function PromotionsManager() {
     try {
       if (editingPromo) {
         const res = await fetch(`${SERVER}/promotions/${editingPromo.id}`, {
-          method: 'PUT', headers: authHeaders, body: JSON.stringify({ ...form }),
+          method: 'PUT', headers: await authedHeaders(), body: JSON.stringify({ ...form }),
         });
         const json = await res.json();
         if (!json.success) { toast.error(json.error || 'Failed to update'); return; }
         toast.success('Promotion updated');
       } else {
         const res = await fetch(`${SERVER}/promotions`, {
-          method: 'POST', headers: authHeaders, body: JSON.stringify({ ...form }),
+          method: 'POST', headers: await authedHeaders(), body: JSON.stringify({ ...form }),
         });
         const json = await res.json();
         if (!json.success) { toast.error(json.error || 'Failed to create'); return; }
@@ -203,7 +204,7 @@ export default function PromotionsManager() {
 
   async function deletePromo(id: string, name: string) {
     try {
-      const res = await fetch(`${SERVER}/promotions/${id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await fetch(`${SERVER}/promotions/${id}`, { method: 'DELETE', headers: await authedHeaders() });
       const json = await res.json();
       if (!json.success) { toast.error(json.error || 'Failed to delete'); return; }
       await loadPromos();
@@ -218,7 +219,7 @@ export default function PromotionsManager() {
     try {
       const { id, createdAt, ...rest } = promo;
       const res = await fetch(`${SERVER}/promotions`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({ ...rest, name: `${promo.name} (Copy)`, used: 0, revenue: 0 }),
       });
       const json = await res.json();

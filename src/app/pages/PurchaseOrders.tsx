@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '../hooks/useNavigate';
 import { ChevronLeft, Plus, Search, Filter, Download, Eye, Edit, Trash2, Check, X, Clock, AlertCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 interface PurchaseOrder {
   id: string;
@@ -54,9 +55,7 @@ export default function PurchaseOrders() {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeaders(),
         }
       );
 
@@ -95,10 +94,7 @@ export default function PurchaseOrders() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await authedHeaders(),
           body: JSON.stringify(newPO),
         }
       );
@@ -120,10 +116,7 @@ export default function PurchaseOrders() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}/status`,
         {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await authedHeaders(),
           body: JSON.stringify({ status: newStatus }),
         }
       );
@@ -148,9 +141,7 @@ export default function PurchaseOrders() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}`,
         {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeaders(),
         }
       );
 

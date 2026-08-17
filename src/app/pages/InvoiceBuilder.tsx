@@ -4,7 +4,8 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { fetchAccountContacts, type CrmContact } from '../utils/crmContactsApi';
 import { materialsHubService, type Material } from '../lib/services/materialsHubService';
 import { generateDemoQuote } from '../lib/demoQuoteGenerator';
@@ -176,7 +177,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     (async () => {
       try {
         const res = await fetch(`${SERVER}/quotes`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
         });
         if (!res.ok) throw new Error(`GET /quotes failed with ${res.status}`);
         const data = await res.json();
@@ -245,7 +246,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     try {
       const res = await fetch(`${SERVER}/quotes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({ quote: doc }),
       });
       if (!res.ok) throw new Error(`POST /quotes failed with ${res.status}`);
@@ -367,7 +368,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     if (laborTiers.length === 0) {
       try {
         const res = await fetch(`${SERVER}/tech-tiers/config`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
         });
         if (res.ok) {
           const data = await res.json();
@@ -477,7 +478,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
       };
       const res = await fetch(`${SERVER}/pipeline/items`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify(pipelineItem),
       });
       if (!res.ok) throw new Error(`POST /pipeline/items failed with ${res.status}`);
@@ -594,7 +595,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     try {
       await fetch(`${SERVER}/leads/capture`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({
           email: current.clientEmail, name: current.clientName,
           phone: current.clientPhone, source: `${current.type}_sent`,
@@ -625,7 +626,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     setLoadingDeliverables(true);
     try {
       const res = await fetch(`${SERVER}/quotes/${quoteId}/deliverables`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -643,7 +644,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     try {
       const res = await fetch(`${SERVER}/quotes/${current.id}/deliverables/${did}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
       });
       if (!res.ok) throw new Error(`DELETE failed with ${res.status}`);
       setDeliverables(prev => prev.filter(d => d.id !== did));
@@ -665,7 +666,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
       let dels = deliverables;
       try {
         const res = await fetch(`${SERVER}/quotes/${current.id}/deliverables`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
         });
         if (res.ok) {
           const data = await res.json();

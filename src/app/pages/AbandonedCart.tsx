@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { ShoppingCart, Mail, Clock, DollarSign, TrendingUp, Send, Eye, RefreshCw, Search, X, CheckCircle, AlertCircle, Zap, Users, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 export interface AbandonedCart {
   id: string;
@@ -117,16 +117,17 @@ export default function AbandonedCart() {
 
   async function loadCarts() {
     try {
-      const res = await fetch(`${SERVER}/abandoned-carts`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/abandoned-carts`, { headers: await authedHeaders() });
       const json = await res.json();
       if (json.success) {
         if (json.carts.length === 0) {
           // First run: seed the database with sample carts so the tool isn't empty.
           const seed = seedCarts();
+          const seedHeaders = await authedHeaders();
           await Promise.all(seed.map(cart =>
-            fetch(`${SERVER}/abandoned-carts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(cart) })
+            fetch(`${SERVER}/abandoned-carts`, { method: 'POST', headers: seedHeaders, body: JSON.stringify(cart) })
           ));
-          const re = await fetch(`${SERVER}/abandoned-carts`, { headers: authHeaders });
+          const re = await fetch(`${SERVER}/abandoned-carts`, { headers: await authedHeaders() });
           const reJson = await re.json();
           setCarts(reJson.carts || seed);
         } else {
@@ -143,7 +144,7 @@ export default function AbandonedCart() {
     setSending(true);
     try {
       const res = await fetch(`${SERVER}/abandoned-carts/${cartId}/recover`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({ subject: previewSubject, body: previewBody }),
       });
       const json = await res.json();
@@ -161,7 +162,7 @@ export default function AbandonedCart() {
 
   async function markRecovered(cartId: string) {
     try {
-      const res = await fetch(`${SERVER}/abandoned-carts/${cartId}/mark-recovered`, { method: 'POST', headers: authHeaders });
+      const res = await fetch(`${SERVER}/abandoned-carts/${cartId}/mark-recovered`, { method: 'POST', headers: await authedHeaders() });
       const json = await res.json();
       if (!json.success) { toast.error(json.error || 'Failed to update cart'); return; }
       setCarts(prev => prev.map(c => c.id === cartId ? json.cart : c));

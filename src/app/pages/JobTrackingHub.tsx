@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { jobFinancialService, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner@2.0.3';
 
 type TabType = 'active-jobs' | 'projects' | 'job-financial' | 'master-schedule' | 'service-schedule' | 'change-orders' | 'weather';
@@ -57,7 +58,7 @@ export default function JobTrackingHub() {
     try {
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/change-orders`,
-        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+        { headers: await authedHeaders() }
       );
       if (!res.ok) throw new Error(`change-orders ${res.status}`);
       const data = await res.json();
