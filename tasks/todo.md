@@ -1,4 +1,98 @@
-# PLAN — F1 + F3 (batch 2) — awaiting your approval, nothing started
+# PLAN — content centre first — awaiting approval, nothing started
+
+Eric chose the content centre as the first surface to lock down. Four findings
+make this much smaller and safer than expected, and one makes it urgent.
+
+**1. The client is already ready.** Every content centre call goes through a
+single helper, `cmsFetch` in `src/app/lib/useContentManagement.ts`, and it
+**already sends the user's `access_token`** when signed in, falling back to the
+anon key only when there is no session. So the B0 problem — 136 pages sending
+only the anon key — **does not apply here**. No frontend change at all.
+
+**2. There is no data yet.** `kv_store_3eae23a6` holds **0 rows** under `cms:`.
+The content centre has no content in it. Locking it down now cannot break a
+customer's data, because there isn't any. This is the cheapest this job will ever
+be, and it gets more expensive the moment the first tenant loads content.
+
+**3. Tenant identity has a real source.** `companies` has a `user_id` owner
+column: 3 companies, all with an owner, 2 distinct owners. So "which companies may
+this session touch" is answerable from the database — `select id from companies
+where user_id = <session user>` — rather than trusted from the query string.
+
+**4. The membership tables do not exist.** `company_members` and
+`user_permissions` are **not in the database** (the 404s in the pasted browser
+errors were real). `intakeIsAdmin` queries both inside a `try/catch`, so those
+checks silently return false and admin status currently rests **only** on
+`PLATFORM_OWNER_EMAILS` and a role claim in user metadata. That is fine for this
+batch, but it means the gate's **admin tier will refuse everyone who is not a
+platform owner** — which has to be settled before F3 enforcement, or it locks
+staff out of invoices. Recorded here so it is not discovered later.
+
+## The change
+
+One middleware at the top of `supabase/functions/server/content-management.tsx`.
+**No handler edits** — all 20 routes inherit it.
+
+It does three things:
+
+1. Requires a session; no token, no content. *(F1)*
+2. Resolves the caller's owned company ids from `companies.user_id`. *(F2)*
+3. Refuses any request naming a company the caller does not own — checking the
+   `companyId` query parameter used by the 6 read routes, and `company_id` in the
+   body on writes. Hono caches the parsed body, so the middleware can inspect it
+   and the handler still reads it normally.
+
+That single block closes both F1 and F2 for this surface. F2 matters more than F1
+here: requiring a session but still trusting `?companyId=` would mean any signed-in
+tenant could read any other tenant's content, which is the exact failure a
+subscription product cannot have.
+
+## Todo
+
+- [x] **CC1** Middleware written — **plus eight record-level checks the plan did
+      not anticipate.** A middleware alone was not enough: records reached by id
+      are loaded before any company is known. Those are the content piece
+      GET/PATCH/DELETE, distribution POST/PATCH, approval POST/PATCH, and the
+      template usage counter. Distribution rows and approvals carry no company of
+      their own, so ownership resolves through the content piece they point at,
+      and listing either without naming a piece used to return **every tenant's
+      rows** — it now returns none.
+- [x] **CC2** Ownership logic unit-tested, 8 cases, including the fail-safe that a
+      request with no ownership set on the context is denied rather than allowed.
+- [x] **CC3 (partly)** Deployed and **verified against production**: the anon key
+      that used to read this data now gets 401 on reads and writes alike, and
+      naming an arbitrary company is refused. Rest of the app unaffected —
+      health, design-projects, products, quotes all still 200.
+
+      **Still unverified, and it needs Eric:** that a signed-in user can still use
+      the content centre, and that one company's user cannot read another's. Both
+      need a real session token, which I do not have. I am not calling this done
+      on the strength of the 401s alone — those prove strangers are locked out,
+      not that customers are let in.
+- [ ] **CC4** Add `/cms` to the gate's enforcing set. Deliberately **not** done
+      yet: the router now enforces for itself, so the gate would be belt and
+      braces, and it should not be switched on until the signed-in path above is
+      confirmed working.
+
+## Two things this batch changed beyond the plan
+
+**Updates can no longer move a record between companies.** `company_id` and
+`content_piece_id` are now taken from the stored record rather than the request
+body, so a caller cannot re-parent their own content into someone else's company.
+
+**Creating a piece requires naming a company you belong to.** The middleware
+refuses a company you do not own but said nothing about naming none, which
+produced orphan records no later read could reach.
+
+## Risk
+
+Low, and stated plainly: 0 rows, 3 companies, 2 owners, one file, no frontend
+change. The realistic failure is that a legitimate user's `companies.user_id` is
+not what I assume, which CC3 catches against the live database before enforcement.
+
+---
+
+# PLAN — F1 + F3 (batch 2) — approved, in progress
 
 The batch that unblocks selling. Read this before I touch anything.
 
