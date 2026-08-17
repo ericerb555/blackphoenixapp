@@ -177,6 +177,51 @@ future scripted edit: *a passing build here means the syntax parsed, nothing mor
       deploy — and it removes the inconsistency. A real owner-dashboard screen
       can come later and read the same place.
 
+## How the app actually flows, and what it changed
+
+Eric described the chain, and it is not what the route names suggest:
+
+**vendor catalogue → customer picks products → accurate quote → stock list →
+sent to the vendor for pickup or delivery.** Vendors and customers both pay
+subscriptions, which is what lets the material markup stay small. The ecommerce
+store is a separate product: construction customers may use it, but not the
+reverse.
+
+**Customers approve quotes and contracts themselves.** Confirmed by him, and by
+the customer portal, which calls `/invoices`, `/contracts`, `/quotes`,
+`/payments/*` and `/subscriptions`.
+
+- [x] **M9** `/invoices` and `/change-orders` **removed from the admin tier.**
+      They were classified back-office; customers read their own invoices and
+      approve their own change orders, so enforcing that would have locked paying
+      customers out of the app's whole purpose. Caught while the gate is still
+      report-only, so it corrected a classification rather than an outage.
+      Re-tested: 10 tier cases covering both the customer and internal sides.
+
+      A purchase order stays admin — it is the stock list going to a vendor after
+      the customer has picked, so it is the company's action, not the customer's.
+
+- [ ] **M10** **Ownership checks for customer money routes.** `/invoices`,
+      `/quotes`, `/contracts` and `/change-orders` are now "signed in", which
+      means **any signed-in user can read any invoice**. That is the money
+      equivalent of the content centre's tenancy bug, and it must be closed
+      before enforcement reaches those routes. Same shape as the fix that worked
+      there: derive the customer from the session, refuse anything else.
+
+### The vendor side is not built yet — which is the best time to look at it
+
+`/vendor-orders/*` currently requires **admin**, so a vendor cannot see their own
+orders, and the only vendor-facing pages are `VendorApplication.tsx` and
+`VendorsAdminHub.tsx` — an application form and an internal admin screen. No
+vendor portal calls `vendor-orders` at all.
+
+So the flow Eric described — vendors attaching catalogues and receiving stock
+lists — is mostly still ahead of us. That is good news: vendor isolation can be
+designed before there are vendors on it, instead of retrofitted afterwards like
+everything else in this audit. **Vendors are paying subscribers, so their pricing,
+catalogues and API credentials need the same tenant boundary the content centre
+just got.**
+
 ## Ordering note
 
 M6 comes last deliberately. Every step before it is reversible and invisible to
