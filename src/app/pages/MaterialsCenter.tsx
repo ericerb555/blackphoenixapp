@@ -86,7 +86,7 @@ function MaterialsAIChat({ onClose }: { onClose: () => void }) {
     try {
       const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/permit-ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({
           message: msg,
           address: '',
@@ -1027,10 +1027,7 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-pricing/compare`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeaders(),
           body: JSON.stringify({
             materialId: material.id,
             materialName: searchTerm,
