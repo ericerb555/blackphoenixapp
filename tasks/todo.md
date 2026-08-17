@@ -64,15 +64,55 @@ subscription product cannot have.
       naming an arbitrary company is refused. Rest of the app unaffected —
       health, design-projects, products, quotes all still 200.
 
-      **Still unverified, and it needs Eric:** that a signed-in user can still use
-      the content centre, and that one company's user cannot read another's. Both
-      need a real session token, which I do not have. I am not calling this done
-      on the strength of the 401s alone — those prove strangers are locked out,
-      not that customers are let in.
-- [ ] **CC4** Add `/cms` to the gate's enforcing set. Deliberately **not** done
-      yet: the router now enforces for itself, so the gate would be belt and
-      braces, and it should not be switched on until the signed-in path above is
-      confirmed working.
+- [x] **CC3 (complete)** Eric confirmed the content centre loads normally while
+      signed in, and production logs agree: `GET /cms/content-pieces` → **200**
+      for his session, **401** for every anon-key probe, and **zero** `[cms]
+      refused` lines, so nothing legitimate was caught. Both halves now proven —
+      strangers locked out, customer let in.
+
+      One case remains untested: a user of company A reading company B. It needs a
+      second account, and the check it exercises (`owned.has(id)`) is the same one
+      the 8 unit cases cover. Worth a real test when a second tenant exists.
+- [x] **CC4** Dropped as redundant, not deferred. The router guards itself with
+      `app.use('*')`, which covers every route in the file **including ones added
+      later** — the case the gate would otherwise be insuring against. Adding
+      `/cms` to the gate's enforcing set would mean two layers returning the same
+      401, and a second layer only makes a future failure harder to read.
+
+## Next surface — F3 (money) is blocked on one question you have to answer
+
+The gate's admin tier is written and tested, but switching it on would currently
+lock out everyone except **you**. Here is exactly why:
+
+- `PLATFORM_OWNER_EMAILS` contains **one address**: `ericerb555@proton.me`.
+- Otherwise admin comes from a role claim in the user's own JWT metadata, matched
+  against `owner, platform_owner, business_owner, admin, master_admin, management`.
+- The two database checks — `user_permissions` and `company_members` — query
+  **tables that do not exist**, inside a `try/catch`, so they silently return
+  false and always have.
+
+So today "admin" means Eric, or anyone whose signup metadata happens to carry one
+of those role strings. That is fine while you are the only operator and it is
+genuinely dangerous as a permission model for a platform with staff, because the
+role sits in metadata the account itself carries.
+
+**The question:** who should be able to raise an invoice, approve a payout, or
+issue a gift card? Three workable answers, cheapest first:
+
+1. **Just you, for now.** Add nothing. Enforce the admin tier as it stands and
+   accept that staff cannot touch money routes until there is a real model. Zero
+   work, and honest about where the business actually is.
+2. **A short allowlist.** Extend `PLATFORM_OWNER_EMAILS` with the handful of
+   people who should have it. Minutes of work, no schema change, and it stops
+   being manageable somewhere around a dozen people.
+3. **Create `company_members` properly** — the table the code already expects,
+   with a migration and a real role per person per company. This is the right
+   answer for selling to companies, since their staff will need roles too, and it
+   is the only one of the three that needs a schema change and therefore a
+   non-production test first.
+
+I would take **2 now and 3 before the first tenant with staff**, so money gets
+locked this week without blocking on a schema change.
 
 ## Two things this batch changed beyond the plan
 
