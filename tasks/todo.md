@@ -104,6 +104,55 @@ discovered by you hitting them.
       it is being used, and it is outside this repo. Until then it is an
       unauditable hole with the same service-role privileges.
 
+## STOP — what Stage A already proved, before it even gathered logs
+
+Eric said "the portals are a major part". Checking them turned up the thing that
+decides this whole batch.
+
+**The frontend does not send user sessions.** 136 pages and components call the
+API with `Authorization: Bearer ${publicAnonKey}` — the public key. Only 19 of
+them ever touch `access_token`. `CouponManager.tsx` is typical: a module-level
+`const authHeaders = { Authorization: \`Bearer ${publicAnonKey}\` }` and no
+session anywhere, on a surface that manages discount codes.
+
+**So flipping `AUTH_ENFORCE` to true would break most of the app**, including
+admin screens. Not because the gate is wrong — because the client never proves
+who it is. The server has no auth *because the client sends none*; the two halves
+match, and only together do they make sense. That is why the audit found 1,019
+open handlers: this app was built anon-first, coherently, and the gate alone
+cannot fix half of a two-sided arrangement.
+
+Portals specifically split three ways, which is why they were the right thing to
+look at:
+
+| Portal | How it calls the API | Under the gate |
+| --- | --- | --- |
+| `PortalAccess`, `ShopperAccountPortal` | real session `access_token` | fine, tier `user` |
+| `ReturnPortal` | `publicAnonKey`, no session — a customer returning an item does not sign in | **must be public**, and `/returns` was missing from my draft list |
+| `CustomerPortal` and the rest | mixed | needs checking one at a time |
+
+**This is exactly what report-only was for.** It surfaced before anything was
+refused, rather than by Eric being locked out of his own app.
+
+## Revised: Stage B cannot be a one-constant flip
+
+The missing piece is a client that authenticates. There is **no shared API helper**
+to fix in one place — each page builds its own headers — so this is real work:
+
+- [ ] **B0** *(new, and it blocks B1)* One `apiFetch` helper that attaches the
+      session when there is one and falls back to the anon key only for genuinely
+      public calls. Then move pages onto it, **highest-privilege first**: money,
+      then content centre, then the rest. Enforcement can be switched on per
+      prefix as each group lands, instead of all at once.
+- [ ] **B1** Flip to enforcing — only for prefixes whose pages have moved.
+
+Doing it prefix by prefix means the gate tightens in steps that can each be
+tested, and a mistake affects one area instead of the whole platform.
+
+**Decision needed from Eric:** confirm this order, since it is a bigger job than
+the batch he approved. The gate stays in report-only until he says so — it is
+costing nothing and gathering evidence meanwhile.
+
 ## What I am not doing in this batch
 
 F2 (tenant id from the client) is deliberately left for batch 3. It touches ~30
