@@ -1,3 +1,69 @@
+# PLAN — real job photos on the Builds page, and one place to upload more
+
+Eric: put the photos from blackphoenixbuilds.com on the Black Phoenix Builds
+page as past job photos, drop the fake ones, and give him somewhere to upload
+new and current photos that the app can then draw on to create content.
+
+## What already exists
+
+**All 36 photos are already catalogued.** `src/app/utils/seedWebsitePhotos.ts`
+lists every one, grouped as *Completed Projects* (12) and *Recent Projects* (23),
+plus the logo — the same URLs I confirmed against the live site today.
+
+**The upload place exists too.** `media-library.tsx` is mounted and has upload,
+list, fetch and delete, storing into a **private** bucket with signed URLs — the
+correct pattern, unlike the public bucket flagged as F6 elsewhere.
+`MediaLibraryManager.tsx` is its screen.
+
+## What is actually wrong
+
+**The seeder has never really run.** The store holds **6** items under
+`media_library_items_anonymous` — not 36, and saved with no user attached, so
+they sit in the same anonymous bucket the social module used to. 186KB for six
+rows suggests images are being kept as base64 inside KV rather than in storage.
+
+**The photos are hotlinked to the old site's CDN.** Every URL points at
+`files.cdn-files-a.com`. Eric is moving everything onto this app; if the old site
+lapses, the gallery empties. "Bring everything here" means copying the files.
+
+**The Builds page shows invented work.** `GalleryPreview` asks for `/gallery`,
+gets a **404** — the route does not exist — and silently falls back to hardcoded
+`PLACEHOLDERS`. So the public page currently advertises projects that are not
+his.
+
+## Plan
+
+- [ ] **P1 — A gallery the server owns.** Add `GET /gallery`, the route the
+      landing page has been asking for and never had. It returns the business's
+      published job photos.
+- [ ] **P2 — Copy the 36 photos into his own storage.** Fetch each from the old
+      CDN once, put it in the private media bucket, and record it against the
+      gallery with its project grouping. After this the app owns the images and
+      the old site can go away.
+- [ ] **P3 — Point the Builds page at it.** `GalleryPreview` reads real photos
+      and the `PLACEHOLDERS` constant is deleted, not left as a fallback — a
+      silent fallback to invented work is how this went unnoticed.
+- [ ] **P4 — Make new uploads land in the same place.** `MediaLibraryManager`
+      already uploads; the gap is that its items are keyed anonymously and kept
+      in localStorage first. Attach them to the signed-in user and store the file
+      rather than a base64 copy, so anything Eric uploads later is immediately
+      available to the gallery and to the content tools.
+- [ ] **P5 — Give the content centre access.** Once P4 lands, a content piece can
+      pull from the same library — which is the "app has access to create
+      content" half of the ask, and it depends on P4 rather than being separate
+      work.
+
+## One thing worth deciding
+
+Photos of customers' homes are business records. Right now the media bucket is
+private with signed URLs, which is right — but the gallery is public by
+definition. **Published means public**, so P1 should serve only photos explicitly
+marked for the gallery rather than everything in the library. That way an
+uploaded site photo of a customer's house does not become public because it was
+in the same folder.
+
+---
+
 # PLAN — the SEO features, in one place, actually promoting the business
 
 Investigated, nothing changed yet. The same shape as the social audit: real
