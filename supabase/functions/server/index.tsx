@@ -227,6 +227,17 @@ const PUBLIC_GET_PREFIXES = [
   '/promotions',
   '/coupons/validate/',
   '/store/products',
+
+  // ── Added from what real traffic actually asked for ──────────────────────
+  // These five loaded on every visit while signed out, and the first draft of
+  // this list had none of them: enforcing it would have taken down the public
+  // pages. They are listed as GET only, so the writes behind the same paths
+  // still fall through to the checks each route makes for itself — POST
+  // /public/reels and POST /reviews both authenticate on their own.
+  '/public/',           // branding and published reels; the path says it
+  '/business-profiles', // a directory listing, no private fields
+  '/reviews',           // already filters to approved for anyone but an admin
+  '/gallery',           // called on load; no such route exists, so it 404s
 ];
 
 // Money and back-office. A session is not enough — these need an administrator.
