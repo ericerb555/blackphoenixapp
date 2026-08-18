@@ -45,7 +45,7 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 
 /** Bumped when this screen changes, so a stale cached page is obvious on sight. */
-const BUILD_TAG = 'v3 · new-deck-reset';
+const BUILD_TAG = 'v4 · state-label';
 
 const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', state: '', parcel: '' };
 
@@ -554,18 +554,40 @@ function DesignerSession({ session, onSession }: {
             <p className="text-sm text-gray-400 mt-0.5">
               One model, three drawings. The framing plan and the rendering are the same geometry,
               so they cannot disagree.
+              {/* The build this page came from.
+                  A deploy re-rolls the chunk hashes, so a tab left open can go
+                  on running old code long after a fix has shipped — and that
+                  looks identical to the fix not working. This was already
+                  declared for exactly that reason and then never rendered,
+                  which made it useless. Reading it out loud is the whole point:
+                  if it does not match what was shipped, the page is stale and
+                  nothing else about the report can be trusted. */}
+              <span className="ml-2 text-[11px] text-gray-600 font-mono">{BUILD_TAG}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Which project is open, and whether it has unsaved work. Without
-                this the designer looks identical whether you are editing a saved
-                deck or a new one, which is how the wrong project gets overwritten. */}
-            {savedId && (
-              <span className="text-xs text-gray-400 mr-1">
-                Editing <strong className="text-white">{site.projectName}</strong>
-                {isDirty && <span className="text-yellow-400"> · unsaved changes</span>}
-              </span>
-            )}
+            {/* Which project is open, and whether it has unsaved work.
+
+                This used to render only when a project was open, which left the
+                blank state saying nothing at all — and nothing is exactly what a
+                stale project would also say. A new deck is not visibly empty: it
+                comes up 16 × 12 at 3ft attached, so if the last deck was near
+                those numbers the drawing looks unchanged and the only way to
+                tell whether "New deck" worked was to guess. It now always says
+                which of the two you are looking at. */}
+            <span className="text-xs text-gray-400 mr-1">
+              {savedId ? (
+                <>
+                  Editing <strong className="text-white">{site.projectName}</strong>
+                  {isDirty && <span className="text-yellow-400"> · unsaved changes</span>}
+                </>
+              ) : (
+                <>
+                  <strong className="text-white">New deck</strong>
+                  <span className="text-gray-500"> · blank start, nothing saved yet</span>
+                </>
+              )}
+            </span>
             {savedId && (
               <button onClick={saveAsNew} disabled={saving}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
