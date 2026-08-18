@@ -283,6 +283,33 @@ knowing before investing in more article generation.
       generates both plus organization and breadcrumb schema; it needs mounting
       and its `example.com` default replaced. Then submit the sitemap in Google
       Search Console — which is Eric's step, not a code one.
+### The AI Ranking Engine, looked at properly
+
+Eric asked whether it is tied in. It is not, and two things stand in the way.
+
+**Its publish button does not publish.** `POST /ranking/publish/:id` sets
+`status: 'published'` on a KV record and stops. There is no page, no URL and
+nothing public — the article exists only inside the app. Same for the SEO
+engine's articles. **This is the S4 problem again**: generation was built, and
+somewhere for the output to live was not.
+
+**It duplicates the SEO engine.** `/ranking/generate` writes blog posts, FAQs,
+service pages and local landing pages with SEO/GEO/voice scores;
+`/seo-engine/articles/generate` writes SEO articles with an SEO/GEO score. Two
+generators, two stores, two screens.
+
+**Its defaults describe a different company.** `businessName` falls back to
+"Black Phoenix Company", `businessCity` to **"Nashua, NH"**, and
+`targetServices` to **"Roofing, HVAC, Plumbing"** — he is in Salem and does
+renovations. Anything generated without those overridden is about the wrong
+business in the wrong town.
+
+So tying it in is two jobs, and they are the same shape as the work pages:
+
+- [ ] **S4e — Articles need URLs.** `/blog/:id` served through `api/render`,
+      exactly as `/work/:id` now is, with Article schema. Until this exists,
+      "publish" cannot mean anything, and every article the engines write is
+      invisible to search.
 - [ ] **S3 — One SEO screen.** `AiSeoEngine` is the one with a real, mounted back
       end, so it is the survivor. Fold `KeywordTracker` into it — it is calling a
       route that does not exist, so it is not losing working behaviour — and
