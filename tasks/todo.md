@@ -1,3 +1,146 @@
+# HOW QUOTE NUMBERING ACTUALLY WORKS — investigated, nothing changed
+
+Eric asked whether a quote number comes from a work request, assigned once the
+job is added to a customer and approved. **It does not work that way today**, and
+what it does instead has three real defects. Everything below is from the code
+and from the live data, not from reading intentions.
+
+## The number is assigned at creation, in the browser, at random
+
+`UnifiedProjectPipeline.tsx`, in two places:
+
+```ts
+quoteNumber: `QT-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9999)).padStart(4,'0')}`
+```
+
+The four real quotes in production confirm it — all created the same day:
+
+| Quote | Number | Status | Linked to a work request |
+| --- | --- | --- | --- |
+| qt-1785807066704 | QT-20260804-**5501** | draft | no |
+| qt-1785813791021 | QT-20260804-**9392** | draft | no |
+| qt-1785814970462 | QT-20260804-**0694** | draft | no |
+| qt-1785851885036 | QT-20260804-**1108** | draft | no |
+
+So: **the number exists before the customer ever sees the quote**, and approval
+does not assign it. The order is the reverse of what Eric described.
+
+Three consequences:
+
+1. **The numbers can collide.** Four random digits scoped to a day is 9,999
+   values; the chance of a clash is not remote once a day has a few dozen quotes
+   in it, and two quotes sharing a number is a bookkeeping problem that surfaces
+   at exactly the wrong moment.
+2. **They are not sequential**, so nobody can tell how many quotes have been
+   raised, or spot a missing one.
+3. **There is a third, different scheme.** `InvoiceBuilder.tsx` has its own
+   `newInvoiceNumber(type)` producing `INV-…`/`EST-…`. Two screens, two formats.
+
+## The link back to the work request is thrown away
+
+The pipeline does send it when it saves a quote:
+
+```ts
+body: JSON.stringify({ ..., workRequestId: updatedItem.id, total: ... })
+```
+
+But `normalizeDoc` in `quotes.tsx` rebuilds the record field by field and keeps
+neither `workRequestId` nor `total`. Confirmed in the data: **all four quotes
+have no work request on them.** So "this quote came from that request" is
+currently recorded nowhere, which is precisely the link Eric assumed existed.
+
+## Approval can silently undo itself
+
+There are **two writers to the same `quote:` key, with different shapes**:
+
+| | `quotes.tsx` (pipeline, invoice builder) | `index.tsx` by-token (customer approval) |
+| --- | --- | --- |
+| number field | `number` | reads `quoteNumber` |
+| name field | `clientName` | reads `customerName` |
+| statuses | whitelist: `draft, sent, viewed, paid` | writes `approved` / `rejected` |
+| signature | not kept | writes `signature` |
+
+`approved` is **not in the whitelist**. So once a customer approves and signs,
+any later save through the pipeline or the invoice builder rewrites that quote
+with `status: 'draft'` and **drops the signature entirely**. The approval
+disappears and nothing reports an error.
+
+It has not bitten yet only because the approval flow has never run: there are
+**0 quote tokens** in production, so no quote has ever been sent for signing.
+
+## What the data says about the rest of the chain
+
+`kv_store_57095a78` — the table the live server actually uses:
+
+| | count |
+| --- | --- |
+| quotes | 4 |
+| customers | 3 |
+| pipeline items | 3 |
+| invoices | 2 |
+| design projects | 4 |
+| work requests (`wr:`) | **0** |
+| quote tokens | **0** |
+| contracts / change orders | **0** |
+
+So the chain **work request → job → quote → approval has never run end to end**.
+The quotes that exist were made straight in the pipeline.
+
+### A correction I owe on the content centre
+
+I reported it as having "zero rows" when I locked it down. That was the wrong
+table: I queried `kv_store_3eae23a6`, which is **empty entirely**, while the
+server reads and writes `kv_store_57095a78`. The content centre actually holds
+**one** content piece. It belongs to a company that exists and has an owner, so
+the ownership check lets that owner see it and nothing was hidden — but "there is
+no data behind this" was wrong when I said it, and it was load-bearing in how I
+described the risk.
+
+---
+
+# PLAN — quote numbering, in the order that makes each step safe
+
+Numbering is the small part. The reason to do it now is that the flow has no
+history to migrate, so it can be made right before there is anything to correct.
+
+- [ ] **Q1 — Keep what is already being sent.** Add `workRequestId` and `total`
+      to `normalizeDoc`, and add `approved`/`rejected` to the status whitelist
+      with `signature` preserved. No new concepts, no schema change: this stops
+      the system discarding facts it is already given, and stops an approval
+      being undone by the next save. Smallest change, largest effect.
+- [ ] **Q2 — Move numbering to the server.** One endpoint mints the number when a
+      quote is first created, so it cannot be duplicated by two browsers and
+      cannot differ by screen. Format `Q-2026-0001`, sequential.
+      **This wants a Postgres sequence to be safe under concurrency**, which is a
+      schema change and therefore needs a non-production test first — there is
+      still no staging project, so that decision is Eric's.
+      *Fallback without a schema change:* a counter in KV, read-modify-write.
+      Fine at his volume, with a real if small race.
+- [ ] **Q3 — Retire the second scheme.** `InvoiceBuilder` calls the same endpoint
+      instead of minting `INV-…`/`EST-…` itself.
+- [ ] **Q4 — Then the deck design can carry its quote.** `design_project` already
+      has a `quoteId` field that nothing sets. Once a quote has a stable number,
+      the designer stores it and the workspace rail shows it — the slot is
+      already wired through the store and the rail.
+
+## The question Eric should answer first
+
+**Should the number be assigned when the quote is created, or when it is
+approved?** The current code says created; his question implies approved. It is a
+real choice:
+
+- **On creation** — every quote has a number, including ones that are never sent.
+  Gaps in the sequence are quotes that went nowhere.
+- **On approval** — numbers are only spent on real work, so the sequence counts
+  won jobs, but a quote has no number while it is being discussed, which is
+  awkward when talking to a customer about it.
+
+Most trades number on creation and let the sequence carry the dead ones. Worth a
+decision either way, because it is hard to change once numbers are on paper in
+front of customers.
+
+---
+
 # PLAN — a shared "which job am I on" indicator — awaiting approval
 
 The deck designer now says which project is open. Nothing else in the design
