@@ -45,7 +45,7 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 
 /** Bumped when this screen changes, so a stale cached page is obvious on sight. */
-const BUILD_TAG = 'v5 · blank-start';
+const BUILD_TAG = 'v6 · stable-sliders';
 
 const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', state: '', parcel: '' };
 
@@ -66,6 +66,48 @@ const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', s
  * measurements of anything.
  */
 const BLANK_DECK: DeckModel = { ...DEFAULT_DECK, widthFt: 0, depthFt: 0 };
+
+/**
+ * A slider bound to one measurement of the deck.
+ *
+ * Declared out here rather than inside the designer, and that placement is the
+ * whole point. A component defined in a render body is a brand new component
+ * type on every render, so React cannot match it to the one before: it tears
+ * the old input out of the DOM and mounts a fresh one after every change. On a
+ * range slider that lands mid-gesture, which is why dragging one felt like it
+ * slipped rather than tracked. Out here the type is stable and the input is the
+ * same element from first render to last.
+ *
+ * It takes the model and the setter as props instead of closing over them,
+ * which is what allows it to live outside.
+ */
+function Num({ k, min, max, step = 1, suffix, model, set }: {
+  k: keyof DeckModel;
+  min: number;
+  max: number;
+  step?: number;
+  suffix?: string;
+  model: DeckModel;
+  set: <K extends keyof DeckModel>(k: K, v: DeckModel[K]) => void;
+}) {
+  // Width and depth are the two that can be genuinely unset, and a slider
+  // cannot show empty — its thumb has to sit somewhere. So the readout says so
+  // in words rather than showing a 0 that reads like a measured value. Other
+  // fields may legitimately be zero (a cantilever often is) and are left alone.
+  const unset = (k === 'widthFt' || k === 'depthFt') && !(model[k] as number);
+  return (
+    <div className="flex items-center gap-2">
+      <input type="range" min={min} max={max} step={step} value={model[k] as number}
+        onChange={e => set(k, Number(e.target.value) as any)}
+        className="flex-1 accent-[#ea580c]" />
+      <span className="text-sm text-white tabular-nums w-16 text-right">
+        {unset
+          ? <span className="text-gray-500 text-xs">not set</span>
+          : <>{model[k] as number}{suffix}</>}
+      </span>
+    </div>
+  );
+}
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -562,23 +604,6 @@ function DesignerSession({ session, onSession }: {
   const label = 'block text-xs font-semibold text-gray-400 mb-1';
   const input = 'w-full px-3 py-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm focus:outline-none focus:border-[#ea580c]';
 
-  const Num = ({ k, min, max, step = 1, suffix }: { k: keyof DeckModel; min: number; max: number; step?: number; suffix?: string }) => (
-    <div className="flex items-center gap-2">
-      <input type="range" min={min} max={max} step={step} value={model[k] as number}
-        onChange={e => set(k, Number(e.target.value) as any)}
-        className="flex-1 accent-[#ea580c]" />
-      {/* Width and depth are the two that can be genuinely unset, and a slider
-          cannot show empty — its thumb has to sit somewhere. So the readout
-          says so in words rather than showing a 0 that reads like a measured
-          value. Other fields may legitimately be zero (a cantilever often is)
-          and are left alone. */}
-      <span className="text-sm text-white tabular-nums w-16 text-right">
-        {(k === 'widthFt' || k === 'depthFt') && !(model[k] as number)
-          ? <span className="text-gray-500 text-xs">not set</span>
-          : <>{model[k] as number}{suffix}</>}
-      </span>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] p-4 lg:p-6">
@@ -682,10 +707,10 @@ function DesignerSession({ session, onSession }: {
                 <Ruler className="w-4 h-4 text-[#ea580c]" /> Size
               </h2>
               <div className="space-y-3">
-                <div><span className={label}>Width (along house)</span><Num k="widthFt" min={6} max={40} suffix="ft" /></div>
-                <div><span className={label}>Depth (out from house)</span><Num k="depthFt" min={4} max={24} suffix="ft" /></div>
-                <div><span className={label}>Height above grade</span><Num k="heightFt" min={0.5} max={12} step={0.5} suffix="ft" /></div>
-                <div><span className={label}>Cantilever past beam</span><Num k="cantileverFt" min={0} max={4} step={0.5} suffix="ft" /></div>
+                <div><span className={label}>Width (along house)</span><Num k="widthFt" min={6} max={40} suffix="ft" model={model} set={set} /></div>
+                <div><span className={label}>Depth (out from house)</span><Num k="depthFt" min={4} max={24} suffix="ft" model={model} set={set} /></div>
+                <div><span className={label}>Height above grade</span><Num k="heightFt" min={0.5} max={12} step={0.5} suffix="ft" model={model} set={set} /></div>
+                <div><span className={label}>Cantilever past beam</span><Num k="cantileverFt" min={0} max={4} step={0.5} suffix="ft" model={model} set={set} /></div>
               </div>
             </div>
 
@@ -732,7 +757,7 @@ function DesignerSession({ session, onSession }: {
                   </div>
                   <div>
                     <span className={label}>Post spacing</span>
-                    <Num k="postSpacingFt" min={4} max={10} suffix="ft" />
+                    <Num k="postSpacingFt" min={4} max={10} suffix="ft" model={model} set={set} />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 pt-1">
