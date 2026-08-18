@@ -13,13 +13,21 @@
       "destination": "https://author-canon-65421010.figma.site/:path*"
     },
     {
-      "source": "/((?!assets/|robots\\.txt|sitemap\\.xml).*)",
+      "source": "/work",
+      "destination": "/api/render"
+    },
+    {
+      "source": "/work/:id",
+      "destination": "/api/render?id=:id"
+    },
+    {
+      "source": "/((?!assets/|api/|robots\\.txt|sitemap\\.xml|index\\.html).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/((?!work).*)",
       "headers": [
         {
           "key": "Cache-Control",
