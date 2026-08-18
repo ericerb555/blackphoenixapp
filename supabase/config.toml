@@ -15,6 +15,16 @@ project_id = "plzsvzwwcdopnawtiwzm"
 entrypoint = "./functions/server/index.tsx"
 verify_jwt = true
 
+# The public doorway for OAuth returns. verify_jwt MUST stay false: Facebook
+# sends the user back by redirecting their browser, which carries no Supabase
+# token, so any verification here rejects the handshake before it can complete —
+# which is exactly what was happening through the main function. It holds no
+# secrets and only forwards to the real callback, which verifies the state it
+# issued itself.
+[functions.social-oauth]
+entrypoint = "./functions/social-oauth/index.ts"
+verify_jwt = false
+
 [functions.make-server-57095a78]
 # RETIRED — deploys the stub, NOT the 509-route server still sitting in
 # functions/make-server-57095a78/. That directory is kept only as the source of

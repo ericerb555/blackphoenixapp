@@ -21,6 +21,10 @@
       "destination": "/api/render?id=:id"
     },
     {
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
       "source": "/((?!assets/|api/|robots\\.txt|sitemap\\.xml|index\\.html).*)",
       "destination": "/index.html"
     }

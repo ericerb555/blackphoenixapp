@@ -38,8 +38,24 @@ const FB_APP_ID = Deno.env.get("FACEBOOK_APP_ID") || "";
 const FB_APP_SECRET = Deno.env.get("FACEBOOK_APP_SECRET") || "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 
+/**
+ * Where Facebook sends the user back.
+ *
+ * Not this function. It runs with `verify_jwt: true`, and Facebook returns the
+ * user by redirecting their browser — no Supabase token — so the platform
+ * answered the callback with a 401 and the handler never ran. That is why two
+ * OAuth attempts sat abandoned in the store with no account behind them.
+ *
+ * `social-oauth` is a separate function deployed with `verify_jwt = false`
+ * whose only job is to forward that redirect back here with the publishable
+ * key attached. The state check and token exchange still happen in this file.
+ *
+ * THIS EXACT URI MUST BE WHITELISTED in the Facebook app's OAuth settings, and
+ * changing it here without changing it there breaks the connection silently —
+ * Facebook simply refuses to redirect.
+ */
 const fbRedirectUri = (platform: string) =>
-  `${SUPABASE_URL}/functions/v1/make-server-3eae23a6/social/callback/${platform}`;
+  `${SUPABASE_URL}/functions/v1/social-oauth/${platform}`;
 
 // ── Types & storage ─────────────────────────────────────────────────────────
 interface SocialAccount {
