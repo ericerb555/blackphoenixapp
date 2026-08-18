@@ -1,3 +1,75 @@
+# PLAN — kitchens and bathrooms in the design centre
+
+Black Phoenix Builds is a **full-service renovation company** — kitchens,
+bathrooms, whole-home remodels, additions and exterior work. Decks are one job
+among many; they are just what the design centre was built for first. Kitchens
+and baths are the bulk of what Eric sells, so they belong in the same place.
+
+## More of this exists than expected
+
+**`ai-floorplan.tsx` is mounted and already has `/analyze-kitchen`.** It reads a
+photo and extracts cabinets (type, position, dimensions, material, finish,
+hardware), appliances, countertops (material, length, depth, edge profile),
+layout type — galley, L-shaped, U-shaped, island, peninsula, one-wall — and the
+**work triangle with an efficiency score**, plus room dimensions. Nothing in the
+app calls it.
+
+**`design-standards.tsx`** already codifies IRC 2021, **ICC A117.1 and ADA**
+rules with citable references. Those are exactly the clearance rules a kitchen
+and bath designer needs — turning radius, approach clearances, counter heights —
+and they are the difference between a drawing and a drawing that passes.
+
+**The deck designer's hard parts are reusable.** `DeckViewer3D` is a working
+three.js renderer with a geometry cache. `design-projects` storage is already
+generic — records carry `meta.kind`, currently `'deck'`, so `'kitchen'` and
+`'bath'` need no schema change. The session/save/open/new-deck flow was fixed
+this week and works. The workspace rail and the current-job indicator already
+carry across screens.
+
+## What is genuinely new
+
+A deck is **parametric** — about fifteen numbers describe it. A kitchen is
+**spatial**: a room with walls and openings, runs of cabinets against them,
+appliances and fixtures at positions, and finishes. That is a different model,
+and it is the real work here.
+
+The good news is a bathroom is structurally a small kitchen: boxes against walls,
+fixtures with clearances, finishes by area. **One room model serves both**, which
+is why they should be built together rather than as two features.
+
+## Plan
+
+- [ ] **K1 — A room model.** Walls, openings, ceiling height. Enough to draw the
+      shell and to measure against. Shared by kitchen and bath.
+- [ ] **K2 — Fittings against walls.** Cabinet runs, vanities, appliances,
+      fixtures — each an item with a size, a wall, and an offset along it. This
+      is the piece that makes both rooms designable.
+- [ ] **K3 — Clearance checking from `design-standards`.** Work triangle for
+      kitchens; door swings, in-front-of-fixture clearances and turning circles
+      for baths. The rules are already codified with citations — this is wiring,
+      not research, and it is what makes the output worth showing a customer.
+- [ ] **K4 — Reuse the viewer.** Plan and 3D from the same model, as the deck
+      does. The rule that made the deck trustworthy — one model, several
+      drawings, so they cannot disagree — carries over unchanged.
+- [ ] **K5 — Takeoff.** Linear feet of cabinet, counter area, tile area, fixture
+      count. This is what turns a design into a quote, and it is where this meets
+      the materials hub: real vendor prices against a real takeoff.
+- [ ] **K6 — Start from a photo.** Wire `/analyze-kitchen` so an existing kitchen
+      can be photographed and come back as a starting layout to correct, rather
+      than drawn from nothing. The engine is already written.
+
+## Sequencing, and one honest caution
+
+K1 and K2 are the foundation and are most of the effort. K3 and K5 are what make
+it sellable rather than a toy. K6 is the one that will demo best and should still
+come last — a photo-to-layout with nothing to correct it in is a party trick.
+
+**This is a bigger piece of work than anything else outstanding**, and it is worth
+saying plainly: the deck designer took a long time to get right, and a kitchen
+has more moving parts than a deck. Worth doing, worth not underestimating.
+
+---
+
 # PLAN — real job photos on the Builds page, and one place to upload more
 
 Eric: put the photos from blackphoenixbuilds.com on the Black Phoenix Builds
