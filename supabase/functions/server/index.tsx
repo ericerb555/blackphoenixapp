@@ -6741,7 +6741,10 @@ app.get('/make-server-3eae23a6/social/accounts', async (c) => {
   try {
     const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
     const { data: { user } } = await supabase.auth.getUser(token);
-    if (!user) return c.json({ accounts: {} });
+    // An empty list read as "you have connected nothing", when the truth was
+    // "we do not know who you are". Connected pages carry the right to post as
+    // the business, so the difference matters: say it plainly.
+    if (!user) return c.json({ error: 'Sign in required.' }, 401);
 
     const tokens = await getSocialTokens(user.id);
     const accounts: Record<string, any> = {};

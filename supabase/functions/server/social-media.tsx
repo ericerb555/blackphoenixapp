@@ -91,15 +91,30 @@ function publicAccounts(accounts: Record<string, SocialAccount>): Record<string,
   return out;
 }
 
-/** Resolve a stable per-user id from the Authorization token (anon → shared bucket). */
-async function getUserId(c: any): Promise<string> {
+/**
+ * Who owns the social accounts in this request, or null when nobody does.
+ *
+ * This used to answer `"default"` whenever a session was missing or invalid,
+ * which quietly turned "not signed in" into a real, shared identity. Everything
+ * here is keyed by that value — `social_accounts:{userId}` — so the fallback
+ * created one common namespace that any caller holding only the publishable key
+ * could read, publish from, and disconnect. Connected pages carry the right to
+ * post as a business; that is not something to hand out to whoever asks.
+ *
+ * Returning null instead makes every route say so explicitly. The OAuth
+ * callback is the one place with no session by nature — a browser arriving back
+ * from Facebook carries no JWT — and it does not use this: it recovers the user
+ * from the signed state it issued at the start of the handshake, which is both
+ * the CSRF check and the identity.
+ */
+async function getUserId(c: any): Promise<string | null> {
   try {
     const token = c.req.header("Authorization")?.split(" ")[1];
-    if (!token) return "default";
+    if (!token) return null;
     const { data } = await supabaseAdmin.auth.getUser(token);
-    return data?.user?.id || "default";
+    return data?.user?.id || null;
   } catch {
-    return "default";
+    return null;
   }
 }
 
@@ -107,6 +122,7 @@ async function getUserId(c: any): Promise<string> {
 socialRouter.get(`${PREFIX}/social/accounts`, async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
     const accounts = await getAccounts(userId);
     return c.json({ accounts: publicAccounts(accounts) });
   } catch (error) {
@@ -118,6 +134,7 @@ socialRouter.get(`${PREFIX}/social/accounts`, async (c) => {
 socialRouter.delete(`${PREFIX}/social/disconnect/:platform`, async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
     const platform = c.req.param("platform");
     const accounts = await getAccounts(userId);
     delete accounts[platform];
@@ -136,6 +153,7 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
   try {
     const platform = c.req.param("platform");
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
 
     if (platform === "facebook" || platform === "instagram") {
       if (!FB_APP_ID || !FB_APP_SECRET) {
@@ -306,6 +324,7 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
 socialRouter.get(`${PREFIX}/social/fetch/:platform`, async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
     const platform = c.req.param("platform");
     const accounts = await getAccounts(userId);
     const account = accounts[platform];
@@ -426,6 +445,7 @@ async function publishToInstagram(account: SocialAccount, content: string, image
 socialRouter.post(`${PREFIX}/social/publish`, async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
     const { content, imageUrl, videoUrl, platforms } = await c.req.json();
     if (!content || !Array.isArray(platforms) || platforms.length === 0) {
       return c.json({ error: "content and at least one platform are required." }, 400);
@@ -463,6 +483,7 @@ socialRouter.post(`${PREFIX}/social/publish`, async (c) => {
 socialRouter.post(`${PREFIX}/social/import-to-library`, async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ error: "Sign in required." }, 401);
     const { post } = await c.req.json();
     if (!post) return c.json({ error: "Missing post" }, 400);
     const key = `content_library:${userId}:${post.id || crypto.randomUUID()}`;
