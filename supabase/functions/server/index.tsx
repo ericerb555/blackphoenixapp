@@ -8687,7 +8687,7 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
 // Owner-created portal access is intentionally free at creation.  The invite
 // initializes a real onboarding record and an access record; no subscription or
 // payment is created until the invited person chooses a plan themselves.
-const OWNER_PROVISION_PORTALS = new Set(['customer', 'vendor', 'subcontractor', 'employee', 'advertiser', 'investor', 'property_manager', 'condo_manager', 'landlord', 'territory_owner']);
+const OWNER_PROVISION_PORTALS = new Set(['customer', 'vendor', 'subcontractor', 'employee', 'advertiser', 'investor', 'property_manager', 'condo_manager', 'landlord', 'territory_owner', 'tenant']);
 
 // Maps a portal type to the in-app application page the invitee should land on.
 // Portal types without a dedicated application form fall through to the standard
@@ -8699,6 +8699,9 @@ const PORTAL_APPLICATION_ROUTE: Record<string, string> = {
   investor: 'investor-application',
   advertiser: 'advertiser-application',
   territory_owner: 'territory-application',
+  // The tenant form is registered under 'apply' rather than a route named
+  // after itself, so it has to be spelled out here.
+  tenant: 'apply',
 };
 // Builds the invite redirect URL. Keeps the allowlisted /portal-onboarding path
 // (so Supabase's Redirect URL allowlist still matches) and passes the target
@@ -9543,7 +9546,7 @@ app.patch('/make-server-3eae23a6/intake/onboarding/:id/documents/:documentId', a
 async function financialActor(c: any) { const user = await intakeActor(c); return { user, admin: await intakeIsAdmin(user) }; }
 function ownsFinancialRecord(record: any, email: string) { const target = String(email || '').trim().toLowerCase(); return [record.customerEmail, record.customer_email, record.clientEmail, record.client_email, record.email, record.ownerEmail].some((value: any) => String(value || '').trim().toLowerCase() === target); }
 
-const invoicePortalRoutes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', advertiser: 'advertiser-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal' };
+const invoicePortalRoutes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', advertiser: 'advertiser-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal', tenant: 'tenant-portal' };
 function invoicePortal(value: any) { return Object.prototype.hasOwnProperty.call(invoicePortalRoutes, String(value || '')) ? String(value) : 'customer'; }
 function invoiceRecipient(body: any) { const customerEmail = String(body.customerEmail || body.customer_email || body.clientEmail || body.client_email || '').trim().toLowerCase(); const customerName = String(body.customerName || body.customer_name || body.clientName || body.client_name || '').trim(); return { customerEmail, customerName, recipientPortal: invoicePortal(body.recipientPortal || body.recipient_portal), paymentRail: String(body.paymentRail || body.payment_rail) === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services' as StripeAccount }; }
 

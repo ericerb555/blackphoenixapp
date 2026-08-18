@@ -20,6 +20,12 @@ const PORTAL_OPTIONS: { value: string; label: string }[] = [
   { value: 'advertiser', label: 'Advertiser' },
   { value: 'investor', label: 'Investor' },
   { value: 'territory_owner', label: 'Territory Owner' },
+  // Tenant was missing here while the portal, the route and an application form
+  // all existed. Adding it to this list alone would not have been enough: the
+  // server keeps its own lists, and invoicePortal() quietly falls back to
+  // 'customer' for a type it does not recognise — so a tenant invite would have
+  // landed that person in the customer portal with nothing to say why.
+  { value: 'tenant', label: 'Tenant' },
 ];
 
 interface InviteResult {
