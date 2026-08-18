@@ -1,3 +1,91 @@
+# PLAN — the SEO features, in one place, actually promoting the business
+
+Investigated, nothing changed yet. The same shape as the social audit: real
+work exists, it is spread across four surfaces, one back end is dead, one is
+missing — **and the thing a customer or Google actually sees is template
+boilerplate.**
+
+## What is on the site today, which is the part that matters
+
+Every public meta tag in `index.html` is the starter template, and nothing
+overrides it at runtime — no `document.title`, no Helmet, nothing:
+
+```html
+<title>Enterprise Business Platform - PWA</title>
+<meta name="description" content="Comprehensive enterprise business management platform with eCommerce, CRM, analytics, and offline capabilities" />
+<meta property="og:url"   content="https://yourdomain.com/" />
+<meta property="og:image" content="/pwa-icon-512.png" />
+```
+
+So a Google result, a Facebook share and a text-message preview of Eric's site
+all say *"Enterprise Business Platform - PWA"*, describe generic CRM software,
+and point at **`yourdomain.com`**. The business name appears nowhere. This is
+shipping in `dist/index.html` right now.
+
+**There is also no `robots.txt` and no `sitemap.xml`.** Neither is in `public/`.
+
+That is the whole of the site's technical SEO: nothing correct, and it is by far
+the cheapest thing on this list to fix.
+
+## The four surfaces, and how they connect
+
+| Screen | Calls | Server module | State |
+| --- | --- | --- | --- |
+| `AiSeoEngine.tsx` | `/seo-engine/*` | `seo-engine.tsx` | **wired and mounted** — keywords, AI articles, publishing queue, AI-visibility |
+| `AIRankingEngine.tsx` | `/ranking/*` | `growth-marketing.tsx` | wired — a second content generator |
+| `KeywordTracker.tsx` | `/keywords` | **no such route** | **broken** — the endpoint does not exist |
+| — | `/api/seo/sitemap.xml`, `robots.txt`, organization + breadcrumb schema | `seo-automation.tsx` | **never mounted** — dead code |
+
+So keyword tracking exists twice (once inside `seo-engine`, once in a screen
+calling a route that was never built), content generation exists twice
+(`seo-engine/articles` and `ranking/generate`), and the technical SEO that makes
+a site findable exists once and is switched off.
+
+**No SEO data exists at all** — nothing under `seo:`, `keyword`, `article` or
+`visibility` in the store. None of it has ever been run.
+
+## The ceiling nobody has mentioned
+
+This is a **single-page app**. A crawler that fetches the site gets one empty
+shell and the boilerplate above; the content is assembled in the browser
+afterwards. Google executes JavaScript, imperfectly and on a delay; most other
+crawlers — including the ones behind link previews and AI assistants — do not.
+
+So AI-written articles have nowhere indexable to live, and store products have no
+URL of their own to rank. **Fixing the meta tags and shipping a sitemap raises
+the floor; prerendering the public pages is what raises the ceiling.** Worth
+knowing before investing in more article generation.
+
+## Plan
+
+- [ ] **S1 — Say who the business is.** Real title, description, `og:` and
+      `twitter:` tags, a real image, and the actual domain instead of
+      `yourdomain.com`. One file, minutes, and it changes every search result
+      and every shared link. **Do this first regardless of everything else.**
+- [ ] **S2 — Ship `robots.txt` and a sitemap.** `seo-automation.tsx` already
+      generates both plus organization and breadcrumb schema; it needs mounting
+      and its `example.com` default replaced. Then submit the sitemap in Google
+      Search Console — which is Eric's step, not a code one.
+- [ ] **S3 — One SEO screen.** `AiSeoEngine` is the one with a real, mounted back
+      end, so it is the survivor. Fold `KeywordTracker` into it — it is calling a
+      route that does not exist, so it is not losing working behaviour — and
+      decide whether `AIRankingEngine`'s generator is a duplicate of
+      `seo-engine/articles` or genuinely different before keeping both.
+- [ ] **S4 — Prerender the public pages.** Landing, store, and each product and
+      article. This is the one that decides whether any of the rest earns
+      anything, and it is a real piece of work rather than a setting.
+- [ ] **S5 — Then run the engine.** Discover keywords, generate the first
+      articles, and publish them somewhere a crawler can reach — which is S4.
+
+## Where this meets the store and the content centre
+
+S4 is the same missing piece as the content-centre plan: products have no public
+page of their own. One fix — public, crawlable, per-product pages — serves the
+store, the SEO engine and the social auto-posting at once, because all three want
+a real URL to point at. Worth doing once, deliberately, rather than three times.
+
+---
+
 # PLAN — content centre → store products → auto-posted social
 
 Eric wants: identify a product, have the content centre generate everything
