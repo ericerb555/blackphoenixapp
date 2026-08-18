@@ -45,9 +45,27 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 
 /** Bumped when this screen changes, so a stale cached page is obvious on sight. */
-const BUILD_TAG = 'v4 · state-label';
+const BUILD_TAG = 'v5 · blank-start';
 
 const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', state: '', parcel: '' };
+
+/**
+ * A deck that has not been given a size yet.
+ *
+ * A new deck used to start as a real 16 × 12, which meant every drawing —
+ * the rendering, the framing plan, the connection details, the build spec —
+ * came up fully populated the moment the desk was cleared. When the previous
+ * deck was anywhere near those numbers the screen looked untouched, and the
+ * only way to tell a new deck from the old one was to guess. That is not a
+ * confusion worth having on a permit drawing.
+ *
+ * Zero means "not set" rather than "a deck zero feet wide". Everything
+ * downstream is gated on a real width and depth, so nothing is drawn until
+ * there is something true to draw. The rest of the defaults stay: joist size,
+ * spacing and finishes are sensible starting points that do not pretend to be
+ * measurements of anything.
+ */
+const BLANK_DECK: DeckModel = { ...DEFAULT_DECK, widthFt: 0, depthFt: 0 };
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -214,6 +232,18 @@ function DesignerSession({ session, onSession }: {
   }, [townCase]);
 
   const bom = useMemo(() => takeoff(model), [model]);
+
+  /**
+   * Whether there is a deck to draw yet.
+   *
+   * Every drawing on this screen is derived from the model, so with no size
+   * given they would all render something — a rendering, a framing plan, a set
+   * of connection details, a materials list — for a deck nobody has described.
+   * That is worse than showing nothing: it looks exactly like the previous
+   * project failing to clear, and it puts numbers on screen that were never
+   * entered by anyone.
+   */
+  const sized = (model.widthFt || 0) > 0 && (model.depthFt || 0) > 0;
   // The assistant answers against the same figures the panels below display,
   // so it is computed here once rather than described twice.
   const struct = useMemo(() => computeStructural(model, loads), [model, loads]);
@@ -330,7 +360,7 @@ function DesignerSession({ session, onSession }: {
     for (const slot of ['job-folder', 'job-photos', 'sketches']) {
       forgetFolder(slot).catch(() => { /* nothing remembered for that slot */ });
     }
-    onSession({ model: { ...DEFAULT_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
+    onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
   }, [onSession]);
 
   const saveAsNew = useCallback(async () => {
@@ -408,7 +438,7 @@ function DesignerSession({ session, onSession }: {
    */
   const startNew = useCallback(async () => {
     const pristine = JSON.stringify({
-      model: DEFAULT_DECK, site: EMPTY_SITE, loads: DEFAULT_SITE_LOADS,
+      model: BLANK_DECK, site: EMPTY_SITE, loads: DEFAULT_SITE_LOADS,
     });
     const hasWork = snapshot() !== pristine;
 
@@ -537,8 +567,15 @@ function DesignerSession({ session, onSession }: {
       <input type="range" min={min} max={max} step={step} value={model[k] as number}
         onChange={e => set(k, Number(e.target.value) as any)}
         className="flex-1 accent-[#ea580c]" />
+      {/* Width and depth are the two that can be genuinely unset, and a slider
+          cannot show empty — its thumb has to sit somewhere. So the readout
+          says so in words rather than showing a 0 that reads like a measured
+          value. Other fields may legitimately be zero (a cantilever often is)
+          and are left alone. */}
       <span className="text-sm text-white tabular-nums w-16 text-right">
-        {model[k] as number}{suffix}
+        {(k === 'widthFt' || k === 'depthFt') && !(model[k] as number)
+          ? <span className="text-gray-500 text-xs">not set</span>
+          : <>{model[k] as number}{suffix}</>}
       </span>
     </div>
   );
@@ -765,7 +802,19 @@ function DesignerSession({ session, onSession }: {
           {/* Views + takeoff */}
           <div className="space-y-4">
             <div className={card}>
-              <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
+              {sized
+                ? <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
+                : (
+                  <div className="flex flex-col items-center justify-center text-center rounded-2xl border border-dashed border-[#2A2A2A] bg-[#0D0D0D]"
+                    style={{ height: 520 }}>
+                    <Hammer className="w-8 h-8 text-[#2A2A2A] mb-3" />
+                    <p className="text-sm font-semibold text-gray-300">Nothing drawn yet</p>
+                    <p className="text-xs text-gray-500 mt-1 max-w-xs">
+                      Set a width and a depth on the left and the rendering, framing plan and
+                      details all appear together.
+                    </p>
+                  </div>
+                )}
             </div>
 
             <PanelErrorBoundary name="Assistant">
@@ -846,6 +895,11 @@ function DesignerSession({ session, onSession }: {
               </div>
             )}
 
+            {/* Everything below is derived from the deck's size. Until there is
+                one, these would each render a full set of figures for a deck
+                nobody has described — which is what made a cleared desk look
+                like the previous job still sitting there. */}
+            {sized && <>
             <PanelErrorBoundary name="Loads and footings"><DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} /></PanelErrorBoundary>
 
             <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
@@ -880,6 +934,7 @@ function DesignerSession({ session, onSession }: {
                 Counted from the same members that are drawn, so this cannot drift from the plan.
               </p>
             </div>
+            </>}
           </div>
         </div>
       </div>
@@ -895,7 +950,7 @@ function DesignerSession({ session, onSession }: {
 export default function DeckDesigner() {
   const [session, setSession] = useState<Session>({
     key: 0,
-    model: { ...DEFAULT_DECK },
+    model: { ...BLANK_DECK },
     site: { ...EMPTY_SITE },
     loads: { ...DEFAULT_SITE_LOADS },
     link: { ...NO_LINK },
