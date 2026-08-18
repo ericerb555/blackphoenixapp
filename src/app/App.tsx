@@ -359,11 +359,26 @@ function CompanySelector() {
   );
 }
 
+/**
+ * Routes that carry an identifier after them, e.g. /work/abc123.
+ *
+ * Every other route in this app is a whole path matched against a map, which is
+ * why nothing has ever had an item-level URL: /work/abc123 would look up the key
+ * "work/abc123", find nothing, and fall through. These few are matched on their
+ * first segment instead, and the page reads the rest of the path itself.
+ *
+ * Kept as an explicit list rather than a general rule, because turning every
+ * route into a prefix match would change how ~185 existing paths resolve.
+ */
+const PREFIX_ROUTES = new Set<string>(['work']);
+
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
   // Strip query parameters and hash fragments from the pathname
   const pathWithoutQuery = pathname.split('?')[0].split('#')[0];
-  return pathWithoutQuery.slice(1) || "landing";
+  const key = pathWithoutQuery.slice(1) || "landing";
+  const first = key.split('/')[0];
+  return PREFIX_ROUTES.has(first) ? first : key;
 };
 
 // Full-bleed pages render edge-to-edge (public marketing/landing + auth screens)
@@ -374,6 +389,7 @@ const FULL_BLEED_PAGES = new Set<string>([
   "directory",
   "directory-landing-page",
   "builds-landing-page",
+  "work",
   "handyman-landing-page",
   "demo-landing-page",
   "property-management-landing-page",
@@ -440,6 +456,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',
+    // Past work — public marketing, and the destination for shared links.
+    'work',
     'shop',
     'store',
     'order-tracking',

@@ -116,7 +116,7 @@ export default function GalleryPreview({ onNavigate }: { onNavigate?: (page: str
             <p className="text-gray-400">Real projects — drag the slider to see the transformation</p>
           </div>
           <button
-            onClick={() => onNavigate ? onNavigate('gallery') : (window.location.href = '/gallery')}
+            onClick={() => onNavigate ? onNavigate('work') : (window.location.href = '/work')}
             className="hidden sm:flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-[#2A2A2A] hover:border-orange-500/40 text-gray-300 hover:text-white text-sm font-semibold rounded-xl transition"
           >
             View All Projects <ArrowRight className="w-4 h-4" />
@@ -160,7 +160,7 @@ export default function GalleryPreview({ onNavigate }: { onNavigate?: (page: str
         {/* Mobile CTA */}
         <div className="mt-6 flex justify-center sm:hidden">
           <button
-            onClick={() => onNavigate ? onNavigate('gallery') : (window.location.href = '/gallery')}
+            onClick={() => onNavigate ? onNavigate('work') : (window.location.href = '/work')}
             className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white font-bold rounded-xl transition"
           >
             View All Our Work <ArrowRight className="w-4 h-4" />
