@@ -35,11 +35,23 @@ export interface SortedJobFile {
 
 /** Subfolder names that mean the contents are drawings rather than site photos. */
 const DRAWING_DIRS =
-  /^(drawings?|plans?|sketch(es)?|surveys?|blueprints?|cad|permits?|as[-_ ]?builts?)$/i;
+  /^(drawings?|drafts?|plans?|sketch(es)?|surveys?|blueprints?|prints?|cad|dwg|permits?|as[-_ ]?builts?)$/i;
 
-/** Filename words that mean a drawing even when it is loose in the folder. */
+/**
+ * Filename words that mean a drawing even when it is loose in the folder.
+ *
+ * This list is only as good as the words people actually type, and the first
+ * version missed on real files from the first job it saw: `331 deck frame.jpg`
+ * and `rebuild deck draft1.jpg` both went to the photo pile, because the list
+ * had "framing" but not "frame", and no notion of a draft at all. Both are how
+ * a builder names a drawing, so both are here now.
+ *
+ * `fram(e|es|ing)` rather than a bare "frame" so framing still matches on its
+ * own; the trailing boundary is any non-letter, which is what lets `draft1` and
+ * `draft2` match without listing every number.
+ */
 const DRAWING_WORDS =
-  /(^|[^a-z])(plan|framing|sketch|survey|drawing|blueprint|elevation|section|detail|plot|as[-_ ]?built)([^a-z]|$)/i;
+  /(^|[^a-z])(plan|fram(e|es|ing)|sketch|draft|survey|drawing|dwg|blueprint|elevation|elev|section|detail|layout|plot|as[-_ ]?built)([^a-z]|$)/i;
 
 export function sortJobFile(file: File, path?: string): SortedJobFile {
   const rel = String(path || (file as any).webkitRelativePath || file.name).replace(/\\/g, '/');
