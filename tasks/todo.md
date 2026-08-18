@@ -58,11 +58,57 @@ anything" cannot be answered from the data, only from the schema.
 
 ## The plan, blocker first
 
-- [ ] **C0 — Connect one account, end to end.** Facebook first, since it is the
-      most complete. Needs `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` set, and
-      Eric to complete the OAuth once. Until `social_accounts` has a row and a
-      test post lands on a real page, nothing else is worth building.
-      **Eric's step, and it gates everything below.**
+- [x] **C0a — Found why the connection never saved.** Eric completed the consent
+      screen and nothing persisted. Both token stores are empty
+      (`social_accounts:*` and `social_tokens_*`), with two orphaned
+      `social_oauth_state` rows — the handshake starts and never returns.
+
+      **The callback is rejected before it runs.** The function is deployed with
+      `verify_jwt: true`, and Facebook returns the user by redirecting their
+      browser, which carries no Supabase JWT. Confirmed live:
+      `GET /social/callback/facebook` → **401 with no Authorization header**.
+      The callback code itself is fine; it never executes.
+
+- [x] **C0b — Two implementations, and the insecure one was serving.**
+      `social-media.tsx` was **never mounted**, so an older inline set of
+      `/social/*` handlers in `index.tsx` answered everything. Those built their
+      OAuth state as `btoa(JSON.stringify({ userId, platform }))` — an encoding,
+      not a signature, with nothing stored server-side to check it against, so a
+      state naming any user could be minted by anyone. They also never called
+      `/me/accounts`, storing a *user* token when publishing to a Page needs a
+      *Page* token. The secure module is mounted ahead of them now and is the one
+      answering; the reel routes it does not implement still work.
+
+- [x] **C0c — Closed the shared-identity hole.** `getUserId` returned the string
+      `"default"` for any caller without a valid session, and accounts are keyed
+      by it — so one shared namespace was readable, publishable and
+      disconnectable by anyone holding the publishable key. All six routes now
+      refuse with 401, verified against production.
+
+- [ ] **C0d — Make the callback reachable.** This is the remaining blocker and it
+      needs a decision:
+
+      **(a) A tiny public edge function** that does only the OAuth handshake,
+      deployed with `verify_jwt = false` — the pattern `stripe-webhooks` already
+      uses here. Robust: it completes even if the tab was closed. Costs a new
+      function and a redirect-URI change in the Facebook app.
+
+      **(b) Host the callback in the frontend.** Facebook redirects to the app on
+      Vercel; the page reads `code` and `state` and posts them to the server with
+      the signed-in user's token. Nothing public is added, but it only works
+      while that browser still holds a session.
+
+      **Not (c): turning `verify_jwt` off for the whole function.** That is the
+      one platform-level gate in front of ~1,600 routes while F1 is still open.
+
+### What was already right, so nobody "fixes" it later
+
+Tokens never reach the browser: `publicAccounts` builds an allowlist of display
+fields rather than deleting secrets from a copy. The OAuth state is server-side,
+checked on return and deleted on use — it is both the CSRF defence and how the
+callback identifies the user without a session. And the KV table holding the
+tokens has **RLS on with zero policies**, so the anon key reads nothing from it
+directly — confirmed against production.
 - [ ] **C1 — Product → draft content.** One route: given a product id, pull its
       name, description, images and price, and call the compose and image
       routes that already exist to produce a draft content piece filed against
