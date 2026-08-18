@@ -35,6 +35,7 @@ import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
 import { DESIGN_OWNER_KEY } from '../lib/designProjectService';
+import { setCurrentJob } from '../lib/currentJob';
 import {
   DEFAULT_DECK, takeoff,
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
@@ -45,7 +46,7 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 
 /** Bumped when this screen changes, so a stale cached page is obvious on sight. */
-const BUILD_TAG = 'v6 · stable-sliders';
+const BUILD_TAG = 'v7 · shared-job';
 
 const EMPTY_SITE: SiteInfo = { projectName: 'New deck', address: '', town: '', state: '', parcel: '' };
 
@@ -118,7 +119,7 @@ async function headers() {
   };
 }
 
-const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '' };
+const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '', jobTitle: '' };
 
 /**
  * Where work goes when the server will not take it.
@@ -286,6 +287,34 @@ function DesignerSession({ session, onSession }: {
    * entered by anyone.
    */
   const sized = (model.widthFt || 0) > 0 && (model.depthFt || 0) > 0;
+
+  /**
+   * Tell the rest of the design workspace which job this is.
+   *
+   * The designer is the only screen that knows — it is where a project is
+   * opened and named — so it is the only writer. Everywhere else reads. That
+   * asymmetry is deliberate: two writers would eventually disagree, and an
+   * indicator that is sometimes wrong is worse than none, because the whole
+   * point of it is to be trusted at a glance.
+   *
+   * An untouched blank deck publishes nothing rather than publishing the words
+   * "New deck", so the other screens say "no job selected" instead of naming a
+   * deck that does not exist yet.
+   */
+  useEffect(() => {
+    const name = site.projectName.trim();
+    const named = name && name !== EMPTY_SITE.projectName;
+    if (!named && !savedId) { setCurrentJob(null); return; }
+    setCurrentJob({
+      id: savedId,
+      name: name || 'Untitled deck',
+      address: site.address.trim(),
+      jobTitle: (link.jobTitle || '').trim(),
+      // No quote is linked to a deck design yet; the field is carried so that
+      // wiring one later changes this writer and nothing else.
+      quoteNumber: '',
+    });
+  }, [site.projectName, site.address, savedId, link.jobTitle]);
   // The assistant answers against the same figures the panels below display,
   // so it is computed here once rather than described twice.
   const struct = useMemo(() => computeStructural(model, loads), [model, loads]);
@@ -588,6 +617,7 @@ function DesignerSession({ session, onSession }: {
         link: {
           customerId: full.meta.customerId || '',
           customerName: full.meta.customerName || '',
+          jobTitle: full.meta.jobTitle || '',
           jobId: full.meta.jobId || '',
         },
         id: full.id,
@@ -637,11 +667,21 @@ function DesignerSession({ session, onSession }: {
                 those numbers the drawing looks unchanged and the only way to
                 tell whether "New deck" worked was to guess. It now always says
                 which of the two you are looking at. */}
+            {/* Three states, not two. A deck that has been named but never
+                saved is neither "editing a project" nor "a blank start", and
+                calling it blank contradicted the workspace rail, which named it
+                the moment it was typed. Two labels disagreeing about the same
+                deck is the failure this whole indicator exists to prevent. */}
             <span className="text-xs text-gray-400 mr-1">
               {savedId ? (
                 <>
                   Editing <strong className="text-white">{site.projectName}</strong>
                   {isDirty && <span className="text-yellow-400"> · unsaved changes</span>}
+                </>
+              ) : site.projectName.trim() && site.projectName.trim() !== EMPTY_SITE.projectName ? (
+                <>
+                  <strong className="text-white">{site.projectName}</strong>
+                  <span className="text-yellow-400"> · not saved yet</span>
                 </>
               ) : (
                 <>

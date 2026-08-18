@@ -41,6 +41,14 @@ export interface DesignLink {
   customerId: string;
   customerName: string;
   jobId: string;
+  /**
+   * The job's readable title, kept beside its id for the same reason
+   * customerName is kept beside customerId: an id identifies a job to the
+   * server and tells a person nothing. The workspace indicator has to name the
+   * job on screens that never loaded the customer's job list, and it cannot go
+   * looking one up from a bare id.
+   */
+  jobTitle?: string;
 }
 
 interface Props {
@@ -104,7 +112,13 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
 
   const attach = useCallback(async (customerId: string, jobId: string) => {
     const c = customers.find(x => String(x.id) === customerId);
-    onLink({ customerId, customerName: c?.name || c?.email || '', jobId });
+    const job = (context?.requests || []).find((r: any) => String(r.id) === jobId);
+    onLink({
+      customerId,
+      customerName: c?.name || c?.email || '',
+      jobId,
+      jobTitle: job?.title || '',
+    });
 
     // Only persist once the design exists — a link on an unsaved design has
     // nothing to hang from, and the save carries it anyway.

@@ -10,6 +10,8 @@
  * rail, because someone plans a job around it.
  */
 import { Hammer, ArrowDownRight, Building2, ScanLine, FileSignature, Package, Layers } from 'lucide-react';
+import { useCurrentJob } from '../lib/useCurrentJob';
+import { describeJob } from '../lib/currentJob';
 
 export interface WorkspaceLink {
   id: string;
@@ -30,6 +32,7 @@ export const DESIGN_TOOLS: WorkspaceLink[] = [
 ];
 
 export default function DesignWorkspaceNav({ current }: { current: string }) {
+  const job = useCurrentJob();
   const go = (route: string) => {
     // The app exposes its router here; fall back to a normal link so the rail
     // still works if that is ever absent.
@@ -40,6 +43,41 @@ export default function DesignWorkspaceNav({ current }: { current: string }) {
 
   return (
     <nav className="rounded-2xl border border-[#2A2A2A] bg-[#111] p-2">
+      {/* Which job every tool below is working on.
+          It sits above the rail rather than inside any one screen because the
+          question it answers — "is this the right deck?" — is asked hardest on
+          the screens that cannot answer it themselves. A stair calculation run
+          against the wrong deck looks finished, which is what makes it worse
+          than no calculation at all.
+          The deck designer is the only writer; everything here reads. */}
+      <div className="px-2.5 py-2 mb-1 rounded-xl bg-[#0A0A0A] border border-[#2A2A2A]">
+        <p className="text-[10px] uppercase tracking-wide text-gray-500">Working on</p>
+        {job ? (
+          <>
+            <p className="text-sm font-semibold text-white leading-tight truncate" title={describeJob(job)}>
+              {job.name}
+            </p>
+            {job.address && (
+              <p className="text-[11px] text-gray-400 leading-tight truncate" title={job.address}>
+                {job.address}
+              </p>
+            )}
+            {(job.jobTitle || job.quoteNumber) && (
+              <p className="text-[11px] text-gray-500 leading-tight truncate">
+                {[job.jobTitle, job.quoteNumber && `Quote ${job.quoteNumber}`].filter(Boolean).join(' · ')}
+              </p>
+            )}
+            {!job.id && (
+              <p className="text-[11px] text-yellow-400 leading-tight">not saved yet</p>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] text-gray-500 leading-tight">
+            No job selected — open or name one in the deck designer.
+          </p>
+        )}
+      </div>
+
       <p className="text-[10px] uppercase tracking-wide text-gray-500 px-2 py-1.5">Design workspace</p>
       <div className="space-y-0.5">
         {DESIGN_TOOLS.map(t => {
