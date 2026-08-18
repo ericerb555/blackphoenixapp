@@ -2962,7 +2962,18 @@ app.post('/make-server-3eae23a6/quotes/generate-link', async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/make-server-3eae23a6/change-orders', async (c) => {
   try {
-    const list = ((await kv.getByPrefix('change_order:')) as any[] || []).filter(Boolean).map(stripBase64);
+    // This listed every change order on the platform to anyone who asked —
+    // job addresses, scope and pricing included. Staff see all of them; anyone
+    // else sees only the ones addressed to them.
+    //
+    // A change order is written from `{...incoming}`, so there is no field
+    // guaranteed to identify a customer. When one cannot be attributed, staff
+    // see it and nobody else does. Erring the other way would mean one
+    // unattributed record leaking to every signed-in account.
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const all = ((await kv.getByPrefix('change_order:')) as any[] || []).filter(Boolean).map(stripBase64);
+    const list = admin ? all : all.filter((record: any) => ownsFinancialRecord(record, user.email));
     list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     return c.json({ success: true, changeOrders: list });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load change orders.' }, 500); }

@@ -10,9 +10,56 @@
 
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 
 const quotesRouter = new Hono();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHO IS ASKING
+//
+// A customer approves their own quote from the portal, so this cannot be
+// staff-only. It also cannot be open: listing every quote returned every
+// customer's pricing, line items and contact details to anyone who asked.
+//
+// Staff see everything; a customer sees the quotes addressed to them. A quote
+// with no client email yet — they can be created before being assigned — is
+// visible to staff only, because there is nobody it can be proven to belong to.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STAFF_ROLES = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management']);
+
+function service() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+async function quoteActor(c: any): Promise<{ email: string; staff: boolean }> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return { email: "", staff: false };
+  const { data, error } = await service().auth.getUser(token);
+  const user = error ? null : data?.user;
+  if (!user?.email) return { email: "", staff: false };
+
+  const owners = (Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const email = String(user.email).toLowerCase();
+  const role = String(
+    user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "",
+  ).toLowerCase().replace(/[\s-]+/g, "_");
+
+  return { email, staff: owners.includes(email) || STAFF_ROLES.has(role) };
+}
+
+/** True when this quote is addressed to that email. */
+function quoteBelongsTo(doc: any, email: string): boolean {
+  const target = String(email || "").trim().toLowerCase();
+  if (!target) return false;
+  return [doc?.clientEmail, doc?.client_email, doc?.customerEmail, doc?.email]
+    .some((value: any) => String(value || "").trim().toLowerCase() === target);
+}
 
 quotesRouter.use("*", cors({
   origin: "*",
@@ -57,8 +104,10 @@ function normalizeDoc(input: any) {
 // ── List all quotes/invoices ──────────────────────────────────────────────────
 quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
   try {
-    const docs = await kv.getByPrefix("quote:");
-    return c.json({ success: true, quotes: docs || [] });
+    const { email, staff } = await quoteActor(c);
+    if (!email) return c.json({ success: false, error: "Sign in required." }, 401);
+    const docs = (await kv.getByPrefix("quote:")) || [];
+    return c.json({ success: true, quotes: staff ? docs : docs.filter((doc: any) => quoteBelongsTo(doc, email)) });
   } catch (error) {
     console.error("[Quotes] Error fetching quotes:", error);
     return c.json({ success: false, error: "Failed to load quotes", details: String(error) }, 500);
