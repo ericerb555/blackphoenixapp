@@ -1,0 +1,43 @@
+# The Black Phoenix Company
+# https://theblackphoenixcompany.com
+#
+# The public side of this app — the landing pages, the store and the gallery —
+# is meant to be found. Everything behind a sign-in is not: those routes render
+# nothing useful to a crawler and only waste its budget, so they are excluded by
+# name rather than left to chance.
+
+User-agent: *
+Allow: /
+
+# Signed-in application areas. Nothing here is public, and a crawler following
+# these gets the login redirect rather than content.
+Disallow: /admin
+Disallow: /admin-portal
+Disallow: /customer-portal
+Disallow: /vendor-portal
+Disallow: /subcontractor-portal
+Disallow: /employee-portal
+Disallow: /investor-portal
+Disallow: /landlord-portal
+Disallow: /tenant-portal
+Disallow: /property-manager-portal
+Disallow: /condo-manager-portal
+Disallow: /territory-portal
+Disallow: /portal-access
+Disallow: /portal-management
+Disallow: /portal-onboarding
+Disallow: /deck-designer
+Disallow: /materials-hub
+Disallow: /permit-tracker
+Disallow: /document-scanner
+Disallow: /invoice-builder
+Disallow: /purchase-orders
+Disallow: /reset-password
+Disallow: /forgot-password
+
+# One-time links. These carry a token in the query string and must never be
+# indexed — an indexed approval link is a quote anyone can sign.
+Disallow: /customer-quote-approval
+Disallow: /*?token=
+
+Sitemap: https://theblackphoenixcompany.com/sitemap.xml

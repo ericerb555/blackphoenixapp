@@ -13,7 +13,7 @@
       "destination": "https://author-canon-65421010.figma.site/:path*"
     },
     {
-      "source": "/((?!assets/).*)",
+      "source": "/((?!assets/|robots\\.txt|sitemap\\.xml).*)",
       "destination": "/index.html"
     }
   ],
