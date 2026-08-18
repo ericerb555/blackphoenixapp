@@ -201,12 +201,29 @@ the customer portal, which calls `/invoices`, `/contracts`, `/quotes`,
       A purchase order stays admin — it is the stock list going to a vendor after
       the customer has picked, so it is the company's action, not the customer's.
 
-- [ ] **M10** **Ownership checks for customer money routes.** `/invoices`,
-      `/quotes`, `/contracts` and `/change-orders` are now "signed in", which
-      means **any signed-in user can read any invoice**. That is the money
-      equivalent of the content centre's tenancy bug, and it must be closed
-      before enforcement reaches those routes. Same shape as the fix that worked
-      there: derive the customer from the session, refuse anything else.
+- [x] **M10 — done.** Half of it turned out to be already correct, which is worth
+      knowing: **`/invoices` and `/contracts` already filtered by
+      `ownsFinancialRecord`**, staff seeing everything and a customer seeing only
+      their own. The audit's "59 of 60 money routes unauthenticated" counted
+      handlers with no *visible* check and overstated this corner.
+
+      The two that were genuinely open:
+
+      | Route | Was | Now |
+      | --- | --- | --- |
+      | `GET /quotes` | no session check, returned **every** customer's pricing, line items and contact details | staff see all; a customer sees quotes addressed to them |
+      | `GET /change-orders` | no session check, returned every job address, scope and price | same rule |
+
+      Both now match the invoices pattern rather than introducing a new one.
+      **Unattributable records stay with staff**: a quote can exist before being
+      assigned, and a change order is stored from an arbitrary body with no
+      guaranteed customer field. Showing those to everyone signed in would leak
+      one unattributed record to every account.
+
+      8 ownership cases unit-tested — case folding, whitespace, missing field,
+      empty session. Verified against production: both refuse the anon key that
+      previously read them in full. `/invoices`, `/contracts`, `/products` and
+      `/health` unchanged.
 
 ### The vendor side is not built yet — which is the best time to look at it
 
