@@ -1,3 +1,106 @@
+# PLAN — content centre → store products → auto-posted social
+
+Eric wants: identify a product, have the content centre generate everything
+needed to market it, and auto-post to connected social accounts.
+
+**More of this is built than I expected, and one thing is missing that stops all
+of it.** What follows is what is real, what is not, and the order to close it.
+
+## What already exists, and is real rather than mocked
+
+`social-media.tsx` — OAuth and publishing against the **Facebook Graph API** for
+**facebook, instagram and tiktok**. Tokens are stored per user and stripped from
+responses.
+
+`autopilot.tsx` — a campaign runner that already orchestrates the other modules
+rather than reimplementing them:
+
+```
+content-studio/plan      → a dated content calendar from a goal
+content-studio/compose   → platform-native caption + hashtags + compliance
+creative-studio/generate → a DALL·E image saved to the private bucket
+social/publish           → real Facebook / Instagram publishing
+```
+
+It is idempotent: each item flips ready → posted exactly once, guarded by
+`postedAt`, so two tabs or a reload cannot double-post to a live account. That is
+the hard part of an auto-poster and it is already done properly.
+
+The content centre itself has pieces, templates, channels, workflows, approvals
+and distribution — and is now tenant-scoped.
+
+## The blocker, and it is not a small one
+
+**No social account has ever been connected.** `social_accounts:*` holds **zero
+rows**; there are two abandoned `social_oauth_state` entries, which means OAuth
+was started twice and never completed. `/social/accounts` returns `{}` today.
+
+Everything above is theoretical until one account connects. No plan should be
+built on top of an untested connection.
+
+## Three real gaps after that
+
+**1. Nothing joins a product to content.** `content-management.tsx` mentions
+products exactly once. Autopilot starts from a *goal*, not from a product. The
+store has ~120 real items and there is no path from one of them into a content
+piece. This is the actual feature Eric is asking for and it does not exist.
+
+**2. There is no scheduler, and the code says so itself.** Autopilot's own
+header: *"this environment has no server cron (edge functions are
+request-driven)"*. Campaigns advance on a **client heartbeat** — they only move
+while a tab is open. `POST /autopilot/tick` exists as the entry point for an
+external scheduler that has not been set up. **"Fully automated" is impossible
+today**, not because the runner is wrong but because nothing wakes it.
+
+**3. The content centre is empty.** One content piece. So there is nothing to
+review for quality yet — the question "can everything in there be used to create
+anything" cannot be answered from the data, only from the schema.
+
+## The plan, blocker first
+
+- [ ] **C0 — Connect one account, end to end.** Facebook first, since it is the
+      most complete. Needs `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` set, and
+      Eric to complete the OAuth once. Until `social_accounts` has a row and a
+      test post lands on a real page, nothing else is worth building.
+      **Eric's step, and it gates everything below.**
+- [ ] **C1 — Product → draft content.** One route: given a product id, pull its
+      name, description, images and price, and call the compose and image
+      routes that already exist to produce a draft content piece filed against
+      that product. No new AI plumbing — the generation already works; what is
+      missing is the join.
+- [ ] **C2 — Give a content piece a product.** Add `productId` to the CMS record
+      so a piece knows what it is selling, and the store knows what has been
+      written about it. Small, and it is what makes C1 durable rather than a
+      one-shot generator.
+- [ ] **C3 — A real scheduler.** An external cron calling `/autopilot/tick`.
+      Cheapest is cron-job.org or a GitHub Action on a timer; `pg_cron` + `pg_net`
+      is tidier but is a schema change and needs a non-production test first.
+      This is what turns the existing runner from "advances while you watch" into
+      genuinely hands-off.
+- [ ] **C4 — Approval before publish.** The CMS already has approvals; wire them
+      so an auto-generated post needs a yes before it reaches a live account —
+      at least until Eric trusts the output. Auto-posting AI copy to a real
+      business page unreviewed is a reputational risk, not a technical one.
+- [ ] **C5 — Tenant isolation for campaigns and social accounts.** Content is
+      scoped now; campaigns and connected accounts are not. This has to land
+      before the content centre is sold to a company, or one tenant's campaign
+      could post to another's page.
+
+## What I would not do
+
+Build the product→content generator before C0. If the connection turns out to
+need a Facebook app review — which business posting usually does — the timeline
+changes completely, and that is worth finding out in an afternoon rather than
+after a fortnight of building on top of it.
+
+## Question for Eric
+
+**Are the Facebook app credentials already set up?** If there is no Facebook
+developer app yet, that is the real first task and it is mostly waiting on Meta
+rather than on code.
+
+---
+
 # HOW QUOTE NUMBERING ACTUALLY WORKS — investigated, nothing changed
 
 Eric asked whether a quote number comes from a work request, assigned once the
