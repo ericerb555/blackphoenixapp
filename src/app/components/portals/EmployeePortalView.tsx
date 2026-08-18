@@ -18,6 +18,7 @@ import LogoMarquee from '../LogoMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
+import AddJobPhotosButton from '../AddJobPhotosButton';
 
 export default function EmployeePortalView() {
   
@@ -293,6 +294,15 @@ export default function EmployeePortalView() {
                   <p className="text-white/90 mb-4">
                     You have {activeTasks.filter(t => t.status === 'in-progress').length} active tasks and {todaySchedule.length} scheduled events today
                   </p>
+                  {/* On the home screen rather than buried in a menu: the crew
+                      are on site with a phone in hand, and a photo that takes
+                      three taps to find a home for is a photo nobody takes. */}
+                  <div className="mb-4">
+                    <AddJobPhotosButton
+                      label="Add job photos"
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-white text-[#ea580c] hover:bg-white/90 transition disabled:opacity-40"
+                    />
+                  </div>
                   <div className="flex items-center gap-4 text-sm">
                     <div className="flex items-center gap-1">
                       <Star className="w-4 h-4 fill-current" />

@@ -17,6 +17,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import InvestmentTab from './InvestmentTab';
+import AddJobPhotosButton from '../AddJobPhotosButton';
 
 export default function MobileOwnerPortalView() {
   const [showGiftModal, setShowGiftModal] = useState(false);
@@ -127,6 +128,12 @@ export default function MobileOwnerPortalView() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {/* Sized to match the cards beside it rather than dropped in as a
+            bare button — the owner uses this from a phone on site too. */}
+        <AddJobPhotosButton
+          label="Add Job Photos"
+          className="bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-orange-600 hover:to-orange-700 rounded-2xl p-6 flex items-center gap-4 text-left transition disabled:opacity-40 w-full"
+        />
         <button
           onClick={() => {
             if (subscriptions.length > 0) {

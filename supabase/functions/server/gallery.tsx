@@ -215,8 +215,28 @@ galleryRouter.post(`${PREFIX}/gallery/import-website`, async (c) => {
  * publicly" means nothing reaches the website because somebody uploaded a batch
  * at the end of a day.
  */
+/**
+ * Uploading is open to anyone signed in; publishing is not.
+ *
+ * The person holding the camera on site is an employee, not an administrator,
+ * and making them ask someone else to add a photo is how photos stop being
+ * taken. Nothing they add is public — `published` is false and only staff can
+ * change it — so the worst an unexpected upload can do is put an image in front
+ * of staff, which is the point of the screen.
+ *
+ * Who added it is recorded, because a photo of a customer's house with no
+ * author is not something anyone can follow up.
+ */
+async function actorEmail(c: any): Promise<string | null> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  const { data, error } = await service().auth.getUser(token);
+  return error ? null : (data?.user?.email || null);
+}
+
 galleryRouter.post(`${PREFIX}/gallery/upload`, async (c) => {
-  if (!await requireStaff(c)) return c.json({ error: "Administrator access is required." }, 403);
+  const uploader = await actorEmail(c);
+  if (!uploader) return c.json({ error: "Sign in required." }, 401);
   try {
     await ensureBucket();
     const form = await c.req.formData();
@@ -244,6 +264,7 @@ galleryRouter.post(`${PREFIX}/gallery/upload`, async (c) => {
       sourceUrl: "",
       published: false,
       order: 9999,
+      uploadedBy: uploader,
       createdAt: new Date().toISOString(),
     };
     await kv.set(`${KEY}${id}`, record);

@@ -21,6 +21,7 @@ import CreatePortalPanel from './CreatePortalPanel';
 import SentInvitesPanel from './SentInvitesPanel';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
+import AddJobPhotosButton from '../AddJobPhotosButton';
 
 interface Alert {
   id: string;
@@ -395,6 +396,32 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Job photos, reachable without leaving the portal. An admin is
+                the one who publishes them, so the shortcut to add and the
+                shortcut to review sit together. */}
+            <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-white">Job photos</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Added photos stay private until you publish them to the website.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <AddJobPhotosButton label="Add job photos" compact />
+                <button
+                  onClick={() => {
+                    const nav = (window as any).__navigateApp;
+                    if (typeof nav === 'function') nav('job-photos');
+                    else window.location.assign('/job-photos');
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:bg-white/5"
+                  style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  Manage &amp; publish
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recent Critical Alerts */}
               <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6">
