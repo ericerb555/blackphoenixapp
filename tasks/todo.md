@@ -1,3 +1,82 @@
+# PLAN — S4: pages a crawler can actually read
+
+The ceiling on everything else marketing-related. Articles have nowhere
+indexable to live, 35 job photos have no page, 120 products have no URL, and a
+link shared anywhere shows the site's homepage description whatever was linked.
+
+## The problem, precisely
+
+The app is a Vite single-page app. Every route returns the same `index.html` and
+the content is assembled in the browser afterwards. Google runs JavaScript
+imperfectly and on a delay; **link previews, Facebook, LinkedIn, iMessage and AI
+assistants do not run it at all** — they read the HTML and stop.
+
+One thing is already right and makes this far cheaper than it could have been:
+**the app routes on real paths** (`window.location.pathname`), not a hash. The
+URLs exist. They just serve nothing a crawler can use.
+
+## What is missing, in order
+
+**1. Per-item URLs.** There is no `/work/:id` and no `/product/:id`. "View All
+Our Work" on the landing page points at a gallery page that does not exist, and
+the store renders its whole catalogue at one address. Nothing can rank because
+nothing has an address to rank.
+
+**2. HTML at those URLs.** Even once the routes exist, they return the shell.
+
+## The approach
+
+**A small Vercel function that serves the shell with the right head and a
+readable summary.** Not a framework migration — this app does not need Next.js
+to fix this, and moving it would be a month of risk for a problem that is
+solvable in one file.
+
+For a public URL, the function fetches the item from the existing edge function,
+injects `<title>`, description, canonical, `og:` and `twitter:` tags, JSON-LD,
+and a plain HTML block carrying the real text and image, then hands over to the
+app as usual. A person sees the app; a crawler sees the content.
+
+`seo-automation.tsx` already generates organization and breadcrumb schema and is
+still unmounted — the JSON-LD half is largely written.
+
+## Plan
+
+- [ ] **S4a — `/work` and `/work/:id`.** Smallest first slice and it delivers on
+      its own: the 35 photos are imported, the gallery endpoint exists, and the
+      landing page already links to a gallery that is not there. Real project
+      pages, real URLs.
+- [ ] **S4b — The render function.** One Vercel function, applied to `/work/*`
+      first. Head tags plus a `<noscript>`-safe content block. Prove it with
+      Facebook's sharing debugger and `curl` — if `curl` shows the project's
+      title and photo, a crawler will too.
+- [ ] **S4c — `/product/:id`.** Same treatment. Product JSON-LD with price and
+      availability is what produces a rich result rather than a plain link.
+- [ ] **S4d — A sitemap that lists them.** The static one covers landing pages
+      only. Generate from the same data so a new product or project appears
+      without anyone remembering.
+- [ ] **S4e — Then the articles.** The SEO engine can write them; after S4b they
+      have somewhere to be read.
+
+## Two things to fix on the way
+
+**`vercel.json` sends `Cache-Control: no-cache, no-store, must-revalidate` on
+every path.** That was presumably aimed at the stale-chunk problem, but it tells
+every crawler and browser never to keep anything — it slows the site for real
+visitors and wastes crawl budget. Rendered pages want a short cache, and hashed
+assets want a long one.
+
+**`GalleryPreview` shows three photos and links to nothing.** S4a gives that
+button a destination, which is the visible half of this work.
+
+## What I would not do
+
+Migrate to Next.js. It is the textbook answer and the wrong one here: this
+codebase has ~185 routes, a working router and a year of behaviour in it. The
+crawler problem is a head-tags-and-HTML problem, and it can be fixed at the edge
+without touching any of that.
+
+---
+
 # PLAN — kitchens and bathrooms in the design centre
 
 Black Phoenix Builds is a **full-service renovation company** — kitchens,
