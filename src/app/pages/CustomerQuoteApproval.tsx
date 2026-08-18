@@ -104,8 +104,11 @@ export default function CustomerQuoteApproval() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     if (token) {
+      // Deliberately the anon key. The share token IS the credential here — a
+      // customer follows this link from an email to approve their quote, and
+      // requiring them to be signed in would defeat the point of sending it.
       fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
       })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
@@ -201,7 +204,7 @@ export default function CustomerQuoteApproval() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}/sign`,
         {
           method: 'POST',
-          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
           body: JSON.stringify({
             signatureData,
             signerName: typedName || (tokenRecord?.clientName || 'Customer'),
@@ -873,7 +876,7 @@ export default function CustomerQuoteApproval() {
                 `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`,
                 {
                   method: 'POST',
-                  headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
                   body: JSON.stringify({
                     amount: depositAmt,
                     description: `30% Deposit — ${quote.projectTitle}`,

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { FolderOpen, Search, FileText, Calendar, User, DollarSign, Clock, Image, Video, FileEdit, ChevronRight } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 interface Quote {
   id: string;
@@ -42,10 +43,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
       const quotesResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/list`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+          headers: await authedHeaders()
         }
       );
 
@@ -58,10 +56,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
       const recentResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/recent-projects`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+          headers: await authedHeaders()
         }
       );
 
@@ -90,10 +85,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/save-recent`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: await authedHeaders(),
           body: JSON.stringify({
             quoteId: quote.id,
             quoteNumber: quote.quoteNumber,

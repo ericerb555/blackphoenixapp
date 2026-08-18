@@ -20,6 +20,7 @@ import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 interface ChangeOrder {
   id: string;
@@ -163,7 +164,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
   const loadProjects = async () => {
     try {
       const response = await fetch(`${API_BASE}/work-orders`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await authedHeaders()
       });
       if (response.ok) {
         const data = await response.json();
@@ -523,7 +524,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
 
       const res = await fetch(`${API_BASE}/project-vision/analyze`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({
           images,
           notes: `${formData.title ? formData.title + '. ' : ''}${formData.description || transcription || ''}`.trim(),
@@ -616,7 +617,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
       };
       const res = await fetch(`${API_BASE}/quotes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({ quote }),
       });
       if (!res.ok) throw new Error(`Saving quote failed with ${res.status}`);
@@ -665,7 +666,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
         };
         const pipeRes = await fetch(`${API_BASE}/pipeline/items`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
           body: JSON.stringify(pipelineItem),
         });
         if (!pipeRes.ok) console.error('[Camera] Pipeline push failed with', pipeRes.status);
@@ -761,10 +762,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
 
       const response = await fetch(`${API_BASE}/change-orders`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: await authedHeaders(),
         body: JSON.stringify(changeOrder)
       });
 

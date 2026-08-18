@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -51,7 +52,7 @@ export default function CustomerDetail({ customerId, onBack, onEdit }: CustomerD
       setLoading(true);
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/customers/${encodeURIComponent(customerId)}`,
-        { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+        { headers: await authedHeaders() }
       );
       if (!res.ok) {
         const errText = await res.text();

@@ -21,6 +21,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeaders } from '../../utils/authHeaders';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -170,7 +171,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
       if (!user?.id) { setPipeline([]); setPipelineLoading(false); return; }
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`, { headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` } });
+        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`, { headers: await authedHeaders() });
         const data = await response.json(); if (!response.ok || !Array.isArray(data)) throw new Error(data.error || 'Could not load territory pipeline.');
         setPipeline(data.map((record: any) => ({ id: record.id, customer: record.client_name || record.clientName || 'Customer', service: record.serviceType || record.project_type || 'Service request', status: record.status || 'new', priority: record.urgency || 'medium', submitted: record.created_at || record.createdAt || '', budget: record.budget || 'Quote pending', description: record.description || '', raw: record })));
       } catch (error: any) { toast.error(error.message || 'Could not load the territory pipeline.'); setPipeline([]); }
@@ -181,7 +182,7 @@ export default function TerritoryPortalView({ onNavigate }: Props) {
 
   const assignSubcontractor = async (workRequest: any) => {
     const assignedTo = window.prompt('Enter the subcontractor or crew name to assign:')?.trim(); if (!assignedTo) return;
-    try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
+    try { const { data: { session } } = await supabase.auth.getSession(); const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}`, { method: 'PUT', headers: await authedHeaders(), body: JSON.stringify({ status: 'approved', assignedTo }) }); const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not assign subcontractor.'); setPipeline(current => current.map(item => item.id === workRequest.id ? { ...item, status: 'approved', raw: data.workRequest } : item)); toast.success(`${assignedTo} assigned to this request.`); } catch (error: any) { toast.error(error.message || 'Could not assign subcontractor.'); }
   };
 
   const mrr = Number(subscriptionSummary.mrr || 0);

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
 
 interface WorkflowItem {
@@ -97,7 +98,7 @@ export default function CodeTracker() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(`${API_BASE}/health`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -245,7 +246,7 @@ export default function CodeTracker() {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       const response = await fetch(`${API_BASE}/business-profiles`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         signal: controller.signal
       });
       
@@ -284,7 +285,7 @@ export default function CodeTracker() {
       // Fetch work requests with error handling
       console.log('📥 Fetching work requests...');
       const workRequestsRes = await fetch(`${API_BASE}/work-requests`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await authedHeaders()
       });
       console.log('Work requests status:', workRequestsRes.status);
       const workRequests = workRequestsRes.ok ? await workRequestsRes.json() : [];
@@ -293,7 +294,7 @@ export default function CodeTracker() {
       // Fetch quotes with error handling
       console.log('📥 Fetching quotes...');
       const quotesRes = await fetch(`${API_BASE}/quotes`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        headers: await authedHeaders()
       });
       console.log('Quotes status:', quotesRes.status);
       const quotes = quotesRes.ok ? await quotesRes.json() : [];

@@ -18,6 +18,7 @@ import {
 } from '../lib/services/customerService';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'lead' | 'active' | 'vip' | 'inactive';
@@ -66,10 +67,7 @@ export default function CustomersNew() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/admin/backfill-crm`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeaders(),
         }
       );
       if (res.ok) {

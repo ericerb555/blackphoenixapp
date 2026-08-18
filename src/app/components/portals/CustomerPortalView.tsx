@@ -44,6 +44,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { publicAnonKey, projectId } from '../../utils/supabase/info';
+import { authedHeaders } from '../../utils/authHeaders';
 import { supabase } from '../../lib/supabase';
 import { subscribeToPush, isPushSubscribed } from '../../utils/pushNotifications';
 import CustomerSubscriptionSelectionModal from '../CustomerSubscriptionSelectionModal';
@@ -372,8 +373,10 @@ export default function CustomerPortalView() {
   ];
   const [videoReels, setVideoReels] = useState<any[]>(STATIC_REELS);
   useEffect(() => {
+    // Published reels are public by design and allowlisted as such on the
+    // server, so this stays on the anon key.
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`, {
-      headers: { Authorization: `Bearer ${publicAnonKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })
       .then(data => {
@@ -609,7 +612,7 @@ export default function CustomerPortalView() {
     setSubmittingQuoteRequest(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/work-requests`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientEmail: user.email, clientName: displayName || user.user_metadata?.full_name || user.email.split('@')[0], serviceType: 'Quote request', project_name: `Quote request – ${quoteItems.map(item => item.title).join(', ')}`, description: quoteItems.map(item => `${item.title}: ${item.description}`).join('\n'), quoteItems, source: 'customer-portal-quote-builder' }) });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/work-requests`, { method: 'POST', headers: await authedHeaders(), body: JSON.stringify({ clientEmail: user.email, clientName: displayName || user.user_metadata?.full_name || user.email.split('@')[0], serviceType: 'Quote request', project_name: `Quote request – ${quoteItems.map(item => item.title).join(', ')}`, description: quoteItems.map(item => `${item.title}: ${item.description}`).join('\n'), quoteItems, source: 'customer-portal-quote-builder' }) });
       const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Could not submit your quote request.');
       toast.success(`Quote request submitted for ${quoteItems.length} item(s).`); setQuoteItems([]); setShowQuoteBuilder(false);
     } catch (error: any) { toast.error(error.message || 'Could not submit your quote request.'); }
@@ -1680,7 +1683,7 @@ export default function CustomerPortalView() {
           if (!user?.email) { toast.error('Sign in before selecting a subscription.'); return; }
           try {
             const { data: { session } } = await supabase.auth.getSession();
-            const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/subscriptions/checkout`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: 'premium', amount: 49, billingCycle: 'monthly', name: displayName || user.user_metadata?.full_name || user.email.split('@')[0] }) });
+            const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/subscriptions/checkout`, { method: 'POST', headers: await authedHeaders(), body: JSON.stringify({ plan: 'premium', amount: 49, billingCycle: 'monthly', name: displayName || user.user_metadata?.full_name || user.email.split('@')[0] }) });
             const data = await response.json(); if (!response.ok || !data.success || !data.checkoutUrl) throw new Error(data.error || 'Could not start secure checkout.');
             window.location.assign(data.checkoutUrl);
           } catch (error: any) { toast.error(error.message || 'Could not start secure checkout.'); }

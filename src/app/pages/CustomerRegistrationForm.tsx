@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -179,12 +180,13 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       const fullName = `${formData.firstName} ${formData.lastName}`.trim();
 
       // 1) Create the real auth account (also creates profile, role, CRM entry).
+      // The anon key, deliberately: signing up is what someone does when they
+      // have no session, so demanding one here would be circular. The page is
+      // behind the login gate today, but that is a routing decision that could
+      // change, and this call would be the thing that broke.
       const signupRes = await fetch(`${base}/auth/signup`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
@@ -201,10 +203,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       // 2) Persist the customer profile (address, property type, plan, etc.).
       const customerRes = await fetch(`${base}/customers`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
+        headers: await authedHeaders(),
         body: JSON.stringify({
           userId: signupData.user?.id,
           first_name: formData.firstName,

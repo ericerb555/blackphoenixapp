@@ -23,6 +23,7 @@ import { NumberInput } from '../ui/input/NumberInput';
 import { IconButton } from '../ui/button/IconButton';
 import { WorkRequestAutoSave } from '../../lib/workRequestAutoSave';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import BlueprintUploadWidget from '../BlueprintUploadWidget';
 import { DIRECTORY_SECTIONS, getSectionByCohortType } from '../../config/directoryLandingSections';
@@ -564,9 +565,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           const response = await fetch(
             `${API_BASE}/api/products?limit=50&category=${productCategory}&search=${productSearch}`,
             {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-              },
+              headers: await authedHeaders(),
             }
           );
           const data = await response.json();
@@ -592,9 +591,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           const response = await fetch(
             `${API_BASE}/product-ads?status=active&limit=50&search=${productSearch}`,
             {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-              },
+              headers: await authedHeaders(),
             }
           );
           const data = await response.json();
@@ -634,9 +631,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           const response = await fetch(
             `${API_BASE}/subcontractors`,
             {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-              },
+              headers: await authedHeaders(),
             }
           );
           const subcontractors = await response.json();
@@ -2016,7 +2011,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-guide-chat`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
           body: JSON.stringify({
             messages: newConversation,
             formData,

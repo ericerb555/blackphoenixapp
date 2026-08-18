@@ -16,6 +16,7 @@ import {
   Sparkles, Store, AlertTriangle,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -48,7 +49,7 @@ export default function ZendropTopProducts() {
   async function checkStatus() {
     try {
       const res = await fetch(`${API}/zendrop/status`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
       });
       const data = await res.json().catch(() => ({}));
       setConnected(!!data.connected);
@@ -64,7 +65,7 @@ export default function ZendropTopProducts() {
     setError(null);
     try {
       const res = await fetch(`${API}/zendrop/top-products?limit=24`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
       });
       const data = await res.json().catch(() => ({}));
       if (data.success && Array.isArray(data.products)) {
@@ -85,7 +86,7 @@ export default function ZendropTopProducts() {
     try {
       const res = await fetch(`${API}/zendrop/publish-to-store`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        headers: await authedHeaders(),
         body: JSON.stringify({ product: p, generateInfo: true }),
       });
       const data = await res.json().catch(() => ({}));

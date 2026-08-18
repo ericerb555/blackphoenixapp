@@ -39,6 +39,7 @@ import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
 import { usePendingApprovals } from '../lib/hooks/usePendingApprovals';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
 import { supabase } from '../lib/supabase';
@@ -167,7 +168,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       try {
         const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
         const response = await fetch(`${API_BASE}/business-profiles`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: await authedHeaders()
         });
 
         if (response.ok) {
@@ -192,7 +193,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       try {
         const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
         const res = await fetch(`${API_BASE}/zendrop/status`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
         });
         if (!res.ok) { setZendropStatus({ connected: false, products: 0 }); return; }
         const data = await res.json().catch(() => ({}));

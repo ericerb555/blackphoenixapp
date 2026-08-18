@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -127,7 +128,7 @@ export default function ZendropIntegration() {
       // so all Zendrop API calls run on our Supabase Edge Function).
       const res = await fetch(`${SERVER}/zendrop/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({
           apiKey: apiKey.trim(),
           storeId: storeId.trim(),
@@ -179,7 +180,7 @@ export default function ZendropIntegration() {
       // products. This is the same data the live public store renders, so what
       // shows here == what customers see.
       const res = await fetch(`${SERVER}/products?vendorId=zendrop`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
       });
       const data = await res.json().catch(() => ({}));
       const items = (data.products || data.inventory || []) as any[];
@@ -267,7 +268,7 @@ export default function ZendropIntegration() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/zendrop/status`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+          headers: await authedHeaders(),
         });
         const status = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -302,7 +303,7 @@ export default function ZendropIntegration() {
     try {
       const res = await fetch(`${SERVER}/zendrop/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: await authedHeaders(),
         body: JSON.stringify({ apiKey, limit: 100 }),
       });
       const data = await res.json().catch(() => ({}));

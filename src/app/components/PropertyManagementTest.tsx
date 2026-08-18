@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 export default function PropertyManagementTest() {
   const [testResults, setTestResults] = useState<any[]>([]);
@@ -25,10 +26,7 @@ export default function PropertyManagementTest() {
       console.log('Testing health endpoint:', healthUrl);
       
       const healthRes = await fetch(healthUrl, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
+        headers: await authedHeaders()
       });
       
       const healthData = await healthRes.json();
@@ -59,10 +57,7 @@ export default function PropertyManagementTest() {
       console.log('Testing pending-counts endpoint:', countsUrl);
       
       const countsRes = await fetch(countsUrl, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
+        headers: await authedHeaders()
       });
       
       const countsData = await countsRes.json();
@@ -93,10 +88,7 @@ export default function PropertyManagementTest() {
       console.log('Testing inline test endpoint:', inlineHealthUrl);
       
       const inlineRes = await fetch(inlineHealthUrl, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
+        headers: await authedHeaders()
       });
       
       const inlineData = await inlineRes.json();
@@ -127,10 +119,7 @@ export default function PropertyManagementTest() {
       console.log('Testing base server endpoint:', baseUrl);
       
       const baseRes = await fetch(baseUrl, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
+        headers: await authedHeaders()
       });
       
       let baseData;
