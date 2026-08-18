@@ -205,6 +205,55 @@ galleryRouter.post(`${PREFIX}/gallery/import-website`, async (c) => {
   }
 });
 
+// ── Staff: add a photo from a job ────────────────────────────────────────────
+/**
+ * Uploading arrives **unpublished**, always.
+ *
+ * These are photographs of customers' homes. Most are taken to record a job,
+ * not to advertise it, and the two look identical in a grid — a half-demolished
+ * bathroom is a progress note, not marketing. Requiring a deliberate "show this
+ * publicly" means nothing reaches the website because somebody uploaded a batch
+ * at the end of a day.
+ */
+galleryRouter.post(`${PREFIX}/gallery/upload`, async (c) => {
+  if (!await requireStaff(c)) return c.json({ error: "Administrator access is required." }, 403);
+  try {
+    await ensureBucket();
+    const form = await c.req.formData();
+    const file = form.get("file") as File | null;
+    if (!file) return c.json({ error: "A file is required." }, 400);
+    if (!/^image\//.test(file.type)) return c.json({ error: "Images only." }, 400);
+    if (file.size > 15_728_640) return c.json({ error: "That image is over 15MB." }, 400);
+
+    const title = String(form.get("title") || file.name.replace(/\.[^.]+$/, "")).slice(0, 200);
+    const category = String(form.get("category") || "Recent Projects").slice(0, 80);
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const id = `gal_${crypto.randomUUID()}`;
+    const path = `uploads/${id}.${ext}`;
+
+    const { error: upErr } = await service().storage.from(BUCKET).upload(
+      path, new Uint8Array(await file.arrayBuffer()),
+      { contentType: file.type, upsert: false },
+    );
+    if (upErr) return c.json({ error: upErr.message }, 500);
+
+    const record = {
+      id, title, category,
+      image: publicUrl(path),
+      storagePath: path,
+      sourceUrl: "",
+      published: false,
+      order: 9999,
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(`${KEY}${id}`, record);
+    return c.json({ success: true, project: record }, 201);
+  } catch (error: any) {
+    console.log(`[gallery] upload failed: ${error?.message || error}`);
+    return c.json({ error: error?.message || "Upload failed." }, 500);
+  }
+});
+
 // ── Staff: everything, including the unpublished ─────────────────────────────
 galleryRouter.get(`${PREFIX}/gallery/all`, async (c) => {
   if (!await requireStaff(c)) return c.json({ error: "Administrator access is required." }, 403);

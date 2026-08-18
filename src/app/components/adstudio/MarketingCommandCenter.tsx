@@ -83,6 +83,7 @@ const GROUPS: Group[] = [
     tools: [
       { name: 'Public Store', desc: 'View your live storefront', icon: ShoppingBag, action: { kind: 'nav', path: 'public-store' } },
       { name: 'Promotions Manager', desc: 'Deals, discounts & flash sales', icon: Tag, action: { kind: 'nav', path: 'promotions-manager' } },
+      { name: 'Job Photos', desc: 'Past work — publish to the website, use in content', icon: ImageIcon, action: { kind: 'nav', path: 'job-photos' } },
       { name: 'Photo Importer', desc: 'Bulk import media for campaigns', icon: ImageIcon, action: { kind: 'nav', path: 'photo-importer' } },
     ],
   },
