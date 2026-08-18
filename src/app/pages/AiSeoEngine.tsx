@@ -11,6 +11,7 @@ import {
   Sparkles, Loader2, Search, FileText, Eye, Trash2, RefreshCw, TrendingUp,
   Bot, Send, CheckCircle2, Calendar, Gauge, Rocket, X, PenLine,
 } from 'lucide-react';
+import AIRankingEngine from './AIRankingEngine';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -36,12 +37,13 @@ interface Settings {
   autopilot: boolean; articlesPerDay: number;
 }
 
-type Tab = 'overview' | 'keywords' | 'articles' | 'visibility' | 'settings';
+type Tab = 'overview' | 'keywords' | 'articles' | 'content' | 'visibility' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'keywords', label: 'Keywords', icon: Search },
   { id: 'articles', label: 'Articles', icon: FileText },
+  { id: 'content', label: 'Ranking Content', icon: Rocket },
   { id: 'visibility', label: 'AI Visibility', icon: Bot },
   { id: 'settings', label: 'Settings', icon: PenLine },
 ];
@@ -487,6 +489,23 @@ export default function AiSeoEngine() {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {/* RANKING CONTENT
+            The AI Ranking Engine, rendered in place rather than reimplemented.
+            It was a second, separate screen writing the same kind of thing as
+            the Articles tab — two generators, two stores, two places to look.
+            Embedding it puts both under one roof without rewriting a thousand
+            working lines, which is the safe half of consolidating them; merging
+            the two back ends is a later job and a riskier one. */}
+        {tab === 'content' && (
+          <div className="pb-12">
+            <p className="text-xs text-gray-500 mb-4">
+              Blog posts, FAQs, service and local landing pages. Anything published here
+              appears at <a href="/blog" className="text-[#ea580c] underline">/blog</a>.
+            </p>
+            <AIRankingEngine embedded />
           </div>
         )}
 

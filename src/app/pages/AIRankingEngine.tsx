@@ -264,7 +264,13 @@ function Badge({ label, color }: { label: string; color: string }) {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export default function AIRankingEngine() {
+/**
+ * Rendered on its own at /ai-ranking-engine, and embedded as the Content tab of
+ * the AI SEO Engine. Embedded, it drops its page chrome and its own heading —
+ * two headings and two full-height wrappers stacked inside one screen is how a
+ * consolidated page ends up looking like two pages glued together.
+ */
+export default function AIRankingEngine({ embedded = false }: { embedded?: boolean } = {}) {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState('');
@@ -432,19 +438,21 @@ export default function AIRankingEngine() {
   ] as const;
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-6 space-y-6">
+    <div className={embedded ? "text-white space-y-6" : "min-h-screen bg-[#050505] text-white p-6 space-y-6"}>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
-            <Zap className="w-6 h-6 text-white" />
+        {embedded ? <div /> : (
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-purple-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
+              <Zap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-white">AI Ranking Engine</h1>
+              <p className="text-gray-400 text-sm">Google · ChatGPT · Perplexity · Siri · Alexa — all in one</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-white">AI Ranking Engine</h1>
-            <p className="text-gray-400 text-sm">Google · ChatGPT · Perplexity · Siri · Alexa — all in one</p>
-          </div>
-        </div>
+        )}
 
         <div className="flex items-center gap-3">
           {/* Overall score */}
