@@ -41,15 +41,38 @@ saved. Enough to say which job you are on; not a second copy of the design.
 
 ## Todo
 
-- [ ] **J1** `currentJob.ts` — read, write, clear, subscribe. One key, one shape.
-- [ ] **J2** The deck designer publishes to it: on open, on save, and on New deck
-      (which clears it). It is the only writer for now.
-- [ ] **J3** `DesignWorkspaceNav` displays it, in the same words the designer's
-      header uses so the two cannot appear to disagree.
-- [ ] **J4** Verify headlessly: the nav shows the job on a screen that never set
-      it, and New deck clears it everywhere.
-- [ ] **J5** *(separate, ask first)* Add the nav to variances, blueprint analyser
-      and materials hub so the remaining three screens are covered.
+- [x] **J1** `currentJob.ts` plus a `useCurrentJob` hook, split so the store stays
+      importable by non-components.
+- [x] **J2** The deck designer publishes; it is the only writer.
+- [x] **J3** Shown above the workspace rail, so all four screens that render the
+      rail get it from one place.
+- [x] **J4** Verified in a browser: nothing open reads "No job selected"; typing
+      a name and address names it and marks it unsaved; the **stair calculator**,
+      which never set anything, shows the same job; clearing returns it to none.
+      Nothing thrown at any step.
+- [ ] **J5** *(still open)* Add the rail to zoning variance, blueprint analyser
+      and materials hub — the three screens that do not render it, and therefore
+      still cannot say which job they are on.
+
+### Two things this turned up
+
+**`DesignLink` only stored a job id.** An id names a job to the server and tells
+a person nothing, and the rail cannot look one up on a screen that never loaded
+the customer's job list. It now carries the title alongside, exactly as it
+already carried `customerName` beside `customerId`.
+
+**The designer's header needed a third state.** It was calling a deck "a blank
+start" while the rail already named it — the two labels disagreeing about the
+same deck is precisely the failure this indicator exists to prevent. It now says
+*Editing X*, *X · not saved yet*, or *New deck · blank start*.
+
+### Not done, and it needs a decision
+
+**There is no quote number.** A deck design carries no quote link at all — the
+designer never sets a `quoteId`, though the server record has had that field
+since it was written. The slot is wired through the store and the rail, so
+connecting the two later is a change to one writer rather than to every reader.
+Linking a deck to its quote is its own piece of work; say if it is wanted.
 
 ## Two decisions for Eric
 
