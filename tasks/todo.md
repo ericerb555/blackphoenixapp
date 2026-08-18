@@ -1,3 +1,68 @@
+# PLAN — a shared "which job am I on" indicator — awaiting approval
+
+The deck designer now says which project is open. Nothing else in the design
+workspace does, so moving from the designer to the stair calculator or the
+permit tracker loses the thread — and the whole reason for today's work was that
+not knowing which project is on screen is expensive.
+
+## What I found
+
+`DesignWorkspaceNav` is already rendered by four screens, which makes it the one
+place to show this rather than seven copies of the same line:
+
+| Screen | Renders the nav |
+| --- | --- |
+| Deck designer | yes |
+| Stair calculator | yes |
+| Permits & zoning | yes |
+| Document scanner | yes |
+| Zoning variance | **no** |
+| Blueprint analyser | **no** |
+| Materials hub | **no** |
+
+So one change covers four screens today, and the other three need the nav added
+— a separate, smaller job, listed below rather than folded in silently.
+
+## Where the current job would live
+
+Nothing shared exists today: the designer holds `site`, `link` and `savedId` in
+its own state, and navigating away unmounts it. So the job has to live outside
+any one screen.
+
+A small module — `src/app/lib/currentJob.ts` — holding the job in
+`localStorage` under one key, with a `useCurrentJob()` hook so a screen
+re-renders when it changes. Not a context provider: these screens are swapped by
+a page map rather than nested under a common parent, so a provider would have to
+be threaded through the whole app, and localStorage also survives a reload,
+which a provider would not.
+
+What it holds, and nothing more: project id, name, address, and whether it is
+saved. Enough to say which job you are on; not a second copy of the design.
+
+## Todo
+
+- [ ] **J1** `currentJob.ts` — read, write, clear, subscribe. One key, one shape.
+- [ ] **J2** The deck designer publishes to it: on open, on save, and on New deck
+      (which clears it). It is the only writer for now.
+- [ ] **J3** `DesignWorkspaceNav` displays it, in the same words the designer's
+      header uses so the two cannot appear to disagree.
+- [ ] **J4** Verify headlessly: the nav shows the job on a screen that never set
+      it, and New deck clears it everywhere.
+- [ ] **J5** *(separate, ask first)* Add the nav to variances, blueprint analyser
+      and materials hub so the remaining three screens are covered.
+
+## Two decisions for Eric
+
+1. **What should it say?** My default is name, then address if there is one:
+   `331 DWH deck · 331 Daniel Webster Hwy` — and `· not saved yet` when it has
+   never been saved. The address is what actually distinguishes two decks with
+   similar names.
+2. **Should it be clickable** — jumping back to the deck designer with that
+   project open? Useful, and it is more work than displaying a line, so it is
+   worth deciding rather than assuming.
+
+---
+
 # PLAN — content centre first — awaiting approval, nothing started
 
 Eric chose the content centre as the first surface to lock down. Four findings
