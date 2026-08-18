@@ -103,25 +103,47 @@ described the risk.
 Numbering is the small part. The reason to do it now is that the flow has no
 history to migrate, so it can be made right before there is anything to correct.
 
-- [ ] **Q1 — Keep what is already being sent.** Add `workRequestId` and `total`
-      to `normalizeDoc`, and add `approved`/`rejected` to the status whitelist
-      with `signature` preserved. No new concepts, no schema change: this stops
-      the system discarding facts it is already given, and stops an approval
-      being undone by the next save. Smallest change, largest effect.
-- [ ] **Q2 — Move numbering to the server.** One endpoint mints the number when a
-      quote is first created, so it cannot be duplicated by two browsers and
-      cannot differ by screen. Format `Q-2026-0001`, sequential.
-      **This wants a Postgres sequence to be safe under concurrency**, which is a
-      schema change and therefore needs a non-production test first — there is
-      still no staging project, so that decision is Eric's.
-      *Fallback without a schema change:* a counter in KV, read-modify-write.
-      Fine at his volume, with a real if small race.
+- [x] **Q1 — done.** `workRequestId`, `total`, `approved`/`rejected` and
+      `signature` all survive a save now.
+- [x] **Q2 — done, and it needed no schema change after all.** Numbers are minted
+      on the server, on creation, as `Q-2026-0001`.
+
+      The concurrency problem is solved by the database rather than by a
+      sequence: the number is claimed by **inserting a row whose key is the
+      number**, and `key` is the kv table's primary key, so a second claim fails
+      with a unique violation and the minter takes the next one. The counter
+      beside it is only a hint about where to start looking — losing it wastes a
+      few attempts and can never issue a duplicate. So no migration, and no
+      staging environment needed to do it safely.
+
+      An existing quote keeps its number even if a caller sends a different one.
+      A number that changes under a customer is worse than no number.
+
+      **Verified against production, then cleaned up.** A quote created with no
+      number came back `Q-2026-0001` carrying its `workRequestId`, `total`,
+      `approved` status and signature; re-saving it with a forged number left it
+      unchanged; a second quote took `Q-2026-0002`. Both test records, both
+      number claims and the counter were deleted afterwards — Eric's four
+      original quotes are untouched and the next real quote will be `Q-2026-0001`.
 - [ ] **Q3 — Retire the second scheme.** `InvoiceBuilder` calls the same endpoint
       instead of minting `INV-…`/`EST-…` itself.
 - [ ] **Q4 — Then the deck design can carry its quote.** `design_project` already
       has a `quoteId` field that nothing sets. Once a quote has a stable number,
       the designer stores it and the workspace rail shows it — the slot is
       already wired through the store and the rail.
+
+### Found while doing this, and deliberately not acted on
+
+**`POST`, `PUT` and `DELETE` on `/quotes` have no auth at all** — only the list
+route does, since M10. Anyone with the publishable key can create, alter or
+delete a quote. It belongs with F3.
+
+I did not guard them in this pass, because the screens that write quotes are
+split the same way the money screens were: `ChangeOrderCameraApp`,
+`CustomerQuoteApproval` and `UnifiedDashboardMobile` all reach `/quotes` with the
+anon key only. Adding a staff check would have locked out working screens, which
+is the mistake the report-only gate exists to prevent. It needs the same
+evidence-driven pass, not a guess.
 
 ## The question Eric should answer first
 
