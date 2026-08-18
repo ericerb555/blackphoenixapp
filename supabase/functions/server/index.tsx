@@ -12,6 +12,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
+import socialRouter from "./social-media.tsx";
 import servicesCatalogRouter from "./services-catalog.tsx";
 import projectsCrudRouter from "./projects-crud.tsx";
 import investmentsRouter from "./investments-kv.tsx";
@@ -370,6 +371,29 @@ app.use('/make-server-3eae23a6/entitlements-summary', async (c, next) => {
 // Batch 1 workflow routers. These modules are mounted here as well as in the
 // modular entrypoint so the deployed make-server function exposes the same
 // paths the React clients call.
+/**
+ * Social accounts and publishing.
+ *
+ * There were two implementations of this, and the wrong one was winning. A
+ * second, older set of /social/* handlers is defined inline further down this
+ * file; because `social-media.tsx` was never mounted at all, those inline ones
+ * served every request. They should not have:
+ *
+ *   • Their OAuth state is `btoa(JSON.stringify({ userId, platform }))` — base64
+ *     is an encoding, not a signature, and nothing is stored server-side to
+ *     check it against. Anyone could mint a state naming any user and complete
+ *     a handshake against it. This module issues a random state, keeps it in
+ *     KV, verifies it on return and deletes it on use.
+ *   • They never call /me/accounts, so they store a *user* token. Publishing to
+ *     a business Page needs a *Page* token, and Instagram publishing needs the
+ *     IG business account hanging off that Page. This module fetches both.
+ *
+ * Mounted here, ahead of those definitions, so the routes below it are shadowed
+ * rather than serving. The inline reel routes (submit-reel, pending-reels,
+ * approve-reel) have no counterpart here and keep working.
+ */
+app.route("/", socialRouter);
+
 app.route("/", plansRouter);
 app.route("/", servicesCatalogRouter);
 app.route("/", projectsCrudRouter);
