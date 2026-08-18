@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Image, Facebook, Globe, CheckCircle, AlertCircle, Upload, RefreshCw, ExternalLink, Key, Info, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import { seedWebsitePhotos } from '../utils/seedWebsitePhotos';
 import { saveDual, loadDual } from '../lib/database';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 // Mirror the current media library to the shared server-backed store so imports
 // show up in the Media Library across devices.
@@ -73,24 +76,50 @@ export default function PhotoImporter() {
     if (savedPage) setFbPageId(savedPage);
   }, []);
 
-  function handleImportWebsite() {
+  /**
+   * Copy the old website's photos into this app.
+   *
+   * This used to call seedWebsitePhotos(), which wrote a list of the old CDN's
+   * URLs into localStorage behind a 1.2-second timeout that existed only to
+   * look like work was happening. Nothing was copied and nothing left the
+   * browser, so the photos stayed on blackphoenixbuilds.com's servers and the
+   * public gallery never saw them.
+   *
+   * It now asks the server to fetch each photograph and store it here, which is
+   * what "bring everything across" has to mean if the old site is ever going to
+   * be switched off. The server reports what it actually did — imported,
+   * already-present, failed — so the count on screen is real.
+   */
+  async function handleImportWebsite() {
     setWebsiteStatus('importing');
-    setTimeout(() => {
-      const count = seedWebsitePhotos();
-      syncMediaLibrary();
-      if (count === 0) {
-        setWebsiteStatus('already');
-        const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
-        setWebsiteCount(items.filter((i: any) => i.uploadedBy === 'Website Import').length);
-        toast.info('All website photos were already in your Media Library.');
-      } else {
-        setWebsiteStatus('done');
-        setWebsiteCount(count);
-        const items = JSON.parse(localStorage.getItem('media_library_items') || '[]');
-        setMediaCount(items.length);
-        toast.success(`${count} photos imported from blackphoenixbuilds.com!`);
+    try {
+      const res = await fetch(`${SERVER}/gallery/import-website`, {
+        method: 'POST',
+        headers: await authedHeaders(),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        setWebsiteStatus('idle');
+        toast.error(data?.error || `Import failed (${res.status}).`);
+        return;
       }
-    }, 1200);
+
+      setWebsiteCount(data.imported + data.skipped);
+      setWebsiteStatus(data.imported === 0 ? 'already' : 'done');
+
+      if (data.imported === 0 && data.skipped > 0) {
+        toast.info(`All ${data.skipped} website photos are already here.`);
+      } else {
+        toast.success(`${data.imported} photos copied from blackphoenixbuilds.com into your gallery.`);
+      }
+      // Say so plainly rather than reporting a clean success over a partial one.
+      if (data.failed > 0) {
+        toast.error(`${data.failed} could not be fetched: ${(data.failures || []).slice(0, 2).join('; ')}`);
+      }
+    } catch (err: any) {
+      setWebsiteStatus('idle');
+      toast.error(err?.message || 'Could not reach the server.');
+    }
   }
 
   async function handleImportFacebook() {

@@ -10,11 +10,27 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
-const PLACEHOLDERS = [
-  { id: 'p1', title: 'Full Kitchen Remodel', category: 'Kitchen', beforeUrl: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=800&q=80', afterUrl: 'https://images.unsplash.com/photo-1556909172-54557c7e4fb7?w=800&q=80' },
-  { id: 'p2', title: 'Bathroom Renovation', category: 'Bathroom', beforeUrl: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=800&q=80', afterUrl: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=800&q=80' },
-  { id: 'p3', title: 'Exterior Home Makeover', category: 'Exterior', beforeUrl: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=800&q=80', afterUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80' },
-];
+/**
+ * There is no placeholder list any more, and that is the point.
+ *
+ * This used to open with three stock photographs from Unsplash — someone
+ * else's kitchen, someone else's bathroom — captioned "Our Work". They were a
+ * fallback for `/gallery`, which did not exist and returned 404 every time, so
+ * the fallback was not a fallback: it was the page. A contractor's own site
+ * advertising other people's projects is the kind of wrong that is hard to
+ * notice precisely because it looks finished.
+ *
+ * Now the section renders what the server actually has and nothing when it has
+ * nothing. An empty gallery is honest; a stocked one is not.
+ */
+interface GalleryProject {
+  id: string;
+  title: string;
+  category: string;
+  image: string;
+  /** Only some jobs have a before shot. Those that do get the slider. */
+  before?: string | null;
+}
 
 function MiniSlider({ before, after }: { before: string; after: string }) {
   const [pos, setPos] = useState(50);
@@ -74,14 +90,21 @@ function MiniSlider({ before, after }: { before: string; after: string }) {
 }
 
 export default function GalleryPreview({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const [projects, setProjects] = useState(PLACEHOLDERS);
+  const [projects, setProjects] = useState<GalleryProject[]>([]);
 
   useEffect(() => {
     fetch(`${SERVER}/gallery`, { headers: { Authorization: `Bearer ${publicAnonKey}` } })
       .then(r => r.ok ? r.json() : { projects: [] })
-      .then(d => { if (d.projects?.length >= 3) setProjects(d.projects.slice(0, 3)); })
-      .catch(() => {});
+      // Show whatever there is. The old version required three or more before
+      // it would use real data, so one or two genuine jobs left the stock
+      // photos on screen.
+      .then(d => setProjects(Array.isArray(d?.projects) ? d.projects : []))
+      .catch(() => setProjects([]));
   }, []);
+
+  // Nothing to show yet: say nothing rather than heading a section with an
+  // empty grid under it.
+  if (!projects.length) return null;
 
   return (
     <section className="py-14 px-4 flex justify-center">
@@ -111,7 +134,18 @@ export default function GalleryPreview({ onNavigate }: { onNavigate?: (page: str
               viewport={{ once: true }}
               className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl overflow-hidden hover:border-orange-500/30 transition group"
             >
-              <MiniSlider before={p.beforeUrl} after={p.afterUrl} />
+              {/* A slider needs two photographs. Most jobs have only the
+                  finished shot, and dragging a divider across one image to
+                  reveal the same image is a worse impression than simply
+                  showing the photograph. */}
+              {p.before
+                ? <MiniSlider before={p.before} after={p.image} />
+                : (
+                  <div className="relative w-full aspect-[4/3] overflow-hidden">
+                    <img src={p.image} alt={p.title} loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover" />
+                  </div>
+                )}
               <div className="p-4 flex items-center justify-between">
                 <div>
                   <p className="font-bold text-white text-sm">{p.title}</p>

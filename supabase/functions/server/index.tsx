@@ -13,6 +13,7 @@ import * as kv from "./kv_store.tsx";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
+import galleryRouter from "./gallery.tsx";
 import servicesCatalogRouter from "./services-catalog.tsx";
 import projectsCrudRouter from "./projects-crud.tsx";
 import investmentsRouter from "./investments-kv.tsx";
@@ -393,6 +394,7 @@ app.use('/make-server-3eae23a6/entitlements-summary', async (c, next) => {
  * approve-reel) have no counterpart here and keep working.
  */
 app.route("/", socialRouter);
+app.route("/", galleryRouter);
 
 app.route("/", plansRouter);
 app.route("/", servicesCatalogRouter);
