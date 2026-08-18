@@ -62,6 +62,47 @@ townPermitsRouter.get(`${PREFIX}/town-permits/towns`, async (c) => {
   return c.json({ success: true, towns, vendors: PORTAL_VENDORS });
 });
 
+/**
+ * The load case a town enforces, and when it was last actually established.
+ *
+ * These live on the town rather than on each design because they are a property
+ * of the jurisdiction, not of the deck — two identical decks in neighbouring
+ * towns are genuinely different builds. Frost depth in particular is published
+ * by no national source; it comes from the building department, and entered once
+ * here is the only place it can come from.
+ *
+ * `loadSource` is not decoration. A designer reading these puts them in front of
+ * someone who has to confirm them before they reach a permit set, and "40 psf"
+ * with no provenance is not something anyone can confirm. Zero and empty mean
+ * not yet established, and stay blank downstream rather than being filled in
+ * with a plausible number.
+ *
+ * `loadsUpdatedAt` only moves when a value actually changes. The whole town form
+ * posts every field on every save, so stamping it on each write would turn "when
+ * was this last confirmed with the town" — the one question it exists to answer
+ * — into "when was this record last touched for any reason at all".
+ */
+function loadCase(body: any, existing: any, now: string) {
+  const next = {
+    groundSnowPsf: Number(body.groundSnowPsf ?? existing?.groundSnowPsf ?? 0) || 0,
+    frostDepthIn: Number(body.frostDepthIn ?? existing?.frostDepthIn ?? 0) || 0,
+    codeEdition: String(body.codeEdition ?? existing?.codeEdition ?? '').trim(),
+    loadSource: String(body.loadSource ?? existing?.loadSource ?? '').trim(),
+  };
+  const was = {
+    groundSnowPsf: Number(existing?.groundSnowPsf ?? 0) || 0,
+    frostDepthIn: Number(existing?.frostDepthIn ?? 0) || 0,
+    codeEdition: String(existing?.codeEdition ?? '').trim(),
+    loadSource: String(existing?.loadSource ?? '').trim(),
+  };
+  const changed = (Object.keys(next) as (keyof typeof next)[]).some(k => next[k] !== was[k]);
+  const anySet = next.groundSnowPsf > 0 || next.frostDepthIn > 0 || !!next.codeEdition;
+  return {
+    ...next,
+    loadsUpdatedAt: (changed && anySet) ? now : String(existing?.loadsUpdatedAt ?? ''),
+  };
+}
+
 townPermitsRouter.post(`${PREFIX}/town-permits/towns`, async (c) => {
   const { email, admin } = await requireAdmin(c);
   if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
@@ -74,6 +115,7 @@ townPermitsRouter.post(`${PREFIX}/town-permits/towns`, async (c) => {
   const id = body.id || `${slug(name)}-${state.toLowerCase()}`;
   const existing = (await kv.get(`${TOWN_PREFIX}${id}`)) as any;
   const now = new Date().toISOString();
+  const loads = loadCase(body, existing, now);
 
   const town = {
     id,
@@ -95,6 +137,23 @@ townPermitsRouter.post(`${PREFIX}/town-permits/towns`, async (c) => {
       : (existing?.requiredDocuments ?? []),
     requiresWetStamp: body.requiresWetStamp ?? existing?.requiresWetStamp ?? false,
     requiresEngineerOver: Number(body.requiresEngineerOver ?? existing?.requiresEngineerOver ?? 0) || 0,
+
+    /**
+     * The load case this town enforces.
+     *
+     * These live on the town rather than on each design because they are a
+     * property of the jurisdiction, not of the deck — two identical decks in
+     * neighbouring towns are genuinely different builds. Frost depth in
+     * particular is published by nobody nationally; it comes from the building
+     * department and the only place to keep it is here, entered once.
+     *
+     * `loadSource` is not decoration. A designer reading these puts them in
+     * front of an operator who has to confirm them before they reach a permit
+     * set, and "40 psf" with no provenance is not something anyone can confirm.
+     * Zero means not yet established, and stays blank downstream rather than
+     * being filled in with a plausible number.
+     */
+    ...loads,
 
     permitFeeNote: String(body.permitFeeNote ?? existing?.permitFeeNote ?? ''),
     typicalReviewDays: Number(body.typicalReviewDays ?? existing?.typicalReviewDays ?? 0) || 0,

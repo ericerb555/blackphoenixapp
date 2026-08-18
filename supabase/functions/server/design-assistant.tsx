@@ -153,6 +153,55 @@ function describe(body: any): string {
     lines.push("", "ADVISORIES ALREADY SHOWING ON SCREEN", ...advisories.map((a: any) => `· ${a.text}`));
   }
 
+  /**
+   * What was read off the job folder.
+   *
+   * Two sources of very different weight, and saying which is which matters more
+   * than either on its own. A drawing carries written dimensions; a photo gets
+   * measured by eye off a model looking at a picture. When they disagree the
+   * drawing wins, and where only the photo has a number it is offered as a
+   * starting point to check with a tape rather than as a measurement.
+   */
+  const findings = body?.findings || {};
+  const house = findings.house;
+  const sketch = findings.sketch;
+
+  if (house || sketch?.model) {
+    lines.push("", "READ OFF THE JOB FOLDER");
+  }
+  if (house) {
+    lines.push("From the site photos — inferred by eye, treat as approximate:");
+    if (house.house) {
+      lines.push(`· House: ${[house.house.style, house.house.sidingType, house.house.foundation].filter(Boolean).join(", ") || "not described"}.`);
+    }
+    if (house.attachment) {
+      const a = house.attachment;
+      lines.push(`· Attachment wall: ${a.wallDescription || "not described"}${a.doorType ? `, ${a.doorType}` : ""}.`);
+      if (a.sillHeightInches) lines.push(`· Sill height ${a.sillHeightInches}in (confidence: ${a.sillConfidence || "unstated"}).`);
+      if (a.ledgerRunFeet) lines.push(`· Ledger run available ${a.ledgerRunFeet}ft (confidence: ${a.ledgerRunConfidence || "unstated"}).`);
+      if (a.rimJoistNote) lines.push(`· Rim joist: ${a.rimJoistNote}`);
+    }
+    if (Array.isArray(house.obstructions) && house.obstructions.length) {
+      lines.push("· In the way: " + house.obstructions
+        .map((o: any) => [o.item, o.where].filter(Boolean).join(" at ") + (o.impact ? ` (${o.impact})` : ""))
+        .join("; "));
+    }
+    if (house.grade?.slope) {
+      lines.push(`· Ground: ${house.grade.slope}${house.grade.note ? ` — ${house.grade.note}` : ""}.`);
+    }
+  }
+  if (sketch?.model) {
+    const dims = Object.entries(sketch.model)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => `· ${k}: ${v}`);
+    if (dims.length) {
+      lines.push(
+        "From a drawing in the folder — these are written on the paper and outrank anything inferred from a photo:",
+        ...dims,
+      );
+    }
+  }
+
   if (bom.deckAreaSqFt) {
     lines.push(
       "",
