@@ -21,6 +21,14 @@
       "destination": "/api/render?id=:id"
     },
     {
+      "source": "/blog",
+      "destination": "/api/render?kind=blog"
+    },
+    {
+      "source": "/blog/:id",
+      "destination": "/api/render?kind=blog&id=:id"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/sitemap"
     },
@@ -31,7 +39,7 @@
   ],
   "headers": [
     {
-      "source": "/((?!work).*)",
+      "source": "/((?!work|blog).*)",
       "headers": [
         {
           "key": "Cache-Control",

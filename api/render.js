@@ -99,15 +99,88 @@ const localBusiness = {
   areaServed: ['Salem NH', 'Southern New Hampshire', 'Northern Massachusetts'],
 };
 
-async function fetchProjects() {
+async function fetchJson(path) {
   try {
-    const res = await fetch(`${API}/gallery`, { headers: { Authorization: `Bearer ${ANON}` } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data?.projects) ? data.projects : [];
+    const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${ANON}` } });
+    if (!res.ok) return null;
+    return await res.json();
   } catch {
-    return [];
+    return null;
   }
+}
+
+async function fetchProjects() {
+  const data = await fetchJson('/gallery');
+  return Array.isArray(data?.projects) ? data.projects : [];
+}
+
+/**
+ * An article's own page.
+ *
+ * Both content engines could mark an article published and neither had
+ * anywhere to publish it to. This is the head that makes one findable: its own
+ * title, its own description, and Article schema naming the business as the
+ * publisher — which is what lets a piece about kitchen layouts rank for kitchen
+ * layouts rather than inheriting the homepage's description.
+ */
+async function articleMeta(id) {
+  const data = await fetchJson(`/blog/${encodeURIComponent(id)}`);
+  const article = data?.article;
+  if (!article) return blogIndexMeta();
+
+  const description = String(article.excerpt || '').slice(0, 300) ||
+    `An article from ${BUSINESS.name}, ${BUSINESS.city} ${BUSINESS.region}.`;
+
+  return {
+    title: `${article.title} | ${BUSINESS.name}`,
+    description,
+    url: `${ORIGIN}/blog/${encodeURIComponent(article.id)}`,
+    image: `${ORIGIN}/bpb-phoenix-logo.png`,
+    type: 'article',
+    links: [{ href: `${ORIGIN}/blog`, text: 'All articles' }],
+    schema: {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: article.title,
+      description,
+      datePublished: article.publishedAt || undefined,
+      url: `${ORIGIN}/blog/${encodeURIComponent(article.id)}`,
+      author: localBusiness,
+      publisher: localBusiness,
+      about: article.keyword || undefined,
+    },
+  };
+}
+
+async function blogIndexMeta() {
+  const data = await fetchJson('/blog');
+  const articles = Array.isArray(data?.articles) ? data.articles : [];
+  return {
+    title: `Advice & Guides — Renovation Notes | ${BUSINESS.name}`,
+    description:
+      `Renovation advice from ${BUSINESS.name} — kitchens, bathrooms, additions and exterior work ` +
+      `across southern New Hampshire. ${BUSINESS.city}, ${BUSINESS.region}. Call ${BUSINESS.phone}.`,
+    url: `${ORIGIN}/blog`,
+    image: `${ORIGIN}/bpb-phoenix-logo.png`,
+    type: 'website',
+    links: articles.slice(0, 25).map((a) => ({
+      href: `${ORIGIN}/blog/${encodeURIComponent(a.id)}`,
+      text: a.title,
+    })),
+    schema: {
+      '@context': 'https://schema.org',
+      '@type': 'Blog',
+      name: 'Advice & Guides',
+      url: `${ORIGIN}/blog`,
+      publisher: localBusiness,
+      blogPost: articles.slice(0, 25).map((a) => ({
+        '@type': 'BlogPosting',
+        headline: a.title,
+        url: `${ORIGIN}/blog/${encodeURIComponent(a.id)}`,
+        datePublished: a.publishedAt || undefined,
+      })),
+    },
+  };
 }
 
 export default async function handler(req, res) {
@@ -127,6 +200,15 @@ export default async function handler(req, res) {
   }
 
   const id = (req.query?.id || '').toString().trim();
+  const kind = (req.query?.kind || 'work').toString().trim();
+
+  if (kind === 'blog') {
+    const meta = id ? await articleMeta(id) : await blogIndexMeta();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=86400');
+    return res.status(200).send(applyMeta(shell, meta));
+  }
+
   const projects = await fetchProjects();
 
   let meta;

@@ -21,6 +21,7 @@ const ANON =
 const STATIC_PAGES = [
   { path: '/', changefreq: 'weekly', priority: '1.0' },
   { path: '/work', changefreq: 'weekly', priority: '0.9' },
+  { path: '/blog', changefreq: 'weekly', priority: '0.8' },
   { path: '/builds-landing-page', changefreq: 'monthly', priority: '0.9' },
   { path: '/handyman-landing-page', changefreq: 'monthly', priority: '0.8' },
   { path: '/public-store', changefreq: 'weekly', priority: '0.8' },
@@ -51,6 +52,17 @@ const urlEntry = ({ loc, changefreq, priority, lastmod, image, title }) =>
     : '') +
   `  </url>`;
 
+async function fetchArticles() {
+  try {
+    const res = await fetch(API + "/blog", { headers: { Authorization: "Bearer " + ANON } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.articles) ? data.articles : [];
+  } catch {
+    return [];
+  }
+}
+
 async function fetchProjects() {
   try {
     const res = await fetch(`${API}/gallery`, { headers: { Authorization: `Bearer ${ANON}` } });
@@ -63,7 +75,7 @@ async function fetchProjects() {
 }
 
 export default async function handler(req, res) {
-  const projects = await fetchProjects();
+  const [projects, articles] = await Promise.all([fetchProjects(), fetchArticles()]);
 
   const entries = [
     ...STATIC_PAGES.map((p) => urlEntry({ loc: `${ORIGIN}${p.path}`, changefreq: p.changefreq, priority: p.priority })),
@@ -74,6 +86,14 @@ export default async function handler(req, res) {
         priority: '0.7',
         image: p.image,
         title: p.title,
+      }),
+    ),
+    ...articles.map((a) =>
+      urlEntry({
+        loc: ORIGIN + '/blog/' + encodeURIComponent(a.id),
+        changefreq: 'monthly',
+        priority: '0.6',
+        lastmod: a.publishedAt,
       }),
     ),
   ];

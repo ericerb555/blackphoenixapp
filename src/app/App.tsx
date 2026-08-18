@@ -370,7 +370,7 @@ function CompanySelector() {
  * Kept as an explicit list rather than a general rule, because turning every
  * route into a prefix match would change how ~185 existing paths resolve.
  */
-const PREFIX_ROUTES = new Set<string>(['work']);
+const PREFIX_ROUTES = new Set<string>(['work', 'blog']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
@@ -390,6 +390,7 @@ const FULL_BLEED_PAGES = new Set<string>([
   "directory-landing-page",
   "builds-landing-page",
   "work",
+  "blog",
   "handyman-landing-page",
   "demo-landing-page",
   "property-management-landing-page",
@@ -458,6 +459,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'public-store',
     // Past work — public marketing, and the destination for shared links.
     'work',
+    // Published articles. An article nobody can reach is not published.
+    'blog',
     'shop',
     'store',
     'order-tracking',

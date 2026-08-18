@@ -180,6 +180,7 @@ const LiveChatManager = lazy(() => import("./pages/LiveChatManager"));
 const PhotoImporter = lazy(() => import("./pages/PhotoImporter"));
 const JobPhotos = lazy(() => import("./pages/JobPhotos"));
 const OurWork = lazy(() => import("./pages/OurWork"));
+const Blog = lazy(() => import("./pages/Blog"));
 const MarketingAutomation = lazy(() => import("./pages/MarketingAutomation"));
 const RetargetingPixelSetup = lazy(() => import("./pages/RetargetingPixelSetup"));
 const BlogManager = lazy(() => import("./pages/BlogManager"));
@@ -288,6 +289,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "photo-importer":       PhotoImporter,
   "job-photos":           JobPhotos,
   "work":                 OurWork,
+  "blog":                 Blog,
   "gallery":              OurWork,
   "photos":               JobPhotos,
   "marketing-automation": MarketingAutomation,

@@ -14,6 +14,7 @@ import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
 import galleryRouter from "./gallery.tsx";
+import blogRouter from "./blog.tsx";
 import servicesCatalogRouter from "./services-catalog.tsx";
 import projectsCrudRouter from "./projects-crud.tsx";
 import investmentsRouter from "./investments-kv.tsx";
@@ -240,6 +241,7 @@ const PUBLIC_GET_PREFIXES = [
   '/business-profiles', // a directory listing, no private fields
   '/reviews',           // already filters to approved for anyone but an admin
   '/gallery',           // called on load; no such route exists, so it 404s
+  '/blog',              // published articles — the point of them is being read
 ];
 
 // Money and back-office. A session is not enough — these need an administrator.
@@ -395,6 +397,7 @@ app.use('/make-server-3eae23a6/entitlements-summary', async (c, next) => {
  */
 app.route("/", socialRouter);
 app.route("/", galleryRouter);
+app.route("/", blogRouter);
 
 app.route("/", plansRouter);
 app.route("/", servicesCatalogRouter);
