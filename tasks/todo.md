@@ -623,11 +623,34 @@ discovered by you hitting them.
       `design-projects?owner=shared` still returns 200 to the anon key — and
       confirmed the gate is live and classifying, from production logs:
       `[authgate] would-block POST /…/invoices tier=admin signedIn=false`.
-- [ ] **A3** **← you are here.** Use the app across its main areas: the public
-      store, sign in, the design centre, the content centre, an order, an
-      invoice. Then tell me and I will read the `[authgate] would-block` lines and
-      turn them into the real allowlist. **Nothing is being refused meanwhile**,
-      so anything that breaks in this window is not the gate.
+- [x] **A3 — done, and it earned its keep.** Eric used the app; the gate logged
+      27 route patterns. **Every single one read `signedIn=false`** — while he was
+      signed in. That is the 136-page problem confirmed by real traffic rather
+      than inferred: the browser sends the publishable key, so the server cannot
+      tell who is asking.
+
+      Three groups came out of it:
+
+      **Genuinely public, and missing from my first draft.** `public/branding`
+      (20 hits), `public/reels` (18), `gallery` (17), `reviews` (17),
+      `business-profiles` (31). Branding, reels and reviews are the public
+      pages' own content — **enforcing the first list would have taken the front
+      of the site down.** Now allowlisted, GET only; the writes behind those
+      paths still authenticate for themselves. 11 tier cases confirm it.
+
+      **Internal data fetched with no session** — `/customers`,
+      `/design-projects`, `/property-management/pending-counts`,
+      `/zendrop/status`, `/quotes`, `/invoices`, `/contracts`, `/change-orders`.
+      These must not become public; the frontend has to identify itself. This is
+      now a **named list of screens** rather than "136 pages, somewhere".
+
+      **A correction I owe on the seed endpoints.** I flagged four
+      unauthenticated POSTs — `customers/initialize`, `vendors/initialize`,
+      `seed-pipeline-data`, `white-label/initialize` — as writes anyone could
+      call. **They are not writes: none of those routes exist.** All four return
+      404, as does `/gallery`. They write nothing because there is nothing there.
+      I raised it as a security problem and it is a dead-code problem.
+
 - [ ] **A4** Show you the allowlist and the would-block list for approval.
 - [ ] **B1** Flip to enforcing. Deploy.
 - [ ] **B2** Re-run the smoke tests, confirm public store + login still work, and
