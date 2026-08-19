@@ -240,6 +240,161 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
 // ---------------------------------------------------------------------------
 // Voiceover — OpenAI TTS → MP3 stored in the bucket.
 // ---------------------------------------------------------------------------
+/**
+ * A reel built from real job photographs.
+ *
+ * The studio's normal path writes a script and then generates a picture for
+ * each scene with DALL·E. For a renovation company that is the wrong way round:
+ * there are 35 photographs of actual finished work sitting in storage, and a
+ * generated image of a kitchen that does not exist is worse than a photograph
+ * of one that does — worse for trust, and worse for the algorithm, which
+ * rewards real footage.
+ *
+ * So this inverts it. The photographs come first and fixed, and the script is
+ * written to fit them: the model is told what each photo is and writes narration
+ * for that specific image rather than a prompt to invent one. Nothing here calls
+ * an image generator at all.
+ *
+ * Only published photos are eligible. An unpublished photo is one nobody has
+ * cleared for the public, and a reel is about as public as it gets.
+ */
+videoStudioRouter.post("/video-studio/job-reel", async (c) => {
+  try {
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) return c.json({ success: false, error: "Script generation needs OPENAI_API_KEY." }, 500);
+
+    const body = await c.req.json().catch(() => ({}));
+    const wanted: string[] = Array.isArray(body.photoIds) ? body.photoIds.map(String) : [];
+    const category = String(body.category || "").trim();
+    const tone = String(body.tone || "warm, confident, local tradesman — not salesy");
+    const platform = String(body.platform || "Instagram Reels / TikTok");
+    const business = String(body.business || "Black Phoenix Builds");
+
+    // Read the gallery directly rather than over HTTP: this runs inside the
+    // same function, and a self-call would need a token it does not have.
+    const rows = ((await kv.getByPrefix("gallery:")) as any[] || []).filter(Boolean);
+    let photos = rows.filter((p) => p?.published && p?.image);
+
+    if (wanted.length) {
+      const order = new Map(wanted.map((id, i) => [id, i]));
+      photos = photos.filter((p) => order.has(p.id)).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    } else if (category) {
+      photos = photos.filter((p) => String(p.category) === category);
+    }
+
+    // Six is about twenty-five seconds at four seconds a photo, which is where
+    // short-form retention falls away.
+    photos = photos.slice(0, Math.min(Math.max(Number(body.max) || 6, 3), 8));
+
+    if (!photos.length) {
+      return c.json({
+        success: false,
+        error: "No published job photos to build a reel from. Publish some in Job Photos first.",
+      }, 400);
+    }
+
+    const manifest = photos
+      .map((p, i) => `${i + 1}. "${p.title}" (${p.category || "project"})`)
+      .join("\n");
+
+    const prompt = `You are writing a short-form video for a real renovation company.
+
+Business: ${business}, a full-service renovation company in Salem, New Hampshire —
+kitchens, bathrooms, whole-home remodels, additions and exterior work.
+Platform: ${platform}
+Tone: ${tone}
+
+These are REAL photographs of this company's completed work, in order:
+${manifest}
+
+Write narration for each photograph, in order — one scene per photograph, exactly
+${photos.length} scenes. You are describing real work this company did, so do not
+invent details you cannot see in a title: talk about craft, process, and what a
+homeowner gets, rather than claiming specific materials or measurements.
+
+Open with a hook in the first three seconds. Close by inviting a call.
+
+Return ONLY JSON with this exact shape:
+{
+  "title": string,
+  "hook": string,
+  "caption": string,
+  "hashtags": string[],
+  "scenes": [
+    { "narration": string, "onScreenText": string, "seconds": number }
+  ]
+}
+narration: 1-2 sentences, natural read aloud. onScreenText: <= 8 words.
+seconds: between 3 and 6.`;
+
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.8,
+      }),
+    });
+    const aiJson = await aiRes.json().catch(() => ({}));
+    if (!aiRes.ok) {
+      return c.json({ success: false, error: aiJson?.error?.message || "Script generation failed." }, 502);
+    }
+
+    let script: any = {};
+    try { script = JSON.parse(aiJson.choices?.[0]?.message?.content || "{}"); } catch { script = {}; }
+    const written: any[] = Array.isArray(script.scenes) ? script.scenes : [];
+
+    // The photographs are the fixed part. If the model returns too few scenes
+    // the photo still gets shown with its own title rather than being dropped —
+    // losing a real photograph to a short script would be the wrong trade.
+    const scenes = photos.map((photo, i) => {
+      const s = written[i] || {};
+      return {
+        imageUrl: photo.image,
+        photoId: photo.id,
+        photoTitle: photo.title,
+        narration: String(s.narration || `${photo.title}. Another finished project by ${business}.`),
+        onScreenText: String(s.onScreenText || photo.category || photo.title).slice(0, 60),
+        seconds: Math.min(Math.max(Number(s.seconds) || 4, 3), 6),
+        // Says plainly that no image generator was involved, so a reader of
+        // this payload cannot mistake these for generated stills.
+        source: "job-photo",
+      };
+    });
+
+    return c.json({
+      success: true,
+      title: String(script.title || `${business} — recent work`),
+      hook: String(script.hook || ""),
+      caption: String(script.caption || ""),
+      hashtags: Array.isArray(script.hashtags) ? script.hashtags.slice(0, 8) : [],
+      scenes,
+      totalSeconds: scenes.reduce((n, s) => n + s.seconds, 0),
+      photosUsed: scenes.length,
+    });
+  } catch (error: any) {
+    console.log(`[video-studio] job reel failed: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || "Could not build the reel." }, 500);
+  }
+});
+
+/** The published job photos a reel can be built from, newest categories first. */
+videoStudioRouter.get("/video-studio/job-photos", async (c) => {
+  try {
+    const rows = ((await kv.getByPrefix("gallery:")) as any[] || []).filter(Boolean);
+    const photos = rows
+      .filter((p) => p?.published && p?.image)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((p) => ({ id: p.id, title: p.title, category: p.category, image: p.image }));
+    const categories = [...new Set(photos.map((p) => p.category).filter(Boolean))];
+    return c.json({ success: true, photos, categories, total: photos.length });
+  } catch (error: any) {
+    return c.json({ success: false, photos: [], categories: [], error: error?.message }, 500);
+  }
+});
+
 videoStudioRouter.post("/video-studio/voiceover", async (c) => {
   try {
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
