@@ -380,6 +380,165 @@ seconds: between 3 and 6.`;
   }
 });
 
+/**
+ * A product reel built to be watched, not to describe a product.
+ *
+ * WHAT ACTUALLY DECIDES WHETHER ONE OF THESE WORKS
+ *
+ * Three things, in this order, and only the first two are code:
+ *
+ * 1. **Real product images, cut fast.** Every product here ships with 6 to 17
+ *    supplier photographs — angles, details, in-use shots. Generating a picture
+ *    of a product that already has seventeen of its own was always the wrong
+ *    trade: a generated approximation of a thing someone is about to buy reads
+ *    as fake, and it is fake. Nothing here calls an image generator.
+ *
+ * 2. **The first second.** Short-form is decided before most viewers have
+ *    understood what they are looking at, so the script is built hook-first and
+ *    the hook is a pattern interrupt or a result — never "check out this
+ *    product". Beats run about 1.2 seconds, not the 4-6 a narrated explainer
+ *    uses; momentum is most of retention.
+ *
+ * 3. **The sound, which cannot be automated.** Trending audio is the single
+ *    largest algorithmic lever on TikTok and Reels, and there is no lawful API
+ *    that hands you the current trending sounds — the licence lives inside the
+ *    apps. So these are written to work SILENT, with the message carried by
+ *    on-screen text, and the audio added in the native app at post time. That
+ *    is what people who do this for a living actually do.
+ *
+ * A synthetic voiceover is offered but off by default, and that is deliberate:
+ * on TikTok a TTS voice reads as an advert, and an advert gets scrolled. The
+ * caption channel outperforms it.
+ */
+videoStudioRouter.post("/video-studio/product-reel", async (c) => {
+  try {
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) return c.json({ success: false, error: "Script generation needs OPENAI_API_KEY." }, 500);
+
+    const body = await c.req.json().catch(() => ({}));
+    const productId = String(body.productId || "").trim();
+    const angle = String(body.angle || "auto");
+
+    const all = ((await kv.getByPrefix("product_")) as any[] || []).filter(Boolean);
+    const product = productId
+      ? all.find((p) => String(p.id) === productId || String(p.sku) === productId)
+      // No product named: take the one with the most imagery, since a reel is
+      // only as good as the number of beats it can cut.
+      : all.sort((a, b) =>
+          (Array.isArray(b.images) ? b.images.length : 0) - (Array.isArray(a.images) ? a.images.length : 0),
+        )[0];
+
+    if (!product) return c.json({ success: false, error: "No product found." }, 404);
+
+    const images: string[] = [
+      ...(product.primaryImage ? [product.primaryImage] : []),
+      ...(Array.isArray(product.images) ? product.images : []),
+    ].filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
+
+    const unique = [...new Set(images)];
+    if (unique.length < 3) {
+      return c.json({
+        success: false,
+        error: `"${product.name}" has only ${unique.length} usable image(s). A reel needs at least 3.`,
+      }, 400);
+    }
+
+    // Eight beats at ~1.2s is roughly ten seconds — long enough to land a hook,
+    // a benefit and a price, short enough to be rewatched, and a rewatch counts
+    // for more than a view.
+    const beats = unique.slice(0, Math.min(Math.max(Number(body.beats) || 8, 4), 12));
+    const price = Number(product.price) || Number(product.retailPrice) || 0;
+
+    const prompt = `You write short-form product videos that people actually watch to the end.
+
+Product: ${product.name}
+Category: ${product.category || "general"}
+${price ? `Price: $${price.toFixed(2)}` : ""}
+${product.description ? `Description: ${String(product.description).slice(0, 400)}` : ""}
+Beats available: ${beats.length} (one real product photo each, ~1.2 seconds per beat)
+Requested angle: ${angle === "auto" ? "choose the strongest" : angle}
+
+RULES, and they matter more than the copy:
+- The video will most likely be watched WITH THE SOUND OFF at first. Every idea
+  must land as on-screen text. Do not rely on narration to carry meaning.
+- Beat 1 is the hook and has about 1.2 seconds. Make it a pattern interrupt, a
+  problem someone recognises, or the result. Never "check out this product" and
+  never the product's name alone.
+- On-screen text: 3-6 words per beat. Punchy. Lower case is fine. No hashtags in
+  the on-screen text.
+- Do not invent specifications, materials, certifications or claims that are not
+  in the description. Say what it does for someone, not what it is made of.
+- No fake urgency, no invented discounts, no "limited stock".
+- The last beat is a soft call to action.
+
+Return ONLY JSON:
+{
+  "hookStyle": string,        // which angle you chose and why, one short sentence
+  "beats": [ { "onScreenText": string, "narration": string } ],  // exactly ${beats.length}
+  "caption": string,          // the post caption, 1-2 lines, conversational
+  "hashtags": string[],       // 5-8, no '#', mix broad and specific
+  "soundSuggestion": string   // the KIND of trending audio that suits this, in words
+}`;
+
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.9,
+      }),
+    });
+    const aiJson = await aiRes.json().catch(() => ({}));
+    if (!aiRes.ok) {
+      return c.json({ success: false, error: aiJson?.error?.message || "Script generation failed." }, 502);
+    }
+
+    let script: any = {};
+    try { script = JSON.parse(aiJson.choices?.[0]?.message?.content || "{}"); } catch { script = {}; }
+    const written: any[] = Array.isArray(script.beats) ? script.beats : [];
+
+    const scenes = beats.map((imageUrl, i) => {
+      const b = written[i] || {};
+      return {
+        imageUrl,
+        // The hook gets a beat and a half. Everything after it moves.
+        seconds: i === 0 ? 1.8 : 1.2,
+        onScreenText: String(b.onScreenText || "").slice(0, 60),
+        narration: String(b.narration || ""),
+        source: "supplier-photo",
+      };
+    });
+
+    return c.json({
+      success: true,
+      product: { id: product.id || product.sku, name: product.name, price, category: product.category },
+      hookStyle: String(script.hookStyle || ""),
+      scenes,
+      caption: String(script.caption || ""),
+      hashtags: Array.isArray(script.hashtags) ? script.hashtags.slice(0, 8) : [],
+      totalSeconds: Number(scenes.reduce((n, s) => n + s.seconds, 0).toFixed(1)),
+      imagesAvailable: unique.length,
+      audio: {
+        // Said out loud in the payload so nobody ships these silent by accident
+        // and concludes the format does not work.
+        voiceover: false,
+        reason:
+          "Built to work with the sound off. A synthetic voiceover reads as an advert on TikTok and Reels; " +
+          "on-screen text plus trending audio consistently outperforms it.",
+        suggestion: String(script.soundSuggestion || "Something upbeat and current for this category."),
+        action:
+          "Add a trending sound in the TikTok or Instagram app when you post. No API can supply trending " +
+          "audio legally — the licence only exists inside the apps — so this is the one step that stays manual.",
+      },
+    });
+  } catch (error: any) {
+    console.log(`[video-studio] product reel failed: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || "Could not build the reel." }, 500);
+  }
+});
+
 /** The published job photos a reel can be built from, newest categories first. */
 videoStudioRouter.get("/video-studio/job-photos", async (c) => {
   try {
