@@ -131,7 +131,8 @@ interface RankedProduct {
   breakdown: Record<string, number>;
   shippingDays: number;
   competitionRisk: "low" | "medium" | "high";
-  estGrowthPct: number;
+  growthPct: number | null;
+  signalQuality: { score: number; have: string[]; missing: string[]; basis: string };
   isTrending: boolean;
   isNew: boolean;
   source: string;
@@ -165,7 +166,8 @@ function buildRanked(args: {
     id: args.id, sku: args.sku, name: args.name, image: args.image, category: args.category,
     cost: args.cost, retail: scored.retail, profit: scored.profit, marginPct: scored.marginPct,
     finalScore: scored.finalScore, trendingScore: scored.finalScore, breakdown: scored.breakdown,
-    shippingDays: scored.shippingDays, competitionRisk: scored.competitionRisk, estGrowthPct: scored.estGrowthPct,
+    shippingDays: scored.shippingDays, competitionRisk: scored.competitionRisk,
+    growthPct: scored.growthPct, signalQuality: scored.signalQuality,
     isTrending: args.isTrending, isNew: args.isNew,
     source: args.source, sourceLabel: args.sourceLabel, providerProductId: args.providerProductId,
     importable: true, primarySourceUrl: primary?.url || sourcing[0]?.url || "", sourcing,

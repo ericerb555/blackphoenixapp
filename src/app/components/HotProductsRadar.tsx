@@ -35,7 +35,10 @@ interface HotProduct {
   trendingScore: number;
   isTrending: boolean;
   isNew: boolean;
-  signals: { rating: number; reviews: number; sales: number; price: number; ageDays: number; estGrowthPct: number };
+  signals: { rating: number; reviews: number; sales: number; price: number; ageDays: number };
+  /** Null when nothing can measure it — render as "no data", never as zero. */
+  growthPct: number | null;
+  signalQuality?: { score: number; have: string[]; missing: string[]; basis: string };
   productType?: string;
   source?: string;
   sourceLabel?: string;
@@ -452,9 +455,34 @@ export default function HotProductsRadar() {
                           {p.signals.rating > 0 && <> · <Star className="w-2.5 h-2.5 inline text-yellow-400 fill-yellow-400" /> {p.signals.rating.toFixed(1)}</>}
                         </p>
                       </div>
+                      {/* Growth, only when growth is known.
+
+                          This showed a green "+180%" on every row. The number
+                          behind it was arithmetic on a boolean and a review
+                          count — no source of growth data is connected to this
+                          app — and rendered in emerald with an upward arrow it
+                          was indistinguishable from a measurement. A confident
+                          fake number eventually drives a real buying decision,
+                          and that costs money in stock and ad spend.
+
+                          Now it appears when there are two readings to compare
+                          and says "no data" otherwise, which is the truth. */}
                       <div className="text-right shrink-0">
-                        <div className="flex items-center gap-1 text-emerald-400 text-[11px] font-bold justify-end"><TrendingUp className="w-3 h-3" /> +{p.signals.estGrowthPct}%</div>
-                        <div className="text-[10px] text-gray-600">growth</div>
+                        {typeof p.growthPct === 'number' ? (
+                          <>
+                            <div className={`flex items-center gap-1 text-[11px] font-bold justify-end ${
+                              p.growthPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              <TrendingUp className="w-3 h-3" />
+                              {p.growthPct >= 0 ? '+' : ''}{p.growthPct}%
+                            </div>
+                            <div className="text-[10px] text-gray-600">growth</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-[11px] font-bold text-gray-600 justify-end">—</div>
+                            <div className="text-[10px] text-gray-600" title="No demand history is connected, so growth cannot be measured.">no data</div>
+                          </>
+                        )}
                       </div>
                       <div className="w-14 text-center shrink-0">
                         <div className="text-lg font-black" style={{ color: scoreColor(p.trendingScore) }}>{p.trendingScore}</div>

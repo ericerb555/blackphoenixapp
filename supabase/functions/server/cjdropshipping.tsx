@@ -519,7 +519,14 @@ function toCjCandidate(p: any): CjCandidate | null {
     // Scan-time placeholder only. `/product/list` carries no inventory figure,
     // so real stock is resolved per-variant at import (see fetchVariantStock).
     // Never persist this value.
-    images: pickImages(p), stock: 0, rating: 4.6,
+    //
+    // Rating is 0, and that is deliberate. It used to be 4.6 — the same number
+    // on every product in the catalogue, because CJ's /product/list returns no
+    // rating at all. A constant dressed as a measurement is worse than a blank:
+    // it fed the trend score identically for every item, so it added nothing to
+    // the ranking while making the ranking look demand-aware. Zero lets
+    // signalQuality report the rating as missing, which is the truth.
+    images: pickImages(p), stock: 0, rating: 0,
     createdAt: p?.createTime || p?.createdAt || undefined,
   };
 }

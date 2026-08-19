@@ -65,7 +65,10 @@ export interface TrendSignals {
   price?: number;
   ageDays?: number;
   isTrending?: boolean;
-  estGrowthPct?: number;
+  /** A previous sales reading, if one was recorded, so growth can be real. */
+  salesPrevious?: number;
+  /** True when the rating is a supplier default rather than a measurement. */
+  ratingIsDefault?: boolean;
 }
 
 /**
@@ -85,15 +88,58 @@ export function trendStrength(s: TrendSignals): number {
 }
 
 /**
- * Estimated growth % — a Kalodata-style "rising fast" indicator. Kept separate
- * from the score so a UI can show "▲ 180%" alongside the rank.
+ * Growth, when growth is actually known. Null when it is not.
+ *
+ * This used to return a number every time:
+ *
+ *   (isTrending ? 120 : 20) + log10(sales + reviews) * 60 + rating * 8
+ *
+ * which is arithmetic on a boolean and a review count, rendered in the
+ * interface as "▲ 180%" — indistinguishable from a measurement. The comment
+ * above it described it as "a Kalodata-style rising-fast indicator", and that
+ * was the problem exactly: it imitated the output of a data source nothing here
+ * is connected to.
+ *
+ * A number that looks measured and is not will eventually steer a buying
+ * decision, and buying decisions cost money in stock and ad spend. So this now
+ * reports growth only when two observations of the same product exist to
+ * compare, and otherwise says it does not know.
+ *
+ * `null` is the honest answer, and callers must render it as "no data" rather
+ * than as zero — zero growth is itself a claim.
  */
-export function estimatedGrowthPct(s: TrendSignals): number {
-  return Math.round(
-    (s.isTrending ? 120 : 20) +
-      Math.min(200, Math.log10(num(s.sales) + num(s.reviews) + 1) * 60) +
-      num(s.rating) * 8,
-  );
+export function growthPct(s: TrendSignals): number | null {
+  const now = num(s.sales, NaN);
+  const before = num((s as any).salesPrevious, NaN);
+  if (!Number.isFinite(now) || !Number.isFinite(before) || before <= 0) return null;
+  return Math.round(((now - before) / before) * 100);
+}
+
+/**
+ * Which of the five factors had real data behind them.
+ *
+ * The score is a weighted blend, and a blend does not say which of its parts
+ * were guesses. With only CJ connected, `isTrending` is always false (that flag
+ * comes from Zendrop's trending feed) and rating arrives as a constant, so
+ * trend strength contributes almost nothing real and the ranking is driven by
+ * margin. That is a legitimate way to rank products — it is just not what the
+ * word "trending" promises, and the interface should be able to say so.
+ */
+export function signalQuality(s: TrendSignals): {
+  score: number; have: string[]; missing: string[]; basis: string;
+} {
+  const have: string[] = [];
+  const missing: string[] = [];
+  (num(s.sales) > 0 ? have : missing).push("sales");
+  (num(s.reviews) > 0 ? have : missing).push("reviews");
+  (s.isTrending === true ? have : missing).push("trend feed");
+  (num(s.rating) > 0 && !(s as any).ratingIsDefault ? have : missing).push("rating");
+
+  const score = Math.round((have.length / 4) * 100);
+  const basis = have.length === 0
+    ? "Ranked on price and margin only — no demand data is connected."
+    : `Ranked on ${have.join(", ")}${missing.length ? ` (no ${missing.join(", ")})` : ""}.`;
+  return { score, have, missing, basis };
 }
 
 export interface ScoreInput {
@@ -119,7 +165,9 @@ export interface ScoreResult {
   profit: number;
   marginPct: number;
   shippingDays: number;
-  estGrowthPct: number;
+  /** Null when no two observations exist to compare. Never render as zero. */
+  growthPct: number | null;
+  signalQuality: { score: number; have: string[]; missing: string[]; basis: string };
   competitionRisk: "low" | "medium" | "high";
 }
 
@@ -184,7 +232,12 @@ export function scoreProduct(input: ScoreInput): ScoreResult {
     profit,
     marginPct,
     shippingDays: ship.mid,
-    estGrowthPct: estimatedGrowthPct(input.signals),
+    // Null unless two observations exist to compare. Render as "no data", never
+    // as zero — zero growth is a claim of its own.
+    growthPct: growthPct(input.signals),
+    // Travels with every score so a screen can say what the ranking rests on
+    // instead of implying it rests on demand.
+    signalQuality: signalQuality(input.signals),
     competitionRisk,
   };
 }
