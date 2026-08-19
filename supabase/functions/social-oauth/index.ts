@@ -35,7 +35,21 @@
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
-const PLATFORMS = new Set(['facebook', 'instagram', 'tiktok']);
+/**
+ * Where each provider's return is forwarded to.
+ *
+ * Google Search Console is not a social account and does not live in the social
+ * module, but it arrives the same way — a browser redirect with no Supabase
+ * token — and needs the same doorway. Mapping the provider to its destination
+ * keeps that one fact in one place instead of assuming every return belongs to
+ * `/social/callback`.
+ */
+const DESTINATIONS: Record<string, string> = {
+  facebook: '/social/callback/facebook',
+  instagram: '/social/callback/instagram',
+  tiktok: '/social/callback/tiktok',
+  google: '/search-console/callback',
+};
 
 function page(message: string, ok: boolean) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${ok ? 'Connected' : 'Connection failed'}</title></head>
@@ -50,9 +64,10 @@ function page(message: string, ok: boolean) {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
-  // .../functions/v1/social-oauth/<platform>
-  const platform = url.pathname.split('/').filter(Boolean).pop() || '';
-  if (!PLATFORMS.has(platform)) {
+  // .../functions/v1/social-oauth/<provider>
+  const provider = url.pathname.split('/').filter(Boolean).pop() || '';
+  const destination = DESTINATIONS[provider];
+  if (!destination) {
     return new Response(page('That connection type is not recognised.', false), {
       status: 400,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -67,7 +82,7 @@ Deno.serve(async (req) => {
   }
 
   const target =
-    `${SUPABASE_URL}/functions/v1/make-server-3eae23a6/social/callback/${platform}${url.search}`;
+    `${SUPABASE_URL}/functions/v1/make-server-3eae23a6${destination}${url.search}`;
 
   try {
     const upstream = await fetch(target, {

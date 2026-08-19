@@ -15,6 +15,7 @@ import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
 import galleryRouter from "./gallery.tsx";
 import blogRouter from "./blog.tsx";
+import searchConsoleRouter from "./search-console.tsx";
 import servicesCatalogRouter from "./services-catalog.tsx";
 import projectsCrudRouter from "./projects-crud.tsx";
 import investmentsRouter from "./investments-kv.tsx";
@@ -398,6 +399,7 @@ app.use('/make-server-3eae23a6/entitlements-summary', async (c, next) => {
 app.route("/", socialRouter);
 app.route("/", galleryRouter);
 app.route("/", blogRouter);
+app.route("/", searchConsoleRouter);
 
 app.route("/", plansRouter);
 app.route("/", servicesCatalogRouter);
