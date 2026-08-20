@@ -655,43 +655,125 @@ timeTrackingRouter.patch("/entries/:id/allocations", async (c) => {
 
     const allocated = Math.round(cleaned.reduce((sum, a) => sum + a.hours, 0) * 100) / 100;
     const total = Math.round(Number(entry.totalHours || 0) * 100) / 100;
-    // One hundredth of an hour — 36 seconds — of slack, because 8.5 hours across
-    // three jobs is 2.8333 each and no set of hundredths adds back exactly.
-    //
-    // The slack is for the person typing, not for the record: anything inside it
-    // is absorbed below so the stored allocations sum to the clocked total
-    // exactly. Accepting a near-miss and then filing it would leave a billing
-    // record that still does not add up, which is the thing this exists to stop.
     const drift = Math.round((allocated - total) * 100) / 100;
-    if (Math.abs(drift) > 0.01) {
+
+    // A partial split saves. Somebody halfway through assigning a day's hours
+    // should not be refused and lose the rows they have already filled in — the
+    // reconciliation is checked when the timesheet is SENT TO PAYROLL, which is
+    // the gate that actually matters. See /entries/:id/submit below.
+    //
+    // Over-allocation is still refused here, because billing more hours than
+    // were worked is never a work-in-progress state; it is simply wrong, and it
+    // is cheaper to say so while the person is still looking at the form.
+    if (drift > 0.01) {
       return c.json({
         success: false,
-        error: drift > 0
-          ? `Allocated ${allocated}h but only ${total}h were worked — ${Math.abs(drift)}h too many.`
-          : `Allocated ${allocated}h of ${total}h worked — ${Math.abs(drift)}h still unassigned.`,
+        error: `Allocated ${allocated}h but only ${total}h were worked — ${Math.abs(drift)}h too many.`,
         totalHours: total, allocatedHours: allocated, unallocatedHours: Math.round((total - allocated) * 100) / 100,
       }, 400);
     }
+
+    // One hundredth of an hour — 36 seconds — of slack, because 8.5 hours across
+    // three jobs is 2.8333 each and no set of hundredths adds back exactly. The
+    // slack is for the person typing, not for the record: a near-miss is
+    // absorbed below so a *complete* split stores an exact total.
+    const nearlyBalanced = Math.abs(drift) <= 0.01;
 
     // Absorb any sub-tolerance rounding onto the largest line, so what gets
     // stored reconciles to the penny rather than merely to within 36 seconds.
     // The largest line is chosen because a hundredth of an hour is proportionally
     // least visible there.
-    if (drift !== 0 && cleaned.length) {
+    // Only a split that is meant to be complete gets its rounding absorbed.
+    // Nudging a deliberately partial split would silently invent hours the
+    // person had not assigned yet.
+    if (nearlyBalanced && drift !== 0 && cleaned.length) {
       let biggest = 0;
       for (let i = 1; i < cleaned.length; i++) if (cleaned[i].hours > cleaned[biggest].hours) biggest = i;
       cleaned[biggest].hours = Math.round((cleaned[biggest].hours - drift) * 100) / 100;
     }
     const finalAllocated = Math.round(cleaned.reduce((sum, a) => sum + a.hours, 0) * 100) / 100;
+    const remaining = Math.round((total - finalAllocated) * 100) / 100;
 
     const now = new Date().toISOString();
-    const updated = { ...entry, allocations: cleaned, allocationsUpdatedAt: now };
+    // Changing the split withdraws it from payroll. Otherwise payroll could be
+    // holding a submission for approval while the hours behind it move.
+    const updated = {
+      ...entry,
+      allocations: cleaned,
+      allocationsUpdatedAt: now,
+      ...(entry.submittedToPayroll ? { submittedToPayroll: false, payrollStatus: "withdrawn", withdrawnAt: now } : {}),
+    };
     const dateKey = new Date(entry.punchIn).toISOString().split("T")[0];
     await kv.set(`time_entry_history:${entry.employeeId}:${dateKey}:${entry.id}`, updated);
 
-    return c.json({ success: true, entry: updated, totalHours: total, allocatedHours: finalAllocated, unallocatedHours: Math.round((total - finalAllocated) * 100) / 100 });
+    return c.json({
+      success: true,
+      entry: updated,
+      totalHours: total,
+      allocatedHours: finalAllocated,
+      unallocatedHours: remaining,
+      // What payroll will say if it is submitted as it stands.
+      readyForPayroll: Math.abs(remaining) <= 0.01,
+    });
   } catch (error) {
     console.error("Error updating allocations:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+/**
+ * Send a shift to payroll.
+ *
+ * This is where the reconciliation is enforced, and deliberately not earlier.
+ * Punching is never restricted and a half-finished split saves freely — someone
+ * assigning a day's hours across three jobs should be able to do it in three
+ * sittings without being refused. What must not happen is an unbalanced
+ * timesheet reaching payroll, because that is the moment the hours become an
+ * invoice and a wage.
+ */
+timeTrackingRouter.post("/entries/:id/submit", async (c) => {
+  try {
+    const entryId = c.req.param("id");
+    const allEntries = ((await kv.getByPrefix("time_entry_history:")) as any[]) || [];
+    const entry = allEntries.find((e: any) => e?.id === entryId);
+    if (!entry) return c.json({ success: false, error: "Time entry not found" }, 404);
+
+    const denial = requireEmployeeAccess(c, entry.employeeId);
+    if (denial) return denial;
+
+    if (entry.status !== "completed") {
+      return c.json({ success: false, error: "Punch out before sending this shift to payroll." }, 400);
+    }
+    if (entry.approved) {
+      return c.json({ success: false, error: "Payroll has already approved this shift." }, 409);
+    }
+
+    const total = Math.round(Number(entry.totalHours || 0) * 100) / 100;
+    const allocations = Array.isArray(entry.allocations) ? entry.allocations : [];
+    const allocated = Math.round(allocations.reduce((s: number, a: any) => s + Number(a.hours || 0), 0) * 100) / 100;
+    const remaining = Math.round((total - allocated) * 100) / 100;
+
+    if (Math.abs(remaining) > 0.01) {
+      return c.json({
+        success: false,
+        error: remaining > 0
+          ? `${remaining}h of the ${total}h worked are not assigned to a work order yet.`
+          : `${Math.abs(remaining)}h more than the ${total}h worked have been assigned.`,
+        totalHours: total, allocatedHours: allocated, unallocatedHours: remaining,
+      }, 400);
+    }
+    if (total > 0 && allocations.length === 0) {
+      return c.json({ success: false, error: `None of the ${total}h worked are assigned to a work order yet.` }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const updated = { ...entry, submittedToPayroll: true, submittedAt: now, payrollStatus: "submitted" };
+    const dateKey = new Date(entry.punchIn).toISOString().split("T")[0];
+    await kv.set(`time_entry_history:${entry.employeeId}:${dateKey}:${entry.id}`, updated);
+
+    return c.json({ success: true, entry: updated, totalHours: total, allocatedHours: allocated });
+  } catch (error) {
+    console.error("Error submitting entry to payroll:", error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });

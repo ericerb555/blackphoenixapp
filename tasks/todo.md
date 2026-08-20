@@ -2801,3 +2801,41 @@ His role is `owner`, so the two role-string checks still treat him as staff:
 `hasAdminAccess` in time-tracking (employee portal returns `scope: "all"`) and
 the vendor branch in the purchase-order actor (company-wide list). Everything
 else keys off the records above.
+
+### Correction: the reconciliation gate belongs at payroll, not at save
+
+Eric: *"I should be able to punch in and punch out at any time. I just need my
+time to match the work orders before it can be sent to payroll."*
+
+The first build put the check in the wrong place — it refused to **save** an
+unbalanced split. Somebody assigning a day across three jobs, who only knows two
+of them so far, was told no and lost the rows they had filled in.
+
+**What changed.**
+
+- **Saving is permissive.** A partial split saves and keeps its rows. The only
+  thing still refused on save is over-allocation, because billing more hours than
+  were worked is never a work-in-progress state — it is simply wrong, and it is
+  cheaper to say so while the person is looking at the form.
+- **`POST /entries/:id/submit` is the gate.** It enforces the match and names the
+  gap: *"4.5h of the 8.5h worked are not assigned to a work order yet."* That is
+  the moment the hours become an invoice and a wage, so that is where the rule
+  belongs.
+- **Rounding is only absorbed on a complete split.** Nudging a deliberately
+  partial one would invent hours nobody had assigned.
+- **Editing a submitted shift withdraws it from payroll**, so payroll cannot be
+  holding a submission for approval while the hours behind it move.
+- **Punching stays unrestricted.** The only guard is the pre-existing one against
+  punching in twice without punching out, which is not a restriction so much as
+  arithmetic — a person cannot be on two shifts at once.
+
+**Verified 10/10** against the shipped logic: partial saves and is flagged
+not-ready, a complete split saves and absorbs its rounding to an exact total, a
+partial one is left un-nudged, over-allocation is refused at both ends, and
+payroll refuses partial, empty and over-allocated sets with the figure named.
+
+**And in the browser**, across three shifts at once: the partially split shift
+offers no payroll button and reads "4.5h to assign before payroll"; the fully
+split one offers an enabled "Send to payroll"; the already-submitted one shows
+its badge and no button. Exactly one payroll control on the page, and it is the
+right one.

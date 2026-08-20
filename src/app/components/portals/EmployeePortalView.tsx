@@ -117,16 +117,36 @@ export default function EmployeePortalView() {
   // The number the whole screen turns on. Shown live so the gap is being closed
   // in front of the person, not discovered when Save is refused.
   const unallocated = Math.round((entryTotal - draftTotal) * 100) / 100;
-  // Adding up is necessary but not sufficient. A row with hours and no work
-  // order chosen still counts toward the total, so on opening the editor the
-  // seeded row balanced at the full shift and Save offered itself while the
-  // request it would send was empty. The server refused it, but a button that
-  // looks ready and then fails is a worse answer than one that stays locked.
+  // Every row must name a work order and carry hours. A row with hours and no
+  // work order still counts toward the total, so without this the seeded row
+  // balanced at the full shift while the request it would send was empty.
   const rowsComplete = draftRows.length > 0 && draftRows.every((r) => r.workOrderId && Number(r.hours) > 0);
+  // A partial split is a legitimate thing to save — you may be assigning a day
+  // across three jobs and only know two of them so far. Only over-allocation is
+  // refused, because billing more hours than were worked is never in progress,
+  // it is just wrong.
+  const canSave = rowsComplete && unallocated >= -0.01;
+  // Balance is what payroll needs, not what saving needs.
   const balanced = Math.abs(unallocated) <= 0.01 && rowsComplete;
 
+  const submitToPayroll = async (entryId: string) => {
+    if (savingRows) return;
+    setSavingRows(true);
+    try {
+      const res = await fetch(`${TIME_API}/entries/${encodeURIComponent(entryId)}/submit`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'Could not send this shift to payroll.');
+      toast.success('Sent to payroll.');
+      await loadTime();
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not send this shift to payroll.');
+    } finally { setSavingRows(false); }
+  };
+
   const saveAllocations = async () => {
-    if (!editingEntryId || savingRows || !balanced) return;
+    if (!editingEntryId || savingRows || !canSave) return;
     setSavingRows(true);
     try {
       const res = await fetch(`${TIME_API}/entries/${encodeURIComponent(editingEntryId)}/allocations`, {
@@ -803,14 +823,35 @@ export default function EmployeePortalView() {
                               {gap !== 0 && <span className="ml-2 text-yellow-400">{gap > 0 ? `${gap}h unbilled` : `${Math.abs(gap)}h over-allocated`}</span>}
                             </p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {entry.approved && (
-                              <span className="rounded border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-xs font-semibold text-green-400">Approved</span>
-                            )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {entry.approved ? (
+                              <span className="rounded border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-xs font-semibold text-green-400">Approved by payroll</span>
+                            ) : entry.submittedToPayroll ? (
+                              <span className="rounded border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-xs font-semibold text-blue-300">Sent to payroll</span>
+                            ) : null}
+
                             {!entry.approved && (
                               <SecondaryButton onClick={() => (isEditing ? setEditingEntryId(null) : beginEditing(entry))}>
                                 {isEditing ? 'Cancel' : 'Split hours'}
                               </SecondaryButton>
+                            )}
+
+                            {/* Payroll is the gate. It only opens when the split
+                                reconciles to the clock — which is why the figure
+                                is named on the button when it does not. */}
+                            {!entry.approved && !entry.submittedToPayroll && !isEditing && (
+                              gap === 0 && Array.isArray(entry.allocations) && entry.allocations.length > 0 ? (
+                                <PrimaryButton onClick={() => submitToPayroll(entry.id)} disabled={savingRows}>
+                                  Send to payroll
+                                </PrimaryButton>
+                              ) : (
+                                <span
+                                  title="Assign every hour to a work order first"
+                                  className="cursor-not-allowed rounded-lg border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-500"
+                                >
+                                  {gap > 0 ? `${gap}h to assign before payroll` : `${Math.abs(gap)}h over — fix before payroll`}
+                                </span>
+                              )
                             )}
                           </div>
                         </div>
@@ -875,16 +916,20 @@ export default function EmployeePortalView() {
                                 {/* The live reconciliation. Save stays locked until
                                     this reads zero, so an unbalanced split is never
                                     even attempted. */}
-                                <span className={`text-sm font-semibold tabular-nums ${balanced ? 'text-green-400' : 'text-yellow-400'}`}>
+                                {/* The running figure. It no longer gates Save —
+                                    a partial split is worth keeping — it gates
+                                    payroll, which is the point at which the
+                                    hours become an invoice and a wage. */}
+                                <span className={`text-sm font-semibold tabular-nums ${balanced ? 'text-green-400' : unallocated < 0 ? 'text-red-400' : 'text-yellow-400'}`}>
                                   {balanced
-                                    ? `Balanced · ${entryTotal}h`
-                                    : !rowsComplete && Math.abs(unallocated) <= 0.01
+                                    ? `Balanced · ${entryTotal}h · ready for payroll`
+                                    : !rowsComplete
                                       ? 'Choose a work order for every line'
                                       : unallocated > 0
-                                        ? `${unallocated}h left to assign`
+                                        ? `${unallocated}h left before payroll`
                                         : `${Math.abs(unallocated)}h over the ${entryTotal}h clocked`}
                                 </span>
-                                <PrimaryButton onClick={saveAllocations} disabled={!balanced || savingRows}>
+                                <PrimaryButton onClick={saveAllocations} disabled={!canSave || savingRows}>
                                   {savingRows ? 'Saving…' : 'Save split'}
                                 </PrimaryButton>
                               </div>
