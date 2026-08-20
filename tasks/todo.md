@@ -2839,3 +2839,32 @@ offers no payroll button and reads "4.5h to assign before payroll"; the fully
 split one offers an enabled "Send to payroll"; the already-submitted one shows
 its badge and no button. Exactly one payroll control on the page, and it is the
 right one.
+
+### Punch clock moved to the top of the employee dashboard
+
+Eric: *"I feel like the punch in and out should be on the main dashboard of the
+employee dash."*
+
+It was a small button tucked inside the welcome banner — a poor home for the one
+control that gets used twice a day, every day. It is now the first thing on the
+dashboard:
+
+- **Clocked in:** a live timer counting up (`02:34:16`), the time the shift
+  started, hours so far, and a red **Punch out**. The card border and a pulsing
+  dot go green so the state reads before any text does.
+- **Clocked out:** hours this week and the shift count, and a green **Punch in**.
+- **A nudge underneath**, shown only when something is outstanding:
+  *"4.5h not yet assigned to a work order — payroll cannot take these"*, linking
+  straight to the Timesheet tab. This is what stops hours quietly piling up
+  unbillable.
+- The old banner button is **removed**. Two controls doing the same thing, one
+  more prominent than the other, is a way to punch out by accident.
+
+The timer ticks only while the clock is running — an interval that starts and
+stops with the shift rather than running all day.
+
+**Verified in the browser, both states.** Clocked in: timer advanced 02:34:14 →
+02:34:16 across two samples, so it is genuinely live rather than a rendered
+constant; button reads "Punch out"; exactly one punch control on the page.
+Clocked out: "8.5h this week · 1 shift", button reads "Punch in", again exactly
+one. Zero exceptions in either.

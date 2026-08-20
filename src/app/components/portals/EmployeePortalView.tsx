@@ -57,6 +57,25 @@ export default function EmployeePortalView() {
   const [draftRows, setDraftRows] = useState<Array<{ workOrderId: string; hours: string; note: string }>>([]);
   const [savingRows, setSavingRows] = useState(false);
 
+  // Ticks only while the clock is running. A punch card that shows a frozen
+  // number is worse than one that shows none — the whole point is watching the
+  // shift accumulate.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!activeEntry?.punchIn) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [activeEntry?.punchIn]);
+
+  const elapsed = (() => {
+    if (!activeEntry?.punchIn) return null;
+    const ms = Math.max(0, nowTick - new Date(activeEntry.punchIn).getTime());
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return { h, m, s, hours: Math.round((ms / 3600000) * 100) / 100 };
+  })();
+
   const authHeaders = () => ({ Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' });
   const employeeId = String(employee?.id || user?.id || '');
 
@@ -447,6 +466,78 @@ export default function EmployeePortalView() {
 
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {/* ─── Punch clock ───────────────────────────────────────────────
+                First thing on the dashboard, because it is the thing an employee
+                opens this portal to do. It was previously a small button tucked
+                into the welcome banner, which is a poor home for the one control
+                that gets used twice a day, every day. */}
+            <div className={`rounded-xl border p-6 transition ${activeEntry ? 'border-green-500/30 bg-green-500/5' : 'border-gray-800 bg-[#1a1a1a]'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-6">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${activeEntry ? 'animate-pulse bg-green-400' : 'bg-gray-600'}`} />
+                    <p className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+                      {activeEntry ? 'On the clock' : 'Clocked out'}
+                    </p>
+                  </div>
+
+                  {activeEntry && elapsed ? (
+                    <>
+                      <p className="mt-2 text-4xl font-bold tabular-nums text-white">
+                        {String(elapsed.h).padStart(2, '0')}:{String(elapsed.m).padStart(2, '0')}
+                        <span className="text-2xl text-gray-500">:{String(elapsed.s).padStart(2, '0')}</span>
+                      </p>
+                      <p className="mt-1 text-sm text-gray-400">
+                        Started {new Date(activeEntry.punchIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {' · '}{elapsed.hours}h so far
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-4xl font-bold tabular-nums text-white">{hoursThisWeek}h</p>
+                      <p className="mt-1 text-sm text-gray-400">
+                        this week{entries.length ? ` · ${entries.length} shift${entries.length === 1 ? '' : 's'}` : ' · no shifts yet'}
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-stretch gap-2">
+                  <button
+                    type="button"
+                    onClick={() => punch(activeEntry ? 'out' : 'in')}
+                    disabled={clockBusy || timeLoading || !employeeId}
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      activeEntry ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'
+                    }`}
+                  >
+                    <Clock className="h-5 w-5" />
+                    {clockBusy ? 'Working…' : activeEntry ? 'Punch out' : 'Punch in'}
+                  </button>
+                  {!employeeId && !timeLoading && (
+                    <p className="max-w-[15rem] text-center text-xs text-yellow-400">
+                      No employee record is linked to this account yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* The nudge that keeps payroll unblocked. Only shown when there is
+                  actually something outstanding. */}
+              {unbilledHours > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('timesheet')}
+                  className="mt-5 flex w-full items-center justify-between gap-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 text-left transition hover:border-yellow-500/40"
+                >
+                  <span className="text-sm text-yellow-300">
+                    <span className="font-bold tabular-nums">{unbilledHours}h</span> not yet assigned to a work order — payroll cannot take these.
+                  </span>
+                  <span className="whitespace-nowrap text-xs font-bold text-yellow-400">Split hours →</span>
+                </button>
+              )}
+            </div>
+
             {/* Welcome Section */}
             <div className="bg-gradient-to-r from-[#ea580c] to-orange-600 rounded-xl p-6 text-white">
               <div className="flex items-start justify-between">
@@ -480,21 +571,9 @@ export default function EmployeePortalView() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {activeEntry && (
-                    <span className="rounded-lg bg-white/15 px-3 py-1.5 text-sm text-white">
-                      On the clock since {new Date(activeEntry.punchIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                    </span>
-                  )}
-                  <PrimaryButton
-                    variant="white"
-                    onClick={() => punch(activeEntry ? 'out' : 'in')}
-                    disabled={clockBusy || timeLoading || !employeeId}
-                  >
-                    <Clock className="w-4 h-4" />
-                    {clockBusy ? 'Working…' : activeEntry ? 'Clock Out' : 'Clock In'}
-                  </PrimaryButton>
-                </div>
+                {/* The punch control lives in the clock card above. Two buttons
+                    that do the same thing, one of which is the more prominent,
+                    is a way to punch out by accident. */}
               </div>
             </div>
 
