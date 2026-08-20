@@ -46,6 +46,95 @@ function requireAdmin(c: any) {
   return c.get("admin") ? null : c.json({ success: false, error: "Administrator access is required." }, 403);
 }
 
+// ─── Work orders and time allocation ────────────────────────────────────────
+//
+// A "work order" here is a work request — one entity under two names, with no
+// separate work_order: records anywhere. Assignment is recorded inconsistently
+// across several field spellings depending on which screen did the assigning,
+// so all of them are checked rather than picking one and quietly missing jobs.
+//
+// Employees may only bill time to work orders assigned to them. Labour hours
+// drive what a customer is invoiced, so time landing on a job somebody was never
+// on is not untidy — it is a wrong invoice.
+
+/** Every work request, wherever the various screens have stored them. */
+async function allWorkRequests(): Promise<any[]> {
+  const buckets = await Promise.all([
+    kv.get("work_requests"),
+    kv.get("work_requests_anonymous"),
+  ]);
+  const rows: any[] = [];
+  for (const b of buckets) if (Array.isArray(b)) rows.push(...b);
+  const prefixed = (await kv.getByPrefix("work_request:")) as any[] | null;
+  if (Array.isArray(prefixed)) rows.push(...prefixed);
+  // De-duplicate by id — the same request can sit in more than one bucket.
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    const id = String(r?.id || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** Is this work request assigned to this employee? */
+function assignedToEmployee(request: any, employee: any, user: any): boolean {
+  const email = String(user?.email || employee?.email || "").toLowerCase();
+  const name = String(employee?.name || "").trim().toLowerCase();
+
+  const emailFields = [
+    request?.assignedToEmail, request?.assigned_to_email,
+    request?.assignedTechnicianEmail, request?.assigned_technician_email,
+    request?.employeeEmail, request?.employee_email,
+  ];
+  if (email && emailFields.some((v: any) => String(v || "").toLowerCase() === email)) return true;
+
+  // The assign screen writes a free-text crew or technician name, so a name
+  // match is the only link available for anything assigned that way. Exact
+  // match only — a substring would attach one person's hours to another's job.
+  const nameFields = [request?.assignedTo, request?.assigned_to, request?.assignedTech, request?.crewName];
+  if (name && nameFields.some((v: any) => String(v || "").trim().toLowerCase() === name)) return true;
+
+  const ids = [request?.assignedEmployeeId, request?.employeeId];
+  return Boolean(employee?.id && ids.some((v: any) => String(v || "") === String(employee.id)));
+}
+
+/**
+ * The work orders this employee is allowed to bill time to.
+ *
+ * Admins get everything, because they reconcile other people's timesheets.
+ */
+timeTrackingRouter.get("/my-work-orders/:employeeId", async (c) => {
+  const employeeId = c.req.param("employeeId");
+  const denial = requireEmployeeAccess(c, employeeId);
+  if (denial) return denial;
+  try {
+    const employee = await kv.get(`time_employee:${employeeId}`);
+    if (!employee) return c.json({ success: false, error: "Employee not found" }, 404);
+
+    const requests = await allWorkRequests();
+    const isAdmin = c.get("admin");
+    const mine = isAdmin ? requests : requests.filter((r) => assignedToEmployee(r, employee, c.get("actor")));
+
+    return c.json({
+      success: true,
+      workOrders: mine.map((r) => ({
+        id: String(r.id),
+        title: String(r.title || r.serviceType || "Work order"),
+        status: String(r.status || ""),
+        customer: String(r.customerName || r.clientName || ""),
+        location: String(r.location || r.propertyAddress || ""),
+      })),
+      // Said out loud so an empty list is not read as "no work assigned" when it
+      // actually means nobody has been assigned to anything yet.
+      totalWorkRequests: requests.length,
+      scope: isAdmin ? "all" : "assigned",
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 timeTrackingRouter.use("*", async (c, next) => {
   const actor = await authenticatedActor(c);
   if (!actor?.id) return c.json({ success: false, error: "Sign in is required for time tracking." }, 401);
@@ -282,6 +371,17 @@ timeTrackingRouter.post("/punch-out", async (c) => {
         punchOutLocation: location || { lat: 0, lng: 0, address: 'Unknown' }
       },
       notes: notes || activeEntry.notes,
+      // Seed the whole shift onto whatever job the entry was punched in against.
+      // The ordinary single-job day therefore reconciles with no extra work from
+      // anyone, and splitting is only for days that were actually split.
+      allocations: activeEntry.projectId
+        ? [{
+            workOrderId: String(activeEntry.projectId),
+            workOrderTitle: String(activeEntry.projectTitle || ''),
+            hours: totalHours,
+            note: '',
+          }]
+        : [],
       status: 'completed',
       completedAt: now.toISOString()
     };
@@ -446,6 +546,125 @@ timeTrackingRouter.get("/entries", async (c) => {
 });
 
 // Approve time entry (for payroll)
+/**
+ * Rewrite how one shift's hours are split across work orders.
+ *
+ * THE INVARIANT, which is the entire point of this endpoint:
+ *
+ *   sum(allocations.hours) === entry.totalHours
+ *
+ * An allocation set that does not add up to the clocked total is a billing
+ * record that disagrees with the timesheet it came from — the customer is
+ * invoiced for hours nobody worked, or the employee's day is partly unbilled.
+ * So it is enforced here, on the server, and not merely in the form. The form is
+ * not the part that has to be trusted.
+ *
+ * Two further rules:
+ *   • only work orders assigned to this employee may be billed to, because time
+ *     landing on a job they were never on is a wrong invoice, not a typo;
+ *   • an approved entry is frozen — once payroll has taken it, it stops moving.
+ */
+timeTrackingRouter.patch("/entries/:id/allocations", async (c) => {
+  try {
+    const entryId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+
+    const allEntries = ((await kv.getByPrefix("time_entry_history:")) as any[]) || [];
+    const entry = allEntries.find((e: any) => e?.id === entryId);
+    if (!entry) return c.json({ success: false, error: "Time entry not found" }, 404);
+
+    const denial = requireEmployeeAccess(c, entry.employeeId);
+    if (denial) return denial;
+
+    if (entry.approved && !c.get("admin")) {
+      return c.json({ success: false, error: "This entry has been approved for payroll and can no longer be changed." }, 409);
+    }
+    if (entry.status !== "completed") {
+      return c.json({ success: false, error: "Punch out before splitting the shift — the total is not final until then." }, 400);
+    }
+
+    const incoming = Array.isArray(body.allocations) ? body.allocations : [];
+    if (incoming.length > 40) {
+      return c.json({ success: false, error: "That is more splits than a single shift can sensibly carry." }, 400);
+    }
+
+    const employee = await kv.get(`time_employee:${entry.employeeId}`);
+    const requests = await allWorkRequests();
+    const permitted = new Map<string, any>();
+    for (const r of requests) {
+      if (c.get("admin") || assignedToEmployee(r, employee, c.get("actor"))) permitted.set(String(r.id), r);
+    }
+
+    const cleaned: any[] = [];
+    for (const a of incoming) {
+      const workOrderId = String(a?.workOrderId || "").trim();
+      const hours = Number(a?.hours);
+      if (!workOrderId) return c.json({ success: false, error: "Every line needs a work order." }, 400);
+      if (!Number.isFinite(hours) || hours <= 0) {
+        return c.json({ success: false, error: `"${workOrderId}" has no usable number of hours.` }, 400);
+      }
+      const wo = permitted.get(workOrderId);
+      if (!wo) {
+        return c.json({ success: false, error: `Work order ${workOrderId} is not assigned to you, so time cannot be billed to it.` }, 403);
+      }
+      cleaned.push({
+        workOrderId,
+        workOrderTitle: String(wo.title || wo.serviceType || "Work order"),
+        hours: Math.round(hours * 100) / 100,
+        note: String(a?.note || "").slice(0, 300),
+      });
+    }
+
+    // One work order twice in the same shift is almost certainly a mistake, and
+    // silently merging it would hide it.
+    const ids = cleaned.map((a) => a.workOrderId);
+    if (new Set(ids).size !== ids.length) {
+      return c.json({ success: false, error: "The same work order appears more than once — combine those lines." }, 400);
+    }
+
+    const allocated = Math.round(cleaned.reduce((sum, a) => sum + a.hours, 0) * 100) / 100;
+    const total = Math.round(Number(entry.totalHours || 0) * 100) / 100;
+    // One hundredth of an hour — 36 seconds — of slack, because 8.5 hours across
+    // three jobs is 2.8333 each and no set of hundredths adds back exactly.
+    //
+    // The slack is for the person typing, not for the record: anything inside it
+    // is absorbed below so the stored allocations sum to the clocked total
+    // exactly. Accepting a near-miss and then filing it would leave a billing
+    // record that still does not add up, which is the thing this exists to stop.
+    const drift = Math.round((allocated - total) * 100) / 100;
+    if (Math.abs(drift) > 0.01) {
+      return c.json({
+        success: false,
+        error: drift > 0
+          ? `Allocated ${allocated}h but only ${total}h were worked — ${Math.abs(drift)}h too many.`
+          : `Allocated ${allocated}h of ${total}h worked — ${Math.abs(drift)}h still unassigned.`,
+        totalHours: total, allocatedHours: allocated, unallocatedHours: Math.round((total - allocated) * 100) / 100,
+      }, 400);
+    }
+
+    // Absorb any sub-tolerance rounding onto the largest line, so what gets
+    // stored reconciles to the penny rather than merely to within 36 seconds.
+    // The largest line is chosen because a hundredth of an hour is proportionally
+    // least visible there.
+    if (drift !== 0 && cleaned.length) {
+      let biggest = 0;
+      for (let i = 1; i < cleaned.length; i++) if (cleaned[i].hours > cleaned[biggest].hours) biggest = i;
+      cleaned[biggest].hours = Math.round((cleaned[biggest].hours - drift) * 100) / 100;
+    }
+    const finalAllocated = Math.round(cleaned.reduce((sum, a) => sum + a.hours, 0) * 100) / 100;
+
+    const now = new Date().toISOString();
+    const updated = { ...entry, allocations: cleaned, allocationsUpdatedAt: now };
+    const dateKey = new Date(entry.punchIn).toISOString().split("T")[0];
+    await kv.set(`time_entry_history:${entry.employeeId}:${dateKey}:${entry.id}`, updated);
+
+    return c.json({ success: true, entry: updated, totalHours: total, allocatedHours: finalAllocated, unallocatedHours: Math.round((total - finalAllocated) * 100) / 100 });
+  } catch (error) {
+    console.error("Error updating allocations:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 timeTrackingRouter.post("/entries/:id/approve", async (c) => {
   const denial = requireAdmin(c);
   if (denial) return denial;

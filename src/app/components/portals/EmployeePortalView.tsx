@@ -3,7 +3,12 @@ import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from '
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner@2.0.3';
+import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
+
+const TIME_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking`;
 import {
   Briefcase, Bell, MessageSquare, Settings, Clock, Star,
   ArrowUpRight, ClipboardList, CheckCircle, Calendar,
@@ -27,36 +32,172 @@ export default function EmployeePortalView() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'investments' | 'messages' | 'guide'>('dashboard');
 
   // Mock employee data — pulled from RoleSwitcher demo profile if present
-  const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
-  const employeeInfo = {
-    name: _demoProfile?.name || 'Tyler Brooks',
-    email: _demoProfile?.email || 'tyler.brooks@bpteam.com',
-    phone: _demoProfile?.phone || '(972) 555-0310',
-    position: 'Field Crew Member',
-    department: 'Construction',
-    employeeId: 'EMP-2024-1842',
-    hireDate: 'March 2022',
-    manager: 'Sarah Thompson',
-    rating: 4.8
+  // ---------------------------------------------------------------------------
+  // The time clock, and the hours behind it.
+  //
+  // `time-tracking.tsx` has had punch-in, punch-out, breaks, entries, approval
+  // and payroll all along — this screen simply never called any of it. The Clock
+  // In button had no handler and every figure below was a literal.
+  //
+  // Hours are billed to work orders, and a work order here is a work request.
+  // The rule that governs the whole timesheet: the hours allocated across work
+  // orders must equal the hours actually clocked. The server enforces that; this
+  // screen's job is to make the gap visible while it is being corrected.
+  // ---------------------------------------------------------------------------
+  const { user, session } = useAuth();
+  const [employee, setEmployee] = useState<any>(null);
+  const [activeEntry, setActiveEntry] = useState<any>(null);
+  const [entries, setEntries] = useState<any[]>([]);
+  const [myWorkOrders, setMyWorkOrders] = useState<any[]>([]);
+  const [clockBusy, setClockBusy] = useState(false);
+  const [timeLoading, setTimeLoading] = useState(true);
+  const [timeError, setTimeError] = useState<string | null>(null);
+  // The entry being re-split, and the rows as they are being edited.
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [draftRows, setDraftRows] = useState<Array<{ workOrderId: string; hours: string; note: string }>>([]);
+  const [savingRows, setSavingRows] = useState(false);
+
+  const authHeaders = () => ({ Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' });
+  const employeeId = String(employee?.id || user?.id || '');
+
+  const loadTime = async () => {
+    if (!session?.access_token || !user?.id) { setTimeLoading(false); return; }
+    setTimeError(null);
+    try {
+      const id = user.id;
+      const [empRes, entRes, woRes] = await Promise.all([
+        fetch(`${TIME_API}/employees/${encodeURIComponent(id)}`, { headers: authHeaders() }),
+        fetch(`${TIME_API}/entries?employeeId=${encodeURIComponent(id)}`, { headers: authHeaders() }),
+        fetch(`${TIME_API}/my-work-orders/${encodeURIComponent(id)}`, { headers: authHeaders() }),
+      ]);
+      const emp = await empRes.json().catch(() => ({}));
+      const ent = await entRes.json().catch(() => ({}));
+      const wos = await woRes.json().catch(() => ({}));
+      setEmployee(emp?.employee || null);
+      setActiveEntry(emp?.activeEntry || ent?.activeEntry || null);
+      setEntries(Array.isArray(ent?.entries) ? ent.entries : []);
+      setMyWorkOrders(Array.isArray(wos?.workOrders) ? wos.workOrders : []);
+    } catch (e: any) {
+      setTimeError(e?.message || 'Could not load your time records.');
+    } finally {
+      setTimeLoading(false);
+    }
+  };
+  useEffect(() => { void loadTime(); }, [session?.access_token, user?.id]);
+
+  const punch = async (direction: 'in' | 'out') => {
+    if (clockBusy || !employeeId) return;
+    setClockBusy(true);
+    try {
+      const res = await fetch(`${TIME_API}/punch-${direction}`, {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ employeeId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.success) throw new Error(j?.error || `Could not punch ${direction}.`);
+      toast.success(direction === 'in' ? 'Punched in.' : `Punched out — ${j.timeEntry?.totalHours ?? 0}h recorded.`);
+      await loadTime();
+    } catch (e: any) {
+      toast.error(e?.message || `Could not punch ${direction}.`);
+    } finally { setClockBusy(false); }
   };
 
-  // Work hours data
-  const hoursData = [
-    { week: 'Week 1', hours: 42, overtime: 2 },
-    { week: 'Week 2', hours: 40, overtime: 0 },
-    { week: 'Week 3', hours: 45, overtime: 5 },
-    { week: 'Week 4', hours: 38, overtime: 0 },
-    { week: 'Week 5', hours: 43, overtime: 3 },
-    { week: 'Week 6', hours: 40, overtime: 0 },
-    { week: 'This Week', hours: 28, overtime: 0 }
-  ];
+  const beginEditing = (entry: any) => {
+    setEditingEntryId(entry.id);
+    setDraftRows(
+      (Array.isArray(entry.allocations) && entry.allocations.length
+        ? entry.allocations
+        : [{ workOrderId: '', hours: String(entry.totalHours ?? ''), note: '' }]
+      ).map((a: any) => ({ workOrderId: String(a.workOrderId || ''), hours: String(a.hours ?? ''), note: String(a.note || '') })),
+    );
+  };
 
-  // Stats
+  const draftTotal = draftRows.reduce((sum, r) => sum + (Number(r.hours) || 0), 0);
+  const editingEntry = entries.find((e: any) => e.id === editingEntryId) || null;
+  const entryTotal = Number(editingEntry?.totalHours || 0);
+  // The number the whole screen turns on. Shown live so the gap is being closed
+  // in front of the person, not discovered when Save is refused.
+  const unallocated = Math.round((entryTotal - draftTotal) * 100) / 100;
+  // Adding up is necessary but not sufficient. A row with hours and no work
+  // order chosen still counts toward the total, so on opening the editor the
+  // seeded row balanced at the full shift and Save offered itself while the
+  // request it would send was empty. The server refused it, but a button that
+  // looks ready and then fails is a worse answer than one that stays locked.
+  const rowsComplete = draftRows.length > 0 && draftRows.every((r) => r.workOrderId && Number(r.hours) > 0);
+  const balanced = Math.abs(unallocated) <= 0.01 && rowsComplete;
+
+  const saveAllocations = async () => {
+    if (!editingEntryId || savingRows || !balanced) return;
+    setSavingRows(true);
+    try {
+      const res = await fetch(`${TIME_API}/entries/${encodeURIComponent(editingEntryId)}/allocations`, {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({
+          allocations: draftRows
+            .filter((r) => r.workOrderId && Number(r.hours) > 0)
+            .map((r) => ({ workOrderId: r.workOrderId, hours: Number(r.hours), note: r.note })),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'Could not save the split.');
+      toast.success('Hours split saved.');
+      setEditingEntryId(null);
+      await loadTime();
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not save the split.');
+    } finally { setSavingRows(false); }
+  };
+
+  const employeeInfo = {
+    name: String(employee?.name || user?.user_metadata?.full_name || user?.email || 'Employee'),
+    email: String(user?.email || ''),
+    phone: String(employee?.phoneNumber || ''),
+    position: String(employee?.role || 'Employee'),
+    department: String(employee?.department || ''),
+    employeeId: String(employee?.id || ''),
+    hireDate: employee?.createdAt ? new Date(employee.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '',
+    manager: '',
+    rating: null,
+  };
+
+  // Hours by week, counted from real shifts. The seven-week curve that used to
+  // sit here (42, 40, 45, 38…) was drawn, and "overtime" was invented alongside
+  // it. Anything past 40 in a week is shown as overtime; below that there is
+  // none, which is arithmetic rather than a guess.
+  const hoursData = (() => {
+    const byWeek = new Map<string, { week: string; hours: number; overtime: number; sort: string }>();
+    for (const e of entries) {
+      if (!e?.punchIn) continue;
+      const d = new Date(e.punchIn);
+      if (Number.isNaN(d.getTime())) continue;
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const sort = monday.toISOString().slice(0, 10);
+      const row = byWeek.get(sort) || { week: monday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), hours: 0, overtime: 0, sort };
+      row.hours += Number(e.totalHours || 0);
+      byWeek.set(sort, row);
+    }
+    return [...byWeek.values()]
+      .sort((a, b) => a.sort.localeCompare(b.sort))
+      .slice(-8)
+      .map((r) => ({ ...r, hours: Math.round(r.hours * 100) / 100, overtime: Math.max(0, Math.round((r.hours - 40) * 100) / 100) }));
+  })();
+
+  const thisWeekStart = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); d.setHours(0, 0, 0, 0); return d; })();
+  const hoursThisWeek = Math.round(entries
+    .filter((e: any) => e?.punchIn && new Date(e.punchIn) >= thisWeekStart)
+    .reduce((s: number, e: any) => s + Number(e.totalHours || 0), 0) * 100) / 100;
+  // The number that matters most on this screen: hours clocked but not yet
+  // attributed to a job, and therefore not yet billable to anyone.
+  const unbilledHours = Math.round(entries.reduce((s: number, e: any) => {
+    const alloc = (Array.isArray(e.allocations) ? e.allocations : []).reduce((x: number, a: any) => x + Number(a.hours || 0), 0);
+    return s + Math.max(0, Number(e.totalHours || 0) - alloc);
+  }, 0) * 100) / 100;
+
   const stats = [
-    { label: 'Hours This Week', value: '28', change: '12h remaining', trend: 'neutral', icon: Clock, color: 'blue' },
-    { label: 'Active Tasks', value: '8', change: '3 due today', trend: 'neutral', icon: ClipboardList, color: 'orange' },
-    { label: 'Completed Tasks', value: '142', change: '+12 this week', trend: 'up', icon: CheckCircle, color: 'green' },
-    { label: 'Performance', value: '4.8', change: '+0.3', trend: 'up', icon: Star, color: 'yellow' }
+    { label: 'Hours This Week', value: String(hoursThisWeek), change: entries.length ? `${entries.length} shift${entries.length === 1 ? '' : 's'} recorded` : 'No shifts yet', trend: 'neutral', icon: Clock, color: 'blue' },
+    { label: 'Unbilled Hours', value: String(unbilledHours), change: unbilledHours > 0 ? 'needs splitting to a work order' : 'all hours assigned', trend: 'neutral', icon: ClipboardList, color: 'orange' },
+    { label: 'Work Orders', value: String(myWorkOrders.length), change: myWorkOrders.length ? 'assigned to you' : 'none assigned', trend: 'neutral', icon: CheckCircle, color: 'green' },
+    { label: 'Status', value: activeEntry ? 'On the clock' : 'Clocked out', change: activeEntry ? `since ${new Date(activeEntry.punchIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '—', trend: 'neutral', icon: Star, color: 'yellow' },
   ];
 
   // Today's schedule
@@ -319,10 +460,19 @@ export default function EmployeePortalView() {
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <PrimaryButton variant="white">
+                <div className="flex items-center gap-3">
+                  {activeEntry && (
+                    <span className="rounded-lg bg-white/15 px-3 py-1.5 text-sm text-white">
+                      On the clock since {new Date(activeEntry.punchIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  )}
+                  <PrimaryButton
+                    variant="white"
+                    onClick={() => punch(activeEntry ? 'out' : 'in')}
+                    disabled={clockBusy || timeLoading || !employeeId}
+                  >
                     <Clock className="w-4 h-4" />
-                    Clock In
+                    {clockBusy ? 'Working…' : activeEntry ? 'Clock Out' : 'Clock In'}
                   </PrimaryButton>
                 </div>
               </div>
@@ -605,6 +755,147 @@ export default function EmployeePortalView() {
                 <Download className="w-4 h-4" />
                 Export Timesheet
               </PrimaryButton>
+            </div>
+
+            {/* Shifts and how their hours are billed out. */}
+            <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-white">Shifts &amp; work-order split</h3>
+              <p className="mt-1 mb-5 text-sm text-gray-400">
+                Every shift's hours have to add up to the time you clocked. Split a day across
+                work orders so each job is billed for what it actually took.
+              </p>
+
+              {timeLoading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-400">
+                  <Clock className="h-4 w-4 animate-spin" /> Loading your shifts…
+                </div>
+              ) : timeError ? (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-6 text-center text-sm text-red-300">{timeError}</div>
+              ) : entries.length === 0 ? (
+                <div className="rounded-lg border border-gray-800 bg-[#0f0f0f] p-10 text-center">
+                  <Clock className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                  <p className="font-semibold text-white">No completed shifts yet</p>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                    Clock in and out and the shift appears here, ready to be split across the work orders you were on.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {entries.map((entry: any) => {
+                    const allocated = (Array.isArray(entry.allocations) ? entry.allocations : [])
+                      .reduce((s: number, a: any) => s + Number(a.hours || 0), 0);
+                    const gap = Math.round((Number(entry.totalHours || 0) - allocated) * 100) / 100;
+                    const isEditing = editingEntryId === entry.id;
+                    return (
+                      <div key={entry.id} className="rounded-lg border border-gray-800 bg-[#0f0f0f] p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-white">
+                              {new Date(entry.punchIn).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                              <span className="ml-2 text-sm font-normal text-gray-400">
+                                {new Date(entry.punchIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                {entry.punchOut ? ` – ${new Date(entry.punchOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
+                              </span>
+                            </p>
+                            <p className="mt-0.5 text-sm text-gray-400 tabular-nums">
+                              {entry.totalHours}h clocked
+                              {entry.breakMinutes ? ` · ${entry.breakMinutes}m break` : ''}
+                              {gap !== 0 && <span className="ml-2 text-yellow-400">{gap > 0 ? `${gap}h unbilled` : `${Math.abs(gap)}h over-allocated`}</span>}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {entry.approved && (
+                              <span className="rounded border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-xs font-semibold text-green-400">Approved</span>
+                            )}
+                            {!entry.approved && (
+                              <SecondaryButton onClick={() => (isEditing ? setEditingEntryId(null) : beginEditing(entry))}>
+                                {isEditing ? 'Cancel' : 'Split hours'}
+                              </SecondaryButton>
+                            )}
+                          </div>
+                        </div>
+
+                        {!isEditing && Array.isArray(entry.allocations) && entry.allocations.length > 0 && (
+                          <ul className="mt-3 space-y-1 border-t border-gray-800 pt-3 text-sm">
+                            {entry.allocations.map((a: any, i: number) => (
+                              <li key={i} className="flex justify-between text-gray-300">
+                                <span>{a.workOrderTitle || a.workOrderId}</span>
+                                <span className="tabular-nums text-white">{a.hours}h</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {isEditing && (
+                          <div className="mt-4 space-y-2 border-t border-gray-800 pt-4">
+                            {myWorkOrders.length === 0 && (
+                              <p className="rounded border border-yellow-500/20 bg-yellow-500/5 p-3 text-sm text-yellow-300">
+                                No work orders are assigned to you, so there is nothing to bill these hours to yet.
+                              </p>
+                            )}
+                            {draftRows.map((row, i) => (
+                              <div key={i} className="flex flex-wrap items-center gap-2">
+                                <select
+                                  value={row.workOrderId}
+                                  onChange={(e) => setDraftRows(rows => rows.map((r, j) => j === i ? { ...r, workOrderId: e.target.value } : r))}
+                                  className="min-w-[220px] flex-1 rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-sm text-white"
+                                >
+                                  <option value="">Choose a work order…</option>
+                                  {myWorkOrders.map((w: any) => (
+                                    <option key={w.id} value={w.id}>{w.title}{w.customer ? ` — ${w.customer}` : ''}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number" step="0.25" min="0" inputMode="decimal"
+                                  value={row.hours}
+                                  onChange={(e) => setDraftRows(rows => rows.map((r, j) => j === i ? { ...r, hours: e.target.value } : r))}
+                                  className="w-24 rounded-lg border border-gray-700 bg-[#1a1a1a] px-3 py-2 text-right text-sm text-white tabular-nums"
+                                  placeholder="hours"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setDraftRows(rows => rows.filter((_, j) => j !== i))}
+                                  className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-gray-400 transition hover:text-white"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                              <button
+                                type="button"
+                                onClick={() => setDraftRows(rows => [...rows, { workOrderId: '', hours: '', note: '' }])}
+                                className="rounded-lg border border-gray-700 px-3 py-2 text-sm font-semibold text-gray-300 transition hover:text-white"
+                              >
+                                + Add work order
+                              </button>
+
+                              <div className="flex items-center gap-3">
+                                {/* The live reconciliation. Save stays locked until
+                                    this reads zero, so an unbalanced split is never
+                                    even attempted. */}
+                                <span className={`text-sm font-semibold tabular-nums ${balanced ? 'text-green-400' : 'text-yellow-400'}`}>
+                                  {balanced
+                                    ? `Balanced · ${entryTotal}h`
+                                    : !rowsComplete && Math.abs(unallocated) <= 0.01
+                                      ? 'Choose a work order for every line'
+                                      : unallocated > 0
+                                        ? `${unallocated}h left to assign`
+                                        : `${Math.abs(unallocated)}h over the ${entryTotal}h clocked`}
+                                </span>
+                                <PrimaryButton onClick={saveAllocations} disabled={!balanced || savingRows}>
+                                  {savingRows ? 'Saving…' : 'Save split'}
+                                </PrimaryButton>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6">

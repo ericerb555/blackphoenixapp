@@ -2411,3 +2411,133 @@ a URL. Reports showed $150,000 invested, $22,500 received, $172,500 current,
 Empty: each tab rendered its own empty state rather than a blank panel, and the
 Documents empty state distinguishes "you have no commitments yet" from "nothing
 attached to your commitments".
+
+---
+
+# Employee time: punch clock tied to work orders (plan, awaiting approval)
+
+Eric's spec: *"they can punch in and out as well as tie work orders to their
+time. They should be able to rearrange their time inside the work orders to make
+sure their time is billed out correctly — the hours need to match the punch in
+and out times."*
+
+That last clause is the whole design. Allocated hours must always reconcile to
+the clock, or the billing is a story rather than a record.
+
+## What already exists
+
+`time-tracking.tsx` **is mounted** (unlike `suppliers.tsx`) at `/time-tracking`,
+with `/punch-in`, `/punch-out`, `/break`, `/entries`, `/entries/:id/approve`,
+`/payroll-report`, `/hours-summary` and per-employee tasks. Punch-out already
+computes `totalHours` as `(punchOut − punchIn) − breakMinutes`. There is a real
+employee record stored for ericerb555.
+
+**What is missing is the tie to work orders.** A time entry carries a single
+`projectId` — one shift, one project. Eric needs one shift split across several
+work orders, rearrangeable, always summing to the clock.
+
+**And `EmployeePortalView` calls none of it.** 756 lines, zero fetches: the time
+clock, today's schedule and the hours chart are all hardcoded arrays.
+
+## The design
+
+**One new field, one new endpoint, one invariant.**
+
+A time entry gains `allocations: [{ workOrderId, workOrderTitle, hours, note }]`.
+
+`PATCH /time-tracking/entries/:id/allocations` replaces the whole set and
+**rejects anything that does not sum to `totalHours`**, to the cent, with the
+shortfall or excess named in the error. Enforced on the server, not in the form,
+because the form is not the thing that has to be trusted.
+
+Rules that fall out of that:
+
+- **Allocation happens after punch-out**, when `totalHours` is final. Editing
+  allocations mid-shift would mean reconciling against a number still moving.
+- **Punch-out seeds one allocation** for the entry's existing `projectId` at the
+  full hours. So the ordinary single-job day needs no extra work from anyone and
+  already reconciles; splitting is only for days that were split.
+- **Editing an approved entry is refused.** Once payroll has taken it, the
+  record stops moving.
+- A quarter-cent tolerance on the sum, because 8.5 hours across three jobs
+  cannot always be thirds.
+
+## Todo
+
+- [ ] E1. `allocations` on the time entry; punch-out seeds it from `projectId`.
+- [ ] E2. `PATCH /entries/:id/allocations` with the sum-must-match invariant,
+      refusing edits to approved entries.
+- [ ] E3. Wire `EmployeePortalView`: real punch in/out against the live
+      endpoints, real status and hours, real entry list.
+- [ ] E4. The allocation editor — add or remove work-order rows, type hours, with
+      a running "unallocated: 1.25 h" figure that must reach zero before Save
+      unlocks. Save is the server call, so the client cannot talk it into an
+      unbalanced record.
+
+## Two questions before building
+
+- [ ] Q-A. **What is a work order here?** Storage has `work_requests_anonymous`
+      holding an array of work requests (`{id, title, photos, status}`) and no
+      `work_order:` records at all. I would point allocations at work requests
+      unless there is another list I have not found.
+- [ ] Q-B. **Should an employee be able to allocate to any open work order, or
+      only ones assigned to them?** The first is more flexible; the second stops
+      time landing on a job someone was never on. I would start with assigned-plus-
+      search, but it is a policy call.
+
+### Employee time — punch clock tied to work orders. Done and verified.
+
+**Server.** `time-tracking.tsx` already had punch in/out, breaks, entries,
+approval and payroll; what it lacked was the tie to work orders.
+
+- Time entries now carry `allocations: [{ workOrderId, workOrderTitle, hours, note }]`.
+  Punch-out seeds the whole shift onto whatever job it was punched in against,
+  so an ordinary single-job day reconciles with no extra work from anyone.
+- `GET /time-tracking/my-work-orders/:employeeId` returns only work orders
+  assigned to that employee. Assignment is recorded under several different
+  field spellings depending on which screen did the assigning, so all are
+  checked — email, then exact name, then id. Exact name only: a substring match
+  would attach one person's hours to another person's job.
+- `PATCH /time-tracking/entries/:id/allocations` enforces the invariant:
+  **sum(allocations) must equal totalHours**. Rejects with the gap named
+  ("Allocated 8h of 8.5h worked — 0.5h still unassigned"), refuses work orders
+  not assigned to the employee, refuses duplicate lines, and freezes entries
+  once payroll has approved them.
+
+**The rounding decision.** 8.5 hours across three jobs is 2.8333 each and no set
+of hundredths adds back exactly, so there is one hundredth of an hour of slack.
+But the slack is for the person typing, not for the record — anything inside it
+is **absorbed onto the largest line** before saving, so what is stored sums to
+the clocked total exactly. Accepting a near-miss and filing it would have left a
+billing record that still did not add up, which is the thing this exists to stop.
+
+**Portal.** `EmployeePortalView` had 756 lines and zero fetches; the Clock In
+button had no handler at all.
+
+- Clock In / Clock Out now punch for real, and the header shows the time the
+  shift started.
+- The Timesheet tab lists real shifts with hours clocked, and flags any that are
+  not fully billed.
+- The split editor: add and remove work-order rows, type hours, with a live
+  figure that reads "4.5h left to assign" and only becomes "Balanced · 8.5h"
+  when it reconciles. **Save is locked until then.**
+- Dashboard figures replaced: hours this week counted from real shifts, unbilled
+  hours, work orders assigned, and live clock status — instead of the invented
+  28 hours, 142 completed tasks and a 4.8 performance rating.
+
+**Verification.** Reconciliation logic: 11/11 against the real shipped block,
+including that a 0.5h gap is refused in both directions, a rounding cent is
+absorbed to an exact stored total, and 2 cents is refused. UI: driven in headless
+Edge across three scenarios, actually typing into the editor. Zero exceptions.
+
+**One bug the UI test caught.** On opening the editor the seeded row balanced at
+the full shift while no work order was chosen, so Save offered itself and the
+request it would have sent was empty. The server refused it, but a button that
+looks ready and then fails is worse than one that stays locked. Save now also
+requires every line to name a work order, and says so.
+
+**Worth knowing:** no work request currently carries an assignment — the assign
+route writes to a `work_requests` key that holds nothing, while the eight
+existing requests live under `work_requests_anonymous`. So today the assigned
+list is empty for everyone, and the portal says exactly that rather than
+implying no work exists.
