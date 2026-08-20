@@ -1527,3 +1527,588 @@ reach production and are still uncommitted.
 
 **No production data was written or deleted.** Read-only log queries, two
 function deploys, and GETs.
+
+---
+
+# Plan — mirror how top-selling stores actually operate (awaiting approval)
+
+## The read
+
+The gap between our reels and a top TikTok Shop seller's is **not the renderer**.
+Ours records VP9 at 16 Mbps with word-timed captions and eased Ken Burns; theirs
+is often shot and cut on a phone. The gap is in three places, and none of them
+is code quality:
+
+1. **They make many creatives per product, we make one.** The industry norm is
+   10-30 per product with a 2-5% winner rate. Nobody picks the winner in advance
+   — that is the entire point of the process. One reel per product means we are
+   betting the product on a single guess.
+2. **They open with proven hook structures, we open with a description.**
+   Winning hooks are public — TikTok Creative Center's Top Ads and Meta's Ad
+   Library are free, no API key, no scraping agreement needed. Serious operators
+   keep a swipe file and build from it.
+3. **Their footage is a person handling the product; ours is a white-background
+   catalogue still.** This is the single largest quality difference and the
+   cheapest one to close for anything we physically stock.
+
+## Cheapest route to top-grade, ranked by cost
+
+| Route | Cost | Quality ceiling |
+|---|---|---|
+| Phone footage of stocked products + proven hook structure | **$0** | Highest — beats any generated visual |
+| Batch variants from assets we already have | **$0** marginal | Multiplies whatever the assets are worth |
+| Image-to-video motion provider for unstocked products | ~$0.05-0.15/clip | Good; fixes the dead catalogue still |
+| Bought UGC from a creator | $30-80/video | High, but not needed until a product proves out |
+
+The renderer's new video path (shipped and browser-verified this session)
+supports the top and third rows equally, so nothing below is blocked on it.
+
+## Todo
+
+- [ ] **V1 — Hook library.** Codify the hook archetypes that demonstrably win in
+      short-form, and have the storyboard open on one instead of a product
+      description. Smallest change, largest single lift.
+- [x] **V2 — Variant batch.** DONE (in repo, not yet deployed). `/video-studio/product-reel` returns one reel;
+      make it return N built from the same assets with different hooks, beat
+      orders and pacing. Near-zero marginal cost, mirrors the volume process.
+- [ ] **V3 — Phone-footage lane.** Let a product carry uploaded phone clips
+      alongside supplier stills, so stocked products get real footage. Free, and
+      the biggest quality unlock.
+- [ ] **V4 — Scoreboard.** Record which variant was posted and how it did, then
+      rank hooks by what has actually worked for Black Phoenix rather than by
+      what works in general.
+
+## Notes
+
+- V1-V3 are independent; any can be done alone and in any order.
+- V4 only earns its place once V2 exists — there is nothing to score until
+  there are competing variants.
+
+## Review — V2 variant batch
+
+**What changed.** One file, `supabase/functions/server/video-studio.tsx`.
+
+- Added `HOOK_ARCHETYPES`: eight named hook structures taken from the shapes
+  that recur in TikTok Creative Center's Top Ads and Meta's ad library. Social
+  proof is deliberately absent from the list — it is one of the strongest hooks
+  there is and we cannot use it, because we do not hold real review or sales
+  numbers and inventing them is exactly what was stripped out of the product
+  data earlier.
+- `/video-studio/product-reel` now returns `variants[]` instead of one reel.
+  Default five, one per archetype, still a single model call, so the marginal
+  cost over the old behaviour is roughly nothing.
+- Variants differ in two dimensions: the hook structure, and the opening
+  photograph, rotated so each one stops the scroll on a different frame. Varying
+  the words while every variant opened on the same image would have tested half
+  the thing.
+- Variant one is still repeated flat at the top level (`scenes`, `caption`,
+  `hashtags`, `audio`), so anything that expects a single reel keeps working.
+  Nothing in `src/` calls this endpoint yet, so this is precaution, not repair.
+- `howToUse` states the process in the payload: post all of them, judge on
+  three-second retention rather than likes, expect most to do nothing.
+
+**Verification.** 16/16 assertions passed against the real code — the probe
+extracts the shipping block out of the file and runs it rather than testing a
+retyped copy. Covered: variant count and clamping, distinct archetypes, distinct
+opening frames, no photo lost or duplicated within a variant, hook beat length,
+unique ids, hashtag cap, explicit-angle ordering, a model response shorter than
+requested, and the awkward case of three photos against five variants.
+
+**What is NOT verified.** Whether the model actually returns five genuinely
+different scripts rather than five paraphrases. That needs `OPENAI_API_KEY` and
+a live call, so it cannot be checked from here — it is the one claim in this
+change resting on the prompt rather than on a test.
+
+**Worth raising.** The script is still written by `gpt-4o-mini`. That was a
+reasonable choice for one reel and is a poor one for the copy Eric intends to
+sell with — the words are the product here, and a mini model is the cheapest
+part of a pipeline whose expensive part is his time posting the results. Moving
+this single call to a stronger model is a one-line change.
+
+### V2 — deployed and verified live
+
+Switched the product-reel script call from `gpt-4o-mini` to `gpt-4o` (that one
+call only; the other two model calls in the file are untouched) and raised the
+temperature to 1.0, because the failure mode of a variant batch is five scripts
+that say the same thing in different words.
+
+Deployed `make-server-3eae23a6` and called the live endpoint. HTTP 200 in ~14s
+against a real product with 17 supplier photographs:
+
+- 5/5 distinct archetypes
+- 5/5 distinct opening photographs
+- 5/5 distinct hook lines
+- 5/5 distinct captions
+
+So the mechanism works end to end — this is no longer resting on the prompt.
+
+**The copy itself is not at the bar, and that is the honest read.** The plumbing
+is right and the words are mediocre. "cold seat blues?" is rhyming filler.
+"toasty rides ahead" says nothing. Worst of all, the `interrupt` variant opened
+on "snug in a car seat?" — a soft question, which is the opposite of a pattern
+interrupt, so that variant did not execute its own archetype at all. Only
+"stop freezing now" reads like something that would stop a thumb.
+
+**Why**, and it is fixable: the prompt names each archetype and describes it in
+a sentence, but never shows the model an example of one done well. Models asked
+for "punchy, 3-6 words" with no exemplar produce exactly this kind of generic ad
+copy. The fix is few-shot — three or four real hook lines per archetype, taken
+from ads that actually ran, so the model has a target rather than an adjective.
+That is the same "copy the best" principle as the archetype list itself, applied
+one level deeper, and it is a prompt-only change.
+
+Proposed as **V2a**, not started, awaiting approval.
+
+### V2a — few-shot exemplars: shipped, and it did not work
+
+Added four example hook lines to each archetype, plus the previous weak output as
+negative exemplars, plus an explicit "a question is NOT a pattern interrupt"
+instruction. Deployed and tested against the same product.
+
+**Result: marginal at best, and the headline failure repeated.** The `interrupt`
+variant opened on "seats not icy?" — a question, which the prompt now forbids in
+that slot in as many words. `result` opened on "uncomfortable? never." — also a
+question, and it shows no "after". Two of five hooks are still questions.
+
+I predicted few-shot would fix this. It did not, and the prediction was wrong
+rather than unlucky — worth writing down, because the same reasoning would
+otherwise get reused.
+
+**Diagnosis, now with evidence rather than a guess.**
+
+1. **Attention dilution.** One model call writes five complete videos — forty
+   on-screen lines plus five captions plus hashtags. Past a certain output size
+   a model stops composing and starts filling in the JSON. The single-call
+   design was inherited and preserved for cost, and cost is not the binding
+   constraint here; quality is.
+2. **Nothing enforces the archetype.** The prompt asks, and whatever comes back
+   ships. A rule that is stated but never checked is a suggestion.
+3. **The source text is a spec dump, and truncated mid-word.** The stored
+   description for the test product reads "Material: Synthetic Fiber / Features:
+   Heating, Automatic Start-Stop / Style: Lumbar Support Design" — real detail,
+   but no experience to write from, and the prompt cuts it at 400 characters
+   mid-sentence. A model handed specifications and asked for feeling invents
+   mood words. That is exactly what "toasty rides ahead" is.
+
+**Also found, unrelated but worth fixing:** the test product's category is
+"Home Office Storage". It is a car seat heater. Category data is junk on at
+least this record, and category is fed to the model as context.
+
+**Proposed V2b** — the change that actually addresses the above:
+  - one model call per variant instead of one for all five, so each script gets
+    real deliberation (five cheap calls, still cents, and they run in parallel);
+  - a programmatic guard: a hook ending in "?" for `interrupt`, `result` or
+    `warning` is a hard fail and is regenerated, so the rule is enforced rather
+    than requested;
+  - stop truncating the description at 400 characters mid-word.
+
+Stated plainly: I got the last prediction wrong, so treat this as the most
+likely fix rather than a certain one. The enforcement guard is the part I am
+confident about, because it does not depend on the model cooperating.
+
+---
+
+# Re-evaluation — I have been optimising the wrong thing
+
+## The mistake
+
+Two failed attempts at the copy should have prompted this sooner. The problem is
+not the hook, the model, or the prompt. It is the material.
+
+**Every dropshipper selling that car seat heater has the same seventeen supplier
+photographs we have.** They came from the same supplier feed. We are trying to
+win on creative using assets that are byte-identical to every competitor's. No
+amount of hook engineering changes that, because the constraint is not how well
+the words are written — it is that the pictures are not ours.
+
+Worse, this was already known. Earlier in this same session the honest
+assessment was that generated and supplied images of drop-shipped products were
+not worth selling with, while reels built from the real job photographs were.
+Then the entire workstream since went into polishing copy over exactly the
+material already identified as the weak one.
+
+## What the data says
+
+| Asset | Count | Who else has it |
+|---|---|---|
+| Real Black Phoenix job photographs | **35, all published** | **Nobody** |
+| Dropship product photos | 111 products with 3+ images | Every competitor, identically |
+
+The catalogue also has real problems underneath the creative:
+
+- **"Home Office Storage" holds 20 products** including ant repellent, deep-
+  cleaning toothpaste, a car seat heater, provisional dental filling, an
+  artificial Christmas tree, laser tag and wood repair paste. That is not a
+  category, it is a dumping ground — and category is fed to the model as context
+  on every generation.
+- **123 products across 30+ unrelated categories.** Dresses, dental supplies,
+  pest control, beef offal capsules. The only coherent cluster is 25 dresses.
+  A store that sells everything reads as a store that stands for nothing, and
+  the algorithm has nothing to learn about who to show it to.
+
+## New plan, ranked by return
+
+### Track A — point the engine at the photographs nobody else has  (free)
+The variant machinery built in V2 is correct and worth keeping; it has simply
+been aimed at the wrong library. Aimed at the 35 renovation photographs it is
+working with assets that are unique, on a business with real customers, in a
+before/after format that is reliably watchable. The renderer's new video path
+also means a phone clip shot at a job site drops straight in.
+
+- [ ] A1. Point the variant batch at the gallery, with archetypes rewritten for
+      renovation rather than product (before/after, mid-demolition, detail).
+- [ ] A2. Pair photographs into genuine before/after sets — the single strongest
+      structure this material supports.
+
+### Track B — make the product assets ours  (cheap, in two steps)
+- [ ] B1. Cut the product off the white background and composite it into a real
+      scene, then animate the still. This makes the asset unique even though the
+      source is not — roughly $0.02/image to cut out and $0.05-0.15/clip to
+      animate, so a six-beat reel lands around $0.30-0.90. Cheap enough to test
+      at volume, and it is the honest answer to "cheapest route to top grade"
+      for products not physically in hand.
+- [ ] B2. For anything that proves out, order it and film it. Real operators do
+      this and it is why their creative cannot be copied. No code required.
+
+### Track C — fix what is poisoning every generation  (free)
+- [ ] C1. Re-categorise the 20 products in "Home Office Storage". Junk context
+      makes junk copy, and this is fed into every prompt.
+- [ ] C2. Decide what the store is actually for. This is the CEO question and it
+      is not a code change: 123 products across 30+ categories cannot be
+      marketed coherently. Focus is the highest-leverage decision available and
+      it costs nothing.
+
+## Recommendation
+
+**A1 first.** It is free, it uses assets no competitor can obtain, it serves the
+construction business that already has paying customers, and it reuses the
+variant engine already built and deployed. Track B is worth doing but should not
+come before the free option with the better material.
+
+**C2 is the one only Eric can answer**, and it gates how much Track B is worth.
+
+### A1 — renovation reels: built and deployed, one step from finished
+
+**Blocker found before building, not after.** All 35 published photographs are
+titled "Recent Project 01" … "Completed Project 12". The job-reel prompt was
+handed that manifest and asked to write narration — it was being asked to write
+about pictures nothing describes. A1 as originally planned would have failed
+exactly as V2a did, for the same reason: no real material in the text.
+
+**What was built.**
+
+1. `/video-studio/describe-photos` — a vision pass that looks at the photographs
+   and writes down what is in them, stored back onto the gallery record so it is
+   paid for once. Defaults to a DRY RUN; saves nothing unless `commit:true`.
+   Batched four at a time with a one-at-a-time fallback, after eight ~700KB PNGs
+   in one request made OpenAI's fetcher give up.
+2. `RENOVATION_ARCHETYPES` — six structures for renovation rather than product:
+   before-after, detail, process, problem-found, craft-choice, walkthrough. The
+   product archetypes do not transfer; a kitchen is not an impulse buy.
+   `process` and `problem-found` are withheld automatically unless the selected
+   photographs actually contain in-progress work, so the model is never invited
+   to invent a demolition no photograph shows.
+3. `/video-studio/job-reel` now returns variants, builds its manifest from the
+   vision descriptions, and runs on `gpt-4o` rather than the mini model.
+
+**Dry run over all 35 photos:** 35 described, 0 blank, ~10s. Concrete output —
+"hexagonal backsplash", "frosted glass shower door", "built-in shower shelf".
+The library turns out to be 13 bathrooms, 7 kitchens, 2 living, 1 bedroom,
+12 unclear, with 13 of 35 mid-build. Before/after and process are both supported.
+
+**Baseline measured before committing anything** — job-reel with 0/6 photos
+described returned "where it began", "the transformation", "spot the craft",
+"kitchen view". Generic, and worse, inventing: "this was the kitchen nobody
+wanted" and "we changed the layout completely" are claims about a real
+customer's job that no photograph supports. That is a trust problem, not just a
+dull-copy problem.
+
+**Waiting on:** permission to run `describe-photos` with `commit:true`. It adds a
+`vision` field to 35 gallery records and leaves every other field alone. Until
+that runs, job-reel has nothing to write from and A1 cannot be finished or
+honestly tested.
+
+---
+
+# Portal invitations — audit findings (plan, awaiting approval)
+
+## The good news first
+
+All ten company-issued portal types work end to end. Each one is in the admin
+invite panel, has a label and a written blurb in the invite email, has an entry
+in the onboarding route map, and has a live route to land on:
+
+customer · vendor · subcontractor · employee · advertiser · investor ·
+landlord · property_manager · condo_manager · territory_owner
+
+Nothing is missing from that set. The problems are elsewhere.
+
+## Finding 1 — `tenant` is in the admin invite list and should not be
+
+Eric: *"the tenant can only be invited by the landlord."*
+
+The landlord portal **already invites tenants correctly** — `inviteTenant()`
+posting to `/landlord/tenants/:id/invite`, an Invite/Resend button per tenant, a
+"Portal active" badge and a tenant quota. That path is complete and working.
+
+An earlier session saw `tenant` missing from the admin panel's `PORTAL_OPTIONS`
+and added it. That was the wrong reading: the type was absent because the
+company is not the party that invites tenants. The result is a second, wrong
+path sitting beside the correct one — an admin tenant invite would create a
+company-issued tenant with no landlord attached, so `tenant_landlord:` mapping
+would never be written and their work requests would route nowhere.
+
+- [ ] P1. Remove `tenant` from `PORTAL_OPTIONS` in `CreatePortalPanel.tsx`,
+      with a comment saying where tenant invitations actually live so the next
+      person does not "fix" it back.
+
+## Finding 2 — tenant invites send no email
+
+Every company-issued portal gets a branded invite email with a secure link. The
+tenant route does not: it creates the auth user and returns a `tempPassword` in
+the JSON for the landlord to relay by hand. The code comment says "no email
+server is configured for this project", which is no longer true — the platform
+sends portal invite emails, and `portal-invite-email.tsx` already contains a
+`tenant` label and a written tenant blurb that nothing currently uses.
+
+So the tenant is the one portal user who cannot be invited properly, which is
+squarely what this task is about.
+
+- [ ] P2. Send the tenant the standard branded invite email, from the landlord's
+      name, using the blurb already written. Keep the temp-password fallback for
+      when delivery fails, rather than replacing one failure mode with another.
+
+## Finding 3 — onboarding route map has no `tenant` entry
+
+`enterPortal()` in `PortalOnboarding.tsx` maps ten types to routes and falls back
+to `customer-portal-app` for anything unrecognised. `tenant-portal` exists as a
+route but is not in that map. The landlord flow does not currently pass through
+onboarding, so this is latent rather than live — but it is the exact shape of
+bug that bites later.
+
+- [ ] P3. Add `tenant: 'tenant-portal'` to the map. One line.
+
+## Finding 4 — two portals exist only as demos
+
+`CondoAssociationPortalView` and `MobileOwnerPortalView` (Property Owner Portal)
+appear in `PortalDemoHub` and `PortalsHub` but have **no route in
+`routes.tsx`**. Nobody can be invited into them because there is nowhere to land.
+
+This may be deliberate — a demo of something not yet sold — so it is a question
+rather than a defect:
+
+- [ ] P4. **Ask Eric:** are the Condo Association portal and the Property Owner
+      portal meant to be real, invitable portals, or demonstrations only? Note
+      `condo_manager` already exists and is invitable, so the association board
+      may be a genuinely separate audience from the management company.
+
+## Order
+
+P1 and P3 are one-line changes. P2 is the only real work. P4 gates whether there
+is a fifth item at all.
+
+---
+
+## P1–P3 done, plus a second tenant invite path that had the same gap
+
+- [x] **P1.** `tenant` removed from `PORTAL_OPTIONS` in `CreatePortalPanel.tsx`,
+      with a comment recording *why* it is absent and that a previous session
+      added it back in error.
+- [x] **P3.** `tenant: 'tenant-portal'` added to the onboarding route map.
+- [x] **P2.** Both tenant invite paths now send the standard branded invite email
+      via `deliverPortalInvite()` — the roster invite at
+      `/landlord/tenants/:id/invite`, **and a second one found while fixing it**:
+      the "Approve & Invite" path on a tenant application, which had the identical
+      create-account-and-say-nothing behaviour. The temp password is now a
+      fallback shown only when email delivery fails, rather than the delivery
+      mechanism. The landlord's toast reports what actually happened.
+
+Verified `RESEND_API_KEY` is present on the deployed server and sending from
+`team@send.theblackphoenixcompany.com`, so this is live rather than inert. Not
+verified: an actual delivered tenant email — that would mean sending a real
+invitation to a real person, which is not mine to trigger.
+
+---
+
+# Full portal audit — findings
+
+Method: extract every server call every portal component makes and diff it
+against the 1,102 routes the server actually registers, then count real network
+calls per portal. Read-only.
+
+## The finding that matters
+
+**Six portals contain no server calls at all. Every number in them is
+hardcoded.**
+
+| Portal | Lines | fetch | useEffect | Status |
+|---|---|---|---|---|
+| CustomerPortalView | 1882 | 20 | 18 | wired |
+| LandlordPortalView | 931 | 13 | 9 | wired |
+| TerritoryPortalView | 807 | 12 | 6 | wired |
+| SubTenantPortal | 884 | 8 | 5 | wired |
+| SubcontractorPortal | 695 | 6 | 3 | wired |
+| PropertyManagerPortalView | 503 | 5 | 4 | wired |
+| CondoManagerPortalView | 461 | 5 | 4 | wired |
+| **VendorPortalView** | 900 | 1 | 0 | **mostly mock** |
+| **EmployeePortalView** | 756 | 0 | 0 | **mock only** |
+| **AdvertiserPortalView** | 644 | 0 | 0 | **mock only** |
+| **InvestorPortalView** | 1627 | 0 | 0 | **mock only** |
+| **CondoAssociationPortalView** | 1133 | 0 | 2 | **mock only** |
+| **MobileOwnerPortalView** | 393 | 0 | 2 | **mock only** |
+| **OnCallEmergencyPortal** | 560 | 0 | 0 | **mock only** |
+| **AdminPortalView** | 925 | 0 | 0 | **mock only** |
+
+`InvestorPortalView` is 1,627 lines of interface over `const properties = [...]`
+and `const performanceData = [...]`. `EmployeePortalView` has a schedule, an
+hours chart and stats, none of which come from anywhere.
+
+## Why this is worse than an unfinished feature
+
+Four of these — vendor, employee, advertiser, investor — are portal types the
+admin panel will happily invite a real person into today. That person accepts an
+invitation, signs in, and is shown fabricated revenue, fabricated campaign
+performance or a fabricated schedule, presented as their own data. For the
+investor portal that is fabricated financial performance shown to someone
+considering an investment.
+
+The invitation plumbing audited earlier is sound. What is behind four of those
+doors is not.
+
+## Proposed order
+
+- [ ] Q1. **Stop the bleeding first.** Either mark these portals clearly as
+      previews in the UI, or remove those four types from the invite list until
+      they are real. One short change, and it removes the risk of a real person
+      being shown invented numbers about themselves.
+- [ ] Q2. Wire them, highest-stakes first: **investor**, then **vendor**, then
+      **employee**, then **advertiser**. Investor first because fabricated
+      financial figures shown to an investor is the worst of the four.
+- [ ] Q3. Decide what `AdminPortalView`, `OnCallEmergencyPortal`,
+      `CondoAssociationPortalView` and `MobileOwnerPortalView` are for. None has
+      a route in `routes.tsx`; they may be demo-only by design.
+
+Q1 needs a decision from Eric, not a guess from me.
+
+---
+
+# Wiring the four mock portals — scoped (plan, awaiting approval)
+
+Eric: *"no need to pull them, I am the only person on the app until it's fixed."*
+So Q1 is dropped — no badging, no removal from invites — and the work is Q2.
+
+Before planning the fix I checked what backend each portal already has, because
+that changes the size of the job by an order of magnitude between them.
+
+## Investor — 21 routes already exist. Pure wiring. **Do this one first.**
+
+The backend is not missing, it is complete and unused:
+
+```
+/investments/opportunities            /investments/payouts
+/investments/opportunities/:id        /investments/payouts/:id
+/investments/commitments              /investments/payouts/investor/:email
+/investments/commitments/:id          /investments/partner-properties
+/investments/commitments/investor/:email
+/investments/analytics/portfolio/:email
+/investments/documents/opportunity/:id
+/investments/documents/:id/sign       /investments/ai-reports/:email
+```
+
+The portal's tabs are Dashboard, Portfolio, Opportunities, Reports,
+Distributions, Documents — which map almost one-for-one onto those routes. It is
+1,627 lines of interface faking data that the server is already able to return.
+No new backend, no schema, no decisions. The largest quality gain for the least
+new code anywhere in this audit.
+
+- [ ] R1. Replace `performanceData`, `stats`, `properties`,
+      `companyOpportunities` and `propertyOpportunities` with loads from the
+      existing routes, keeping the existing layout untouched.
+
+## Vendor — partial backend, mostly wiring
+
+Exists: `/vendor-directory`, `/vendor-profile/:vendorId`,
+`/vendor-profile/:vendorId/stats`, `/vendor-orders/:id/status`,
+`/orders/vendor/:vendorId`. Enough for the profile, order list and stats tabs.
+Catalogue and payout views may need routes added.
+
+- [ ] R2. Wire what exists; list precisely what is missing rather than inventing
+      routes to fill the gaps.
+
+## Employee — thin backend, some new routes needed
+
+Exists: `/employees`, `/employees/:id`, `/schedule/appointments`,
+`/payroll-report`. The portal shows a time clock, today's schedule and an hours
+chart; the schedule can be wired now, the time clock has nothing behind it.
+
+- [ ] R3. Wire schedule and profile. Time clock needs a small new backend —
+      worth confirming it is wanted before building it.
+
+## Advertiser — no backend at all. Not a wiring job.
+
+Zero `/advertiser` routes. The portal reports impressions, click-through rate,
+conversions and ROI per campaign, and **nothing in the system records an
+impression or a click.** Ad *serving* exists (`/product-ads`, SponsoredMarquee,
+AdvertisingMarquee); ad *measurement* does not.
+
+So this is not "connect the portal to the server" — it is "build campaign
+tracking, then connect the portal to it." Every number on that screen depends on
+an event pipeline that would have to be written first.
+
+- [ ] R4. Treat as its own project, not part of this pass. Flagged rather than
+      started.
+
+## Recommendation
+
+**R1 (investor) first**, and it is not close: complete backend already built,
+tab-for-tab match, no decisions required, and it removes fabricated financial
+figures from the highest-stakes screen in the app.
+
+### R1 — investor portal wired. Done, and verified in a browser.
+
+**What changed.** One file, `InvestorPortalView.tsx`, 1,628 → 1,268 lines.
+
+543 lines of invented object literals were deleted — a $3.25M portfolio, twelve
+properties in Miami, Austin and Denver, a seven-month performance curve, an
+investor named Robert Chen at Apex Capital — and replaced with two calls to the
+backend that already existed:
+
+    GET /investments/analytics/portfolio/:email   summary + commitments + payouts
+    GET /investments/opportunities                open deals
+
+- **Stats** come from the portfolio summary.
+- **The portfolio list** is the investor's own commitments, each carrying the
+  opportunity it was made against.
+- **The performance chart** is built from actual completed payouts, not a drawn
+  curve. No payouts means no line, which is the truth.
+- **Opportunities** are split into company and property deals on the published
+  category.
+- The layout was not touched.
+
+**Empty states.** The backend currently holds zero investment records, so every
+one of these renders today: "No investments yet" with a Browse Opportunities
+button, "No performance history yet" on the chart, and stat captions that read
+"No capital committed yet" rather than a bare 0. An investor with nothing yet
+should see a deliberate screen, not one that looks broken.
+
+**Two real bugs found and fixed, both invisible to the type checker:**
+
+1. `benefits.map()` was unguarded at three call sites. The server's opportunity
+   shape makes `benefits` optional, so the detail modal would have crashed the
+   first time Eric published a deal without one. The probe deliberately included
+   an opportunity with no benefits array to catch this.
+2. **`Funded 400000%`.** The mock stored `funded` as a percentage; the server
+   stores dollars raised, with `targetRaise` separate, so `{opp.funded}%`
+   rendered raw dollars with a percent sign. Now computed from raised ÷ target —
+   verified rendering 27% and 17%.
+
+**How it was verified.** Not by the type checker, which passed on both bugs. A
+throwaway entry point rendered the real component in headless Edge with a stubbed
+session and a mocked API, across two scenarios — an empty account and a funded
+one. Zero exceptions in both. The funded run rendered $172.50K portfolio value,
+15.00% ROI, two commitments by name, and correct funded percentages, all from the
+API. The empty run rendered every empty state. Probe scaffolding was removed
+afterwards.
+
+**Not done:** deploying. This is a frontend change and goes out through git push
+to Vercel, which is Eric's call, not mine.

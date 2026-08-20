@@ -4,7 +4,7 @@ import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TrendingUp, DollarSign, Building2, PieChart, BarChart3, FileText,
   Calendar, Target, Award, ArrowUpRight, ArrowDownRight, Download,
@@ -24,6 +24,10 @@ import ReferralRewards from '../ReferralRewards';
 import InvestmentApplication from './InvestmentApplication';
 import InvestmentContract from './InvestmentContract';
 import PlanBuilderTab from './PlanBuilderTab';
+import { useAuth } from '../../contexts/AuthContext';
+import { projectId, publicAnonKey } from '../../utils/supabase/info';
+
+const INVEST_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
 
 export default function InvestorPortalView() {
   
@@ -38,549 +42,151 @@ export default function InvestorPortalView() {
   const [applicationData, setApplicationData] = useState<any>(null);
   const [showContract, setShowContract] = useState(false);
 
-  // Mock investor data — pulled from RoleSwitcher demo profile if present
-  const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
-  const investorInfo = {
-    name: _demoProfile?.name || 'Robert Chen',
-    email: _demoProfile?.email || 'rchen@apexcap.com',
-    phone: _demoProfile?.phone || '(214) 555-0449',
-    company: _demoProfile?.company || 'Apex Capital Partners',
-    accountManager: 'Jennifer Lee',
-    memberSince: 'June 2021',
-    totalInvested: 2500000,
-    currentValue: 3250000,
-    totalROI: 30
+  // ---------------------------------------------------------------------------
+  // Real data. Every figure below comes from the investments API.
+  //
+  // This screen used to be 543 lines of object literals — a portfolio worth
+  // $3.25M, twelve properties, a seven-month performance curve, all invented.
+  // That was survivable while nobody could reach it. It is not survivable for a
+  // screen whose whole job is to show real performance to someone deciding
+  // whether to put money in, so the literals are gone and nothing renders unless
+  // the server returned it.
+  //
+  // The backend for this already existed and was simply never called:
+  //   GET /investments/analytics/portfolio/:email  -> summary + commitments + payouts
+  //   GET /investments/opportunities               -> open deals
+  // ---------------------------------------------------------------------------
+  const { user, session } = useAuth();
+  const [summary, setSummary] = useState<any>(null);
+  const [commitments, setCommitments] = useState<any[]>([]);
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [allOpportunities, setAllOpportunities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const investorEmail = String(user?.email || '').toLowerCase();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+          'Content-Type': 'application/json',
+        };
+
+        // Opportunities are public to any signed-in investor; the portfolio is
+        // per-person and needs an email, so it is skipped when we do not have one
+        // rather than being requested for nobody.
+        const oppRes = await fetch(`${INVEST_API}/opportunities`, { headers });
+        const oppJson = await oppRes.json().catch(() => ({}));
+        if (!cancelled) setAllOpportunities(Array.isArray(oppJson.opportunities) ? oppJson.opportunities : []);
+
+        if (investorEmail) {
+          const portRes = await fetch(`${INVEST_API}/analytics/portfolio/${encodeURIComponent(investorEmail)}`, { headers });
+          const portJson = await portRes.json().catch(() => ({}));
+          if (!cancelled) {
+            setSummary(portJson.summary || null);
+            setCommitments(Array.isArray(portJson.commitments) ? portJson.commitments : []);
+            setPayouts(Array.isArray(portJson.recentPayouts) ? portJson.recentPayouts : []);
+          }
+        }
+      } catch (error: any) {
+        if (!cancelled) setLoadError(error?.message || 'Could not load your portfolio.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [investorEmail, session?.access_token]);
+
+  // Compact form for the stat tiles, where "$3,250,000" would wrap.
+  const compact = (n: number) => {
+    const v = Number(n || 0);
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+    if (v >= 1_000) return `$${Math.round(v / 1_000)}K`;
+    return `$${v}`;
   };
 
-  // Portfolio performance data
-  const performanceData = [
-    { month: 'Jul', value: 2800000, roi: 12 },
-    { month: 'Aug', value: 2850000, roi: 14 },
-    { month: 'Sep', value: 2920000, roi: 16.8 },
-    { month: 'Oct', value: 3020000, roi: 20.8 },
-    { month: 'Nov', value: 3150000, roi: 26 },
-    { month: 'Dec', value: 3180000, roi: 27.2 },
-    { month: 'Jan', value: 3250000, roi: 30 }
-  ];
+  const totalInvested = Number(summary?.totalInvested || 0);
+  const totalReceived = Number(summary?.totalReceived || 0);
+  const currentValue = Number(summary?.currentValue || 0);
 
-  // Stats
+  const investorInfo = {
+    name: String(user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Investor'),
+    email: investorEmail,
+    phone: String(user?.user_metadata?.phone || ''),
+    company: String(user?.user_metadata?.company || ''),
+    accountManager: '',
+    memberSince: user?.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '',
+    totalInvested,
+    currentValue,
+    totalROI: Number(summary?.totalROI || 0),
+  };
+
+  // Performance over time, built from actual completed payouts rather than a
+  // drawn curve. With no payouts yet there is no line, which is the truth.
+  const performanceData = (() => {
+    const done = [...payouts]
+      .filter((p) => p?.payout_date)
+      .sort((a, b) => String(a.payout_date).localeCompare(String(b.payout_date)));
+    if (!done.length) return [];
+    let running = totalInvested;
+    return done.map((p) => {
+      running += Number(p.amount || 0);
+      return {
+        month: new Date(p.payout_date).toLocaleDateString(undefined, { month: 'short' }),
+        value: running,
+        roi: totalInvested > 0 ? Number((((running - totalInvested) / totalInvested) * 100).toFixed(1)) : 0,
+      };
+    });
+  })();
+
   const stats = [
-    { label: 'Portfolio Value', value: '$3.25M', change: '+$70K', trend: 'up', icon: Wallet, color: 'orange' },
-    { label: 'Total ROI', value: '30%', change: '+2.8%', trend: 'up', icon: TrendingUp, color: 'green' },
-    { label: 'Active Properties', value: '12', change: '+2 new', trend: 'up', icon: Building2, color: 'blue' },
-    { label: 'Monthly Income', value: '$18.5K', change: '+$1.2K', trend: 'up', icon: DollarSign, color: 'yellow' }
+    { label: 'Portfolio Value', value: compact(currentValue), change: totalReceived > 0 ? `+${compact(totalReceived)} received` : 'No distributions yet', trend: 'up', icon: Wallet, color: 'orange' },
+    { label: 'Total ROI', value: `${summary?.totalROI ?? 0}%`, change: totalInvested > 0 ? `on ${compact(totalInvested)} invested` : 'No capital committed yet', trend: 'up', icon: TrendingUp, color: 'green' },
+    { label: 'Active Investments', value: String(summary?.activeInvestments ?? 0), change: `${summary?.completedInvestments ?? 0} completed`, trend: 'up', icon: Building2, color: 'blue' },
+    { label: 'Distributions', value: String(summary?.totalPayouts ?? 0), change: totalReceived > 0 ? `${compact(totalReceived)} total` : 'None yet', trend: 'up', icon: DollarSign, color: 'yellow' },
   ];
 
-  // Investment properties
-  const properties = [
-    {
-      id: 'PROP-001',
-      name: 'Sunset Towers',
-      type: 'Multi-Family',
-      location: 'Miami, FL',
-      invested: 500000,
-      currentValue: 675000,
-      roi: 35,
-      monthlyIncome: 4200,
-      status: 'performing',
-      occupancy: 98
-    },
-    {
-      id: 'PROP-002',
-      name: 'Downtown Plaza',
-      type: 'Commercial',
-      location: 'Austin, TX',
-      invested: 850000,
-      currentValue: 1020000,
-      roi: 20,
-      monthlyIncome: 6800,
-      status: 'performing',
-      occupancy: 100
-    },
-    {
-      id: 'PROP-003',
-      name: 'Garden Estates',
-      type: 'Residential',
-      location: 'Denver, CO',
-      invested: 425000,
-      currentValue: 580000,
-      roi: 36.5,
-      monthlyIncome: 3500,
-      status: 'performing',
-      occupancy: 95
-    }
-  ];
+  // The portfolio list is the investor's own commitments, each carrying the
+  // opportunity it was made against (hydrated server-side).
+  const properties = commitments.map((commit: any) => {
+    const opp = commit.opportunity || {};
+    const invested = Number(commit.commitment_amount || 0);
+    const received = Number(commit.total_received || 0);
+    return {
+      id: commit.id,
+      name: String(opp.title || 'Investment'),
+      type: String(opp.category || 'Investment'),
+      location: String(opp.location || ''),
+      invested,
+      currentValue: invested + received,
+      roi: invested > 0 ? Number((((received) / invested) * 100).toFixed(1)) : 0,
+      monthlyIncome: 0,
+      status: String(commit.status || 'pending'),
+      occupancy: null,
+    };
+  });
 
-  // Investment opportunities - Company & Property Investments
-  const companyOpportunities = [
-    {
-      id: 'COMP-001',
-      title: 'Revenue Share Partnership',
-      category: 'Company Equity',
-      description: 'Earn quarterly distributions from company revenue growth',
-      minInvestment: 100000,
-      maxInvestment: 2000000,
-      projectedROI: 24,
-      term: '3 years',
-      status: 'open',
-      investors: 12,
-      funded: 45,
-      targetRaise: 5000000,
-      highlight: 'Passive Income',
-      benefits: ['Quarterly distributions', 'No dilution', 'Revenue-based returns'],
-      detailedDescription: 'Partner with us through a revenue-sharing agreement that provides consistent quarterly income without equity dilution. This structure allows you to participate in our growth while maintaining a predictable income stream.',
-      projections: [
-        { year: 1, revenue: 2400000, distribution: 60000, roi: 6 },
-        { year: 2, revenue: 3600000, distribution: 90000, roi: 15 },
-        { year: 3, revenue: 4800000, distribution: 120000, roi: 24 }
-      ],
-      risks: ['Revenue fluctuation risk', 'Priority payment to debt holders', 'No equity upside'],
-      timeline: [
-        { milestone: 'Commitment Period', date: 'May 2026', status: 'current' },
-        { milestone: 'First Distribution', date: 'Q3 2026', status: 'upcoming' },
-        { milestone: 'Full Maturity', date: 'May 2029', status: 'future' }
-      ],
-      documents: [
-        { name: 'Investment Memorandum', type: 'PDF', size: '2.4 MB' },
-        { name: 'Revenue Share Agreement', type: 'PDF', size: '1.8 MB' },
-        { name: 'Financial Projections', type: 'XLSX', size: '450 KB' },
-        { name: 'Risk Disclosure', type: 'PDF', size: '890 KB' }
-      ],
-      team: [
-        { name: 'Eric Erb', role: 'CEO & Founder', experience: '15+ years construction' },
-        { name: 'Jennifer Lee', role: 'CFO', experience: '20+ years finance' }
-      ]
-    },
-    {
-      id: 'COMP-002',
-      title: 'Preferred Equity Shares',
-      category: 'Company Equity',
-      description: 'Priority returns with liquidation preference',
-      minInvestment: 500000,
-      maxInvestment: 5000000,
-      projectedROI: 35,
-      term: '5 years',
-      status: 'open',
-      investors: 3,
-      funded: 28,
-      targetRaise: 10000000,
-      highlight: 'Priority Returns',
-      benefits: ['1.5x liquidation preference', 'Anti-dilution rights', 'Board observer seat'],
-      detailedDescription: 'Secure preferred equity ownership with priority returns and downside protection. This investment vehicle provides you with a senior position in the capital structure, ensuring you receive distributions before common shareholders.',
-      projections: [
-        { year: 1, revenue: 5200000, distribution: 175000, roi: 7 },
-        { year: 2, revenue: 7800000, distribution: 262500, roi: 14.5 },
-        { year: 3, revenue: 11700000, distribution: 393750, roi: 22.9 },
-        { year: 4, revenue: 17550000, distribution: 590625, roi: 30.4 },
-        { year: 5, revenue: 26325000, distribution: 885938, roi: 35.0 }
-      ],
-      risks: ['Company performance risk', 'Illiquidity until exit event', 'Subordinate to debt holders'],
-      timeline: [
-        { milestone: 'Investment Closing', date: 'June 2026', status: 'current' },
-        { milestone: 'First Annual Distribution', date: 'Q2 2027', status: 'upcoming' },
-        { milestone: 'Expected Exit Event', date: 'Q2 2031', status: 'future' }
-      ],
-      documents: [
-        { name: 'Preferred Stock Purchase Agreement', type: 'PDF', size: '3.2 MB' },
-        { name: 'Company Financial Statements', type: 'PDF', size: '2.8 MB' },
-        { name: 'Market Analysis Report', type: 'PDF', size: '4.1 MB' },
-        { name: 'Legal Due Diligence', type: 'PDF', size: '5.5 MB' }
-      ],
-      team: [
-        { name: 'Eric Erb', role: 'CEO & Founder', experience: '15+ years construction' },
-        { name: 'Jennifer Lee', role: 'CFO', experience: '20+ years finance' },
-        { name: 'Morgan Stanley', role: 'Investment Banker', experience: 'Lead underwriter' }
-      ]
-    },
-    {
-      id: 'COMP-003',
-      title: 'Territory Franchise Ownership',
-      category: 'Company Equity',
-      description: 'Own and operate a protected territory',
-      minInvestment: 750000,
-      maxInvestment: 2500000,
-      projectedROI: 42,
-      term: '10 years',
-      status: 'open',
-      investors: 2,
-      funded: 15,
-      targetRaise: 15000000,
-      highlight: 'Build Your Empire',
-      benefits: ['Exclusive territory rights', 'Full training & support', 'Brand & tech licensing'],
-      detailedDescription: 'Become a territory owner and build your own construction empire with our proven business model. You receive exclusive rights to operate in a designated territory with full access to our brand, technology platform, vendor relationships, and operational playbooks.',
-      projections: [
-        { year: 1, revenue: 1200000, distribution: 150000, roi: 4.2 },
-        { year: 3, revenue: 3600000, distribution: 450000, roi: 14.3 },
-        { year: 5, revenue: 7200000, distribution: 900000, roi: 26.7 },
-        { year: 10, revenue: 18000000, distribution: 2250000, roi: 42.0 }
-      ],
-      risks: ['Business execution risk', 'Local market conditions', 'Competition in territory'],
-      timeline: [
-        { milestone: 'Territory Selection', date: 'June 2026', status: 'current' },
-        { milestone: 'Training & Onboarding', date: 'August 2026', status: 'upcoming' },
-        { milestone: 'Grand Opening', date: 'October 2026', status: 'upcoming' },
-        { milestone: 'First Profitability', date: 'Q2 2027', status: 'future' }
-      ],
-      documents: [
-        { name: 'Franchise Disclosure Document', type: 'PDF', size: '8.2 MB' },
-        { name: 'Territory Map & Demographics', type: 'PDF', size: '4.5 MB' },
-        { name: 'Operations Manual', type: 'PDF', size: '12.1 MB' },
-        { name: 'Financial Performance Summary', type: 'PDF', size: '2.7 MB' }
-      ],
-      team: [
-        { name: 'Eric Erb', role: 'Franchisor & CEO', experience: '15+ years, built 8-figure business' },
-        { name: 'Franchise Support Team', role: 'Operations', experience: 'Dedicated territory support' }
-      ]
-    },
-    {
-      id: 'COMP-004',
-      title: 'Convertible Note - Series B',
-      category: 'Company Equity',
-      description: 'Debt with equity upside and 20% discount',
-      minInvestment: 250000,
-      maxInvestment: 3000000,
-      projectedROI: 45,
-      term: '2 years',
-      status: 'open',
-      investors: 8,
-      funded: 62,
-      targetRaise: 8000000,
-      highlight: 'High Upside',
-      benefits: ['20% conversion discount', '8% annual interest', 'Equity participation'],
-      detailedDescription: 'Invest through a convertible note that provides 8% annual interest payments while preserving the option to convert into equity at a 20% discount during our Series B round. This structure gives you downside protection with significant upside potential.',
-      projections: [
-        { year: 1, revenue: 8500000, distribution: 20000, roi: 8 },
-        { year: 2, revenue: 15300000, distribution: 362500, roi: 45 }
-      ],
-      risks: ['Conversion trigger may not occur', 'Dilution in future rounds', 'Company valuation risk'],
-      timeline: [
-        { milestone: 'Note Issuance', date: 'May 2026', status: 'current' },
-        { milestone: 'First Interest Payment', date: 'May 2027', status: 'upcoming' },
-        { milestone: 'Series B Round / Conversion', date: 'Q2 2028', status: 'future' },
-        { milestone: 'Note Maturity', date: 'May 2028', status: 'future' }
-      ],
-      documents: [
-        { name: 'Convertible Note Agreement', type: 'PDF', size: '2.8 MB' },
-        { name: 'Conversion Terms Sheet', type: 'PDF', size: '980 KB' },
-        { name: 'Company Capitalization Table', type: 'PDF', size: '1.2 MB' },
-        { name: 'Series B Projections', type: 'PDF', size: '3.4 MB' }
-      ],
-      team: [
-        { name: 'Eric Erb', role: 'CEO & Founder', experience: '15+ years construction' },
-        { name: 'Jennifer Lee', role: 'CFO', experience: '20+ years finance' },
-        { name: 'Goldman Sachs', role: 'Series B Lead', experience: 'Investment banking' }
-      ]
-    }
-  ];
+  // The mock data stored `funded` as a percentage; the server stores it as the
+  // dollars actually raised, with `targetRaise` alongside. Rendering the raw
+  // field with a % sign produced "Funded 400000%" — believable-looking nonsense
+  // on the one screen that has to look credible to someone with money.
+  const fundedPct = (o: any) => {
+    const raised = Number(o?.funded || 0);
+    const target = Number(o?.targetRaise || 0);
+    if (!target) return 0;
+    return Math.min(100, Math.round((raised / target) * 100));
+  };
 
-  const propertyOpportunities = [
-    {
-      id: 'PROP-024',
-      title: 'Fractional Luxury Condo',
-      category: 'Fractional Ownership',
-      description: 'Own 1/10th of a $2M Miami Beach property',
-      minInvestment: 25000,
-      maxInvestment: 200000,
-      projectedROI: 18,
-      term: '5 years',
-      status: 'open',
-      investors: 7,
-      funded: 70,
-      targetRaise: 2000000,
-      highlight: 'Low Entry',
-      benefits: ['Monthly rental income', 'Appreciation upside', 'Easy exit liquidity'],
-      detailedDescription: 'Invest in a professionally managed luxury oceanfront condo in Miami Beach through fractional ownership. Each investor owns a proportional share with access to rental income and property appreciation without the hassle of property management.',
-      location: 'Miami Beach, FL',
-      propertyDetails: {
-        type: 'Luxury Condo',
-        bedrooms: 3,
-        bathrooms: 3,
-        sqft: 2400,
-        yearBuilt: 2022,
-        amenities: ['Ocean view', 'Pool', 'Gym', 'Concierge', 'Parking']
-      },
-      projections: [
-        { year: 1, propertyValue: 2000000, rentalIncome: 72000, roi: 3.6 },
-        { year: 2, propertyValue: 2100000, rentalIncome: 78000, roi: 7.9 },
-        { year: 3, propertyValue: 2200000, rentalIncome: 84000, roi: 12.4 },
-        { year: 4, propertyValue: 2320000, rentalIncome: 90000, roi: 16.1 },
-        { year: 5, propertyValue: 2450000, rentalIncome: 96000, roi: 18.0 }
-      ],
-      risks: ['Market value fluctuation', 'Rental vacancy risk', 'Exit liquidity dependent on marketplace'],
-      timeline: [
-        { milestone: 'Funding Close', date: 'June 2026', status: 'current' },
-        { milestone: 'Property Transfer', date: 'July 2026', status: 'upcoming' },
-        { milestone: 'First Rental Income', date: 'August 2026', status: 'upcoming' },
-        { milestone: 'Exit Window Opens', date: 'June 2031', status: 'future' }
-      ],
-      documents: [
-        { name: 'Property Prospectus', type: 'PDF', size: '5.2 MB' },
-        { name: 'Fractional Ownership Agreement', type: 'PDF', size: '2.1 MB' },
-        { name: 'Property Appraisal', type: 'PDF', size: '3.8 MB' },
-        { name: 'Management Agreement', type: 'PDF', size: '1.2 MB' },
-        { name: 'Property Photos', type: 'ZIP', size: '45 MB' }
-      ],
-      team: [
-        { name: 'Coastal Property Group', role: 'Property Manager', experience: '25+ years luxury rentals' },
-        { name: 'Miami Legal Partners', role: 'Legal Counsel', experience: 'Real estate specialists' }
-      ]
-    },
-    {
-      id: 'PROP-025',
-      title: 'Fix & Flip Syndication',
-      category: 'Value-Add',
-      description: 'Pool funds for profitable house flipping projects',
-      minInvestment: 50000,
-      maxInvestment: 500000,
-      projectedROI: 35,
-      term: '18 months',
-      status: 'open',
-      investors: 15,
-      funded: 88,
-      targetRaise: 3500000,
-      currentCommitments: 3080000,
-      minimumToStart: 3500000,
-      needsMoreFunding: true,
-      silentInvestment: true,
-      highlight: 'Quick Returns',
-      benefits: ['Short-term gains', 'Professional management', 'Proven track record', 'Silent passive investment'],
-      detailedDescription: 'Join our proven fix-and-flip syndication fund targeting undervalued properties in high-growth markets. Our experienced team has completed 47 successful flips with an average ROI of 38% over 16 months.',
-      location: 'Austin, TX Metro',
-      propertyDetails: {
-        type: 'Single Family Portfolio',
-        bedrooms: 3,
-        bathrooms: 2,
-        sqft: 1800,
-        yearBuilt: 1995,
-        amenities: ['Full renovation', 'Modern finishes', 'Smart home tech', 'Energy efficient']
-      },
-      projections: [
-        { year: 0, propertyValue: 3500000, rentalIncome: 0, roi: 0 },
-        { year: 1, propertyValue: 4200000, rentalIncome: 0, roi: 20 },
-        { year: 1.5, propertyValue: 4725000, rentalIncome: 0, roi: 35 }
-      ],
-      risks: ['Market timing risk', 'Construction cost overruns', 'Extended holding period'],
-      timeline: [
-        { milestone: 'Fund Closes', date: 'May 2026', status: 'current' },
-        { milestone: 'Property Acquisitions', date: 'June 2026', status: 'upcoming' },
-        { milestone: 'Renovations Complete', date: 'December 2026', status: 'upcoming' },
-        { milestone: 'Properties Sold & Distribution', date: 'November 2027', status: 'future' }
-      ],
-      documents: [
-        { name: 'Syndication Offering Memorandum', type: 'PDF', size: '6.8 MB' },
-        { name: 'Past Performance Report', type: 'PDF', size: '3.2 MB' },
-        { name: 'Target Property List', type: 'PDF', size: '2.4 MB' },
-        { name: 'Operating Agreement', type: 'PDF', size: '1.9 MB' }
-      ],
-      team: [
-        { name: 'Texas Home Flippers LLC', role: 'Fund Manager', experience: '47 successful flips, 12 years' },
-        { name: 'Austin Contractors Group', role: 'General Contractor', experience: 'Licensed & bonded' }
-      ]
-    },
-    {
-      id: 'PROP-026',
-      title: 'Multi-Family REIT Fund',
-      category: 'REIT',
-      description: 'Diversified portfolio of 50+ rental properties',
-      minInvestment: 10000,
-      maxInvestment: 1000000,
-      projectedROI: 22,
-      term: 'Ongoing',
-      status: 'open',
-      investors: 124,
-      funded: 92,
-      targetRaise: 50000000,
-      currentCommitments: 46000000,
-      minimumToStart: 50000000,
-      needsMoreFunding: true,
-      silentInvestment: true,
-      highlight: 'Diversified',
-      benefits: ['Monthly dividends', 'Low minimum', 'Professional management', 'Silent passive investment'],
-      detailedDescription: 'Invest in a professionally managed REIT with a diversified portfolio of 50+ multi-family properties across high-growth markets. Receive monthly dividend distributions while benefiting from property appreciation and professional asset management.',
-      location: 'Nationwide Portfolio',
-      propertyDetails: {
-        type: 'Multi-Family REIT',
-        bedrooms: 0,
-        bathrooms: 0,
-        sqft: 0,
-        yearBuilt: 0,
-        amenities: ['52 properties', '1,840 units', '94% occupied', 'Professional management', '$127M portfolio value']
-      },
-      projections: [
-        { year: 1, propertyValue: 50000000, rentalIncome: 550000, roi: 5.5 },
-        { year: 2, propertyValue: 52500000, rentalIncome: 1155000, roi: 11.6 },
-        { year: 3, propertyValue: 55125000, rentalIncome: 1815750, roi: 17.9 },
-        { year: 5, propertyValue: 60775000, rentalIncome: 2750000, roi: 22.0 }
-      ],
-      risks: ['Market cycle risk', 'Interest rate sensitivity', 'Property management performance'],
-      timeline: [
-        { milestone: 'Investment Open', date: 'Ongoing', status: 'current' },
-        { milestone: 'First Dividend', date: '30 days after investment', status: 'upcoming' },
-        { milestone: 'Quarterly Statements', date: 'Every quarter', status: 'upcoming' }
-      ],
-      documents: [
-        { name: 'REIT Prospectus', type: 'PDF', size: '14.2 MB' },
-        { name: 'Property Portfolio Summary', type: 'PDF', size: '8.5 MB' },
-        { name: 'Historical Performance', type: 'PDF', size: '3.1 MB' },
-        { name: 'Subscription Agreement', type: 'PDF', size: '2.4 MB' }
-      ],
-      team: [
-        { name: 'National Property REIT', role: 'Fund Manager', experience: '$2.4B AUM, 18 years' },
-        { name: 'Regional Management Teams', role: 'Property Operations', experience: 'Local market experts' }
-      ]
-    },
-    {
-      id: 'PROP-027',
-      title: 'Ground-Up Development',
-      category: 'Development',
-      description: 'New construction - 24-unit apartment building',
-      minInvestment: 200000,
-      maxInvestment: 2000000,
-      projectedROI: 48,
-      term: '4 years',
-      status: 'open',
-      investors: 6,
-      funded: 34,
-      targetRaise: 12000000,
-      currentCommitments: 4080000,
-      minimumToStart: 12000000,
-      needsMoreFunding: true,
-      silentInvestment: true,
-      highlight: 'Highest Returns',
-      benefits: ['New construction premium', 'Tax advantages', 'Forced appreciation', 'Silent passive investment'],
-      detailedDescription: 'Participate in ground-up development of a 24-unit luxury apartment building in a high-demand urban location. This project offers the highest potential returns through new construction premiums, tax depreciation benefits, and immediate value-add positioning.',
-      location: 'Denver, CO',
-      propertyDetails: {
-        type: 'New Construction Multi-Family',
-        bedrooms: 24,
-        bathrooms: 48,
-        sqft: 28800,
-        yearBuilt: 2027,
-        amenities: ['Rooftop deck', 'Fitness center', 'Co-working space', 'EV charging', 'Smart units']
-      },
-      projections: [
-        { year: 1, propertyValue: 12000000, rentalIncome: 0, roi: 0 },
-        { year: 2, propertyValue: 14000000, rentalIncome: 480000, roi: 12 },
-        { year: 3, propertyValue: 16000000, rentalIncome: 960000, roi: 28 },
-        { year: 4, propertyValue: 17760000, rentalIncome: 1440000, roi: 48 }
-      ],
-      risks: ['Construction delays', 'Cost overruns', 'Lease-up risk', 'Market conditions'],
-      timeline: [
-        { milestone: 'Land Acquisition', date: 'July 2026', status: 'current' },
-        { milestone: 'Construction Start', date: 'September 2026', status: 'upcoming' },
-        { milestone: 'Construction Complete', date: 'March 2028', status: 'future' },
-        { milestone: 'Stabilized & Exit', date: 'July 2030', status: 'future' }
-      ],
-      documents: [
-        { name: 'Development Pro Forma', type: 'PDF', size: '6.8 MB' },
-        { name: 'Architectural Renderings', type: 'PDF', size: '28.4 MB' },
-        { name: 'Market Study', type: 'PDF', size: '5.2 MB' },
-        { name: 'Construction Budget', type: 'XLSX', size: '890 KB' }
-      ],
-      team: [
-        { name: 'Urban Development Partners', role: 'Developer', experience: '34 projects, $580M developed' },
-        { name: 'Premier Construction Co', role: 'General Contractor', experience: 'Licensed, bonded, insured' }
-      ]
-    },
-    {
-      id: 'PROP-028',
-      title: '1031 Exchange Portfolio',
-      category: 'Tax-Deferred',
-      description: 'Tax-deferred exchange into performing assets',
-      minInvestment: 500000,
-      maxInvestment: 10000000,
-      projectedROI: 26,
-      term: '7 years',
-      status: 'open',
-      investors: 4,
-      funded: 51,
-      targetRaise: 25000000,
-      highlight: 'Tax Benefits',
-      benefits: ['Defer capital gains', 'Step-up basis', 'Estate planning'],
-      detailedDescription: 'Execute a 1031 exchange into a portfolio of institutional-grade properties while deferring capital gains taxes. This Delaware Statutory Trust (DST) structure provides fractional ownership in professionally managed commercial real estate.',
-      location: 'Multi-State Portfolio',
-      propertyDetails: {
-        type: '1031 DST Portfolio',
-        bedrooms: 0,
-        bathrooms: 0,
-        sqft: 0,
-        yearBuilt: 0,
-        amenities: ['Triple net leases', 'Investment grade tenants', 'Passive ownership', 'Tax deferral', 'Estate planning']
-      },
-      projections: [
-        { year: 1, propertyValue: 25000000, rentalIncome: 650000, roi: 2.6 },
-        { year: 3, propertyValue: 26500000, rentalIncome: 2010000, roi: 10.8 },
-        { year: 5, propertyValue: 28090000, rentalIncome: 3575000, roi: 18.6 },
-        { year: 7, propertyValue: 29775000, rentalIncome: 5265000, roi: 26.0 }
-      ],
-      risks: ['Tenant default risk', 'Limited liquidity', 'Property concentration'],
-      timeline: [
-        { milestone: '1031 Identification', date: 'Within 45 days', status: 'current' },
-        { milestone: 'Exchange Completion', date: 'Within 180 days', status: 'upcoming' },
-        { milestone: 'First Distribution', date: '30 days post-close', status: 'upcoming' },
-        { milestone: 'Hold Period Ends', date: '7 years', status: 'future' }
-      ],
-      documents: [
-        { name: '1031 DST Offering Memorandum', type: 'PDF', size: '12.4 MB' },
-        { name: 'Property Appraisals', type: 'PDF', size: '8.9 MB' },
-        { name: 'Tenant Lease Abstracts', type: 'PDF', size: '4.2 MB' },
-        { name: 'Tax Benefits Analysis', type: 'PDF', size: '2.1 MB' }
-      ],
-      team: [
-        { name: 'National DST Sponsor', role: 'Sponsor/Manager', experience: '$4.2B in 1031 exchanges' },
-        { name: 'Tax & Legal Advisors', role: 'Compliance', experience: '1031 exchange specialists' }
-      ]
-    },
-    {
-      id: 'PROP-029',
-      title: 'Passive Income Program',
-      category: 'Turnkey',
-      description: 'Fully managed rental with guaranteed income',
-      minInvestment: 75000,
-      maxInvestment: 750000,
-      projectedROI: 16,
-      term: '10 years',
-      status: 'open',
-      investors: 22,
-      funded: 78,
-      targetRaise: 15000000,
-      highlight: 'Zero Work',
-      benefits: ['Guaranteed 12% income', 'Full property management', 'Maintenance included'],
-      detailedDescription: 'Invest in turnkey rental properties with a guaranteed 12% annual income and zero landlord responsibilities. We handle everything: tenant placement, maintenance, repairs, and property management. Perfect for truly passive real estate income.',
-      location: 'Nashville, TN',
-      propertyDetails: {
-        type: 'Turnkey Single Family',
-        bedrooms: 3,
-        bathrooms: 2,
-        sqft: 1650,
-        yearBuilt: 2018,
-        amenities: ['Tenant guaranteed', 'Property management', 'Maintenance reserve', 'HOA included', 'Insurance covered']
-      },
-      projections: [
-        { year: 1, propertyValue: 75000, rentalIncome: 9000, roi: 12 },
-        { year: 3, propertyValue: 78000, rentalIncome: 27360, roi: 13.5 },
-        { year: 5, propertyValue: 81120, rentalIncome: 46224, roi: 14.8 },
-        { year: 10, propertyValue: 87120, rentalIncome: 104544, roi: 16.0 }
-      ],
-      risks: ['Tenant turnover', 'Major repair costs', 'Property value stagnation'],
-      timeline: [
-        { milestone: 'Property Purchase', date: 'June 2026', status: 'current' },
-        { milestone: 'Tenant Placement', date: 'July 2026', status: 'upcoming' },
-        { milestone: 'First Income Payment', date: 'August 2026', status: 'upcoming' },
-        { milestone: 'Contract Ends', date: 'June 2036', status: 'future' }
-      ],
-      documents: [
-        { name: 'Turnkey Investment Agreement', type: 'PDF', size: '3.2 MB' },
-        { name: 'Property Inspection Report', type: 'PDF', size: '5.8 MB' },
-        { name: 'Income Guarantee Terms', type: 'PDF', size: '1.4 MB' },
-        { name: 'Management Agreement', type: 'PDF', size: '2.1 MB' }
-      ],
-      team: [
-        { name: 'Turnkey Property Solutions', role: 'Property Manager', experience: '1,200+ managed properties' },
-        { name: 'Nashville Realty Group', role: 'Local Broker', experience: '22 years local market' }
-      ]
-    }
-  ];
+  // The screen shows company deals and property deals separately, so split on
+  // the category the opportunity was published with.
+  const isCompanyDeal = (o: any) => /company|equity|revenue|partnership/i.test(String(o?.category || ''));
+  const companyOpportunities = allOpportunities.filter(isCompanyDeal);
+  const propertyOpportunities = allOpportunities.filter((o) => !isCompanyDeal(o));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -729,7 +335,7 @@ export default function InvestorPortalView() {
                   </div>
                   <div className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
                     <p className="text-xs text-gray-500 mb-1">Funded</p>
-                    <p className="text-xl font-bold text-blue-400">{selectedOpportunity.funded}%</p>
+                    <p className="text-xl font-bold text-blue-400">{fundedPct(selectedOpportunity)}%</p>
                   </div>
                   <div className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
                     <p className="text-xs text-gray-500 mb-1">Investors</p>
@@ -748,7 +354,7 @@ export default function InvestorPortalView() {
                   <div className="w-full bg-[#1A1A1A] rounded-full h-3">
                     <div
                       className="h-3 rounded-full bg-gradient-to-r from-green-600 to-emerald-500 transition-all"
-                      style={{ width: `${selectedOpportunity.funded}%` }}
+                      style={{ width: `${fundedPct(selectedOpportunity)}%` }}
                     />
                   </div>
                 </div>
@@ -876,7 +482,7 @@ export default function InvestorPortalView() {
                     Key Benefits
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {selectedOpportunity.benefits.map((benefit: string, idx: number) => (
+                    {(selectedOpportunity.benefits || []).map((benefit: string, idx: number) => (
                       <div key={idx} className="flex items-start gap-3 bg-[#1A1A1A] border border-green-500/20 rounded-lg p-3">
                         <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
                         <p className="text-sm text-gray-300">{benefit}</p>
@@ -1199,6 +805,19 @@ export default function InvestorPortalView() {
                   Export Report
                 </PrimaryButton>
               </div>
+              {/* A performance chart with no distributions behind it would draw
+                  a flat line at zero, which looks like a loss rather than an
+                  account that has not started. Say so instead. */}
+              {performanceData.length === 0 ? (
+                <div className="flex h-64 flex-col items-center justify-center rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] text-center">
+                  <BarChart3 className="mb-3 h-8 w-8 text-gray-600" />
+                  <p className="font-semibold text-white">No performance history yet</p>
+                  <p className="mt-1 max-w-sm text-sm text-gray-400">
+                    This chart plots portfolio value as distributions are paid. It fills in
+                    from the first one.
+                  </p>
+                </div>
+              ) : (
               <ChartContainer height={256} minHeight={256} dependencies={[activeTab]}>
                 <AreaChart data={performanceData} width={800} height={256}>
                   <defs>
@@ -1218,6 +837,7 @@ export default function InvestorPortalView() {
                   <Area key="investor-area" type="monotone" dataKey="value" stroke="#ea580c" fillOpacity={1} fill="url(#valueGradient)" strokeWidth={2} isAnimationActive={false} />
                 </AreaChart>
               </ChartContainer>
+              )}
             </div>
 
             {/* Properties Grid */}
@@ -1232,6 +852,34 @@ export default function InvestorPortalView() {
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
+              {/* An investor with no commitments yet should see a deliberate
+                  screen, not an empty grid that reads as a broken page. */}
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                  <Clock className="w-4 h-4 animate-spin" /> Loading your portfolio…
+                </div>
+              ) : loadError ? (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-6 text-center">
+                  <AlertCircle className="mx-auto mb-2 h-6 w-6 text-red-400" />
+                  <p className="text-sm text-red-300">{loadError}</p>
+                </div>
+              ) : properties.length === 0 ? (
+                <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                  <Briefcase className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                  <p className="font-semibold text-white">No investments yet</p>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                    Once a commitment is made against an opportunity it appears here, with the
+                    capital invested, distributions received and return to date.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('opportunities')}
+                    className="mt-5 inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-orange-500"
+                  >
+                    <Target className="h-4 w-4" /> Browse opportunities
+                  </button>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {properties.map(property => (
                   <div key={property.id} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-5 hover:border-orange-500/30 transition">
@@ -1240,8 +888,11 @@ export default function InvestorPortalView() {
                         <h3 className="font-semibold text-white mb-1">{property.name}</h3>
                         <p className="text-sm text-gray-400">{property.type} • {property.location}</p>
                       </div>
+                      {/* Occupancy is a property-level figure we do not hold for
+                          a commitment, so the badge shows the commitment's own
+                          status instead of an invented percentage. */}
                       <span className={`px-2 py-1 rounded text-xs font-semibold border ${getStatusColor(property.status)}`}>
-                        {property.occupancy}%
+                        {property.occupancy != null ? `${property.occupancy}%` : property.status}
                       </span>
                     </div>
                     <div className="space-y-2 mb-4">
@@ -1258,13 +909,19 @@ export default function InvestorPortalView() {
                         <span className="text-green-400 font-semibold">+{property.roi}%</span>
                       </div>
                     </div>
-                    <div className="pt-3 border-t border-[#2A2A2A]">
-                      <p className="text-xs text-gray-400 mb-1">Monthly Income</p>
-                      <p className="text-lg font-bold text-orange-400">${property.monthlyIncome.toLocaleString()}</p>
-                    </div>
+                    {/* Monthly income is only shown when a distribution schedule
+                        actually reports one — a hard $0 reads as a bad investment
+                        rather than as a figure we do not yet hold. */}
+                    {property.monthlyIncome > 0 && (
+                      <div className="pt-3 border-t border-[#2A2A2A]">
+                        <p className="text-xs text-gray-400 mb-1">Monthly Income</p>
+                        <p className="text-lg font-bold text-orange-400">${property.monthlyIncome.toLocaleString()}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+              )}
             </div>
 
             {/* Investment Opportunities */}
@@ -1311,7 +968,7 @@ export default function InvestorPortalView() {
                         </div>
                         <div>
                           <p className="text-gray-500 text-xs">Funded</p>
-                          <p className="text-white font-semibold">{opp.funded}%</p>
+                          <p className="text-white font-semibold">{fundedPct(opp)}%</p>
                         </div>
                       </div>
                       <PrimaryButton
@@ -1362,7 +1019,7 @@ export default function InvestorPortalView() {
                         </div>
                         <div>
                           <p className="text-gray-500 text-xs">Funded</p>
-                          <p className="text-white font-semibold">{opp.funded}%</p>
+                          <p className="text-white font-semibold">{fundedPct(opp)}%</p>
                         </div>
                       </div>
                       <PrimaryButton
@@ -1460,7 +1117,7 @@ export default function InvestorPortalView() {
                           <p className="text-sm text-gray-300 mb-3">{opp.description}</p>
                         </div>
                         <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                          {opp.funded}% FUNDED
+                          {fundedPct(opp)}% FUNDED
                         </span>
                       </div>
 
@@ -1486,7 +1143,7 @@ export default function InvestorPortalView() {
                       <div className="bg-[#0A0A0A] rounded-lg border border-purple-500/20 p-3 mb-4">
                         <p className="text-xs text-gray-400 mb-2 font-semibold">Key Benefits:</p>
                         <ul className="space-y-1">
-                          {opp.benefits.map((benefit, idx) => (
+                          {(opp.benefits || []).map((benefit, idx) => (
                             <li key={idx} className="flex items-center gap-2 text-xs text-gray-300">
                               <CheckCircle className="w-3 h-3 text-purple-400 flex-shrink-0" />
                               {benefit}
@@ -1531,7 +1188,7 @@ export default function InvestorPortalView() {
                           <p className="text-sm text-gray-300 mb-3">{opp.description}</p>
                         </div>
                         <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                          {opp.funded}% FUNDED
+                          {fundedPct(opp)}% FUNDED
                         </span>
                       </div>
 
@@ -1557,7 +1214,7 @@ export default function InvestorPortalView() {
                       <div className="bg-[#0A0A0A] rounded-lg border border-orange-500/20 p-3 mb-4">
                         <p className="text-xs text-gray-400 mb-2 font-semibold">Key Benefits:</p>
                         <ul className="space-y-1">
-                          {opp.benefits.map((benefit, idx) => (
+                          {(opp.benefits || []).map((benefit, idx) => (
                             <li key={idx} className="flex items-center gap-2 text-xs text-gray-300">
                               <CheckCircle className="w-3 h-3 text-orange-400 flex-shrink-0" />
                               {benefit}
