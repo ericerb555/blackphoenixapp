@@ -4715,9 +4715,49 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/invite', async (c) => {
     const now = new Date().toISOString();
     // Keep the tenant→landlord mapping current for work-request routing.
     await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: String(actor.user.email).toLowerCase(), landlordUserId: actor.user.id, tenantName: tenant.name, unit: tenant.unit, updatedAt: now });
+    // Send the same branded invite every other portal type gets, rather than
+    // handing the landlord a temporary password to relay by hand. The tenant
+    // label and blurb have existed in portal-invite-email.tsx all along and were
+    // simply never called — this was the one portal a person could not be
+    // properly invited into.
+    //
+    // Safe to run after the createUser above: ensureAuthUser() inside this only
+    // writes metadata when it creates the account, so the tenant's role, unit
+    // and landlordEmail set above are not overwritten on a resend.
+    let invitationSent = false;
+    let inviteNotice = '';
+    try {
+      const delivery = await deliverPortalInvite({
+        name: tenant.name || 'Tenant',
+        email: tenantEmail,
+        phone: String(tenant.phone || ''),
+        portalType: 'tenant',
+        grantFullAccess: true,
+        trialMonths: 0,
+        sendEmail: true,
+        sendSms: false,
+        wantQr: false,
+      });
+      invitationSent = delivery.invitationSent;
+      inviteNotice = delivery.inviteNotice || '';
+    } catch (mailError: any) {
+      inviteNotice = mailError?.message || 'The invite email could not be sent.';
+    }
+
     roster[idx] = { ...tenant, invited: true, invitedAt: now, hasAccount: true, updatedAt: now };
     await kv.set(key, roster);
-    return c.json({ success: true, tenant: roster[idx], created, tempPassword: created ? tempPassword : null, alreadyHadAccount: !created });
+    return c.json({
+      success: true,
+      tenant: roster[idx],
+      created,
+      invitationSent,
+      inviteNotice,
+      // The temp password is now a fallback, not the delivery mechanism. It is
+      // returned only when the account was newly made AND the email did not go —
+      // otherwise the landlord is handed a credential they have no reason to see.
+      tempPassword: created && !invitationSent ? tempPassword : null,
+      alreadyHadAccount: !created,
+    });
   } catch (error: any) { console.log('Tenant invite error:', error); return c.json({ success: false, error: error.message || 'Unable to invite the tenant.' }, 500); }
 });
 
@@ -6021,6 +6061,23 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
             else { invite = { created: true, tempPassword }; (tenant as any).invited = true; (tenant as any).invitedAt = now; (tenant as any).hasAccount = true; }
           } else {
             invite = { created: false, alreadyHadAccount: true }; (tenant as any).invited = true; (tenant as any).hasAccount = true;
+          }
+          // Approve-and-invite is a second door into the tenant portal and had
+          // the same gap as the roster invite: an account was made and nobody
+          // was told. Same branded email, same fallback.
+          if (!invite?.error) {
+            try {
+              const delivery = await deliverPortalInvite({
+                name: a.name || 'Tenant', email: tenantEmail, phone: String(a.phone || ''),
+                portalType: 'tenant', grantFullAccess: true, trialMonths: 0,
+                sendEmail: true, sendSms: false, wantQr: false,
+              });
+              invite = { ...invite, invitationSent: delivery.invitationSent, inviteNotice: delivery.inviteNotice || '' };
+              // Only surface the credential when the email did not arrive.
+              if (delivery.invitationSent) invite.tempPassword = null;
+            } catch (mailError: any) {
+              invite = { ...invite, invitationSent: false, inviteNotice: mailError?.message || 'The invite email could not be sent.' };
+            }
           }
           await kv.set(`tenant_landlord:${tenantEmail}`, { landlordEmail: email, landlordUserId: actor.user.id, tenantName: a.name, unit: tenant.unit, updatedAt: now });
         } catch (e: any) { invite = { created: false, error: e?.message || 'Invite failed' }; }

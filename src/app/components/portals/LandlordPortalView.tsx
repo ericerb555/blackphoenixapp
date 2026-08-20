@@ -273,12 +273,16 @@ export default function LandlordPortalView() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Unable to invite tenant.');
       setTenants(current => current.map(t => t.id === tenant.id ? payload.tenant : t));
-      if (payload.created && payload.tempPassword) {
-        toast.success(`Portal created for ${tenant.email}. Temp password: ${payload.tempPassword}`, { duration: 12000 });
+      if (payload.invitationSent) {
+        toast.success(`Invite emailed to ${tenant.email}. They set their own password from the link.`);
+      } else if (payload.tempPassword) {
+        // Email delivery failed and the account is new, so this password is the
+        // only way in. Shown for longer because the landlord has to pass it on.
+        toast.warning(`Portal created, but the invite email did not send. Give ${tenant.email} this temporary password: ${payload.tempPassword}`, { duration: 20000 });
       } else if (payload.alreadyHadAccount) {
         toast.success(`${tenant.email} already has an account — their portal is linked to you.`);
       } else {
-        toast.success('Tenant invited to their portal.');
+        toast.warning(payload.inviteNotice || 'Tenant linked, but the invite email did not send.', { duration: 12000 });
       }
     } catch (error: any) { toast.error(error?.message || 'Unable to invite tenant.'); } finally { setInvitingId(null); }
   }

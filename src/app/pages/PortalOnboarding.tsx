@@ -125,7 +125,13 @@ export default function PortalOnboarding() {
   };
 
   const enterPortal = () => {
-    const routes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', advertiser: 'advertiser-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal' };
+    // Every portal type must appear here. The fallback below is silent, so a
+    // missing entry does not error — it quietly delivers someone to the customer
+    // portal, which looks to them like the invitation was for the wrong thing.
+    // `tenant` is included even though landlord-issued invites do not currently
+    // pass through onboarding, because the cost of the entry is one line and the
+    // cost of its absence is an invisible misroute.
+    const routes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', advertiser: 'advertiser-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal', tenant: 'tenant-portal' };
     const route = routes[String(intake?.portalType || '')] || 'customer-portal-app';
     const navigate = (window as any).__navigateApp;
     if (typeof navigate === 'function') navigate(route); else window.location.assign(`/${route}`);

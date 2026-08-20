@@ -20,12 +20,16 @@ const PORTAL_OPTIONS: { value: string; label: string }[] = [
   { value: 'advertiser', label: 'Advertiser' },
   { value: 'investor', label: 'Investor' },
   { value: 'territory_owner', label: 'Territory Owner' },
-  // Tenant was missing here while the portal, the route and an application form
-  // all existed. Adding it to this list alone would not have been enough: the
-  // server keeps its own lists, and invoicePortal() quietly falls back to
-  // 'customer' for a type it does not recognise — so a tenant invite would have
-  // landed that person in the customer portal with nothing to say why.
-  { value: 'tenant', label: 'Tenant' },
+  // TENANT IS DELIBERATELY NOT IN THIS LIST. Tenants are invited by their
+  // landlord, not by Black Phoenix, because the landlord is the party that holds
+  // the relationship. The landlord portal already does it — Tenants tab, Invite
+  // button per tenant.
+  //
+  // This was previously "fixed" by adding tenant here, on the reasoning that the
+  // portal and route existed so the option must have been missed. It had not
+  // been missed. A company-issued tenant invite creates a tenant with no
+  // landlord attached, so `tenant_landlord:` is never written and that person's
+  // work requests route nowhere. Please do not add it back.
 ];
 
 interface InviteResult {
