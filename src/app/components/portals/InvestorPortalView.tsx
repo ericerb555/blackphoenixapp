@@ -61,6 +61,8 @@ export default function InvestorPortalView() {
   const [commitments, setCommitments] = useState<any[]>([]);
   const [payouts, setPayouts] = useState<any[]>([]);
   const [allOpportunities, setAllOpportunities] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -92,6 +94,33 @@ export default function InvestorPortalView() {
             setCommitments(Array.isArray(portJson.commitments) ? portJson.commitments : []);
             setPayouts(Array.isArray(portJson.recentPayouts) ? portJson.recentPayouts : []);
           }
+
+          const mine = Array.isArray(portJson.commitments) ? portJson.commitments : [];
+
+          // Documents are stored against the opportunity, so an investor's
+          // documents are the ones attached to deals they actually committed to.
+          // Fetched together rather than in sequence; one failing opportunity
+          // should not cost the others their paperwork.
+          const oppIds = [...new Set(mine.map((x: any) => String(x.opportunity_id || '')).filter(Boolean))];
+          const docSets = await Promise.all(
+            oppIds.map(async (oid) => {
+              try {
+                const r = await fetch(`${INVEST_API}/documents/opportunity/${encodeURIComponent(oid)}`, { headers });
+                const j = await r.json().catch(() => ({}));
+                const opp = mine.find((x: any) => String(x.opportunity_id) === oid)?.opportunity;
+                return (Array.isArray(j.documents) ? j.documents : []).map((d: any) => ({
+                  ...d, opportunityId: oid, opportunityTitle: opp?.title || '',
+                }));
+              } catch { return []; }
+            }),
+          );
+          if (!cancelled) setDocuments(docSets.flat());
+
+          try {
+            const repRes = await fetch(`${INVEST_API}/ai-reports/${encodeURIComponent(investorEmail)}`, { headers });
+            const repJson = await repRes.json().catch(() => ({}));
+            if (!cancelled) setReports(Array.isArray(repJson.reports) ? repJson.reports : []);
+          } catch { /* reports are an extra, not a reason to fail the page */ }
         }
       } catch (error: any) {
         if (!cancelled) setLoadError(error?.message || 'Could not load your portfolio.');
@@ -103,6 +132,8 @@ export default function InvestorPortalView() {
   }, [investorEmail, session?.access_token]);
 
   // Compact form for the stat tiles, where "$3,250,000" would wrap.
+  /** Full precision, for tables where the exact figure is the point. */
+  const money = (n: number) => `$${Math.round(Number(n) || 0).toLocaleString()}`;
   const compact = (n: number) => {
     const v = Number(n || 0);
     if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
@@ -1038,8 +1069,75 @@ export default function InvestorPortalView() {
 
         {activeTab === 'portfolio' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Portfolio Details</h2>
-            <p className="text-gray-400">Complete portfolio breakdown and analytics would be displayed here.</p>
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Portfolio Details</h2>
+                <p className="mt-1 text-sm text-gray-400">Every commitment, what it has returned, and where it stands.</p>
+              </div>
+              {commitments.length > 0 && (
+                <div className="flex gap-6 text-right">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Invested</p>
+                    <p className="text-lg font-bold text-white tabular-nums">{compact(totalInvested)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Received</p>
+                    <p className="text-lg font-bold text-green-400 tabular-nums">{compact(totalReceived)}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                <Clock className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : commitments.length === 0 ? (
+              <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                <Briefcase className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                <p className="font-semibold text-white">Nothing committed yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                  Each commitment appears here with the capital placed, distributions received to date and the return that implies.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2A2A2A] text-left text-xs uppercase tracking-wide text-gray-500">
+                      <th className="pb-3 pr-4 font-semibold">Investment</th>
+                      <th className="pb-3 pr-4 font-semibold">Committed</th>
+                      <th className="pb-3 pr-4 text-right font-semibold">Invested</th>
+                      <th className="pb-3 pr-4 text-right font-semibold">Received</th>
+                      <th className="pb-3 pr-4 text-right font-semibold">Return</th>
+                      <th className="pb-3 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2A2A2A]">
+                    {commitments.map((commit: any) => {
+                      const invested = Number(commit.commitment_amount || 0);
+                      const received = Number(commit.total_received || 0);
+                      const pct = invested > 0 ? ((received / invested) * 100).toFixed(1) : '0.0';
+                      return (
+                        <tr key={commit.id} className="text-gray-300">
+                          <td className="py-3 pr-4">
+                            <p className="font-semibold text-white">{commit.opportunity?.title || 'Investment'}</p>
+                            <p className="text-xs text-gray-500">{commit.opportunity?.category || ''}{commit.opportunity?.location ? ` · ${commit.opportunity.location}` : ''}</p>
+                          </td>
+                          <td className="py-3 pr-4">{String(commit.commitment_date || '').slice(0, 10) || '—'}</td>
+                          <td className="py-3 pr-4 text-right font-semibold tabular-nums text-white">{money(invested)}</td>
+                          <td className="py-3 pr-4 text-right tabular-nums text-green-400">{money(received)}</td>
+                          <td className="py-3 pr-4 text-right tabular-nums">{pct}%</td>
+                          <td className="py-3">
+                            <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${getStatusColor(commit.status)}`}>{commit.status || 'pending'}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -1236,23 +1334,185 @@ export default function InvestorPortalView() {
         )}
 
         {activeTab === 'reports' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Financial Reports</h2>
-            <p className="text-gray-400">Detailed financial reports and analytics would be displayed here.</p>
+          <div className="space-y-4">
+            {/* A summary built from the same figures as everything else, so a
+                report can never disagree with the dashboard. */}
+            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
+              <h2 className="text-lg font-bold text-white">Position Summary</h2>
+              <p className="mt-1 mb-5 text-sm text-gray-400">As at today, from your commitments and distributions.</p>
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                {[
+                  { label: 'Capital invested', value: money(totalInvested) },
+                  { label: 'Distributions received', value: money(totalReceived) },
+                  { label: 'Current value', value: money(currentValue) },
+                  { label: 'Return to date', value: `${summary?.totalROI ?? 0}%` },
+                ].map((row) => (
+                  <div key={row.label} className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-4">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">{row.label}</p>
+                    <p className="mt-1 text-xl font-bold text-white tabular-nums">{row.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+                {[
+                  { label: 'Active investments', value: String(summary?.activeInvestments ?? 0) },
+                  { label: 'Completed', value: String(summary?.completedInvestments ?? 0) },
+                  { label: 'Distributions paid', value: String(summary?.totalPayouts ?? 0) },
+                  { label: 'Documents', value: String(documents.length) },
+                ].map((row) => (
+                  <div key={row.label} className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-4">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">{row.label}</p>
+                    <p className="mt-1 text-xl font-bold text-white tabular-nums">{row.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
+              <h2 className="text-lg font-bold text-white">Analysis Reports</h2>
+              <p className="mt-1 mb-5 text-sm text-gray-400">Property and portfolio analyses prepared for your account.</p>
+              {reports.length === 0 ? (
+                <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                  <BarChart3 className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                  <p className="font-semibold text-white">No analysis reports yet</p>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                    Reports commissioned for your account appear here. The summary above is always current regardless.
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#2A2A2A] rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+                  {reports.map((r: any, i: number) => (
+                    <div key={r.id || i} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-white">{r.title || r.property_address || 'Analysis report'}</p>
+                        <p className="text-xs text-gray-500">{String(r.created_at || '').slice(0, 10)}</p>
+                      </div>
+                      <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${getStatusColor(r.status)}`}>{r.status || 'ready'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {activeTab === 'distributions' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Distribution History</h2>
-            <p className="text-gray-400">Distribution payments and schedule would be displayed here.</p>
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Distribution History</h2>
+                <p className="mt-1 text-sm text-gray-400">Every payment made against your commitments.</p>
+              </div>
+              {payouts.length > 0 && (
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">Total received</p>
+                  <p className="text-lg font-bold text-green-400 tabular-nums">{money(totalReceived)}</p>
+                </div>
+              )}
+            </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                <Clock className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : payouts.length === 0 ? (
+              <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                <DollarSign className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                <p className="font-semibold text-white">No distributions yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                  Payments appear here as they are made, newest first, with the date and status of each.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2A2A2A] text-left text-xs uppercase tracking-wide text-gray-500">
+                      <th className="pb-3 pr-4 font-semibold">Date</th>
+                      <th className="pb-3 pr-4 font-semibold">Description</th>
+                      <th className="pb-3 pr-4 text-right font-semibold">Amount</th>
+                      <th className="pb-3 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2A2A2A]">
+                    {[...payouts]
+                      .sort((a, b) => String(b.payout_date || '').localeCompare(String(a.payout_date || '')))
+                      .map((p: any) => (
+                        <tr key={p.id} className="text-gray-300">
+                          <td className="py-3 pr-4">{String(p.payout_date || '').slice(0, 10) || '—'}</td>
+                          <td className="py-3 pr-4">{p.description || 'Distribution'}</td>
+                          <td className="py-3 pr-4 text-right font-semibold tabular-nums text-green-400">{money(p.amount)}</td>
+                          <td className="py-3">
+                            <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${getStatusColor(p.status)}`}>{p.status || 'pending'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'documents' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Investment Documents</h2>
-            <p className="text-gray-400">Legal documents and contracts would be displayed here.</p>
+            <h2 className="text-lg font-bold text-white">Investment Documents</h2>
+            <p className="mt-1 mb-5 text-sm text-gray-400">
+              Paperwork attached to the deals you have committed to.
+            </p>
+
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                <Clock className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : documents.length === 0 ? (
+              <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                <FileText className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                <p className="font-semibold text-white">No documents yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                  {commitments.length === 0
+                    ? 'Documents are attached to the deals you invest in, so they appear once you have a commitment.'
+                    : 'Nothing has been attached to your commitments yet.'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-[#2A2A2A] rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+                {documents.map((d: any, i: number) => (
+                  <div key={d.id || i} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-white">{d.name || d.title || d.document_type || 'Document'}</p>
+                      <p className="text-xs text-gray-500">
+                        {d.opportunityTitle || ''}
+                        {d.created_at ? ` · ${String(d.created_at).slice(0, 10)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* Signature state is worth showing plainly — an unsigned
+                          document is an action, not a filing. */}
+                      {d.signed || d.signed_at ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-xs font-semibold text-green-400">
+                          <CheckCircle className="h-3 w-3" /> Signed
+                        </span>
+                      ) : (
+                        <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 text-xs font-semibold text-yellow-400">
+                          Awaiting signature
+                        </span>
+                      )}
+                      {d.url && (
+                        <a
+                          href={d.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Open
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

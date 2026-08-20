@@ -2375,3 +2375,39 @@ scaffolding removed.
 **Still placeholders in this portal:** Products, Invoices, Payments,
 Performance. Not made worse, not made better — flagged so "wired" is not read as
 "finished".
+
+### R1b — investor portal's four placeholder tabs, built.
+
+The dashboard was wired earlier; these four still read *"…would be displayed
+here."* There are now **zero placeholders left in this portal**.
+
+**Portfolio** — every commitment as a table: investment name, category and
+location, date committed, capital invested, distributions received, return to
+date and status, with invested/received totals in the header.
+
+**Distributions** — every payment against those commitments, newest first, with
+date, description, amount and status, and a total received.
+
+**Documents** — paperwork attached to the deals actually committed to. Documents
+are stored per opportunity, so this fetches them for each of the investor's own
+opportunities and labels each with the deal it belongs to. Signature state is
+shown plainly, because an unsigned document is an action rather than a filing.
+
+**Reports** — a position summary built from the same figures as everything else,
+so a report can never disagree with the dashboard, plus any analysis reports
+commissioned for the account.
+
+**Verification — eight renders, four tabs × two states, zero exceptions.**
+Driven in headless Edge, clicking through to each tab so its body executed.
+
+Funded: Portfolio showed both commitments with returns computed correctly
+(100,000 / 15,000 → 15.0%; 50,000 / 7,500 → 15.0%). Distributions showed three
+payments sorted newest-first totalling $22,500 with mixed completed/pending
+status. Documents showed three documents across two opportunities with correct
+signed and awaiting-signature states, and an Open link only on the one carrying
+a URL. Reports showed $150,000 invested, $22,500 received, $172,500 current,
+15.00% return, and the analysis report.
+
+Empty: each tab rendered its own empty state rather than a blank panel, and the
+Documents empty state distinguishes "you have no commitments yet" from "nothing
+attached to your commitments".
