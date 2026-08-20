@@ -583,6 +583,26 @@ RULES, and they matter more than the copy:
   "beautiful transformation" and "quality craftsmanship" are what everyone else
   writes and they are invisible.
 - onScreenText: 8 words maximum. Lower case is fine.
+
+THE ON-SCREEN TEXT IS NOT A LABEL. It is the only channel that works with the
+sound off, which is how most of this will be watched, and the beats have to read
+as a sequence — each one moving the story on from the last.
+
+  Good, because each beat says something the picture alone does not:
+    "this was the bathroom" -> "the floor was rotted" -> "eleven days later"
+    "we opened the wall" -> "someone tiled over it" -> "all of it came out"
+    "same room, same window" -> "everything else is new"
+
+  Bad, and these are the exact failures to avoid:
+    ✗ "#beforeandafter"   — a hashtag is not a caption; it belongs in the post
+    ✗ "stunning!"         — an adjective, and the viewer can see it for himself
+    ✗ "bright ideas"      — says nothing about this room
+    ✗ "elegant entry"     — could caption any photograph ever taken
+    ✗ "foundation"        — a one-word label, not a beat
+
+  The test: if the caption would still make sense pasted onto a different
+  project's photograph, it is not carrying its weight. Say what is happening in
+  THIS picture, or what it cost, or how long it took, or what was found.
 - Close by making it easy to ask — where they work, or an invitation to call.
 - These must be genuinely different videos, not one reworded. If two could be
   swapped without a viewer noticing, both are wasted.
@@ -923,8 +943,24 @@ RULES, and they matter more than the copy:
 - Beat 1 is the hook and has about 1.2 seconds. Make it a pattern interrupt, a
   problem someone recognises, or the result. Never "check out this product" and
   never the product's name alone.
-- On-screen text: 3-6 words per beat. Punchy. Lower case is fine. No hashtags in
-  the on-screen text.
+- On-screen text: 3-6 words per beat. Lower case is fine. No hashtags.
+
+  The beats have to read as a sequence, each one moving on from the last. This
+  is the only channel that works with the sound off, which is how most of it
+  gets watched.
+
+    Good, because each beat adds something the picture does not:
+      "my hands were freezing" -> "every single morning" -> "35 seconds now"
+      "i almost returned it" -> "then i read the manual" -> "wrong plug"
+
+    Bad, and these are the actual failures to avoid:
+      ✗ "toasty rides ahead"  — a mood, not a moment
+      ✗ "warming magic?"      — vague, and a question where a statement was needed
+      ✗ "cold seat blues?"    — rhyming filler that says nothing
+      ✗ "premium quality"     — could caption any product ever made
+
+  The test: if the line would still make sense pasted onto a different product,
+  it is not carrying its weight.
 - Do not invent specifications, materials, certifications or claims that are not
   in the description. Say what it does for someone, not what it is made of.
 - No fake urgency, no invented discounts, no "limited stock".

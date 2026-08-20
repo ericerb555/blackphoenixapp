@@ -213,6 +213,11 @@ const API_PREFIX = '/make-server-3eae23a6';
 // that a stranger may call it, not an oversight.
 const PUBLIC_PREFIXES = [
   '/health',            // liveness, and the deploy check in deploy.md
+  // An impression happens on a page a signed-out visitor is looking at, so the
+  // count has to be reportable without a session or the figure an advertiser is
+  // billed on only ever reflects logged-in traffic. The route itself records
+  // nothing for an unknown creative id.
+  '/advertising/events',
   '/auth/',             // sign in, sign up, password reset — the way in
   '/cart',              // guest cart, keyed by an anonymous sessionId
   '/leads/capture',     // the public store's enquiry form
@@ -225,6 +230,14 @@ const PUBLIC_PREFIXES = [
 // Public to read, protected to change. The storefront has to render these to a
 // stranger; only staff may edit them.
 const PUBLIC_GET_PREFIXES = [
+  // Ads are shown to every visitor including signed-out ones, and a marquee that
+  // renders nothing on the public site is an advertiser paying for a blank. The
+  // shadow log caught both of these as would-block, which is exactly what shadow
+  // mode is for — enabling the gate without them would have silently killed ad
+  // serving and every impression count with it.
+  '/advertising/serve',
+  '/giveaways',          // the list of open giveaways; entering one still needs a session
+
   '/products',
   '/plans',
   '/services-catalog',

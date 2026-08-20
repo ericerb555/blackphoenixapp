@@ -3157,3 +3157,35 @@ order total, wrong on a price list, and quietly misstating a vendor's price by
 a zero.
 
 Vendor placeholders: 5 → 3 (Invoices, Payments, Performance remain).
+
+### Auth gate — public routes fixed, switch deliberately NOT flipped
+
+Read the shadow log before touching `AUTH_ENFORCE`, which is what shadow mode is
+for. **397 would-block hits across 36 endpoints in 24 hours — every single one
+anonymous, none signed in.**
+
+**Two endpoints I built today would have been killed by enabling it:**
+
+- `/advertising/serve` — ads render for signed-out visitors on the public site,
+  which is where advertising is worth most. Blocking it means an advertiser pays
+  for a blank marquee.
+- `/advertising/events` — an impression happens on a page a signed-out visitor is
+  looking at. Blocked, the figure an advertiser is billed on would only ever
+  reflect logged-in traffic.
+
+Both are now allowlisted, along with `GET /giveaways` (entering one still needs a
+session). That is a real improvement regardless of when the switch flips.
+
+**Why the switch is still false.** The log contains **no signed-in traffic at
+all**, so it cannot yet tell me what a real portal user would hit. Most of those
+397 hits are my own curl tests against the anon key. Enabling on that evidence
+would be guessing, and the specific thing to avoid is a rule written around the
+admin app that silently locks out the portals — which is where paying tenants
+live.
+
+**What would settle it, cheaply:** Eric signs in and walks the portals he cares
+about — a minute or two each. That generates exactly the missing evidence.
+I then read the log, allowlist anything legitimately public, and flip with
+confidence rather than hope.
+
+- [ ] Flip `AUTH_ENFORCE` once signed-in traffic exists in the shadow log.
