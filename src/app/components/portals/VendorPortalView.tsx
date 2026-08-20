@@ -76,6 +76,7 @@ export default function VendorPortalView() {
   // coming off a customer's material selection. The ecommerce order routes look
   // superficially right and are the wrong system entirely.
   // ---------------------------------------------------------------------------
+  const authHeadersV = () => ({ Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' });
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [vendorLinked, setVendorLinked] = useState<boolean | null>(null);
   const [linkReason, setLinkReason] = useState('');
@@ -108,6 +109,70 @@ export default function VendorPortalView() {
     })();
     return () => { cancelled = true; };
   }, [session?.access_token]);
+
+  // ---------------------------------------------------------------------------
+  // The vendor's catalogue — what they supply and at what price.
+  //
+  // This is the piece the materials hub is built around: a customer picks from
+  // real vendor lines, so the quote is accurate, and the stock list that goes
+  // back to the vendor is something they can actually fulfil.
+  //
+  // Until now there was no catalogue anywhere, which is why vendor pricing was
+  // being invented with a hash. Every line published here is a line that stops
+  // being invented.
+  // ---------------------------------------------------------------------------
+  const [catalog, setCatalog] = useState<any[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const emptyItem = { id: '', name: '', sku: '', category: '', unit: 'each', price: '', availability: 'In stock' };
+  const [itemForm, setItemForm] = useState<any>(emptyItem);
+
+  const loadCatalog = async (id: string) => {
+    if (!id || !session?.access_token) return;
+    setCatalogLoading(true);
+    try {
+      const res = await fetch(`${VENDOR_API}/vendor-catalog/${encodeURIComponent(id)}`, { headers: authHeadersV() });
+      const j = await res.json().catch(() => ({}));
+      setCatalog(Array.isArray(j?.items) ? j.items : []);
+    } catch { setCatalog([]); }
+    finally { setCatalogLoading(false); }
+  };
+  useEffect(() => { if (vendorId) void loadCatalog(vendorId); }, [vendorId, session?.access_token]);
+
+  const saveItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vendorId || savingItem) return;
+    const price = Number(itemForm.price);
+    if (!itemForm.name.trim()) { toast.error('Give the line a name.'); return; }
+    if (!Number.isFinite(price) || price < 0) { toast.error('Give the line a price.'); return; }
+    setSavingItem(true);
+    try {
+      const res = await fetch(`${VENDOR_API}/vendor-catalog/${encodeURIComponent(vendorId)}/items`, {
+        method: 'POST', headers: authHeadersV(),
+        body: JSON.stringify({ ...itemForm, id: itemForm.id || undefined, price }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'Could not save the line.');
+      toast.success(itemForm.id ? 'Line updated.' : 'Line added to your catalogue.');
+      setItemForm(emptyItem); setEditingItem(null);
+      await loadCatalog(vendorId);
+    } catch (err: any) { toast.error(err?.message || 'Could not save the line.'); }
+    finally { setSavingItem(false); }
+  };
+
+  const deleteItem = async (itemId: string) => {
+    if (!vendorId) return;
+    try {
+      const res = await fetch(`${VENDOR_API}/vendor-catalog/${encodeURIComponent(vendorId)}/items/${encodeURIComponent(itemId)}`, {
+        method: 'DELETE', headers: authHeadersV(),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'Could not remove the line.');
+      toast.success('Line removed.');
+      await loadCatalog(vendorId);
+    } catch (err: any) { toast.error(err?.message || 'Could not remove the line.'); }
+  };
 
   /** A purchase order as this screen's existing Order shape. */
   const recentOrders: Order[] = purchaseOrders.map((o: any) => ({
@@ -221,6 +286,9 @@ export default function VendorPortalView() {
   const openOrders = purchaseOrders.filter((o: any) => !['delivered', 'cancelled', 'complete', 'completed'].includes(String(o.status || '').toLowerCase()));
   const awaitingApproval = purchaseOrders.filter((o: any) => ['draft', 'pending', 'pending_approval'].includes(String(o.status || '').toLowerCase()));
   const money = (n: number) => `$${Math.round(Number(n) || 0).toLocaleString()}`;
+  /** A unit price, to the cent. Rounding a price list to whole dollars misstates it. */
+  const unitPrice = (n: number) =>
+    `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // Every figure here is counted from real purchase orders. The previous set —
   // $68,420 revenue, 8 pending invoices, a 4.8 rating — was invented, and a
@@ -765,9 +833,124 @@ export default function VendorPortalView() {
         )}
 
         {activeTab === 'products' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Product Catalog</h2>
-            <p className="text-gray-400">Product catalog and inventory management would be displayed here.</p>
+          <div className="space-y-4">
+            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
+              <h2 className="text-lg font-bold text-white">Your catalogue</h2>
+              <p className="mt-1 text-sm text-gray-400">
+                What you supply and what it costs. These are the lines Black Phoenix quotes from — publishing
+                a price here is what makes a customer's quote accurate and a stock list something you can fulfil.
+              </p>
+
+              {vendorLinked === false ? (
+                <div className="mt-5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-8 text-center">
+                  <AlertCircle className="mx-auto mb-3 h-7 w-7 text-yellow-400" />
+                  <p className="font-semibold text-white">This account is not linked to a vendor yet</p>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">{linkReason || 'Once linked, your catalogue lives here.'}</p>
+                </div>
+              ) : (
+                <>
+                  {/* Add or edit a line */}
+                  <form onSubmit={saveItem} className="mt-5 grid grid-cols-1 gap-2 md:grid-cols-12">
+                    <input
+                      value={itemForm.name}
+                      onChange={(e) => setItemForm((f: any) => ({ ...f, name: e.target.value }))}
+                      placeholder="Material or product name"
+                      className="md:col-span-4 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white"
+                    />
+                    <input
+                      value={itemForm.sku}
+                      onChange={(e) => setItemForm((f: any) => ({ ...f, sku: e.target.value }))}
+                      placeholder="Your SKU"
+                      title="Your own SKU. Never generated — a made-up SKU on a purchase order causes real trouble."
+                      className="md:col-span-2 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white"
+                    />
+                    <input
+                      value={itemForm.category}
+                      onChange={(e) => setItemForm((f: any) => ({ ...f, category: e.target.value }))}
+                      placeholder="Category"
+                      className="md:col-span-2 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white"
+                    />
+                    <input
+                      value={itemForm.unit}
+                      onChange={(e) => setItemForm((f: any) => ({ ...f, unit: e.target.value }))}
+                      placeholder="Unit"
+                      className="md:col-span-1 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white"
+                    />
+                    <input
+                      type="number" step="0.01" min="0" inputMode="decimal"
+                      value={itemForm.price}
+                      onChange={(e) => setItemForm((f: any) => ({ ...f, price: e.target.value }))}
+                      placeholder="Price"
+                      className="md:col-span-1 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-right text-sm text-white tabular-nums"
+                    />
+                    <div className="md:col-span-2 flex gap-2">
+                      <PrimaryButton type="submit" disabled={savingItem} className="flex-1">
+                        {savingItem ? 'Saving…' : editingItem ? 'Update' : 'Add line'}
+                      </PrimaryButton>
+                      {editingItem && (
+                        <button type="button" onClick={() => { setEditingItem(null); setItemForm(emptyItem); }}
+                          className="rounded-lg border border-[#2A2A2A] px-3 text-sm text-gray-400 hover:text-white">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </form>
+
+                  {catalogLoading ? (
+                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-400">
+                      <Clock className="h-4 w-4 animate-spin" /> Loading your catalogue…
+                    </div>
+                  ) : catalog.length === 0 ? (
+                    <div className="mt-5 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                      <Package className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                      <p className="font-semibold text-white">Nothing published yet</p>
+                      <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                        Until a line is published here, Black Phoenix has no price from you to quote — which is
+                        exactly the gap that used to be filled with an estimate.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-5 overflow-x-auto">
+                      <table className="w-full min-w-[640px] text-sm">
+                        <thead>
+                          <tr className="border-b border-[#2A2A2A] text-left text-xs uppercase tracking-wide text-gray-500">
+                            <th className="pb-3 pr-4 font-semibold">Item</th>
+                            <th className="pb-3 pr-4 font-semibold">SKU</th>
+                            <th className="pb-3 pr-4 font-semibold">Category</th>
+                            <th className="pb-3 pr-4 text-right font-semibold">Price</th>
+                            <th className="pb-3 pr-4 font-semibold">Availability</th>
+                            <th className="pb-3 font-semibold" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#2A2A2A]">
+                          {catalog.map((item: any) => (
+                            <tr key={item.id} className="text-gray-300">
+                              <td className="py-3 pr-4 font-semibold text-white">{item.name}</td>
+                              <td className="py-3 pr-4 font-mono text-xs">{item.sku || <span className="text-gray-600">—</span>}</td>
+                              <td className="py-3 pr-4">{item.category || '—'}</td>
+                              {/* Cents, not whole dollars. money() rounds, which is
+                                  right for an order total and wrong on a price
+                                  list — it rendered $8.74 as $9. */}
+                              <td className="py-3 pr-4 text-right font-semibold tabular-nums text-white">
+                                {unitPrice(item.price)}<span className="text-xs text-gray-500">/{item.unit || 'each'}</span>
+                              </td>
+                              <td className="py-3 pr-4">{item.availability || '—'}</td>
+                              <td className="py-3 text-right">
+                                <button type="button"
+                                  onClick={() => { setEditingItem(item); setItemForm({ ...item, price: String(item.price ?? '') }); }}
+                                  className="mr-3 text-xs font-bold text-orange-400 hover:text-orange-300">Edit</button>
+                                <button type="button" onClick={() => deleteItem(item.id)}
+                                  className="text-xs font-bold text-gray-500 hover:text-red-400">Remove</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
 

@@ -3128,3 +3128,32 @@ purchase order is what causes a real problem with a real supplier.
 **Cleaned up after myself:** my first test call, made before I found the live
 route, persisted four estimates. Deleted; storage now holds zero fabricated
 prices.
+
+### Vendor Products tab — the catalogue, published by the vendor
+
+Was the sentence *"Product catalog and inventory management would be displayed
+here."* It is now the vendor's own catalogue, backed by `vendor-catalog.tsx`:
+
+- A table of what they supply — item, **their own SKU**, category, unit price to
+  the cent, availability.
+- An inline row to add a line, and edit or remove any of them.
+- Scoped so a vendor sees only their own; one vendor's pricing is commercial
+  information and vendors are paying tenants.
+
+**The empty state says why it matters** rather than just "no items": *"Until a
+line is published here, Black Phoenix has no price from you to quote — which is
+exactly the gap that used to be filled with an estimate."* That gap is the one
+that was being filled by a hash, so the screen names it.
+
+**Verified in the browser across three states** — stocked, empty and unlinked.
+Zero exceptions in all three. Adding a line posted exactly
+`{"name":"Deck Screws 3in","sku":"BP-DS3","unit":"each","price":24.5,...}`, and
+the unlinked account posted nothing at all, which is right.
+
+**A bug the render caught:** the price column showed **$9** for a price of
+**8.74**. The screen's `money()` helper rounds to whole dollars — correct for an
+order total, wrong on a price list, and quietly misstating a vendor's price by
+26 cents. Added a cents-aware formatter; 6/6 including thousands separation and
+a zero.
+
+Vendor placeholders: 5 → 3 (Invoices, Payments, Performance remain).
