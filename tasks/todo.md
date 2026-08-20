@@ -2614,3 +2614,190 @@ admin in time-tracking, so `/my-work-orders` will return **all** open work order
 for him with `scope: "all"`, not just the assigned one. That is deliberate —
 admins reconcile other people's timesheets — so the assigned-only path is the one
 proved by the matcher tests above rather than by his own login.
+
+---
+
+# Making the role switcher actually test something (plan, awaiting approval)
+
+## Why it stopped being enough
+
+The switcher is frontend-only by design. Selecting a role writes a mock profile
+to `localStorage`, sets `sessionStorage.role_switching = 'owner_preview'` to pass
+the portal gate, and navigates. It never changes what the **server** thinks you
+are, and the code says so plainly: *"a visual demo tool only."*
+
+That was fine while every portal was mock data. It is not fine now. Investor,
+Vendor and Employee call real endpoints, and those endpoints see Eric's actual
+account — role `owner`, which counts as admin. So switching to "Employee" shows
+an employee-shaped screen still running with owner privileges: `/my-work-orders`
+returns `scope: "all"` instead of the one assigned job, which is precisely the
+behaviour the test is meant to check.
+
+## The design: owner-only, and downgrade-only
+
+One property makes this safe to build at all: **a preview can only ever reduce
+what you can see, never increase it.**
+
+- The frontend sends `X-Preview-Role: employee` while a preview is active.
+- The server honours it **only if the caller is genuinely the platform owner**,
+  and only to *lower* the effective role. Previewing as an employee removes admin;
+  no value of that header ever grants anything.
+- Sent by anyone who is not the owner, it is ignored completely — so the header
+  is worthless to an attacker rather than being a new way in.
+
+If the rule were "become this role", it would be impersonation and a genuine
+security surface. "Drop to this role" is not, because the ceiling is still the
+caller's own account.
+
+## Todo
+
+- [ ] R-1. RoleSwitcher writes a canonical `preview_role` alongside the mock
+      profile it already writes — `employee`, `vendor`, `investor` and so on,
+      matching the strings the server already checks.
+- [ ] R-2. One shared frontend helper that reads it, and adds the header to the
+      portal calls. Small, and in one place rather than per portal.
+- [ ] R-3. Server: one helper that downgrades an owner's effective role when the
+      header is present, wired into `hasAdminAccess` in time-tracking and the
+      vendor and purchase-order actors. Non-owners: ignored, no effect.
+- [ ] R-4. A visible marker while a preview is on. Testing as somebody else and
+      forgetting is how a person ends up filing a real timesheet believing they
+      were pretending.
+
+## What this will let Eric see
+
+Switching to Employee will show the Wanda Atherton job **and only that job**,
+with `scope: "assigned"` — the assigned-only filter proved by his own login
+rather than by my test harness. Switching to Vendor will show the unlinked-account
+banner, because his account is not a vendor.
+
+## The alternative, for comparison
+
+A second real login — an actual employee account with employee role — tests the
+same paths with no new code and no header to reason about. It is more faithful,
+since nothing is being simulated at all. It is also more setup each time, and
+means signing in and out to move between portals.
+
+I would build the preview, because switching portals is something he will do
+constantly and a second login makes that tedious. But the choice is his, and if
+he would rather not have a role-downgrade header in the codebase at all, the
+second-account route reaches the same place.
+
+---
+
+# Tie the owner account into every portal (plan, awaiting approval)
+
+Eric: *"can't you tie it to me, the owner's account, so I can send and receive
+anything from each one of the portals and test?"*
+
+Yes, and it is better than the role-preview header — nothing is simulated. He
+becomes a real member of each portal and the flows run for real in both
+directions. **The preview-header plan above is withdrawn in favour of this.**
+
+## What membership actually is
+
+`portal_access:{email}:{portalType}` is the record that grants a portal. Eleven
+exist today. His **other** account, `ericerb555@yahoo.com`, holds landlord and
+subcontractor, both active. His owner account, `ericerb555@proton.me`, holds
+**none** — which is why no portal recognises him.
+
+But several portals key off their own record rather than portal_access, so both
+are needed:
+
+| Portal | Grant record | Also needs |
+|---|---|---|
+| employee | `portal_access:…:employee` | `time_employee:{authId}` — **already exists** |
+| vendor | `portal_access:…:vendor` | a `vendor:` record carrying his email |
+| investor | `portal_access:…:investor` | a commitment against an opportunity |
+| landlord | `portal_access:…:landlord` | landlord record + a tenant on the roster |
+| tenant | `portal_access:…:tenant` | `tenant_landlord:{email}` mapping |
+| customer | `portal_access:…:customer` | a work request in his name |
+| subcontractor / advertiser / property_manager / condo_manager / territory_owner | `portal_access:…:{type}` | grant alone appears sufficient |
+
+## Todo
+
+- [ ] W-1. Create the eleven `portal_access` grants for `ericerb555@proton.me`,
+      status `active`.
+- [ ] W-2. Create the supporting records above, so each portal has something to
+      show rather than an empty shell: a vendor record, an investor commitment, a
+      landlord with one tenant, a tenant mapping, a customer work request.
+- [ ] W-3. Verify each portal end to end and report what actually appears —
+      including anywhere it does not work, rather than assuming the grant was
+      enough.
+
+## One thing this will not fix, said plainly
+
+Two places branch on the **role string** rather than on records: `hasAdminAccess`
+in time-tracking, and the vendor check in the purchase-order actor. His account
+is role `owner`, so both will still treat him as staff — the employee portal will
+return `scope: "all"` rather than the assigned-only view, and the purchase-order
+list will be the company-wide one.
+
+Everything else keys off records and will behave exactly as it would for a real
+member. If he wants those last two to behave as an ordinary member too, that is
+the downgrade header again, and worth deciding separately once the rest is real.
+
+## Before I write
+
+This creates roughly a dozen records in production under his own account. All
+are additive, none touch anyone else's data, and every one can be deleted by key.
+Worth a yes before I start.
+
+### Owner account tied into every portal — done
+
+**Eleven `portal_access` grants** created for `ericerb555@proton.me`, all active:
+customer, vendor, subcontractor, employee, advertiser, investor, landlord,
+property_manager, condo_manager, territory_owner, tenant. He previously held
+none; his *other* account (`@yahoo.com`) held two.
+
+**Supporting records**, so each portal has something real rather than an empty
+shell:
+
+| Record | What it enables |
+|---|---|
+| `investment:commitment:owner-test-1` | $50,000 committed to Company Equity — Series A |
+| `investment:payout:owner-test-1` | $6,250 distribution received |
+| `vendor:VEN-OWNER` | `/vendor/me` resolves his account to a vendor |
+| `landlord_tenants:…` | one tenant on his roster |
+| `tenant_landlord:…` | the mapping back, so he can test both ends of the same relationship |
+| `wr_1781391556479_d8uns` | already assigned to him as an employee |
+
+**Verified live:** the investor portfolio returns $50,000 invested, $6,250
+received, $56,250 current, 12.50% ROI, with the commitment hydrated to its
+opportunity by name.
+
+## A real bug found on the way: `kv.mset` had two calling conventions
+
+`mset(keys[], values[])` was the signature. Four callers used
+`mset([{key, value}, …])` instead — a single array of pairs — so `keys` held
+objects and `values` was undefined.
+
+**This is why the investor portal has never had a single opportunity in it.**
+`ensureSeeded()` in investments-kv used the second form, so every seed attempt
+wrote nothing, silently, and the tab has been empty since it was written. The
+same mistake sits in `bidRoom.tsx`, `email-center.tsx` and `suppliers.tsx`.
+
+Fixed by making `mset` accept both shapes and throw loudly on an unusable key,
+rather than editing five call sites. Three opportunities appeared on the next
+request.
+
+## And a bug I introduced, now corrected
+
+Earlier I "fixed" `{opp.funded}%` in the investor portal, having seen
+`Funded 400000%` in a probe. That figure came from **my own mock**, which had put
+dollars in `funded`. The real API had always been right: `withLiveFunding()`
+computes `funded` as a percentage and puts the dollars in `amountRaised`. My fix
+divided a percentage by the target and turned a correct 3% into 0%.
+
+`fundedPct()` now trusts the server's percentage and only computes one when a
+payload supplies dollars without one. 7/7 against the shapes the live API
+actually returns.
+
+The lesson worth keeping: I trusted a mock I had written over the API it was
+standing in for, and the mock was the thing that was wrong.
+
+## What still will not behave like an ordinary member
+
+His role is `owner`, so the two role-string checks still treat him as staff:
+`hasAdminAccess` in time-tracking (employee portal returns `scope: "all"`) and
+the vendor branch in the purchase-order actor (company-wide list). Everything
+else keys off the records above.

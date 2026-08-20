@@ -49,9 +49,38 @@ export const del = async (key: string): Promise<void> => {
 };
 
 // Sets multiple key-value pairs in the database.
-export const mset = async (keys: string[], values: any[]): Promise<void> => {
+/**
+ * Sets multiple key-value pairs.
+ *
+ * Accepts either calling convention, because both are in use and only one of
+ * them ever worked:
+ *
+ *   mset(["a", "b"], [1, 2])                    two parallel arrays
+ *   mset([{ key: "a", value: 1 }, …])           a single array of pairs
+ *
+ * Four callers used the second form against a signature that only understood
+ * the first — investments-kv's opportunity seeder among them, which is why the
+ * investor portal has never had a single opportunity in it. The keys array held
+ * objects and the values array was undefined, so every row upserted a
+ * stringified object against an undefined value, or failed outright.
+ *
+ * Supporting both is a smaller and safer change than editing five call sites,
+ * and it removes the trap rather than fixing one instance of it.
+ */
+export const mset = async (
+  keysOrPairs: string[] | Array<{ key: string; value: any }>,
+  values?: any[],
+): Promise<void> => {
   const supabase = client()
-  const { error } = await supabase.from("kv_store_57095a78").upsert(keys.map((k, i) => ({ key: k, value: values[i] })));
+  const rows = Array.isArray(values)
+    ? (keysOrPairs as string[]).map((k, i) => ({ key: String(k), value: values[i] }))
+    : (keysOrPairs as Array<{ key: string; value: any }>).map((p) => ({ key: String(p?.key), value: p?.value }));
+
+  if (!rows.length) return;
+  const bad = rows.find((r) => !r.key || r.key === "undefined" || r.key === "[object Object]");
+  if (bad) throw new Error(`mset was given an unusable key: ${JSON.stringify(bad.key)}`);
+
+  const { error } = await supabase.from("kv_store_57095a78").upsert(rows);
   if (error) {
     throw new Error(error.message);
   }

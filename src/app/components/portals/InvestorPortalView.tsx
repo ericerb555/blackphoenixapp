@@ -202,12 +202,19 @@ export default function InvestorPortalView() {
     };
   });
 
-  // The mock data stored `funded` as a percentage; the server stores it as the
-  // dollars actually raised, with `targetRaise` alongside. Rendering the raw
-  // field with a % sign produced "Funded 400000%" — believable-looking nonsense
-  // on the one screen that has to look credible to someone with money.
+  // `funded` from /investments/opportunities is ALREADY a percentage — the
+  // server computes it live from real commitments in withLiveFunding(), and puts
+  // the dollar figure in `amountRaised`. So it is used as-is.
+  //
+  // An earlier version of this divided `funded` by `targetRaise`, on the basis
+  // of a mocked payload that had put dollars in that field. The real API had
+  // been right all along and the "fix" turned a correct 3% into 0%. Hence the
+  // preference order below: trust the server's percentage, and only compute one
+  // if a caller supplies dollars and no percentage.
   const fundedPct = (o: any) => {
-    const raised = Number(o?.funded || 0);
+    const pct = Number(o?.funded);
+    if (Number.isFinite(pct) && pct >= 0 && pct <= 100) return Math.round(pct);
+    const raised = Number(o?.amountRaised ?? o?.funded ?? 0);
     const target = Number(o?.targetRaise || 0);
     if (!target) return 0;
     return Math.min(100, Math.round((raised / target) * 100));
