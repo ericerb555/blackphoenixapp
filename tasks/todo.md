@@ -2541,3 +2541,39 @@ route writes to a `work_requests` key that holds nothing, while the eight
 existing requests live under `work_requests_anonymous`. So today the assigned
 list is empty for everyone, and the portal says exactly that rather than
 implying no work exists.
+
+### Assign route fixed — and it corrected my own code too
+
+**Why nothing was ever assigned.** Work requests are spread over three keys:
+
+| Key | Holds |
+|---|---|
+| `all_work_requests` | **2 real customer submissions** — the live jobs |
+| `work_requests` | **nothing** |
+| `work_requests_anonymous` | 8 completed jobs kept for the public gallery |
+
+The assign route read and wrote `work_requests` unconditionally. That key is
+empty, so every assignment returned "Work request not found" and no job has ever
+been assigned to anyone. It now finds the record across all three and writes back
+to whichever list it came from — no migration, no change to the other routes.
+
+It also records `assignedToEmail` and `assignedEmployeeId` when given. Matching a
+timesheet to a job on a free-text crew name is fragile; an address is not.
+
+**My own helper was wrong in the same way.** `allWorkRequests()` in
+time-tracking read `work_requests` and `work_requests_anonymous` — so it would
+have offered employees the **eight completed marketing showcase entries** and
+none of the two real jobs. Billing hours to a finished project kept for its
+before-and-after photos is billing time to a photograph. Now reads all three and
+drops anything completed, closed or cancelled.
+
+**And a placement bug worth recording.** The `/my-work-orders` route had been
+registered *above* `timeTrackingRouter.use("*", …)`. Hono only applies middleware
+to routes registered after it, so the route was running with no actor and no
+admin flag — unauthenticated, and broken. Moved below the middleware; verified it
+now returns 401 to an anonymous caller.
+
+**Verification.** Lookup 4/4 against the real production record ids, including
+that all four cases returned null before the fix. Allocation invariant re-run at
+16/16 after the move. Assign still 403s without admin; my-work-orders 401s
+without a session.

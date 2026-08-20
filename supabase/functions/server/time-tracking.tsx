@@ -57,9 +57,22 @@ function requireAdmin(c: any) {
 // drive what a customer is invoiced, so time landing on a job somebody was never
 // on is not untidy — it is a wrong invoice.
 
-/** Every work request, wherever the various screens have stored them. */
+/**
+ * Every work request, across the three keys they have ended up spread over.
+ *
+ *   all_work_requests        real customer submissions — the live jobs
+ *   work_requests            what the property-management routes read and write
+ *   work_requests_anonymous  completed jobs kept as marketing showcase pieces
+ *
+ * The last one is the trap: those eight records are finished projects with
+ * before-and-after photos and an approvedForMarketing flag, kept for the public
+ * gallery. They are not jobs anybody is going to work on, and offering them as
+ * somewhere to bill hours would be offering to bill time to a photograph.
+ * Completed requests are dropped for that reason.
+ */
 async function allWorkRequests(): Promise<any[]> {
   const buckets = await Promise.all([
+    kv.get("all_work_requests"),
     kv.get("work_requests"),
     kv.get("work_requests_anonymous"),
   ]);
@@ -67,14 +80,32 @@ async function allWorkRequests(): Promise<any[]> {
   for (const b of buckets) if (Array.isArray(b)) rows.push(...b);
   const prefixed = (await kv.getByPrefix("work_request:")) as any[] | null;
   if (Array.isArray(prefixed)) rows.push(...prefixed);
-  // De-duplicate by id — the same request can sit in more than one bucket.
+
+  const finished = new Set(["completed", "complete", "closed", "cancelled", "canceled"]);
   const seen = new Set<string>();
   return rows.filter((r) => {
     const id = String(r?.id || "");
     if (!id || seen.has(id)) return false;
+    if (finished.has(String(r?.status || "").toLowerCase())) return false;
     seen.add(id);
     return true;
   });
+}
+
+/** A work request's title, which is spelled differently depending on its origin. */
+function workRequestTitle(r: any): string {
+  return String(
+    r?.title ||
+    r?.serviceType ||
+    r?.project_type ||
+    (r?.description ? String(r.description).split("\n")[0].slice(0, 80) : "") ||
+    "Work order",
+  );
+}
+
+/** And its customer, likewise. */
+function workRequestCustomer(r: any): string {
+  return String(r?.customerName || r?.clientName || r?.client_name || r?.client_info?.name || "");
 }
 
 /** Is this work request assigned to this employee? */
@@ -99,6 +130,14 @@ function assignedToEmployee(request: any, employee: any, user: any): boolean {
   return Boolean(employee?.id && ids.some((v: any) => String(v || "") === String(employee.id)));
 }
 
+timeTrackingRouter.use("*", async (c, next) => {
+  const actor = await authenticatedActor(c);
+  if (!actor?.id) return c.json({ success: false, error: "Sign in is required for time tracking." }, 401);
+  c.set("actor", actor);
+  c.set("admin", await hasAdminAccess(actor));
+  await next();
+});
+
 /**
  * The work orders this employee is allowed to bill time to.
  *
@@ -120,10 +159,10 @@ timeTrackingRouter.get("/my-work-orders/:employeeId", async (c) => {
       success: true,
       workOrders: mine.map((r) => ({
         id: String(r.id),
-        title: String(r.title || r.serviceType || "Work order"),
+        title: workRequestTitle(r),
         status: String(r.status || ""),
-        customer: String(r.customerName || r.clientName || ""),
-        location: String(r.location || r.propertyAddress || ""),
+        customer: workRequestCustomer(r),
+        location: String(r.location || r.propertyAddress || [r.city, r.state].filter(Boolean).join(", ") || ""),
       })),
       // Said out loud so an empty list is not read as "no work assigned" when it
       // actually means nobody has been assigned to anything yet.
@@ -133,14 +172,6 @@ timeTrackingRouter.get("/my-work-orders/:employeeId", async (c) => {
   } catch (error) {
     return c.json({ success: false, error: String(error) }, 500);
   }
-});
-
-timeTrackingRouter.use("*", async (c, next) => {
-  const actor = await authenticatedActor(c);
-  if (!actor?.id) return c.json({ success: false, error: "Sign in is required for time tracking." }, 401);
-  c.set("actor", actor);
-  c.set("admin", await hasAdminAccess(actor));
-  await next();
 });
 
 // Get all employees with time tracking status
@@ -609,7 +640,7 @@ timeTrackingRouter.patch("/entries/:id/allocations", async (c) => {
       }
       cleaned.push({
         workOrderId,
-        workOrderTitle: String(wo.title || wo.serviceType || "Work order"),
+        workOrderTitle: workRequestTitle(wo),
         hours: Math.round(hours * 100) / 100,
         note: String(a?.note || "").slice(0, 300),
       });
