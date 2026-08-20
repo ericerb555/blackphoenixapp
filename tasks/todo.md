@@ -2577,3 +2577,40 @@ now returns 401 to an anonymous caller.
 that all four cases returned null before the fix. Allocation invariant re-run at
 16/16 after the move. Assign still 403s without admin; my-work-orders 401s
 without a session.
+
+### One work request assigned, so the chain has something real to run on
+
+Assigned **wr_1781391556479_d8uns** — Wanda Atherton, Pepperell MA, "Bathroom
+floor fixed / Stove venting", 3-month timeline — to Eric.
+
+Picked that one over `wr_1781382624383_081iu` because the second is submitted by
+"Eric Ern" in Pelham NH and reads as his own test submission; the Atherton job is
+a genuine third-party customer.
+
+Written directly to `all_work_requests` rather than through the assign route,
+because the route requires an administrator session and there is no way to hold
+one from here. The fields written are exactly what the route now writes:
+
+    status              assigned
+    assignedTo          ericerb555
+    assignedToEmail     ericerb555@proton.me
+    assignedEmployeeId  1a9f3ae4-0d46-4824-8d13-05c2193ca5e9
+    assignedAt / assignedBy / updated_at
+
+All three link fields are set rather than just one, so the match holds whichever
+route looks it up. Confirmed against `auth.users` that the email, the auth id and
+the `time_employee` record all belong to the same account before writing.
+
+The other request was left untouched and still reads `pending`.
+
+**Verified 8/8** against the record as it now stands, running the real
+`assignedToEmployee` matcher: Eric matches the assigned job, does not match the
+unassigned one, another technician does not match his, and each of the three link
+fields resolves on its own. A near-miss name ("ericerb5") correctly does not
+match — the exact-only rule holding.
+
+**One thing to expect:** Eric's account carries the role `owner`, which counts as
+admin in time-tracking, so `/my-work-orders` will return **all** open work orders
+for him with `scope: "all"`, not just the assigned one. That is deliberate —
+admins reconcile other people's timesheets — so the assigned-only path is the one
+proved by the matcher tests above rather than by his own login.
