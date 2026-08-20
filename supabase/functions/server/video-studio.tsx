@@ -241,6 +241,231 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
 // Voiceover — OpenAI TTS → MP3 stored in the bucket.
 // ---------------------------------------------------------------------------
 /**
+ * Look at the job photographs and write down what is actually in them.
+ *
+ * WHY THIS HAS TO EXIST BEFORE ANY RENOVATION REEL IS WORTH WRITING
+ *
+ * All 35 published photographs are titled "Recent Project 01" through
+ * "Completed Project 12". They were imported from the website in bulk and the
+ * titles are sequence numbers, not descriptions. The reel writer is handed that
+ * manifest and asked to write narration, which means it is being asked to write
+ * about pictures it cannot see and that nothing describes.
+ *
+ * That is the same failure that produced "toasty rides ahead" for the product
+ * reels: a model given no real material writes mood words. The photographs
+ * themselves are the most valuable creative asset here — no competitor can
+ * obtain them — and they are currently unusable for exactly one reason, which
+ * is that nobody has said what is in them.
+ *
+ * So look. The model already in use can see images. One vision pass turns 35
+ * anonymous files into 35 described rooms, and the result is stored back onto
+ * the gallery record so it is paid for once rather than on every reel.
+ *
+ * Nothing is written unless `commit` is true. The default is a dry run that
+ * returns what it would save, because this writes to records that back a public
+ * page and the output should be read before it lands.
+ */
+videoStudioRouter.post("/video-studio/describe-photos", async (c) => {
+  try {
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) return c.json({ success: false, error: "Describing photos needs OPENAI_API_KEY." }, 500);
+
+    const body = await c.req.json().catch(() => ({}));
+    const commit = body.commit === true;
+    const redo = body.redo === true;
+    const limit = Math.min(Math.max(Number(body.limit) || 40, 1), 40);
+
+    const rows = ((await kv.getByPrefix("gallery:")) as any[] || []).filter(Boolean);
+    let photos = rows.filter((p) => p?.published && p?.image);
+    // Already-described photos are skipped by default so this can be re-run
+    // cheaply after new uploads without paying for the whole library again.
+    if (!redo) photos = photos.filter((p) => !p?.vision?.description);
+    photos = photos.slice(0, limit);
+
+    if (!photos.length) {
+      return c.json({
+        success: true, described: 0, committed: false, photos: [],
+        note: "Every published photo already has a description. Pass redo:true to rewrite them.",
+      });
+    }
+
+    // Four per call, not eight. OpenAI fetches every image itself before it can
+    // answer, and the library is a mix of ~50KB JPEGs and ~700KB PNGs; eight of
+    // the large ones in one request is enough download for its fetcher to give
+    // up with "unable to download content before the timeout". Four keeps the
+    // worst-case batch under about 3MB, and the calls still run together so the
+    // whole library costs one round trip's worth of wall clock rather than 35.
+    const BATCH = 4;
+    const batches: any[][] = [];
+    for (let i = 0; i < photos.length; i += BATCH) batches.push(photos.slice(i, i + BATCH));
+
+    const instruction =
+      "These are photographs of completed and in-progress work by a full-service renovation company " +
+      "in New Hampshire — kitchens, bathrooms, whole-home remodels, additions, decks and exterior work.\n\n" +
+      "For EACH image in order, say what you can actually see. This is going to be used to write video " +
+      "narration, so concrete visible detail is the whole point and vagueness is useless.\n\n" +
+      "Do not guess at brands, prices, measurements or materials you cannot see. If you cannot tell " +
+      "what a room is, say \"unclear\" rather than picking something plausible.\n\n" +
+      "Return ONLY JSON: { \"photos\": [ { " +
+      "\"room\": string,        // kitchen | bathroom | living | bedroom | exterior | deck | basement | whole-home | unclear\n" +
+      "\"stage\": string,       // finished | in-progress | framing | demolition | unclear\n" +
+      "\"description\": string, // one sentence, what is visibly there\n" +
+      "\"details\": string[],   // 2-5 concrete visible things, e.g. \"shaker cabinets\", \"subway tile backsplash\"\n" +
+      "\"standout\": string     // the single most visually striking thing in the frame\n" +
+      "} ] } with exactly one entry per image, in the order given.";
+
+    const look = async (batch: any[]): Promise<any[]> => {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o", // the mini model's vision is materially worse at this
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: instruction },
+              ...batch.map((p) => ({ type: "image_url", image_url: { url: p.image, detail: "low" } })),
+            ],
+          }],
+          response_format: { type: "json_object" },
+          temperature: 0.2, // describing, not composing
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || "Vision call failed.");
+      let parsed: any = {};
+      try { parsed = JSON.parse(json.choices?.[0]?.message?.content || "{}"); } catch { parsed = {}; }
+      const out = Array.isArray(parsed.photos) ? parsed.photos : [];
+      // Alignment matters more than it looks: these are matched back to photos
+      // by position, so a short answer would shift every later description onto
+      // the wrong picture. Pad rather than let that happen.
+      while (out.length < batch.length) out.push({});
+      return out.slice(0, batch.length);
+    };
+
+    const results = await Promise.all(
+      batches.map(async (batch) => {
+        try {
+          return await look(batch);
+        } catch {
+          // One slow image should not cost the other three their descriptions,
+          // so fall back to one at a time and keep whatever succeeds. A photo
+          // that fails twice comes back blank and is simply skipped on save.
+          const one = await Promise.all(
+            batch.map(async (p) => {
+              try { return (await look([p]))[0] || {}; } catch { return {}; }
+            }),
+          );
+          return one;
+        }
+      }),
+    );
+
+    const seen = results.flat();
+    const described = photos.map((p, i) => {
+      const v = seen[i] || {};
+      return {
+        id: p.id,
+        title: p.title,
+        image: p.image,
+        vision: {
+          room: String(v.room || "unclear"),
+          stage: String(v.stage || "unclear"),
+          description: String(v.description || ""),
+          details: Array.isArray(v.details) ? v.details.map(String).slice(0, 5) : [],
+          standout: String(v.standout || ""),
+        },
+      };
+    });
+
+    if (commit) {
+      // Written back onto the existing record, leaving every other field alone,
+      // so a photo keeps its title, order and published flag.
+      for (const d of described) {
+        if (!d.vision.description) continue; // never overwrite with a blank
+        const key = `gallery:${d.id}`;
+        const existing = (await kv.get(key)) as any;
+        if (!existing) continue;
+        await kv.set(key, { ...existing, vision: d.vision });
+      }
+    }
+
+    return c.json({
+      success: true,
+      described: described.length,
+      committed: commit,
+      note: commit
+        ? "Descriptions saved onto the gallery records."
+        : "DRY RUN — nothing was saved. Re-send with commit:true once these read correctly.",
+      photos: described,
+    });
+  } catch (error: any) {
+    console.log(`[video-studio] describe-photos failed: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || "Could not describe the photos." }, 500);
+  }
+});
+
+/**
+ * Hook shapes for renovation work, which is a different job from selling a product.
+ *
+ * The product archetypes do not transfer. A car seat heater is bought on impulse
+ * from a stranger; a kitchen is bought after months of thinking, from someone
+ * the homeowner has decided to trust. The winning renovation content on TikTok
+ * and Instagram reflects that — it is overwhelmingly transformation, process and
+ * craft, not persuasion, and the comment sections are people asking how much and
+ * whether they work in their area.
+ *
+ * The other reason these differ: this material is real. There are 35 photographs
+ * of jobs this company actually finished, with 13 of them mid-build. Every
+ * structure below is built on something the photographs can actually show, which
+ * is the opposite of the product problem where the assets were generic and the
+ * words had to do all the work.
+ */
+const RENOVATION_ARCHETYPES: Array<{ key: string; brief: string; examples: string[] }> = [
+  {
+    key: "before-after",
+    brief:
+      "Hold on the worst state, then cut to the finished room. The strongest structure this material " +
+      "supports and the one to reach for first. The opening line should sit with the bad state, not apologise for it.",
+    examples: ["this was the kitchen", "nobody wanted to cook here", "the floor was the good part", "she cried when she saw it"],
+  },
+  {
+    key: "detail",
+    brief:
+      "Open tight on one piece of craft most people would never notice, then pull out to show the room it sits in. " +
+      "Rewards the viewer for looking closely, which is what makes trades content rewatchable.",
+    examples: ["look at the tile line", "that seam took an hour", "nobody will ever see this", "the grout is the whole job"],
+  },
+  {
+    key: "process",
+    brief:
+      "Mid-build. Studs, subfloor, plumbing rough-in. Show what a finished room is hiding. " +
+      "Only use this when the photographs are genuinely in-progress.",
+    examples: ["under every nice floor", "this is week two", "behind the drywall", "before it looks like anything"],
+  },
+  {
+    key: "problem-found",
+    brief:
+      "What was discovered once the wall came off. Extremely strong in trades content because every homeowner " +
+      "fears it. Only claim what the photograph actually shows — do not invent rot, mould or damage.",
+    examples: ["we opened the wall", "someone did this on purpose", "that is not how that goes", "this was holding the ceiling"],
+  },
+  {
+    key: "craft-choice",
+    brief:
+      "One decision and why it was made that way — a layout, a material, a line. Positions the company as " +
+      "thoughtful rather than cheap, which is what wins the higher-value job.",
+    examples: ["we moved the sink", "this wall had to go", "why the island faces out", "two inches changed the room"],
+  },
+  {
+    key: "walkthrough",
+    brief:
+      "A calm tour of the finished space, letting the work speak. No hard sell. Closes on where the company works.",
+    examples: ["finished this one friday", "salem, new hampshire", "start to finish, eleven weeks", "the whole first floor"],
+  },
+];
+
+/**
  * A reel built from real job photographs.
  *
  * The studio's normal path writes a script and then generates a picture for
@@ -293,48 +518,104 @@ videoStudioRouter.post("/video-studio/job-reel", async (c) => {
       }, 400);
     }
 
+    // The photographs carry descriptions written by the vision pass. Where they
+    // do not, the manifest falls back to the title — which for this library is a
+    // sequence number like "Recent Project 07", and is the reason the vision
+    // pass exists. A model handed only that writes about nothing.
+    const describedCount = photos.filter((p) => p?.vision?.description).length;
     const manifest = photos
-      .map((p, i) => `${i + 1}. "${p.title}" (${p.category || "project"})`)
+      .map((p, i) => {
+        const v = p?.vision;
+        if (!v?.description) return `${i + 1}. "${p.title}" (${p.category || "project"}) — no description available`;
+        const bits = [
+          `${i + 1}. ${v.room || "room"}, ${v.stage || "unclear stage"} — ${v.description}`,
+          v.details?.length ? `   visible: ${v.details.join(", ")}` : "",
+          v.standout ? `   most striking: ${v.standout}` : "",
+        ].filter(Boolean);
+        return bits.join("\n");
+      })
       .join("\n");
 
-    const prompt = `You are writing a short-form video for a real renovation company.
+    // Same reasoning as the product reels: nobody picks the winner in advance,
+    // so write several and let the audience choose. Capped at the number of
+    // renovation archetypes so no structure gets used twice.
+    const variantCount = Math.max(1, Math.min(RENOVATION_ARCHETYPES.length, Number(body.variants) || 3));
+    const anyInProgress = photos.some((p) => ["in-progress", "framing", "demolition"].includes(p?.vision?.stage));
+    // "process" and "problem-found" both promise mid-build footage. Offering
+    // them over a set of finished rooms would invite the model to invent a
+    // demolition that no photograph shows.
+    const eligible = anyInProgress
+      ? RENOVATION_ARCHETYPES
+      : RENOVATION_ARCHETYPES.filter((h) => h.key !== "process" && h.key !== "problem-found");
+    const chosen = eligible.slice(0, variantCount);
+
+    const prompt = `You are writing short-form video for a real renovation company.
 
 Business: ${business}, a full-service renovation company in Salem, New Hampshire —
 kitchens, bathrooms, whole-home remodels, additions and exterior work.
 Platform: ${platform}
 Tone: ${tone}
 
-These are REAL photographs of this company's completed work, in order:
+These are REAL photographs of this company's own work, in order, with what is
+actually visible in each one:
 ${manifest}
 
-Write narration for each photograph, in order — one scene per photograph, exactly
-${photos.length} scenes. You are describing real work this company did, so do not
-invent details you cannot see in a title: talk about craft, process, and what a
-homeowner gets, rather than claiming specific materials or measurements.
+You are writing ${chosen.length} SEPARATE video${chosen.length > 1 ? "s" : ""} over these same
+${photos.length} photographs — competing cuts that will all be posted so the audience
+can pick the winner. Write one per structure below, and commit fully to each:
 
-Open with a hook in the first three seconds. Close by inviting a call.
+${chosen
+  .map(
+    (h, i) =>
+      `${i + 1}. ${h.key} — ${h.brief}\n` +
+      `   Opening lines in this shape read like: ${h.examples.map((e) => `"${e}"`).join(", ")}\n` +
+      `   Match that register. Do not copy those lines — they are about other jobs.`,
+  )
+  .join("\n\n")}
 
-Return ONLY JSON with this exact shape:
+RULES, and they matter more than the copy:
+- Write ONLY about what the descriptions say is visible. This is real work for
+  real customers, and inventing a detail is worse here than anywhere else: it
+  misrepresents a finished job to the people who might buy the next one.
+- Never claim a measurement, a price, a timeline, a brand or a material that is
+  not in the description above.
+- The first line has about three seconds. It must say something, not set a mood.
+  "beautiful transformation" and "quality craftsmanship" are what everyone else
+  writes and they are invisible.
+- onScreenText: 8 words maximum. Lower case is fine.
+- Close by making it easy to ask — where they work, or an invitation to call.
+- These must be genuinely different videos, not one reworded. If two could be
+  swapped without a viewer noticing, both are wasted.
+
+Return ONLY JSON:
 {
-  "title": string,
-  "hook": string,
-  "caption": string,
-  "hashtags": string[],
-  "scenes": [
-    { "narration": string, "onScreenText": string, "seconds": number }
+  "variants": [               // exactly ${chosen.length}, in the structure order above
+    {
+      "archetype": string,    // the structure key, echoed back
+      "title": string,
+      "hook": string,
+      "caption": string,
+      "hashtags": string[],   // 5-8, no '#', mix broad and local
+      "scenes": [ { "narration": string, "onScreenText": string, "seconds": number } ]
+    }
   ]
 }
-narration: 1-2 sentences, natural read aloud. onScreenText: <= 8 words.
-seconds: between 3 and 6.`;
+One scene per photograph, exactly ${photos.length} scenes per variant, in the order given.
+narration: 1-2 sentences, natural read aloud. seconds: between 3 and 6.`;
 
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        // Same reasoning as the product reels: this call writes the words the
+        // company is represented by, over photographs of jobs real customers
+        // paid for. The mini model is the wrong economy here.
+        model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
+        // High, because the failure mode of a variant batch is several cuts
+        // that say the same thing in different words.
+        temperature: 1.0,
         response_format: { type: "json_object" },
-        temperature: 0.8,
       }),
     });
     const aiJson = await aiRes.json().catch(() => ({}));
@@ -344,41 +625,161 @@ seconds: between 3 and 6.`;
 
     let script: any = {};
     try { script = JSON.parse(aiJson.choices?.[0]?.message?.content || "{}"); } catch { script = {}; }
-    const written: any[] = Array.isArray(script.scenes) ? script.scenes : [];
+    const rawVariants: any[] = Array.isArray(script.variants) ? script.variants : [];
+    if (!rawVariants.length) {
+      return c.json({ success: false, error: "The script came back empty. Try again." }, 502);
+    }
 
-    // The photographs are the fixed part. If the model returns too few scenes
-    // the photo still gets shown with its own title rather than being dropped —
-    // losing a real photograph to a short script would be the wrong trade.
-    const scenes = photos.map((photo, i) => {
-      const s = written[i] || {};
+    const variants = chosen.slice(0, rawVariants.length).map((archetype, v) => {
+      const written: any[] = Array.isArray(rawVariants[v]?.scenes) ? rawVariants[v].scenes : [];
+
+      // The photographs are the fixed part. If the model returns too few scenes
+      // the photo still gets shown with its own title rather than being dropped —
+      // losing a real photograph to a short script would be the wrong trade.
+      const scenes = photos.map((photo, i) => {
+        const s = written[i] || {};
+        return {
+          imageUrl: photo.image,
+          photoId: photo.id,
+          photoTitle: photo.title,
+          narration: String(s.narration || `${photo.title}. Another finished project by ${business}.`),
+          onScreenText: String(s.onScreenText || photo.vision?.room || photo.category || photo.title).slice(0, 60),
+          seconds: Math.min(Math.max(Number(s.seconds) || 4, 3), 6),
+          // Says plainly that no image generator was involved, so a reader of
+          // this payload cannot mistake these for generated stills.
+          source: "job-photo",
+        };
+      });
+
       return {
-        imageUrl: photo.image,
-        photoId: photo.id,
-        photoTitle: photo.title,
-        narration: String(s.narration || `${photo.title}. Another finished project by ${business}.`),
-        onScreenText: String(s.onScreenText || photo.category || photo.title).slice(0, 60),
-        seconds: Math.min(Math.max(Number(s.seconds) || 4, 3), 6),
-        // Says plainly that no image generator was involved, so a reader of
-        // this payload cannot mistake these for generated stills.
-        source: "job-photo",
+        id: `${archetype.key}-${photos.length}`,
+        archetype: archetype.key,
+        archetypeBrief: archetype.brief,
+        title: String(rawVariants[v]?.title || `${business} — recent work`),
+        hook: String(rawVariants[v]?.hook || ""),
+        caption: String(rawVariants[v]?.caption || ""),
+        hashtags: Array.isArray(rawVariants[v]?.hashtags) ? rawVariants[v].hashtags.slice(0, 8) : [],
+        scenes,
+        totalSeconds: scenes.reduce((n, s) => n + s.seconds, 0),
       };
     });
 
+    const first = variants[0];
     return c.json({
       success: true,
-      title: String(script.title || `${business} — recent work`),
-      hook: String(script.hook || ""),
-      caption: String(script.caption || ""),
-      hashtags: Array.isArray(script.hashtags) ? script.hashtags.slice(0, 8) : [],
-      scenes,
-      totalSeconds: scenes.reduce((n, s) => n + s.seconds, 0),
-      photosUsed: scenes.length,
+      variants,
+      photosUsed: photos.length,
+      // Surfaced because it silently caps quality: photographs with no
+      // description give the writer a sequence number to work from.
+      photosDescribed: describedCount,
+      photosMissingDescription: photos.length - describedCount,
+      inProgressFootageAvailable: anyInProgress,
+      howToUse:
+        `${variants.length} different cuts of the same job photographs. Post them all across a week, ` +
+        "judge on three-second retention rather than likes, and keep the structure that holds people — " +
+        "then shoot the next job to suit it.",
+      // Variant one repeated flat, so anything expecting one reel keeps working.
+      title: first.title,
+      hook: first.hook,
+      caption: first.caption,
+      hashtags: first.hashtags,
+      scenes: first.scenes,
+      totalSeconds: first.totalSeconds,
     });
   } catch (error: any) {
     console.log(`[video-studio] job reel failed: ${error?.message || error}`);
     return c.json({ success: false, error: error?.message || "Could not build the reel." }, 500);
   }
 });
+
+/**
+ * The hook shapes that actually win in short-form, as a fixed list.
+ *
+ * Not invented here. These are the recurring structures behind the top-performing
+ * entries in TikTok's Creative Center and Meta's public ad library — the same
+ * swipe file every serious operator keeps. Naming them explicitly is the point:
+ * a model asked for "five variants" writes five paraphrases of one idea, which
+ * makes the test worthless. Asked for one variant per named structure, it has to
+ * genuinely change its approach.
+ *
+ * Deliberately absent: social proof ("sold out three times", "10,000 reviews").
+ * It is one of the strongest hooks in the real world and we cannot use it,
+ * because we do not hold those numbers and inventing them is the exact thing we
+ * stripped out of the product data.
+ *
+ * WHY EACH ONE CARRIES EXAMPLES
+ *
+ * The first version of this named the archetypes and described each in a
+ * sentence, and the output was weak in a specific, diagnosable way: "cold seat
+ * blues?", "toasty rides ahead". Generic ad copy, and one variant — the pattern
+ * interrupt — opened on a soft question, which is the opposite of the structure
+ * it was asked for.
+ *
+ * A described adjective is not a target. "Punchy, three to six words" is
+ * satisfied by rhyming filler. Shown four lines that actually work, a model
+ * writes toward them instead. These examples are patterns, not quotations, and
+ * none names a real brand or cites a number we do not hold.
+ */
+const HOOK_ARCHETYPES: Array<{ key: string; brief: string; examples: string[] }> = [
+  {
+    key: "problem",
+    brief: "Open on the annoyance the viewer already lives with. Name it so precisely they feel caught.",
+    examples: ["my back hated this chair", "3pm and already wrecked", "every winter. every morning.", "why is it always tangled"],
+  },
+  {
+    key: "result",
+    brief: "Open on the after. Show the finished state first and let the video explain itself backwards.",
+    examples: ["this used to be carpet", "took twenty minutes total", "same room. one afternoon.", "that's it. that's the whole fix."],
+  },
+  {
+    key: "interrupt",
+    brief:
+      "Open on something that does not parse for a beat — an odd angle, an unexpected use, a wrong-looking frame. " +
+      "A question is NOT a pattern interrupt. The line must land as a statement that briefly makes no sense.",
+    examples: ["i put it in the freezer", "this is not a lamp", "wrong way round on purpose", "yes, that goes there"],
+  },
+  {
+    key: "warning",
+    brief: "Open by telling them to stop doing the thing they are doing. Corrective, not scolding.",
+    examples: ["stop doing this to your car", "you're washing it wrong", "throw this one away", "take it out of your cart"],
+  },
+  {
+    key: "curiosity",
+    brief: "Open on the part nobody mentions. Withhold the payoff for one beat, then deliver it.",
+    examples: ["nobody mentions the third one", "the part they don't show", "there's a reason it's cheap", "wait for the second one"],
+  },
+  {
+    key: "comparison",
+    brief: "Open against whatever they are using now. The contrast carries the argument.",
+    examples: ["mine's on the left", "same job, one costs more", "yours vs this", "i owned both. one stayed."],
+  },
+  {
+    key: "demonstration",
+    brief: "No preamble at all. Open mid-action with the thing already working. Text stays minimal — the picture argues.",
+    examples: ["watch", "no cuts", "one take, start to finish", "still going"],
+  },
+  {
+    key: "confession",
+    brief: "Open on honest scepticism — 'I did not think this would work' — then show what changed it.",
+    examples: ["i thought this was a scam", "returned it. bought it again.", "i owe this thing an apology", "was ready to hate it"],
+  },
+];
+
+/**
+ * Lines the model actually produced before it was shown examples, kept as
+ * negative exemplars.
+ *
+ * Naming the failure is worth more than another adjective, because every one of
+ * these satisfies "punchy, three to six words" and none of them would stop a
+ * thumb. Left verbatim on purpose — if the copy regresses, it regresses to
+ * roughly these, and they are the fastest way to recognise it.
+ */
+const WEAK_HOOK_EXAMPLES = [
+  "cold seat blues?",
+  "toasty rides ahead",
+  "snug in a car seat?",
+  "warming magic?",
+];
 
 /**
  * A product reel built to be watched, not to describe a product.
@@ -409,6 +810,25 @@ seconds: between 3 and 6.`;
  * A synthetic voiceover is offered but off by default, and that is deliberate:
  * on TikTok a TTS voice reads as an advert, and an advert gets scrolled. The
  * caption channel outperforms it.
+ *
+ * WHY THIS RETURNS SEVERAL REELS AND NOT ONE
+ *
+ * Because nobody can pick the winner in advance, and pretending otherwise is the
+ * single biggest difference between how we were working and how a store that
+ * sells at volume works. The operators worth copying cut ten to thirty creatives
+ * per product and expect two to five percent of them to land; the winner is
+ * found by posting, not by judgement. Returning one reel bet the whole product
+ * on one guess.
+ *
+ * The marginal cost of this is close to zero — same photographs, same single
+ * model call — so the only thing that made it a one-reel endpoint was habit.
+ *
+ * Variants differ in two dimensions, not one:
+ *   • the hook structure, drawn one-per-variant from HOOK_ARCHETYPES, and
+ *   • the opening frame, rotated so each variant stops the scroll on a
+ *     different photograph. First frame is a large share of whether a reel is
+ *     watched at all, so varying copy while every variant opens on the same
+ *     image would be testing half the thing.
  */
 videoStudioRouter.post("/video-studio/product-reel", async (c) => {
   try {
@@ -449,6 +869,19 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
     const beats = unique.slice(0, Math.min(Math.max(Number(body.beats) || 8, 4), 12));
     const price = Number(product.price) || Number(product.retailPrice) || 0;
 
+    // Five is the default because it is enough to be a real test and still one
+    // model call. Capped at the number of archetypes — asking for more would
+    // start repeating structures, which is the paraphrase problem again.
+    const variantCount = Math.max(1, Math.min(HOOK_ARCHETYPES.length, Number(body.variants) || 5));
+    // An explicit angle means the caller wants that one structure, so honour it
+    // and stop leading the list with something they did not ask for.
+    const chosen = angle !== "auto" && HOOK_ARCHETYPES.some((h) => h.key === angle)
+      ? [
+          HOOK_ARCHETYPES.find((h) => h.key === angle)!,
+          ...HOOK_ARCHETYPES.filter((h) => h.key !== angle),
+        ].slice(0, variantCount)
+      : HOOK_ARCHETYPES.slice(0, variantCount);
+
     const prompt = `You write short-form product videos that people actually watch to the end.
 
 Product: ${product.name}
@@ -456,7 +889,33 @@ Category: ${product.category || "general"}
 ${price ? `Price: $${price.toFixed(2)}` : ""}
 ${product.description ? `Description: ${String(product.description).slice(0, 400)}` : ""}
 Beats available: ${beats.length} (one real product photo each, ~1.2 seconds per beat)
-Requested angle: ${angle === "auto" ? "choose the strongest" : angle}
+
+You are writing ${chosen.length} SEPARATE video${chosen.length > 1 ? "s" : ""} for this product — competing
+creatives that will all be posted so the audience can pick the winner. Write one
+per hook structure below, in this order, and commit fully to each structure:
+
+${chosen
+  .map(
+    (h, i) =>
+      `${i + 1}. ${h.key} — ${h.brief}\n` +
+      `   Hook lines in this shape read like: ${h.examples.map((e) => `"${e}"`).join(", ")}\n` +
+      `   Match that register. Do not copy those lines — they are about other products.`,
+  )
+  .join("\n\n")}
+
+These must be genuinely different videos, not one video reworded. If two of them
+could be swapped without a viewer noticing, both are wasted. Different structure,
+different first line, different thing being argued.
+
+WHAT A WEAK HOOK LOOKS LIKE, so you can recognise it in your own draft:
+${WEAK_HOOK_EXAMPLES.map((e) => `  ✗ "${e}"`).join("\n")}
+Every one of those is short and on-topic and would still be scrolled past. They
+fail for three reasons worth checking your own lines against:
+  - they rhyme or alliterate instead of saying something ("cold seat blues");
+  - they describe a mood rather than a moment ("toasty rides ahead");
+  - they ask a soft question where the structure needed a statement.
+A hook that could sit on any product in the category is not a hook. If your line
+would still make sense with a different product dropped into it, rewrite it.
 
 RULES, and they matter more than the copy:
 - The video will most likely be watched WITH THE SOUND OFF at first. Every idea
@@ -473,21 +932,34 @@ RULES, and they matter more than the copy:
 
 Return ONLY JSON:
 {
-  "hookStyle": string,        // which angle you chose and why, one short sentence
-  "beats": [ { "onScreenText": string, "narration": string } ],  // exactly ${beats.length}
-  "caption": string,          // the post caption, 1-2 lines, conversational
-  "hashtags": string[],       // 5-8, no '#', mix broad and specific
-  "soundSuggestion": string   // the KIND of trending audio that suits this, in words
+  "variants": [               // exactly ${chosen.length}, in the hook order given above
+    {
+      "archetype": string,    // the hook key from the list, echoed back
+      "hookStyle": string,    // how you applied it here, one short sentence
+      "beats": [ { "onScreenText": string, "narration": string } ],  // exactly ${beats.length}
+      "caption": string,      // the post caption, 1-2 lines, conversational
+      "hashtags": string[],   // 5-8, no '#', mix broad and specific
+      "soundSuggestion": string  // the KIND of trending audio that suits THIS variant
+    }
+  ]
 }`;
 
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        // Not the mini model, and the exception is deliberate. Everywhere else
+        // in this file the model is summarising or restructuring text somebody
+        // else wrote; here it is writing the words the product is actually sold
+        // with. That is the wrong place to save a fraction of a cent — the
+        // expensive part of this pipeline is the time spent posting the results
+        // and waiting to see which one lands.
+        model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
+        // High, because the failure mode of a variant batch is five scripts
+        // that say the same thing in different words.
+        temperature: 1.0,
         response_format: { type: "json_object" },
-        temperature: 0.9,
       }),
     });
     const aiJson = await aiRes.json().catch(() => ({}));
@@ -497,41 +969,79 @@ Return ONLY JSON:
 
     let script: any = {};
     try { script = JSON.parse(aiJson.choices?.[0]?.message?.content || "{}"); } catch { script = {}; }
-    const written: any[] = Array.isArray(script.beats) ? script.beats : [];
+    const rawVariants: any[] = Array.isArray(script.variants) ? script.variants : [];
+    if (!rawVariants.length) {
+      return c.json({ success: false, error: "The script came back empty. Try again." }, 502);
+    }
 
-    const scenes = beats.map((imageUrl, i) => {
-      const b = written[i] || {};
+    const audioNote = (suggestion: string) => ({
+      // Said out loud in the payload so nobody ships these silent by accident
+      // and concludes the format does not work.
+      voiceover: false,
+      reason:
+        "Built to work with the sound off. A synthetic voiceover reads as an advert on TikTok and Reels; " +
+        "on-screen text plus trending audio consistently outperforms it.",
+      suggestion: suggestion || "Something upbeat and current for this category.",
+      action:
+        "Add a trending sound in the TikTok or Instagram app when you post. No API can supply trending " +
+        "audio legally — the licence only exists inside the apps — so this is the one step that stays manual.",
+    });
+
+    const variants = chosen.slice(0, rawVariants.length).map((archetype, v) => {
+      const written: any[] = Array.isArray(rawVariants[v]?.beats) ? rawVariants[v].beats : [];
+
+      // Each variant opens on a different photograph. The rest follow in the
+      // supplier's own order, which is usually strongest-first — a full shuffle
+      // would trade a real gain in first-frame variety for an incoherent edit.
+      const opener = beats[v % beats.length];
+      const ordered = [opener, ...beats.filter((u) => u !== opener)];
+
+      const scenes = ordered.map((imageUrl, i) => {
+        const b = written[i] || {};
+        return {
+          imageUrl,
+          // The hook gets a beat and a half. Everything after it moves.
+          seconds: i === 0 ? 1.8 : 1.2,
+          onScreenText: String(b.onScreenText || "").slice(0, 60),
+          narration: String(b.narration || ""),
+          source: "supplier-photo",
+        };
+      });
+
       return {
-        imageUrl,
-        // The hook gets a beat and a half. Everything after it moves.
-        seconds: i === 0 ? 1.8 : 1.2,
-        onScreenText: String(b.onScreenText || "").slice(0, 60),
-        narration: String(b.narration || ""),
-        source: "supplier-photo",
+        id: `${product.id || product.sku}-${archetype.key}`,
+        archetype: archetype.key,
+        archetypeBrief: archetype.brief,
+        hookStyle: String(rawVariants[v]?.hookStyle || ""),
+        scenes,
+        caption: String(rawVariants[v]?.caption || ""),
+        hashtags: Array.isArray(rawVariants[v]?.hashtags) ? rawVariants[v].hashtags.slice(0, 8) : [],
+        totalSeconds: Number(scenes.reduce((n, s) => n + s.seconds, 0).toFixed(1)),
+        audio: audioNote(String(rawVariants[v]?.soundSuggestion || "")),
       };
     });
 
+    const first = variants[0];
     return c.json({
       success: true,
       product: { id: product.id || product.sku, name: product.name, price, category: product.category },
-      hookStyle: String(script.hookStyle || ""),
-      scenes,
-      caption: String(script.caption || ""),
-      hashtags: Array.isArray(script.hashtags) ? script.hashtags.slice(0, 8) : [],
-      totalSeconds: Number(scenes.reduce((n, s) => n + s.seconds, 0).toFixed(1)),
+      variants,
       imagesAvailable: unique.length,
-      audio: {
-        // Said out loud in the payload so nobody ships these silent by accident
-        // and concludes the format does not work.
-        voiceover: false,
-        reason:
-          "Built to work with the sound off. A synthetic voiceover reads as an advert on TikTok and Reels; " +
-          "on-screen text plus trending audio consistently outperforms it.",
-        suggestion: String(script.soundSuggestion || "Something upbeat and current for this category."),
-        action:
-          "Add a trending sound in the TikTok or Instagram app when you post. No API can supply trending " +
-          "audio legally — the licence only exists inside the apps — so this is the one step that stays manual.",
-      },
+      // Post all of them and let the audience choose. Stated in the payload
+      // because the instinct is to pick a favourite and post one, and picking a
+      // favourite is exactly what this endpoint exists to stop.
+      howToUse:
+        `${variants.length} competing creatives from the same photographs. Post them all, a day or two ` +
+        "apart, with different sounds. Judge on three-second retention first — not likes — and kill the " +
+        "weak ones early. Expect one or two to carry the product and the rest to do nothing; that is the " +
+        "normal shape of this, not a failure.",
+      // Variant one repeated flat, so anything expecting a single reel keeps working.
+      hookStyle: first.hookStyle,
+      scenes: first.scenes,
+      caption: first.caption,
+      hashtags: first.hashtags,
+      totalSeconds: first.totalSeconds,
+      audio: first.audio,
     });
   } catch (error: any) {
     console.log(`[video-studio] product reel failed: ${error?.message || error}`);
