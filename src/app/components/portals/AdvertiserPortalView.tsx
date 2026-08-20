@@ -1,7 +1,7 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TrendingUp, DollarSign, Eye, MousePointerClick, BarChart3, Target,
   Calendar, Users, Award, ArrowUpRight, ArrowDownRight, Download,
@@ -32,9 +32,12 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
+
+const AD_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export default function AdvertiserPortalView() {
-  const { session } = useAuth();
+  const { user, session } = useAuth();
 
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
@@ -79,37 +82,79 @@ export default function AdvertiserPortalView() {
     }
   };
 
-  // Mock advertiser data — pulled from RoleSwitcher demo profile if present
-  const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
+  // ---------------------------------------------------------------------------
+  // Real advertising figures.
+  //
+  // This screen used to report 415,000 impressions, a 3.0% click-through rate,
+  // 207 conversions and 385% ROI — every one of them a literal, on a screen an
+  // advertiser pays for and might renew a contract on the strength of.
+  //
+  // There is now a backend: campaigns, creatives, a serving endpoint the marquee
+  // calls, and impression/click counting. Everything below is counted.
+  // ---------------------------------------------------------------------------
+  const [adStats, setAdStats] = useState<any>(null);
+  const [creatives, setCreatives] = useState<any[]>([]);
+  const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
+  const [adLoading, setAdLoading] = useState(true);
+  const [adDaily, setAdDaily] = useState<any[]>([]);
+  const [adByCreative, setAdByCreative] = useState<any[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!session?.access_token) { setAdLoading(false); return; }
+      const headers = { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
+      try {
+        const [s, cr, ca] = await Promise.all([
+          fetch(`${AD_API}/advertising/stats?days=90`, { headers }),
+          fetch(`${AD_API}/advertising/creatives`, { headers }),
+          fetch(`${AD_API}/advertising/campaigns`, { headers }),
+        ]);
+        const sj = await s.json().catch(() => ({}));
+        const cj = await cr.json().catch(() => ({}));
+        const aj = await ca.json().catch(() => ({}));
+        if (cancelled) return;
+        setAdStats(sj?.summary || null);
+        setAdDaily(Array.isArray(sj?.byDay) ? sj.byDay : []);
+        setAdByCreative(Array.isArray(sj?.byCreative) ? sj.byCreative : []);
+        setCreatives(Array.isArray(cj?.creatives) ? cj.creatives : []);
+        setAdCampaigns(Array.isArray(aj?.campaigns) ? aj.campaigns : []);
+      } catch { /* leave the zeros; they are honest */ }
+      finally { if (!cancelled) setAdLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
+
+
   const advertiserInfo = {
-    name: _demoProfile?.company || 'Premier Home Solutions LLC',
-    businessName: _demoProfile?.company || 'Premier Home Solutions LLC',
-    email: _demoProfile?.email || 'derek@premierhs.com',
-    phone: _demoProfile?.phone || '(469) 555-0177',
-    accountManager: _demoProfile?.name || 'Derek Walsh',
-    memberSince: 'April 2023',
-    activeCampaigns: 5,
-    totalSpend: 48500,
-    averageROI: 385
+    name: String(user?.user_metadata?.company || user?.user_metadata?.full_name || user?.email || 'Advertiser'),
+    businessName: String(user?.user_metadata?.company || ''),
+    email: String(user?.email || ''),
+    phone: String(user?.user_metadata?.phone || ''),
+    accountManager: '',
+    memberSince: user?.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '',
+    activeCampaigns: adCampaigns.filter((x: any) => x.status === 'active').length,
+    totalSpend: 0,
+    averageROI: null,
   };
 
-  // Campaign performance data
-  const performanceData = [
-    { month: 'Jul', impressions: 285000, clicks: 8550, conversions: 142 },
-    { month: 'Aug', impressions: 312000, clicks: 9360, conversions: 156 },
-    { month: 'Sep', impressions: 298000, clicks: 8940, conversions: 148 },
-    { month: 'Oct', impressions: 345000, clicks: 10350, conversions: 172 },
-    { month: 'Nov', impressions: 368000, clicks: 11040, conversions: 184 },
-    { month: 'Dec', impressions: 392000, clicks: 11760, conversions: 196 },
-    { month: 'Jan', impressions: 415000, clicks: 12450, conversions: 207 }
-  ];
+  // Impressions and clicks by day, from recorded events. The seven-month curve
+  // that used to sit here was drawn.
+  const performanceData = adDaily.map((d: any) => ({
+    month: new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    impressions: Number(d.impressions || 0),
+    clicks: Number(d.clicks || 0),
+  }));
 
-  // Stats
+  // Conversions and ROI are deliberately not here. Both require knowing a click
+  // led to a purchase, and nothing in the platform attributes a sale back to an
+  // ad. On a screen an advertiser renews a contract from, an invented figure is
+  // worse than an absent one.
   const stats = [
-    { label: 'Total Impressions', value: '415K', change: '+5.9%', trend: 'up', icon: Eye, color: 'orange' },
-    { label: 'Click-Through Rate', value: '3.0%', change: '+0.3%', trend: 'up', icon: MousePointerClick, color: 'blue' },
-    { label: 'Conversions', value: '207', change: '+11', trend: 'up', icon: Target, color: 'green' },
-    { label: 'ROI', value: '385%', change: '+12%', trend: 'up', icon: TrendingUp, color: 'yellow' }
+    { label: 'Impressions', value: String(adStats?.impressions ?? 0), change: 'last 90 days', trend: 'up', icon: Eye, color: 'orange' },
+    { label: 'Clicks', value: String(adStats?.clicks ?? 0), change: adStats?.clicks ? 'from your ads' : 'none yet', trend: 'up', icon: MousePointerClick, color: 'blue' },
+    { label: 'Click-Through Rate', value: `${adStats?.ctr ?? 0}%`, change: adStats?.impressions ? `on ${adStats.impressions} impressions` : 'no impressions yet', trend: 'up', icon: Target, color: 'green' },
+    { label: 'Live Ads', value: String(adStats?.activeCreatives ?? 0), change: `${adStats?.totalCreatives ?? 0} total`, trend: 'up', icon: Megaphone, color: 'yellow' },
   ];
 
   // Active campaigns

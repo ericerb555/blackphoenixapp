@@ -2868,3 +2868,111 @@ stops with the shift rather than running all day.
 constant; button reads "Punch out"; exactly one punch control on the page.
 Clocked out: "8.5h this week · 1 shift", button reads "Punch in", again exactly
 one. Zero exceptions in either.
+
+---
+
+# Advertiser portal (plan, awaiting approval)
+
+This is the one with nothing behind it. Confirmed again before planning:
+
+- **Zero `/advertiser` routes.** No campaigns, no creatives, no events.
+- **Ads live in `localStorage`** under `advertisements` and `sponsored_partners`,
+  read by `SponsoredMarquee` and `AdvertisingMarquee`.
+- **Nothing writes them.** There is no ad manager anywhere — an ad can only come
+  into existence by hand-editing browser storage. So no advertiser has ever been
+  able to create one.
+- **Nothing records an impression or a click**, anywhere in the codebase.
+- The portal is 16 tabs, 5 of them the "would be displayed here" sentence, and
+  every figure on the dashboard is a literal: 415K impressions, 3.0% CTR, 207
+  conversions, 385% ROI.
+
+19 components render ads, but all of them go through those two shared marquees —
+so serving and event recording are two files, not nineteen.
+
+## What has to be built, in order
+
+- [ ] AD-1. **Campaigns and creatives on the server**, scoped per advertiser.
+      Replaces localStorage. Without this there is nothing to advertise and
+      nothing to attribute anything to.
+- [ ] AD-2. **A serving endpoint** the marquees call instead of reading
+      localStorage, returning active creatives with their advertiser and
+      campaign ids attached.
+- [ ] AD-3. **Event recording** — one impression when a creative is actually
+      shown, one click when it is clicked. Batched and deduplicated per session,
+      because a marquee re-renders constantly and counting every render as a
+      fresh impression would inflate the number that an advertiser is billed on.
+- [ ] AD-4. **The portal reads real counts** — impressions, clicks and CTR from
+      recorded events.
+
+## What I will NOT build, and why it matters
+
+**Conversions and ROI are coming off that dashboard, not being wired.** Both
+require knowing that a click led to a purchase, and nothing in the platform
+attributes a sale back to an ad. There is no honest number to put there.
+
+Given an advertiser is paying for the screen, "385% ROI" invented is worse than
+absent — it is a figure someone might renew a contract on. If real attribution is
+wanted later it is its own project: a click id carried through to checkout.
+
+## Sizing
+
+AD-1 and AD-2 are ordinary CRUD and a read endpoint. AD-3 is the only part with
+any subtlety, and the subtlety is all in not over-counting. AD-4 is then small.
+
+The five placeholder tabs (Campaigns, Creatives, Analytics, Billing,
+Performance) are a separate question — worth deciding once real numbers exist,
+because what belongs on them depends on what there is to show.
+
+### Advertiser portal — built from nothing. Done.
+
+There was no advertiser backend at all: no routes, ads living in `localStorage`
+with nothing able to write them, and no impression or click recorded anywhere.
+
+**New `advertising.tsx`, mounted** (checked, after `suppliers.tsx` turned out to
+be dead code nobody had noticed):
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /advertising/serve` | public | ads to render, minimal fields |
+| `POST /advertising/events` | public | impressions and clicks |
+| `GET/POST /advertising/campaigns` | advertiser | own campaigns only |
+| `GET/POST/DELETE /advertising/creatives` | advertiser | own ads only |
+| `GET /advertising/stats` | advertiser | counted performance |
+
+Serving and event recording are deliberately unauthenticated: ads show to
+signed-out visitors, and requiring a session would mean the marquee renders
+nothing on the public site — which is where advertising is worth most. Everything
+that reveals or changes an advertiser's own data is gated, and an advertiser
+cannot adopt someone else's campaign by posting its id back.
+
+**Counts are daily rollups** (`ad_stat:{creativeId}:{date}`) rather than one row
+per event. A marquee on nineteen surfaces would otherwise write millions of rows
+nobody reads individually.
+
+**Not over-counting was the whole difficulty.** A marquee re-renders constantly,
+and counting renders as impressions inflates the number an advertiser is *billed*
+on — worse than not counting, because it is over-charging. So: one impression per
+creative per page session client-side, one count per creative per request
+server-side, unknown ids record nothing, batched with `keepalive` so a click that
+navigates away still arrives.
+
+**Conversions and ROI were removed rather than wired.** Both need to know a click
+led to a purchase and nothing attributes a sale to an ad. "385% ROI" invented is
+a figure an advertiser might renew a contract on. The tiles are now Impressions,
+Clicks, Click-Through Rate and Live Ads — all counted.
+
+**Verified end to end** with a real campaign and creative under Eric's account:
+the ad serves, three separate event batches recorded, and storage shows
+**4 impressions, 1 click, 25.00% CTR** attributed to `ericerb555@proton.me`.
+Three duplicate impressions in one request correctly collapsed to one. An event
+for a made-up creative id recorded nothing. Campaigns and stats both 401 without
+a session.
+
+**One honest limitation:** this trusts the browser to report a render. A
+determined party could inflate a number. That is true of every client-side ad
+counter outside a paid verification service — and it is a very long way better
+than the literal 415,000 that was on the screen before.
+
+**One timing quirk worth knowing:** a campaign whose `startsAt` is "now" will not
+serve for a second or two, because the edge function's clock can be marginally
+behind the database's. It resolves itself immediately.

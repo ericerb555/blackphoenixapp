@@ -6,6 +6,7 @@
  */
 import { useState, useEffect } from 'react';
 import { Star, ExternalLink, Megaphone } from 'lucide-react';
+import { fetchAds, recordImpression, recordClick } from '../lib/adTracking';
 
 interface Sponsor {
   id: string;
@@ -22,6 +23,8 @@ interface AdPill {
   content: string;
   linkUrl?: string;
   emoji?: string;
+  /** Present only on a server-served paid ad; house copy has none. */
+  creativeId?: string;
 }
 
 const DEFAULT_SPONSORS: Sponsor[] = [
@@ -63,14 +66,32 @@ export default function SponsoredMarquee({ onNavigate, speed = 40 }: SponsoredMa
       if (saved) { const p = JSON.parse(saved); if (p.length) setSponsors(p); }
     } catch {}
 
-    // Load saved ad pills from advertisements store
+    // Paid ads now come from the server rather than localStorage. Ads written
+    // into browser storage were only ever visible to the one browser that wrote
+    // them, which is why no advertiser could run anything — and why nothing was
+    // ever counted.
+    let cancelled = false;
+    void (async () => {
+      const ads = await fetchAds('marquee', 12);
+      if (cancelled || !ads.length) return;
+      setPills(ads.map((a) => ({
+        id: a.id, creativeId: a.id, title: a.title, content: a.content, linkUrl: a.linkUrl, emoji: '📢',
+      })));
+      // One impression per creative per page session — see adTracking. A marquee
+      // re-renders constantly, and counting renders would over-bill.
+      for (const a of ads) recordImpression(a.id);
+    })();
+
+    // Legacy localStorage ads still render if present, so nothing a browser
+    // already holds disappears; they simply carry no creative id and are not
+    // counted, because there is no advertiser to attribute them to.
     try {
       const saved = localStorage.getItem('advertisements');
       if (saved) {
         const all = JSON.parse(saved);
         const marqueeAds = all.filter((a: any) => a.isActive && a.type === 'marquee');
         if (marqueeAds.length) {
-          setPills(marqueeAds.map((a: any) => ({
+          setPills((current) => current.some((p) => p.creativeId) ? current : marqueeAds.map((a: any) => ({
             id: a.id, title: a.title, content: a.content, linkUrl: a.linkUrl, emoji: '📢',
           })));
         }
@@ -86,6 +107,7 @@ export default function SponsoredMarquee({ onNavigate, speed = 40 }: SponsoredMa
     window.addEventListener('sponsorsUpdated', refresh);
     window.addEventListener('partnerLogosUpdated', refresh);
     return () => {
+      cancelled = true;
       window.removeEventListener('sponsorsUpdated', refresh);
       window.removeEventListener('partnerLogosUpdated', refresh);
     };
@@ -151,17 +173,32 @@ export default function SponsoredMarquee({ onNavigate, speed = 40 }: SponsoredMa
 
             if ((item as any).type === 'pill') {
               const p: AdPill = (item as any).data;
+              // Only a server-served ad has a creative id, and only those are
+              // clickable and counted. The built-in default pills are house
+              // copy, not somebody's paid placement.
+              const isPaid = Boolean(p.creativeId);
+              const Tag: any = isPaid && p.linkUrl ? 'a' : 'div';
               return (
-                <div
+                <Tag
                   key={`pl-${i}`}
-                  className="flex-shrink-0 flex items-center gap-2 px-4 h-[72px] rounded-xl border border-orange-500/20 bg-orange-500/5 min-w-[180px] max-w-[240px]"
+                  {...(isPaid && p.linkUrl
+                    ? {
+                        href: p.linkUrl,
+                        target: '_blank',
+                        rel: 'noopener noreferrer sponsored',
+                        onClick: () => recordClick(p.creativeId!),
+                      }
+                    : {})}
+                  className={`flex-shrink-0 flex items-center gap-2 px-4 h-[72px] rounded-xl border border-orange-500/20 bg-orange-500/5 min-w-[180px] max-w-[240px] ${
+                    isPaid && p.linkUrl ? 'cursor-pointer transition hover:border-orange-500/50' : ''
+                  }`}
                 >
                   {p.emoji && <span className="text-xl flex-shrink-0">{p.emoji}</span>}
                   <div className="min-w-0">
                     <p className="text-white text-xs font-bold leading-tight truncate">{p.title}</p>
                     <p className="text-gray-500 text-[11px] leading-tight line-clamp-2">{p.content}</p>
                   </div>
-                </div>
+                </Tag>
               );
             }
 
