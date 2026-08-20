@@ -142,6 +142,7 @@ import { videoStudioRouter } from "./video-studio.tsx";
 import { territoryCohortRouter } from "./territory-cohorts.tsx";
 import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
+import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import pipelineRouter from "./pipeline.tsx";
 import vendorPricingRouter from "./vendorPricing.tsx";
 import brandsRouter from "./brands.tsx";
@@ -484,6 +485,7 @@ app.route("/make-server-3eae23a6", videoStudioRouter);
 app.route("/make-server-3eae23a6", territoryCohortRouter);
 app.route("/make-server-3eae23a6", vendorProfileRouter);
 app.route("/make-server-3eae23a6", advertisingRouter);
+app.route("/make-server-3eae23a6", vendorCatalogRouter);
 app.route("/", pipelineRouter);
 app.route("/", vendorPricingRouter);
 app.route("/", brandsRouter);
@@ -3531,35 +3533,73 @@ app.post('/make-server-3eae23a6/permit-ai/chat', async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // VENDOR PRICING COMPARISON — alternative vendor quotes for a material line.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Alternative vendor pricing for a material line — from real vendor catalogues.
+ *
+ * WHAT THIS USED TO DO, AND WHY IT MATTERED
+ *
+ * It invented the whole comparison with a seeded random number generator: four
+ * hardcoded vendor names, prices derived as `basePrice × (0.9 + rand(0.06))`,
+ * availability strings like "Pickup today", a savings figure, and a SKU built
+ * out of the seed — `GRAI-48210`.
+ *
+ * None of it stayed on screen. Materials Center showed each row as an
+ * alternative with "Save $32.40"; selecting one wrote the invented price AND the
+ * invented SKU onto the quote line; and creating purchase orders then sent that
+ * line to a real supplier. So a random number became a customer's quote and then
+ * an order quoting a SKU that does not exist at a price nobody offered.
+ *
+ * That is the exact inverse of what the materials hub is for. It exists so
+ * vendors attach real catalogues and the quote is therefore accurate.
+ *
+ * It now reads `vendor_catalog:` — real lines a vendor published. When no vendor
+ * has published a match, the honest answer is an empty list, and the screen says
+ * so. Four plausible-looking vendors is how a fabricated price reaches a
+ * customer.
+ */
 app.post('/make-server-3eae23a6/vendor-pricing/compare', async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const base = Number(body.basePrice) || 0;
     const qty = Number(body.quantity) || 1;
-    const name = String(body.materialName || 'material').trim();
-    // Deterministic per-material spread so results are stable across reloads.
-    let seed = 0; for (const ch of (String(body.materialId || name))) seed = (seed * 31 + ch.charCodeAt(0)) % 100000;
-    const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed / 2147483648) * n; };
-    const vendors = [
-      { vendorName: 'Home Depot Pro', factor: 1, availability: 'In stock' },
-      { vendorName: "Lowe's for Pros", factor: 0.94 + rand(0.08), availability: 'In stock' },
-      { vendorName: 'Grainger', factor: 1.02 + rand(0.1), availability: 'Ships in 2 days' },
-      { vendorName: 'Local Supply Co.', factor: 0.9 + rand(0.06), availability: 'Pickup today' },
-    ];
-    const data = vendors.map((v, i) => {
-      const price = Math.max(0.01, Math.round(base * v.factor * 100) / 100);
-      return {
-        id: `${body.materialId || 'mat'}-vendor-${i}`,
-        vendorName: v.vendorName,
-        price,
-        sku: `${v.vendorName.split(' ')[0].toUpperCase().slice(0, 4)}-${String(Math.abs(seed) % 100000).padStart(5, '0')}`,
-        unitPrice: price,
-        totalPrice: Math.round(price * qty * 100) / 100,
-        savings: Math.round((base - price) * qty * 100) / 100,
-        availability: v.availability,
-      };
-    }).sort((a, b) => a.price - b.price);
-    return c.json({ success: true, data });
+    const needle = String(body.materialName || '').trim().toLowerCase();
+    if (needle.length < 2) {
+      return c.json({ success: true, data: [], reason: 'Name the material to compare vendor pricing.' });
+    }
+
+    const items = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
+    const vendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+    const nameOf = new Map(vendors.map((v: any) => [String(v.id), String(v.name || '')]));
+
+    const data = items
+      .filter((i: any) => i?.isActive !== false)
+      .filter((i: any) => `${i?.name || ''} ${i?.sku || ''} ${i?.category || ''}`.toLowerCase().includes(needle))
+      .map((i: any) => {
+        const price = Math.round(Number(i.price || 0) * 100) / 100;
+        return {
+          id: String(i.id),
+          vendorId: String(i.vendorId || ''),
+          vendorName: nameOf.get(String(i.vendorId)) || String(i.vendorId || ''),
+          price,
+          // The vendor's own SKU, or blank. Never generated.
+          sku: String(i.sku || ''),
+          unitPrice: price,
+          totalPrice: Math.round(price * qty * 100) / 100,
+          // Only meaningful against a base price the caller actually supplied.
+          savings: base > 0 ? Math.round((base - price) * qty * 100) / 100 : null,
+          availability: String(i.availability || ''),
+          leadTimeDays: i.leadTimeDays ?? null,
+        };
+      })
+      .sort((a, b) => a.price - b.price);
+
+    return c.json({
+      success: true,
+      data,
+      // Said plainly so the screen can distinguish "nobody supplies this" from
+      // "something went wrong", and never fill the gap with an invention.
+      reason: data.length ? '' : 'No vendor has published a catalogue price for this material yet.',
+    });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to compare vendor pricing.' }, 500); }
 });
 

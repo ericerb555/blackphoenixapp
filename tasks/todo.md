@@ -3019,3 +3019,112 @@ dashboard has always rendered real work requests.
 below effects that use it. Those worked only because an effect body runs after
 render; anything reaching for it during render would have thrown. Moved to module
 scope.
+
+---
+
+## Vendor tabs — stopped, and something more important found
+
+Asked to finish Products, Invoices, Payments and Performance. Three of the four
+have nothing to stand on, and the reason is the same for all three.
+
+**There is no vendor catalogue. At all.**
+
+    materials            0
+    vendor_prices        0
+    vendor_catalogues    0
+    vendor_products      0
+    products (store)   123   — all vendorId "cjdropshipping"
+
+So the Products tab has nothing to list, and Invoices and Payments have no
+vendor-side concept behind them. Only Performance can be real, from the purchase
+orders wired earlier.
+
+## The thing that matters more
+
+`POST /vendor-pricing/compare` **fabricates vendor pricing with a seeded random
+number generator**, and the output flows into customer quotes and real purchase
+orders.
+
+```
+let seed = 0; for (const ch of materialId) seed = (seed * 31 + ch) % 100000;
+const rand = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; ... };
+vendors = [
+  { vendorName: 'Home Depot Pro',    factor: 1 },
+  { vendorName: "Lowe's for Pros",   factor: 0.94 + rand(0.08) },
+  { vendorName: 'Grainger',          factor: 1.02 + rand(0.1) },
+  { vendorName: 'Local Supply Co.',  factor: 0.9  + rand(0.06) },
+];
+```
+
+Every field is invented: the price, the SKU (`GRAI-48210`, built from the seed),
+the availability ("Pickup today"), and the savings figure.
+
+**Where it ends up.** Materials Center displays each as an alternative with
+"💰 Save $32.40". `selectVendorAlternative()` then writes the invented price
+**and the invented SKU** onto the quote line. `createPurchaseOrders()` groups
+those lines by vendor and raises purchase orders.
+
+So the chain is: invented price → customer's quote → purchase order → sent to a
+real supplier, quoting a SKU that does not exist at a price nobody offered.
+
+**This is the exact opposite of what the materials hub is for.** The stated
+purpose is that vendors attach real catalogues so the quote is accurate. This
+route manufactures the comparison that makes the quote look accurate.
+
+## What I would do, in order
+
+- [ ] V-a. **Stop `/vendor-pricing/compare` returning invented data.** Either
+      return nothing until real vendor pricing exists, or label every row as an
+      estimate and strip the fake SKU — a made-up SKU on a purchase order is the
+      part most likely to cause a real problem with a real supplier.
+- [ ] V-b. **Build the vendor catalogue** — the missing centre of the materials
+      hub. A vendor's products, with their prices. This is what makes the
+      Products tab possible, what makes quoting accurate, and what makes a stock
+      list something a supplier can actually fulfil.
+- [ ] V-c. Then Products, Invoices and Payments have something to show.
+- [ ] V-d. Performance can be done now from purchase orders, independently.
+
+I stopped rather than fill four tabs with whatever could be scraped together,
+because three of them would have been decoration over an empty middle — and
+because V-a is worth more than all four tabs put together.
+
+### Vendor pricing no longer invented, and the catalogue behind it now exists
+
+**A second fabricating route was the live one.** I fixed
+`/vendor-pricing/compare` in `index.tsx`, deployed, and the response came back in
+a shape that was neither the old code's nor mine — `vendorKey`, `inStock`,
+`source: "estimated"`. A duplicate in `vendorPricing.tsx`, mounted at
+`app.route("/", …)`, was winning. Fixed the one that actually runs.
+
+The live version was worse than the shadowed one: `priceForVendor()` **persisted**
+each invention to `vendor_price:` storage, where it sat beside genuine
+contractor-entered prices, told apart only by a `source` field nothing
+downstream checked.
+
+**What it returns now.** Two real sources and nothing else — published vendor
+catalogue lines, and prices a contractor typed by hand (`source: "contractor"`).
+Estimates are neither generated nor stored, and no match is reported as no match
+with a reason.
+
+`stableUnit()` — the hash that gave each fabricated price "small stable
+per-material variation so vendors don't all land on identical round numbers" —
+is deleted rather than left unused. It was the primitive that made an invented
+price look plausible.
+
+**New `vendor-catalog.tsx`, mounted:** a vendor's own catalogue lines with their
+own SKUs, scoped so one vendor cannot read another's pricing, plus a
+cross-vendor search for quoting. The SKU is never generated — a made-up SKU on a
+purchase order is what causes a real problem with a real supplier.
+
+**Verified live, three ways:**
+
+- The exact call that used to return four invented vendors with SKUs like
+  `GR-MAT001` now returns `[]` and *"No vendor has published a price for this
+  material, and none has been entered by hand."*
+- After publishing one real catalogue line, the same call returns exactly that
+  line: Black Phoenix Supply, $8.74, SKU `BP-2X4PT-8`, source `catalog`.
+- An unmatched material still returns empty rather than an invention.
+
+**Cleaned up after myself:** my first test call, made before I found the live
+route, persisted four estimates. Deleted; storage now holds zero fabricated
+prices.
