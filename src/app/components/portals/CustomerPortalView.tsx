@@ -44,6 +44,11 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { publicAnonKey, projectId } from '../../utils/supabase/info';
+
+// Module scope: it was declared 1,200 lines into the component, below several
+// effects that use it. Those worked only because an effect body runs after
+// render; anything reaching for it during render would have thrown.
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 import { authedHeaders } from '../../utils/authHeaders';
 import { supabase } from '../../lib/supabase';
 import { subscribeToPush, isPushSubscribed } from '../../utils/pushNotifications';
@@ -268,15 +273,21 @@ export default function CustomerPortalView() {
 
   // Customer info derived from profile (or demo profile when role-switching)
   const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
+  // Placeholder contact details are gone. A customer whose phone is missing was
+  // being shown "(214) 555-0284" and an address of "742 Evergreen Terrace,
+  // Springfield" — the Simpsons' house — which reads as their own record being
+  // wrong rather than as a field nobody has filled in.
   const customerInfo = {
     name: _demoProfile?.name || displayName,
-    email: _demoProfile?.email || user?.email || profile?.email || 'customer@email.com',
-    phone: _demoProfile?.phone || profile?.phone || '(214) 555-0284',
-    address: profile?.address || '742 Evergreen Terrace, Springfield',
-    memberSince: profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Recently',
+    email: _demoProfile?.email || user?.email || profile?.email || '',
+    phone: _demoProfile?.phone || profile?.phone || '',
+    address: profile?.address || '',
+    memberSince: profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '',
     activeProjects: workRequests.length,
-    totalSpent: 45600,
-    savedAmount: 8400
+    // Counted from the invoices already loaded, rather than the $45,600 and
+    // $8,400 that used to be asserted here.
+    totalSpent: invoices.reduce((sum: number, inv: any) => sum + Number(inv.total_amount ?? inv.total ?? inv.amount ?? 0), 0),
+    savedAmount: null,
   };
 
   // Active notices
@@ -290,32 +301,16 @@ export default function CustomerPortalView() {
     { label: 'Active Projects', value: workRequests.length.toString(), change: loadingWorkRequests ? 'Loading...' : `${workRequests.length} total`, trend: 'up', icon: Briefcase, color: 'orange' },
     { label: 'Pending Quotes', value: pendingQuotesCount.toString(), change: loadingQuotes ? 'Loading...' : `${quotes.length} total`, trend: pendingQuotesCount > 0 ? 'attention' : 'neutral', icon: FileText, color: 'blue' },
     { label: 'Total Invoiced', value: `$${(totalInvoiceAmount / 1000).toFixed(1)}K`, change: loadingInvoices ? 'Loading...' : `${invoices.length} invoices`, trend: 'neutral', icon: DollarSign, color: 'green' },
-    { label: 'Saved via Deals', value: '$8.4K', change: '18% savings', trend: 'up', icon: TrendingUp, color: 'yellow' }
+    // "Saved via Deals — $8.4K, 18% savings" was invented, and nothing in the
+    // platform computes what a customer saved. Contracts signed is a real count
+    // from data already on screen, and is worth as much to them.
+    { label: 'Contracts', value: contracts.length.toString(), change: contracts.filter((x: any) => x.status === 'signed' || x.signature).length + ' signed', trend: 'neutral', icon: FileText, color: 'yellow' }
   ];
 
   // Projects data
-  const projects = [
-    {
-      id: 'proj-001',
-      name: 'Kitchen Renovation',
-      status: 'in-progress',
-      progress: 65,
-      startDate: '2026-01-15',
-      estimatedCompletion: '2026-03-10',
-      amount: 28500,
-      address: '742 Evergreen Terrace'
-    },
-    {
-      id: 'proj-002',
-      name: 'Bathroom Remodel',
-      status: 'in-progress',
-      progress: 30,
-      startDate: '2026-02-01',
-      estimatedCompletion: '2026-04-15',
-      amount: 15200,
-      address: '742 Evergreen Terrace'
-    }
-  ];
+  // The  mock that sat here is deleted. It was 22 lines of invented
+  // renovations — with a Springfield address — and had zero references: the
+  // dashboard renders workRequests, which are real.
 
   // Quotes data is now loaded from API via state (see useEffect above)
 
@@ -397,46 +392,23 @@ export default function CustomerPortalView() {
   }, []);
 
   // NEW: Featured Services data
-  const featuredServices = [
-    {
-      id: 'service-001',
-      title: 'Spring HVAC Tune-Up',
-      description: 'Complete system inspection & maintenance',
-      image: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800',
-      price: '$149',
-      originalPrice: '$199',
-      badge: 'LIMITED TIME',
-      badgeColor: 'bg-red-500'
-    },
-    {
-      id: 'service-002',
-      title: 'Smart Thermostat Install',
-      description: 'Professional installation & setup',
-      image: 'https://images.unsplash.com/photo-1545259741-2ea3ebf61fa3?w=800',
-      price: '$199',
-      badge: 'POPULAR',
-      badgeColor: 'bg-blue-500'
-    },
-    {
-      id: 'service-003',
-      title: 'Plumbing Inspection',
-      description: 'Full home plumbing check & report',
-      image: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?w=800',
-      price: '$129',
-      originalPrice: '$179',
-      badge: 'SAVE 28%',
-      badgeColor: 'bg-green-500'
-    },
-    {
-      id: 'service-004',
-      title: 'Electrical Safety Audit',
-      description: 'Comprehensive electrical system review',
-      image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=800',
-      price: '$99',
-      badge: 'NEW',
-      badgeColor: 'bg-purple-500'
-    }
-  ];
+  // The published services catalogue. These were hardcoded promotional offers
+  // with prices — "Spring HVAC Tune-Up $149" — which a customer would
+  // reasonably expect the business to honour. They now come from /services,
+  // and the section hides itself when nothing is published.
+  const [featuredServices, setFeaturedServices] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${SERVER}/services`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+        const j = await res.json().catch(() => ([]));
+        const rows = Array.isArray(j) ? j : (Array.isArray(j?.services) ? j.services : []);
+        if (!cancelled) setFeaturedServices(rows);
+      } catch { /* an empty catalogue simply renders nothing */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // NEW: Banner Ads data (from advertising system)
   const [bannerAds] = useState([
@@ -479,19 +451,23 @@ export default function CustomerPortalView() {
   ]);
 
   // NEW: Giveaways data
-  const giveaways = [
-    {
-      id: 'giveaway-001',
-      title: 'Win a Free Kitchen Renovation',
-      description: 'Complete kitchen remodel worth $25,000',
-      image: 'https://images.unsplash.com/photo-1556911220-bff31c812dba?w=800',
-      deadline: '2026-03-31',
-      entries: 1247,
-      requirements: ['Follow us', 'Refer 3 friends', 'Share on social'],
-      status: 'active',
-      prize: '$25,000 Value'
-    }
-  ];
+  // Giveaways come from the server. They used to be literals here — including
+  // "Win a Free Kitchen Renovation, $25,000 value, 1,247 entries" — while the
+  // entry route accepted whatever id the client sent. A customer could hand
+  // over their details for a prize draw that existed nowhere and would never
+  // be awarded. Entry counts are counted from real entries, not asserted.
+  const [giveaways, setGiveaways] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${SERVER}/giveaways`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+        const j = await res.json().catch(() => ({}));
+        if (!cancelled) setGiveaways(Array.isArray(j?.giveaways) ? j.giveaways : []);
+      } catch { /* no giveaways is a fine outcome */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Giveaway entries are loaded from the authenticated account, so they remain
   // correct on another device and cannot be written anonymously.
@@ -1703,7 +1679,6 @@ function CustomerMessagesTab({ userId, userEmail, userName }: { userId: string; 
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();

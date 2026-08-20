@@ -11680,6 +11680,72 @@ app.post('/make-server-3eae23a6/subcontractor/bids', async (c) => {
     return c.json({ success: true, bid }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit bid.' }, 500); }
 });
+/**
+ * Giveaways.
+ *
+ * These did not exist on the server. The customer portal held them as literals —
+ * "Win a Free Kitchen Renovation, $25,000 value, 1,247 entries" — and the entry
+ * route accepted whatever giveawayId and title the client sent. So a customer
+ * handed over their name and email to enter a prize draw that existed nowhere
+ * but one component, and nothing was going to be awarded.
+ *
+ * A giveaway is now a record. Entries are checked against it, so an entry can
+ * only be made for something that actually exists and is actually open.
+ */
+app.get('/make-server-3eae23a6/giveaways', async (c) => {
+  try {
+    const all = ((await kv.getByPrefix('giveaway:')) as any[] || []).filter(Boolean);
+    const now = Date.now();
+    const live = all.filter((g: any) => {
+      if (g?.status !== 'active') return false;
+      if (g.deadline && new Date(g.deadline).getTime() < now) return false;
+      return true;
+    });
+    // Entry counts are counted, not stored on the giveaway — a stored count
+    // drifts from the entries it claims to describe.
+    const entries = ((await kv.getByPrefix('giveaway_entry_record:')) as any[] || []).filter(Boolean);
+    const counts = new Map<string, number>();
+    for (const e of entries) {
+      const id = String(e?.giveawayId || '');
+      if (id) counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    return c.json({
+      success: true,
+      giveaways: live.map((g: any) => ({ ...g, entries: counts.get(String(g.id)) || 0 })),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, giveaways: [], error: error.message }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/giveaways', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required to run a giveaway.' }, 403);
+    const body = stripBase64(await c.req.json().catch(() => ({})));
+    const title = String(body.title || '').trim().slice(0, 240);
+    if (!title) return c.json({ success: false, error: 'Give the giveaway a title.' }, 400);
+    const now = new Date().toISOString();
+    const id = String(body.id || `give_${crypto.randomUUID()}`);
+    const existing = await kv.get(`giveaway:${id}`) as any;
+    const giveaway = {
+      ...(existing || {}), id, title,
+      description: String(body.description || existing?.description || '').slice(0, 600),
+      image: String(body.image || existing?.image || '').slice(0, 500),
+      prize: String(body.prize || existing?.prize || '').slice(0, 120),
+      requirements: Array.isArray(body.requirements) ? body.requirements.slice(0, 8).map((r: any) => String(r).slice(0, 120)) : (existing?.requirements || []),
+      deadline: body.deadline ?? existing?.deadline ?? null,
+      status: ['active', 'closed', 'draft'].includes(String(body.status)) ? body.status : (existing?.status || 'active'),
+      createdBy: existing?.createdBy || actor.user?.email || '',
+      createdAt: existing?.createdAt || now, updatedAt: now,
+    };
+    await kv.set(`giveaway:${id}`, giveaway);
+    return c.json({ success: true, giveaway });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to save the giveaway.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/giveaways/entries', async (c) => {
   try { const actor = await financialActor(c); if (!actor.user?.id) return c.json({ success: false, error: 'Sign in to view giveaway entries.' }, 401); const entries = actor.admin ? ((await kv.getByPrefix('giveaway_entry:')) || []) : ((await kv.getByPrefix(`giveaway_entry:${actor.user.id}:`)) || []); return c.json({ success: true, entries }); }
   catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load giveaway entries.' }, 500); }
@@ -11689,6 +11755,16 @@ app.post('/make-server-3eae23a6/giveaways/entries', async (c) => {
     const actor = await financialActor(c); if (!actor.user?.id || !actor.user.email) return c.json({ success: false, error: 'Sign in before entering a giveaway.' }, 401);
     const body = stripBase64(await c.req.json()); const giveawayId = String(body.giveawayId || '').trim().slice(0, 160); const giveawayTitle = String(body.giveawayTitle || '').trim().slice(0, 240);
     if (!giveawayId || !giveawayTitle) return c.json({ success: false, error: 'Giveaway details are required.' }, 400);
+    // The giveaway must exist and be open. Previously any id and title the client
+    // sent was accepted, so somebody could be entered into a prize draw that
+    // existed only as a literal in one component — collecting their details for
+    // something nobody was going to award.
+    const giveaway = await kv.get(`giveaway:${giveawayId}`) as any;
+    if (!giveaway) return c.json({ success: false, error: 'That giveaway is no longer available.' }, 404);
+    if (giveaway.status !== 'active') return c.json({ success: false, error: 'That giveaway is closed.' }, 409);
+    if (giveaway.deadline && new Date(giveaway.deadline).getTime() < Date.now()) {
+      return c.json({ success: false, error: 'That giveaway has closed.' }, 409);
+    }
     const duplicateKey = `giveaway_entry_by_giveaway:${actor.user.id}:${giveawayId}`; if (await kv.get(duplicateKey)) return c.json({ success: false, error: 'You have already entered this giveaway.' }, 409);
     const now = new Date().toISOString(); const entry = { id: `GIVEAWAY-${crypto.randomUUID()}`, giveawayId, giveawayTitle, customerId: actor.user.id, customerEmail: String(actor.user.email).toLowerCase(), customerName: String(actor.user.user_metadata?.full_name || actor.user.email).slice(0, 180), enteredAt: now, status: 'entered' };
     await kv.set(`giveaway_entry:${actor.user.id}:${entry.id}`, entry); await kv.set(`giveaway_entry_record:${entry.id}`, entry); await kv.set(duplicateKey, entry.id);

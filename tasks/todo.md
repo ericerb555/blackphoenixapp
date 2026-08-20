@@ -2976,3 +2976,46 @@ than the literal 415,000 that was on the screen before.
 **One timing quirk worth knowing:** a campaign whose `startsAt` is "now" will not
 serve for a second or two, because the edge function's clock can be marginally
 behind the database's. It resolves itself immediately.
+
+### Customer portal — the most wired portal, with three real problems
+
+It was already the best of them: 20 fetch calls, 14 tabs, no placeholders. Work
+requests, quotes, invoices, contracts, payments, subscriptions and messaging all
+hit real routes. What was left was worse than unwired in one case.
+
+**1. A giveaway that accepted real entries and did not exist.** The portal held
+giveaways as literals — *"Win a Free Kitchen Renovation, $25,000 value, 1,247
+entries"* — and `POST /giveaways/entries` accepted **whatever giveawayId and
+title the client sent**. A customer could hand over their name and email to enter
+a prize draw that existed nowhere in the system and would never be awarded.
+
+Giveaways are now records. `GET /giveaways` lists the open ones, entry checks the
+giveaway exists and is still open, and entry counts are **counted from real
+entries** rather than asserted. Verified live: one real giveaway serves with a
+counted entry total of 0.
+
+**2. Promotional prices a customer would expect honoured.** `featuredServices`
+was hardcoded — "Spring HVAC Tune-Up $149, was $199, LIMITED TIME". Now loaded
+from `/services`, which was already built and mounted and returns nothing,
+so the section renders empty rather than advertising a price nobody set.
+
+**3. Invented figures and placeholder identity.**
+
+| Was | Now |
+|---|---|
+| `totalSpent: 45600` | summed from the invoices already loaded |
+| `savedAmount: 8400` | removed — nothing computes a saving |
+| "Saved via Deals · $8.4K · 18% savings" | Contracts, with a signed count |
+| phone `(214) 555-0284` | blank when unknown |
+| address `742 Evergreen Terrace, Springfield` | blank when unknown |
+
+That address is the Simpsons' house. Shown to a customer it reads as their own
+record being wrong, not as a field nobody filled in.
+
+**Also removed:** a 22-line `projects` mock with **zero references** — the
+dashboard has always rendered real work requests.
+
+**And a latent trap:** `SERVER` was declared 1,200 lines into the component,
+below effects that use it. Those worked only because an effect body runs after
+render; anything reaching for it during render would have thrown. Moved to module
+scope.
