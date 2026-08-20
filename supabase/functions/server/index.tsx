@@ -3038,11 +3038,58 @@ app.post('/make-server-3eae23a6/change-orders', async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PURCHASE ORDERS — full CRUD for the Purchase Orders page.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Which vendor is asking, if any?
+ *
+ * `vendor:` is the real company registry — `supplier:` records duplicate the
+ * same idea. A vendor is matched by an id stamped on their account, or by an
+ * email match against a vendor record.
+ *
+ * Anyone who is not a vendor is on the company side: Black Phoenix raises these
+ * orders and has to see all of them. It is only a vendor's view that narrows.
+ */
+async function purchaseOrderActor(c: any): Promise<{ vendorId: string | null; isCompany: boolean; signedIn: boolean }> {
+  const user = await intakeActor(c);
+  if (!user) return { vendorId: null, isCompany: false, signedIn: false };
+
+  const role = String(user.user_metadata?.role || user.user_metadata?.accountType || '')
+    .toLowerCase().replace(/[\s-]+/g, '_');
+  if (role !== 'vendor') return { vendorId: null, isCompany: true, signedIn: true };
+
+  const stamped = String(user.user_metadata?.vendorId || user.user_metadata?.vendor_id || '').trim();
+  if (stamped) return { vendorId: stamped, isCompany: false, signedIn: true };
+
+  const email = String(user.email || '').toLowerCase();
+  const vendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+  const match = vendors.find((v: any) =>
+    [v?.email, v?.contactEmail, v?.ownerEmail].some((e) => String(e || '').toLowerCase() === email && email),
+  );
+  // A vendor we cannot identify sees nothing, never everything.
+  return { vendorId: match ? String(match.id || '') : '__unresolved__', isCompany: false, signedIn: true };
+}
+
 app.get('/make-server-3eae23a6/purchase-orders', async (c) => {
   try {
+    const actor = await purchaseOrderActor(c);
+    // Signed out gets nothing. Every screen that legitimately reads this —
+    // Materials Center, Purchase Orders, Supplier Management Hub — goes through
+    // authedHeaders(), which throws without a session.
+    if (!actor.signedIn) {
+      return c.json({ success: false, orders: [], error: 'Sign in to view purchase orders.' }, 401);
+    }
+
     const orders = ((await kv.getByPrefix('purchase_order:')) as any[] || []).filter(Boolean).map(stripBase64);
     orders.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    return c.json({ success: true, orders });
+
+    // A vendor sees only orders addressed to them. Vendors are paying tenants,
+    // and one vendor's order volume and totals are commercial information the
+    // next vendor must not have.
+    const visible = actor.isCompany
+      ? orders
+      : orders.filter((o: any) => actor.vendorId !== '__unresolved__' && String(o?.vendorId || '') === actor.vendorId);
+
+    // Stated so a caller can tell "no orders" apart from "not identified".
+    return c.json({ success: true, orders: visible, scopedToVendor: actor.isCompany ? null : actor.vendorId });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load purchase orders.' }, 500); }
 });
 
@@ -3052,7 +3099,37 @@ app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
     const incoming = body?.order && typeof body.order === 'object' ? body.order : body;
     const now = new Date().toISOString();
     const id = String(incoming.id || `po_${crypto.randomUUID()}`);
-    const order = stripBase64({ ...incoming, id, status: incoming.status || 'draft', createdAt: incoming.createdAt || now, updatedAt: now });
+
+    // Purchase orders have always recorded their supplier as free text
+    // ("HD Supply Co"), which cannot be used to decide who may see an order.
+    // New orders carry a vendorId as well; the name is left exactly as it was so
+    // the company-side screens keep working untouched.
+    //
+    // Matching is exact-or-contained on the name, case-folded. Anything looser
+    // would make a visibility decision on a fuzzy string match, and an unmatched
+    // order stays company-only — which is the safe direction to fail.
+    const explicitVendorId = String(incoming.vendorId || '').trim();
+    let vendorId: string | null = explicitVendorId || null;
+    if (!vendorId) {
+      const wanted = String(incoming.supplier || incoming.vendor || '').trim().toLowerCase();
+      if (wanted) {
+        const vendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+        const hit =
+          vendors.find((v: any) => String(v?.name || '').trim().toLowerCase() === wanted) ||
+          // Both sides need a length floor. Guarding only the vendor name let a
+          // two-character supplier string match by substring — "Ho" resolved to
+          // Home Depot — which is a visibility decision made on two characters.
+          (wanted.length > 3
+            ? vendors.find((v: any) => {
+                const n = String(v?.name || '').trim().toLowerCase();
+                return n.length > 3 && (wanted.includes(n) || n.includes(wanted));
+              })
+            : undefined);
+        vendorId = hit ? String(hit.id || '') : null;
+      }
+    }
+
+    const order = stripBase64({ ...incoming, id, vendorId, status: incoming.status || 'draft', createdAt: incoming.createdAt || now, updatedAt: now });
     await kv.set(`purchase_order:${id}`, order);
     return c.json({ success: true, order });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save purchase order.' }, 500); }

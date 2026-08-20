@@ -2,7 +2,7 @@ import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Package, DollarSign, TrendingUp, ShoppingCart, FileText, Clock,
   CheckCircle, AlertTriangle, BarChart3, Users, Calendar, Star,
@@ -31,6 +31,9 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
+
+const VENDOR_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 interface Order {
   id: string;
@@ -60,8 +63,64 @@ export default function VendorPortalView() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
-  // User-specific data storage
-  const [recentOrders, setRecentOrders] = useUserData<Order[]>('vendor_orders', []);
+  // ---------------------------------------------------------------------------
+  // Who is this vendor, and what has actually been ordered from them?
+  //
+  // Two things were wrong here. The portal had no way to know which vendor was
+  // signed in — every vendor route takes an id in the path and nothing told it
+  // its own — so orders were kept in localStorage, meaning a vendor's order
+  // history lived in one browser and did not exist on any other device.
+  //
+  // And the orders in question are NOT store orders. A vendor's orders are the
+  // purchase orders the construction company raises against them — stock lists
+  // coming off a customer's material selection. The ecommerce order routes look
+  // superficially right and are the wrong system entirely.
+  // ---------------------------------------------------------------------------
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [vendorLinked, setVendorLinked] = useState<boolean | null>(null);
+  const [linkReason, setLinkReason] = useState('');
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [vendorLoading, setVendorLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!session?.access_token) { setVendorLoading(false); setVendorLinked(false); return; }
+      const headers = { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
+      try {
+        const meRes = await fetch(`${VENDOR_API}/vendor/me`, { headers });
+        const me = await meRes.json().catch(() => ({}));
+        if (cancelled) return;
+        setVendorLinked(Boolean(me?.linked));
+        setLinkReason(String(me?.reason || ''));
+        setVendorId(me?.vendorId || null);
+
+        // The server scopes this to the caller, so no id is passed — asking for
+        // "all purchase orders" as a vendor returns only that vendor's.
+        const poRes = await fetch(`${VENDOR_API}/purchase-orders`, { headers });
+        const po = await poRes.json().catch(() => ({}));
+        if (!cancelled) setPurchaseOrders(Array.isArray(po?.orders) ? po.orders : []);
+      } catch {
+        if (!cancelled) { setVendorLinked(false); setLinkReason('Could not reach the server.'); }
+      } finally {
+        if (!cancelled) setVendorLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
+
+  /** A purchase order as this screen's existing Order shape. */
+  const recentOrders: Order[] = purchaseOrders.map((o: any) => ({
+    id: String(o.poNumber || o.id || ''),
+    // There is no job name on a purchase order, so the PO number is what a
+    // vendor would actually quote back at us.
+    project: String(o.poNumber || o.id || '—'),
+    items: Array.isArray(o.lineItems) ? o.lineItems.length : Number(o.items || 0),
+    total: Number(o.total || 0),
+    status: String(o.status || 'draft'),
+    date: String(o.orderDate || o.createdAt || '').slice(0, 10),
+    deliveryDate: o.expectedDate || o.expectedDelivery || undefined,
+  }));
   const [apiSettings, setApiSettings] = useUserData('vendor_api_settings', {
     hasApiIntegration: false,
     apiEndpoint: '',
@@ -138,31 +197,63 @@ export default function VendorPortalView() {
   };
 
   // Revenue data
-  const revenueData = [
-    { month: 'Jul', revenue: 45000, orders: 28 },
-    { month: 'Aug', revenue: 52000, orders: 32 },
-    { month: 'Sep', revenue: 48000, orders: 30 },
-    { month: 'Oct', revenue: 58000, orders: 35 },
-    { month: 'Nov', revenue: 62000, orders: 38 },
-    { month: 'Dec', revenue: 71000, orders: 42 },
-    { month: 'Jan', revenue: 68000, orders: 40 }
-  ];
+  // Revenue by month, from the purchase orders actually raised against this
+  // vendor. The seven-month curve that used to sit here — 45k rising to 68k —
+  // was drawn, not measured. No orders means no chart, which is the truth.
+  const revenueData = (() => {
+    const byMonth = new Map<string, { month: string; revenue: number; orders: number; sort: string }>();
+    for (const o of purchaseOrders) {
+      const raw = String(o.orderDate || o.createdAt || '');
+      if (!raw) continue;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) continue;
+      const sort = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString(undefined, { month: 'short' });
+      const row = byMonth.get(sort) || { month: label, revenue: 0, orders: 0, sort };
+      row.revenue += Number(o.total || 0);
+      row.orders += 1;
+      byMonth.set(sort, row);
+    }
+    return [...byMonth.values()].sort((a, b) => a.sort.localeCompare(b.sort)).slice(-12);
+  })();
 
-  // Stats - calculated from real user data
+  const totalOrderValue = purchaseOrders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+  const openOrders = purchaseOrders.filter((o: any) => !['delivered', 'cancelled', 'complete', 'completed'].includes(String(o.status || '').toLowerCase()));
+  const awaitingApproval = purchaseOrders.filter((o: any) => ['draft', 'pending', 'pending_approval'].includes(String(o.status || '').toLowerCase()));
+  const money = (n: number) => `$${Math.round(Number(n) || 0).toLocaleString()}`;
+
+  // Every figure here is counted from real purchase orders. The previous set —
+  // $68,420 revenue, 8 pending invoices, a 4.8 rating — was invented, and a
+  // rating in particular is a claim about a real company that nothing measures.
   const stats = [
-    { label: 'Total Revenue', value: '$68,420', change: '+12.5%', trend: 'up', icon: DollarSign, color: 'orange' },
-    { label: 'Active Orders', value: recentOrders.length.toString(), change: recentOrders.length > 0 ? `${recentOrders.length} orders` : 'No orders', trend: 'up', icon: ShoppingCart, color: 'blue' },
-    { label: 'Pending Invoices', value: '8', change: '$12,450', trend: 'neutral', icon: FileText, color: 'yellow' },
-    { label: 'Avg Rating', value: '4.8', change: '+0.3', trend: 'up', icon: Star, color: 'green' }
+    { label: 'Order Value', value: money(totalOrderValue), change: purchaseOrders.length ? `across ${purchaseOrders.length} order${purchaseOrders.length === 1 ? '' : 's'}` : 'No orders yet', trend: 'up', icon: DollarSign, color: 'orange' },
+    { label: 'Open Orders', value: openOrders.length.toString(), change: openOrders.length ? money(openOrders.reduce((s: number, o: any) => s + Number(o.total || 0), 0)) : 'Nothing outstanding', trend: 'up', icon: ShoppingCart, color: 'blue' },
+    { label: 'Awaiting Approval', value: awaitingApproval.length.toString(), change: awaitingApproval.length ? 'needs a decision' : 'All clear', trend: 'neutral', icon: FileText, color: 'yellow' },
+    { label: 'Total Orders', value: purchaseOrders.length.toString(), change: purchaseOrders.length ? `latest ${recentOrders[0]?.date || ''}` : 'None received', trend: 'up', icon: Package, color: 'green' },
   ];
 
-  // Product categories
-  const productCategories = [
-    { name: 'Lumber & Wood', items: 156, revenue: 28400, icon: Box },
-    { name: 'Hardware', items: 423, revenue: 15200, icon: Tag },
-    { name: 'Electrical', items: 289, revenue: 22100, icon: Zap },
-    { name: 'Plumbing', items: 198, revenue: 18700, icon: Wrench }
-  ];
+  // What has actually been ordered, grouped by category, from the line items on
+  // this vendor's purchase orders.
+  //
+  // This replaces four invented rows — "Lumber & Wood, 156 products, $28,400"
+  // and three more — which rendered even for a vendor with no link and no
+  // orders, so an empty account was showing $84,400 of trade it had never done.
+  const CATEGORY_ICONS: Record<string, any> = { lumber: Box, wood: Box, hardware: Tag, electrical: Zap, plumbing: Wrench };
+  const productCategories = (() => {
+    const byCategory = new Map<string, { name: string; items: number; revenue: number; icon: any }>();
+    for (const o of purchaseOrders) {
+      for (const li of (Array.isArray(o.lineItems) ? o.lineItems : [])) {
+        const name = String(li?.category || 'Uncategorised').trim() || 'Uncategorised';
+        const key = name.toLowerCase();
+        const icon = Object.entries(CATEGORY_ICONS).find(([k]) => key.includes(k))?.[1] || Box;
+        const row = byCategory.get(key) || { name, items: 0, revenue: 0, icon };
+        row.items += 1;
+        row.revenue += (Number(li?.quantity) || 0) * (Number(li?.unitPrice) || 0);
+        byCategory.set(key, row);
+      }
+    }
+    return [...byCategory.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  })();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -257,6 +348,24 @@ export default function VendorPortalView() {
 
         {activeTab === 'dashboard' && (
           <>
+            {/* Without this the tiles below read $0 / 0 / 0 with nothing to say
+                why, which looks like a vendor nobody orders from rather than an
+                account that has not been attached to its vendor record. */}
+            {!vendorLoading && vendorLinked === false && (
+              <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-400" />
+                <div>
+                  <p className="font-semibold text-white">This account is not linked to a vendor record</p>
+                  <p className="mt-1 text-sm text-gray-400">
+                    {linkReason || 'The figures below will stay empty until your login is attached to your vendor.'}
+                  </p>
+                </div>
+              </div>
+            )}
+            {!vendorLoading && vendorLinked && vendorId && (
+              <p className="text-xs text-gray-500">Signed in as vendor <span className="text-gray-300">{vendorId}</span></p>
+            )}
+
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {stats.map((stat, i) => {
@@ -364,7 +473,9 @@ export default function VendorPortalView() {
               </div>
             </div>
 
-            {/* Product Categories */}
+            {/* Product Categories — hidden entirely when there is nothing to
+                show, rather than rendering an empty row of tiles. */}
+            {productCategories.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {productCategories.map((category, i) => {
                 const Icon = category.icon;
@@ -380,6 +491,7 @@ export default function VendorPortalView() {
                 );
               })}
             </div>
+            )}
 
             {/* Active Promotions & Reels Preview */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -580,8 +692,75 @@ export default function VendorPortalView() {
 
         {activeTab === 'orders' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Order Management</h2>
-            <p className="text-gray-400">Full order management interface would be displayed here.</p>
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white">Purchase Orders</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  Stock lists raised against you by Black Phoenix, newest first.
+                </p>
+              </div>
+              {purchaseOrders.length > 0 && (
+                <span className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-1.5 text-sm text-gray-300">
+                  {purchaseOrders.length} order{purchaseOrders.length === 1 ? '' : 's'} · {money(totalOrderValue)}
+                </span>
+              )}
+            </div>
+
+            {vendorLoading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                <Clock className="h-4 w-4 animate-spin" /> Loading your orders…
+              </div>
+            ) : vendorLinked === false ? (
+              // Not an error. The account simply is not attached to a vendor
+              // record yet, and saying so beats showing an empty table that
+              // reads as "nobody has ordered from you".
+              <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-8 text-center">
+                <AlertCircle className="mx-auto mb-3 h-7 w-7 text-yellow-400" />
+                <p className="font-semibold text-white">This account is not linked to a vendor yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                  {linkReason || 'Once your login is attached to your vendor record, the purchase orders raised against you appear here.'}
+                </p>
+              </div>
+            ) : recentOrders.length === 0 ? (
+              <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                <ShoppingCart className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                <p className="font-semibold text-white">No purchase orders yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                  When a job's material list is sent to you for pickup or delivery, the order shows up here.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2A2A2A] text-left text-xs uppercase tracking-wide text-gray-500">
+                      <th className="pb-3 pr-4 font-semibold">PO</th>
+                      <th className="pb-3 pr-4 font-semibold">Ordered</th>
+                      <th className="pb-3 pr-4 font-semibold">Needed by</th>
+                      <th className="pb-3 pr-4 text-right font-semibold">Lines</th>
+                      <th className="pb-3 pr-4 text-right font-semibold tabular-nums">Total</th>
+                      <th className="pb-3 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2A2A2A]">
+                    {recentOrders.map(order => (
+                      <tr key={order.id} className="text-gray-300">
+                        <td className="py-3 pr-4 font-semibold text-white">{order.project}</td>
+                        <td className="py-3 pr-4">{order.date || '—'}</td>
+                        <td className="py-3 pr-4">{order.deliveryDate || '—'}</td>
+                        <td className="py-3 pr-4 text-right tabular-nums">{order.items}</td>
+                        <td className="py-3 pr-4 text-right font-semibold tabular-nums text-white">{money(order.total)}</td>
+                        <td className="py-3">
+                          <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${getStatusColor(order.status)}`}>
+                            {order.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

@@ -2112,3 +2112,266 @@ afterwards.
 
 **Not done:** deploying. This is a frontend change and goes out through git push
 to Vercel, which is Eric's call, not mine.
+
+---
+
+## Correction to the R1 report, and a systemic finding
+
+Pushed as `d19ee041`. But investigating vendor turned up something that applies
+back to the investor portal, and the earlier report oversold it.
+
+**"Wired vs mock" was too coarse a measure.** The real question is how many tabs
+actually do something, and several portals answer badly:
+
+| Portal | Tabs | Placeholder | Real |
+|---|---|---|---|
+| Landlord | 20 | 0 | 20 |
+| Territory | 15 | 0 | 15 |
+| Condo Manager | 15 | 0 | 15 |
+| Customer | 14 | 0 | 14 |
+| Property Manager | 14 | 0 | 14 |
+| Subcontractor | 11 | 0 | 11 |
+| Employee | 11 | 0 | 11 |
+| **Advertiser** | 16 | **5** | 11 |
+| **Vendor** | 15 | **5** | 10 |
+| **Investor** | 11 | **4** | 7 |
+| **Condo Association** | 10 | **5** | 5 |
+
+"Placeholder" means the tab body is literally a sentence reading *"…would be
+displayed here."*
+
+**So R1 is real but narrower than stated.** The fabricated portfolio is gone and
+the dashboard now shows genuine figures — that was the actual risk and it is
+fixed. But the Portfolio, Reports, Distributions and Documents tabs were
+placeholders before and still are. They were not made worse; they were not made
+better either, and calling the portal "wired" without saying so was overstating.
+
+- [ ] R1b. Build the investor portal's four placeholder tabs. Distributions and
+      Documents both have backing routes already (`/investments/payouts/investor/:email`,
+      `/investments/documents/opportunity/:id`).
+
+## Vendor — scoped, and it needs one new route before anything else
+
+**The blocker:** there is no way for a signed-in vendor to discover their own id.
+Every vendor route takes a `vendorId` path parameter (`/vendor-profile/:vendorId`,
+`/vendor-profile/:vendorId/stats`, `/orders/vendor/:vendorId`) and the only
+frontend caller is the public storefront, which is handed the id as a prop. So
+vendor is not pure wiring the way investor was.
+
+- [ ] S1. Add a route that resolves the vendor from the session, mirroring how
+      the landlord routes already use `landlordActor(c)`. One route; everything
+      else depends on it.
+- [ ] S2. Dashboard: `/vendor-profile/:id/stats` already returns totalProducts,
+      activeProducts, totalOrders, totalRevenue, averageOrderValue and
+      lowStockProducts — which is the whole stats row. Replace the hardcoded
+      `$68,420`, `8 pending invoices` and `4.8 rating`, and the seven-month
+      revenue curve.
+- [ ] S3. Orders tab: currently the sentence "Full order management interface
+      would be displayed here." `/orders/vendor/:vendorId` exists with paging and
+      status filtering, and `/vendor-orders/:id/status` updates status.
+- [ ] S4. `recentOrders`, `vendorDeals` and `vendorReels` come from
+      `useUserData()`, which is **localStorage** — so a vendor's orders live in
+      their browser and vanish on another device. Move to the server.
+- [ ] S5. Products / Invoices / Payments / Performance tabs: still placeholders.
+      Scope separately once S1-S4 land.
+
+S4 is the one worth noting: it is not merely unwired, it is wired to the wrong
+place, and that is a data-loss shape rather than a cosmetic one.
+
+---
+
+## Vendor portal — stopped, wrong system, and a registry problem underneath
+
+**Correction.** I began wiring the vendor portal to `/orders/vendor/:vendorId`
+from `ecommerce-orders.tsx`. Eric: *"vendor's portal has nothing to do with the
+online store."* He is right, and this was already written down — the materials
+hub note says plainly not to wire it to ecommerce endpoints. The store has
+vendor-shaped routes with plausible names, so searching for "vendor orders"
+surfaces the wrong system first. That is not an excuse; the note existed.
+
+A vendor's orders are **stock lists arriving from construction jobs**, not store
+checkouts. The correct backend is `suppliers.tsx`: `/suppliers` and
+`/purchase-orders`.
+
+**What was found once looking at the right system.**
+
+1. **`/purchase-orders` returns every purchase order, unfiltered.** There is no
+   vendor scoping at all. Pointing a vendor portal at it would show each vendor
+   every other vendor's orders and totals — and vendors are paying tenants whose
+   commercial terms must not be visible to each other. This is the tenant
+   isolation requirement, not a nicety.
+2. **Purchase orders reference their supplier by name string** — `supplier: "HD
+   Supply Co"` — with no id. So there is no reliable way to link a signed-in
+   vendor to their own orders. A name match would be fragile and would silently
+   leak on a near-match.
+3. **Two disjoint registries.** `supplier:SUP-001..003` (HD Supply Co, Ferguson
+   Plumbing, Grainger Industrial) and `vendor:VEN-001..005` (Home Depot, Lowe's,
+   Grainger, Ferguson, Electrical Wholesale). They overlap by name in places,
+   share no ids, and neither references the other.
+4. **Both routes seed demo data into production storage on first read.** Storage
+   currently holds zero suppliers and zero purchase orders; the first GET plants
+   three fake suppliers and three fake purchase orders which then persist and
+   look real. Same pattern as the investment opportunities seeder.
+
+**What shipped anyway, because it is needed either way:** `GET /vendor/me`,
+which resolves a signed-in user to a vendor record by an explicit `vendorId` on
+the account or by email match, and reports honestly when there is no link rather
+than guessing. Deployed. Matching logic verified 6/6 against the real records,
+including that an empty email must not match every record with null contacts. It
+currently searches the `vendor:` and `vendor_portal_` prefixes and will need to
+search `supplier:` too, once the question below is answered.
+
+**The question only Eric can answer, and it blocks the rest:**
+
+- [ ] T1. **Which registry is the real one — `supplier:` or `vendor:`?** They are
+      two lists of the same kind of company. Everything else depends on this:
+      which one a vendor logs into, which one a purchase order points at, and
+      which one a catalogue attaches to.
+
+Once that is settled, in order:
+
+- [ ] T2. Give purchase orders a supplier **id** rather than a name string.
+- [ ] T3. Scope `/purchase-orders` to the requesting vendor, admin excepted.
+- [ ] T4. Stop the seeders planting fake suppliers and fake purchase orders in
+      production, or mark what they plant as sample data.
+- [ ] T5. Then wire the portal: dashboard figures, and the Orders tab, which is
+      currently the sentence "Full order management interface would be displayed
+      here."
+
+---
+
+## Registry settled: `vendor:` is real. Here is the awkward part.
+
+Eric: *"the vendor one is real, suppliers may have been the same thing."*
+
+Tracing both confirms they are one concept split in two — but the working
+machinery sits on the wrong one:
+
+| | `vendor:VEN-001..005` | `supplier:SUP-001..003` |
+|---|---|---|
+| Records actually stored | **5 real ones** | **0** — seeded on first read |
+| Written by any code | **nothing** — no writer anywhere | full CRUD |
+| Frontend screens using it | none | **3** (Materials Center, Purchase Orders, Supplier Management Hub) |
+| Carries catalogue/API config | **yes** — apiType, apiEnabled, commission | no |
+
+So the real company records live under `vendor:` and carry exactly the
+catalogue-and-API configuration the materials hub exists to use — but nothing
+creates or edits them, and every working screen writes to `supplier:`, which
+holds nothing and invents three fake companies the first time it is read.
+
+That is why the two drifted: one list has the data, the other has the code.
+
+## Plan
+
+Splitting this into the narrow fix Eric asked for, and the reconciliation, so
+the second does not hold up the first.
+
+**Narrow — makes the vendor portal possible without touching working screens:**
+
+- [ ] U1. Purchase orders carry a `vendorId` alongside the existing `supplier`
+      name string. The name stays so the company-side screens keep working
+      untouched; the id is what makes an order attributable.
+- [ ] U2. Scope `/purchase-orders` by the requesting vendor — a vendor sees only
+      their own, an admin sees all. Today it returns everyone's to anyone.
+- [ ] U3. Stop the seeders planting fake suppliers and fake purchase orders into
+      production storage on first read, or mark what they plant as samples.
+- [ ] U4. Wire the vendor portal dashboard and Orders tab against U1-U3.
+
+**Reconciliation — proposed, needs its own approval because it touches three
+working screens:**
+
+- [ ] U5. Point Materials Center, Purchase Orders and Supplier Management Hub at
+      `vendor:` and retire `supplier:`. Cheap in data terms, since `supplier:`
+      stores nothing real — the cost is entirely in the three screens.
+- [ ] U6. Give `vendor:` a writer. Five records exist that no code can create or
+      edit, which is why onboarding a new vendor is currently impossible.
+
+U6 is worth noting on its own: **there is no way to add a vendor.** The five in
+storage were put there by something no longer present.
+
+---
+
+## The narrow four — done, with one large correction
+
+**The correction: `suppliers.tsx` is dead code.** `suppliersRouter` is never
+imported or mounted anywhere. I wrote U1-U3 into it, deployed, tested, and got
+back a response shape that was not mine — which is how the module was caught. The
+live routes are inline in `index.tsx` at `/purchase-orders` and `/suppliers`. The
+edits were reverted from the dead file and reapplied to the live ones.
+
+Two consequences worth recording:
+
+- **U3 was moot.** The seeders that plant three fake suppliers and three fake
+  purchase orders live only in the dead module. The live routes never seeded,
+  which matches storage holding zero of each. Nothing to fix.
+- **27 server modules are imported by nothing at all**, `suppliers.tsx` among
+  them: ai-design, api-gateway, bidRoom, blueprint-export, cohorts, companies,
+  investments, job-financials, labor-rates, materials-api, notifications,
+  property-management, stripe-connect, tenants, weather and others. Some are
+  probably superseded by inline routes, as this one was. It is worth knowing that
+  editing a file under `server/` is no guarantee of changing behaviour.
+
+**U1 — purchase orders are attributable.** New orders carry a `vendorId`
+resolved from an explicit id, or from the supplier name against the `vendor:`
+registry. The free-text `supplier` name is untouched so the company-side screens
+keep working.
+
+**U2 — `/purchase-orders` is scoped.** A vendor sees only their own orders; the
+company sees all; signed-out gets 401 instead of, as before, the complete list of
+every purchase order to anyone holding the anon key. Verified live: the endpoint
+now returns 401 to an anonymous caller.
+
+**U4 — not started.** Wiring the portal itself is next and unblocked.
+
+**A bug found in my own guard, before it shipped.** Attribution matches supplier
+names by exact-or-contained. I put a length floor on the vendor name but not on
+the incoming string, so `"Ho"` resolved to Home Depot — a visibility decision
+made on two characters, which is exactly what the guard existed to prevent. Both
+sides now need more than three characters. 10/10 on the matching cases,
+including that two- and three-character strings resolve to nothing.
+
+### U4 — vendor portal wired. Verified in a browser, both states.
+
+**Identity.** `GET /vendor/me` resolves the signed-in account to a vendor record
+by a stamped id or an email match, and says so plainly when there is no link.
+This is what the portal never had: every vendor route takes an id in the path
+and nothing told the portal its own, which is why orders had been kept in
+localStorage.
+
+**Orders are purchase orders, not store orders.** A vendor's orders are the
+stock lists Black Phoenix raises against them off a customer's material
+selection. The Orders tab — previously the sentence "Full order management
+interface would be displayed here" — is now a real table: PO number, ordered
+date, needed-by date, line count, total and status, scoped server-side so a
+vendor sees only their own.
+
+**Fabricated figures removed from the dashboard:**
+
+| Was | Now |
+|---|---|
+| `$68,420` total revenue | Order value summed from real purchase orders |
+| `8` pending invoices, `$12,450` | Orders awaiting a decision, counted |
+| `4.8` average rating | Gone — nothing measures it, and it is a claim about a real company |
+| Seven-month revenue curve, 45k→68k | Months derived from actual order dates |
+| Four product categories, 1,066 products, $84,400 | Categories grouped from real line items; section hidden when empty |
+
+That last row was the worst of them: those four tiles rendered for a vendor with
+no link and no orders, so an empty account displayed $84,400 of trade it had
+never done.
+
+**Honest empty states.** An unlinked account gets a banner on the dashboard and
+in the Orders tab explaining the link is missing, rather than zeros that read as
+"nobody orders from you". A linked account with no orders gets a different
+message again.
+
+**Verification.** Rendered in headless Edge against a stubbed session and a
+mocked API, in both states, clicking through to the Orders tab so its body
+actually executed. Zero exceptions in either. Linked rendered "Signed in as
+vendor VEN-004", order value $6,110 across 2 orders (4,820 + 1,290, correct),
+1 open, 1 awaiting approval, a Jul/Aug revenue chart, and both PO rows.
+Unlinked rendered $0 with the banner and no fabricated categories. Probe
+scaffolding removed.
+
+**Still placeholders in this portal:** Products, Invoices, Payments,
+Performance. Not made worse, not made better — flagged so "wired" is not read as
+"finished".
