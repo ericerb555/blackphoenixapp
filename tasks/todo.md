@@ -3618,3 +3618,53 @@ gap-4 16px. All correct.
 Not a Page Pilot fix. Every page, portal and dialog now gets the spacing its
 classes always asked for. That is the intended appearance, but it is a large
 visual change and worth looking at broadly rather than trusting one measurement.
+
+---
+
+## iPhone sweep — crews in the field, customers on the store
+
+Eric: *"iPhone mostly, my crews in the field and customers on the store."*
+Tested at 375x667, 390x844 and 430x932 with touch emulation on.
+
+### Employee portal — the crews
+
+Started at 6 controls below Apple's 44x44pt minimum: three 36x36 header icons,
+the job-photos button at 40px, and two "View All" links at **20px tall**. On a
+phone, outdoors, often with gloves, a 20px target is not reliably hittable.
+
+**Now 0 of 20 under 44px at every size**, no horizontal scroll, no text under
+12px.
+
+One of those was instructive: `AddJobPhotosButton` applied its sizing as
+`className={className || defaultClasses}`, so every caller passing its own
+className silently opted out of the tap-target size too. Moved `min-h-11`
+outside that fallback — a floor should not be something a caller can drop by
+accident.
+
+### Store — the customers
+
+Worse, and the worst item was the one that matters: **28 of 46 controls under
+44px, including add-to-cart**, plus **41 elements with text under 12px**.
+
+- Text floor raised: `text-[10px]` → 12px, `text-[11px]` → 13px. **41 → 5.**
+- Both add-to-cart buttons carried inline `minHeight: 32` and `34`. An **inline
+  style beats a stylesheet rule**, so each had silently opted itself out of any
+  global floor. All inline minimums below 44 raised.
+- **28 → 1 under 44px** at every iPhone size.
+
+The one remaining is a "Downloads" link at 38x30 — an anchor rather than a
+button, so the floor does not reach it without also inflating every inline link
+in running prose, which would be worse.
+
+### The floor itself
+
+    @media (pointer: coarse) { button, [role=button], select, summary { min-height: 44px; min-width: 44px } }
+
+In `@layer base`, and scoped to touch. Desktop is deliberately untouched —
+verified at 1440px, where the count stays exactly as it was, because a mouse hits
+a 20px target perfectly well and a 44px floor there would just look clumsy.
+
+**A testing lesson worth keeping:** `setDeviceMetricsOverride` alone does not make
+`pointer: coarse` match. The first run showed the floor doing nothing and the CSS
+was fine — the probe simply was not emulating touch. `setTouchEmulationEnabled`
+is what turns it on, and without it a mobile audit silently measures a desktop.

@@ -73,6 +73,51 @@
     margin: 0;
     padding: 0;
   }
+
+  /* A floor on tap targets, for touch devices only.
+
+     Apple's Human Interface Guidelines put the minimum at 44x44pt, and the
+     reason is physical: a fingertip is about 10mm across and cannot be aimed
+     the way a cursor can. Measured on an iPhone-sized viewport, the store had
+     28 of 46 controls below it — including the add-to-cart button, which is
+     the one press the whole shop exists to receive. Crews use the employee
+     portal outdoors and often with gloves on, where it matters more still.
+
+     Scoped to `pointer: coarse` so nothing changes on a desktop, where a mouse
+     can hit a 20px target perfectly well and a 44px floor would just look
+     clumsy. min-height only grows an element, so no layout can be crushed by
+     it, and inline-flex is what lets the minimum apply to links that would
+     otherwise be inline boxes with no height of their own. */
+  @media (pointer: coarse) {
+    button,
+    a[role='button'],
+    [role='button'],
+    select,
+    summary,
+    input[type='checkbox'],
+    input[type='radio'] {
+      min-height: 44px;
+    }
+
+    /* Width matters as much as height for an icon-only control: with height
+       alone, the bell and basket buttons came out 36x44 and 32x44 — better,
+       but still a narrow strip to hit with a thumb. min-width only grows an
+       element, and any button carrying a word is already past 44px, so this
+       reaches the icon buttons and leaves the rest alone. */
+    button,
+    a[role='button'],
+    [role='button'] {
+      min-width: 44px;
+    }
+
+    button,
+    a[role='button'],
+    [role='button'] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
 }
 
 html {

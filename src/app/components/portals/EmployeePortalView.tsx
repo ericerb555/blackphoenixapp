@@ -410,15 +410,15 @@ export default function EmployeePortalView() {
 
             {/* Right side actions */}
             <div className="flex items-center gap-3">
-              <button className="relative p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+              <button className="relative inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                 <Bell className="w-5 h-5" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-[#ea580c] rounded-full"></span>
               </button>
-              <button className="relative p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+              <button className="relative inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                 <MessageSquare className="w-5 h-5" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
               </button>
-              <button className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+              <button className="inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -636,7 +636,7 @@ export default function EmployeePortalView() {
                   <h3 className="text-lg font-bold text-white">Today's Schedule</h3>
                   <button
                     onClick={() => setActiveTab('schedule')}
-                    className="text-sm text-[#ea580c] hover:text-orange-400 font-medium flex items-center gap-1"
+                    className="text-sm text-[#ea580c] hover:text-orange-400 font-medium inline-flex items-center gap-1 min-h-11 px-2 -mr-2"
                   >
                     View All <ChevronRight className="w-4 h-4" />
                   </button>
@@ -669,7 +669,7 @@ export default function EmployeePortalView() {
                   <h3 className="text-lg font-bold text-white">Active Tasks</h3>
                   <button
                     onClick={() => setActiveTab('tasks')}
-                    className="text-sm text-[#ea580c] hover:text-orange-400 font-medium flex items-center gap-1"
+                    className="text-sm text-[#ea580c] hover:text-orange-400 font-medium inline-flex items-center gap-1 min-h-11 px-2 -mr-2"
                   >
                     View All <ChevronRight className="w-4 h-4" />
                   </button>

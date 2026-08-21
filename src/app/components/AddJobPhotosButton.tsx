@@ -93,12 +93,18 @@ export default function AddJobPhotosButton({
         onClick={() => fileRef.current?.click()}
         disabled={busy}
         title="Photograph the job — stays private until an admin publishes it"
-        className={
+        // min-h-11 sits OUTSIDE the `className ||` fallback deliberately. Every
+        // caller that passes its own className was silently opting out of the
+        // default styling, and with it the tap-target size — which is how this
+        // button ended up 40px tall on a phone. It is pressed outdoors, often
+        // with gloves on, and Apple's 44pt minimum exists for exactly that, so
+        // it is a floor rather than a default a caller can drop by accident.
+        className={`min-h-11 ${
           className ||
           `flex items-center justify-center gap-2 rounded-xl font-semibold text-white disabled:opacity-40 ${
             compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'
           }`
-        }
+        }`}
         style={className ? undefined : { background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
