@@ -15,7 +15,7 @@ import {
   Settings, ExternalLink, RefreshCw, Loader2, ShoppingCart, Megaphone,
   Gift, BarChart3, Plus, Upload, Download, Video, Image, FileText,
   Tag, Grid, List, Activity, Share2, Sparkles, X, Zap, Check,
-  Calendar, Box, Percent, Target, MessageCircle, Bell
+  Calendar, Box, Percent, Target, MessageCircle, Bell, Receipt
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
@@ -25,6 +25,8 @@ import { vendorPriorityService } from '../lib/services/vendorPriorityService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { ChartContainer } from '../components/ChartContainer';
+import { VendorInvoicesTab } from '../components/portals/VendorBilling';
+import { useAuth } from '../contexts/AuthContext';
 import { TextInput } from '../components/ui/input/TextInput';
 import { TextArea } from '../components/ui/input/TextArea';
 import LogoMarquee from '../components/LogoMarquee';
@@ -66,13 +68,14 @@ interface VendorStatus {
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
-type TabId = 'relationships' | 'advertising' | 'api-integrations';
+type TabId = 'relationships' | 'billing' | 'advertising' | 'api-integrations';
 
 export default function VendorsAdminHub() {
   const [activeTab, setActiveTab] = useState<TabId>('relationships');
 
   const tabs = [
     { id: 'relationships' as TabId, label: 'Vendor Relationships', icon: Building2, description: 'Approve and manage vendor connections' },
+    { id: 'billing' as TabId, label: 'Invoices & Payments', icon: Receipt, description: 'Approve vendor invoices and record what we have paid' },
     { id: 'advertising' as TabId, label: 'Advertising Management', icon: Megaphone, description: 'Manage vendor ads, giveaways, and product catalog' },
     { id: 'api-integrations' as TabId, label: 'API Integrations', icon: Settings, description: 'Configure vendor API connections' },
   ];
@@ -130,6 +133,7 @@ export default function VendorsAdminHub() {
         {/* Tab Content */}
         <div className="min-h-[600px]">
           {activeTab === 'relationships' && <VendorRelationshipsTab />}
+          {activeTab === 'billing' && <VendorBillingAdminTab />}
           {activeTab === 'advertising' && <AdvertisingManagementTab />}
           {activeTab === 'api-integrations' && <APIIntegrationsTab />}
         </div>
@@ -808,4 +812,14 @@ function APIIntegrationsTab() {
       </div>
     </div>
   );
+}
+/**
+ * The company half of vendor billing: every vendor's invoices in one table,
+ * with approve, dispute and record-payment on each. Deliberately the same
+ * component the vendor portal renders — only the mode differs, so the two sides
+ * can never disagree about a total or about what counts as overdue.
+ */
+function VendorBillingAdminTab() {
+  const { session } = useAuth();
+  return <VendorInvoicesTab session={session} mode="company" vendorLinked={true} />;
 }

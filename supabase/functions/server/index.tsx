@@ -143,6 +143,7 @@ import { territoryCohortRouter } from "./territory-cohorts.tsx";
 import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
+import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
 import { reelScoreboardRouter } from "./reel-scoreboard.tsx";
 import pipelineRouter from "./pipeline.tsx";
@@ -501,6 +502,7 @@ app.route("/make-server-3eae23a6", territoryCohortRouter);
 app.route("/make-server-3eae23a6", vendorProfileRouter);
 app.route("/make-server-3eae23a6", advertisingRouter);
 app.route("/make-server-3eae23a6", vendorCatalogRouter);
+app.route("/make-server-3eae23a6", vendorBillingRouter);
 app.route("/make-server-3eae23a6", reelResearchRouter);
 app.route("/make-server-3eae23a6", reelScoreboardRouter);
 app.route("/", pipelineRouter);
@@ -3196,7 +3198,23 @@ app.patch('/make-server-3eae23a6/purchase-orders/:id/status', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const status = String(body.status || '').trim();
     if (!status) return c.json({ success: false, error: 'A status is required.' }, 400);
-    const updated = { ...order, status, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    // Stamp the moment an order is actually delivered.
+    //
+    // Nothing recorded this before, only `updatedAt`, which moves on any edit.
+    // That made on-time delivery impossible to measure — the vendor portal
+    // could show what was ordered and what it cost, but never whether it turned
+    // up when it was promised, which is the one number a supplier is judged on.
+    // Kept once set, so a later status correction cannot rewrite the delivery
+    // date, and only ever forward from here: existing orders have no delivery
+    // timestamp and the Performance tab says so rather than guessing one.
+    const delivered = ['delivered', 'complete', 'completed', 'received'].includes(status.toLowerCase());
+    const updated = {
+      ...order,
+      status,
+      deliveredAt: order.deliveredAt || (delivered ? now : undefined),
+      updatedAt: now,
+    };
     await kv.set(`purchase_order:${id}`, updated);
     return c.json({ success: true, order: updated });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update status.' }, 500); }

@@ -30,6 +30,7 @@ import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
+import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 
@@ -962,17 +963,22 @@ export default function VendorPortalView() {
         )}
 
         {activeTab === 'invoices' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Invoices</h2>
-            <p className="text-gray-400">Invoice management would be displayed here.</p>
-          </div>
+          <VendorInvoicesTab
+            session={session}
+            vendorId={vendorId}
+            vendorLinked={vendorLinked}
+            linkReason={linkReason}
+            mode="vendor"
+          />
         )}
 
         {activeTab === 'payments' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Payment History</h2>
-            <p className="text-gray-400">Payment tracking and history would be displayed here.</p>
-          </div>
+          <VendorPaymentsTab
+            session={session}
+            vendorId={vendorId}
+            vendorLinked={vendorLinked}
+            linkReason={linkReason}
+          />
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.accountManager} />}
@@ -981,10 +987,14 @@ export default function VendorPortalView() {
         {activeTab === 'performance' && (
           <div className="space-y-6">
             <SubmitReelForApproval submitterName={vendorInfo?.name || 'Vendor'} submitterType="vendor" />
-            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-              <h2 className="text-lg font-bold text-white mb-4">Performance Metrics</h2>
-              <p className="text-gray-400">Performance analytics and KPIs would be displayed here.</p>
-            </div>
+            <VendorPerformanceTab
+              session={session}
+              vendorId={vendorId}
+              vendorLinked={vendorLinked}
+              linkReason={linkReason}
+              purchaseOrders={purchaseOrders}
+              catalog={catalog}
+            />
           </div>
         )}
 

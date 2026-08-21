@@ -3717,3 +3717,139 @@ probe output had no trailing newline, which read as "the sweep found nothing".
 Both cost more time than the actual fixes did.
 
 `probe/` is removed. Typecheck and production build both clean.
+
+## Plan — finish the vendor portal's last three tabs
+
+Invoices, Payments and Performance are still the three placeholder cards that say
+"...would be displayed here."
+
+### What I checked first
+
+There is **no vendor invoice or payment data in the store at all** — no
+`vendor_invoice:`, no `vendor_payment:`, nothing. `payment-processing.tsx` is
+mounted but it is the online store and subscription billing, which is not the
+vendor's world, so it is the wrong source to reach for here.
+
+The only real vendor data is `purchase_order:` — already vendor-scoped and
+authenticated, and already driving the Orders tab and the dashboard. Fields
+available: `poNumber`, `lineItems[]`, `total`, `status`, `orderDate`,
+`expectedDate`, `vendorId`, `updatedAt`.
+
+So Invoices and Payments need a real record behind them. A previous pass already
+stripped invented figures out of this portal — the $68,420 revenue, the 8 pending
+invoices, the 4.8 rating — and nothing here may put that kind of thing back.
+
+### The billing loop this models
+
+Black Phoenix raises a PO against the vendor → the vendor delivers → the vendor
+**invoices** against those POs → Black Phoenix **pays**. That is the loop the two
+tabs represent, and it is why they cannot be derived from the store.
+
+### Todo
+
+- [x] **New `vendor-billing.tsx` server module**, mounted in `index.tsx`.
+      Keys `vendor_invoice:{id}` and `vendor_payment:{id}`. Reuses the existing
+      `purchaseOrderActor` scoping so a vendor can never read another vendor's
+      billing — vendors are paying tenants and this is commercial information.
+- [x] **Routes**: list/raise invoices, list/record payments, update invoice
+      status. Vendor-scoped on read, company-only on the approve and pay side.
+- [x] **Invoices tab**: invoice list with amount, terms, due date, status and
+      overdue highlighting; a "raise an invoice" flow that offers only POs not
+      already billed (double-billing a PO is the one real correctness trap here);
+      a summary strip of outstanding / overdue / paid.
+- [x] **Payments tab**: remittances received, newest first, showing which
+      invoices each covered; paid-to-date, outstanding, and average days to pay
+      — the last shown only once at least one invoice has actually been paid.
+- [x] **Record `deliveredAt`** on the PO status transition (one line in the
+      existing PATCH). Nothing currently timestamps delivery, so on-time
+      performance is not computable today; this makes it true going forward.
+- [x] **Performance tab**, strictly what the data supports: order value and
+      count by month (the existing measured series), average and largest order,
+      status mix, catalogue coverage (lines ordered vs never ordered), and
+      on-time delivery for orders that have a `deliveredAt`, labelled with the
+      date the measurement starts. No rating, no fill rate, no quote win rate —
+      nothing measures those.
+- [x] **Empty and unlinked states** matching the Orders tab: "not linked to a
+      vendor yet" is not the same as "no invoices", and neither is an error.
+- [x] **iPhone pass** on all three: tables in their own scroll container, 44px
+      tap targets, no sub-12px text.
+
+### Decided
+
+Eric asked for **both sides in this pass**, so the company half is in scope: an
+admin surface to approve an invoice and record a payment against it. Without it
+the Payments tab could never show anything, and a tab that can only ever be
+empty is not a finished tab.
+
+- [x] **Company side**: approve / dispute an invoice, and record a payment
+      against one or more invoices, with the remittance reference and method.
+
+### Review — vendor Invoices, Payments and Performance
+
+All three tabs are built, and the company half with them. What was there before
+was a card reading "...would be displayed here."
+
+**The shape of it.** Black Phoenix raises a purchase order → the vendor delivers
+→ the vendor invoices against those orders → we pay. Only the first step
+existed, so `vendor-billing.tsx` is a new server module holding the other two:
+`vendor_invoice:` and `vendor_payment:` records, vendor-scoped on read and
+company-only on approve and pay.
+
+**Two things the server refuses to take on trust.** The invoice total is
+recomputed from the purchase orders being billed rather than read from the
+request — a vendor posting their own `amount` would be a vendor typing the
+number we owe them. And the same purchase order cannot appear on two live
+invoices, enforced server-side because it is the one mistake in this area that
+costs real money.
+
+**Paid is computed, not stored.** How much has landed against an invoice is
+derived from the payments, so the two can never disagree. A stored `paidAmount`
+drifts the first time a payment is corrected.
+
+**`deliveredAt` now gets stamped** on the purchase-order status change. Nothing
+recorded delivery before — only `updatedAt`, which moves on any edit — so
+on-time delivery was not computable at all. It is written once and never
+rewritten, and the Performance tab reports on-time only over orders that carry
+one, saying plainly that the measurement starts from here rather than inventing
+a percentage.
+
+**Nothing on these tabs is fabricated.** A previous pass had to strip $68,420 of
+revenue, eight pending invoices and a 4.8 supplier rating out of this portal.
+Where a metric cannot honestly be computed the tab says so — no fill rate, no
+quote win rate, no rating.
+
+#### How it was verified
+
+*Frontend*, rendered in headless Edge at 390x844 with touch emulation, across
+seven scenarios — each tab populated and empty, the company view, and the
+raise-an-invoice form driven by a real click. No errors, no side-scroll, no tap
+target under 44px, no sub-12px text. The arithmetic was checked against the
+rendered output: $13,790 outstanding, a part-paid invoice reading $3,000 of
+$4,200.25, 16-day average time to pay from spans of 28 and 4, 67% on-time from
+2 of 3 measurable orders.
+
+*Backend*, on a **Supabase branch** rather than production, per the isolation
+table in `BACKEND-PLAN.md`. A throwaway harness function ran inside the edge
+runtime, so it could mint real users and real JWTs and drive the router exactly
+as a browser does — real Deno, real Postgres, real auth. **23 of 23 checks
+passed**, including the ones that matter most:
+
+- vendor B cannot see vendor A's invoices or payments
+- a vendor cannot invoice another vendor's purchase order (403)
+- a vendor cannot approve or pay their own invoice (403)
+- the same PO cannot be billed twice (409)
+- paying more than is outstanding is refused, with the real figures in the message
+- a part payment leaves the invoice `approved`, and clearing the balance flips it to `paid`
+- a settled invoice cannot be paid again
+- signed out is refused outright (401)
+
+The branch was deleted afterwards, so it is no longer being charged for.
+
+#### Still to do — one step, and it is Eric's
+
+The production server function cannot be deployed from here: it is 128 files and
+2.9MB, too large for the API path, and the CLI needs an interactive
+`supabase login`. Until it is deployed the three tabs render their empty states
+rather than failing, so shipping the frontend first is safe.
+
+    supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm --no-verify-jwt
