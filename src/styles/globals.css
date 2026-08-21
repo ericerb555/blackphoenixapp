@@ -50,10 +50,29 @@
   --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* This reset must live in a layer, and the reason is subtle enough to be worth
+   writing down.
+
+   Tailwind v4 emits its utilities inside @layer. In the CSS cascade, UNLAYERED
+   rules beat layered ones outright — specificity is not consulted. So this
+   bare `*` selector, sitting outside any layer and imported after Tailwind,
+   was overriding every padding and margin utility in the entire application.
+   `.py-4` lost to `*`.
+
+   Measured before this change, on the built app: py-4, py-16, px-6 and mb-4 all
+   computed to 0px, while gap-4 correctly gave 16px — gap survived only because
+   this reset never mentioned it. Which is to say every screen in the app has
+   been rendering with no padding and no margins, and the page-not-aligned
+   complaint was this, everywhere, not a layout mistake on any one page.
+
+   Wrapped in @layer base, the reset still normalises browser defaults, and the
+   utilities layer that follows can now do its job. */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html {

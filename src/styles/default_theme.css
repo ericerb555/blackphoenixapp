@@ -1,6 +1,20 @@
 /* KEEP_IN_SYNC(fullscreen/resources/figmake/shadcn/globals.css) */
 
 :root {
+  /* Tailwind v4 compiles every spacing utility to calc(var(--spacing) * n) —
+     p-6 becomes padding:calc(var(--spacing)*6). This file's @theme block maps
+     colours only and never defined --spacing, so the variable was undefined,
+     every one of those calc() expressions was invalid, and the browser dropped
+     the declaration.
+
+     The effect was that EVERY padding, margin and gap utility in the entire
+     application silently did nothing. Measured before this line existed:
+     py-4, py-14, py-16, py-20, p-6, px-6 and mb-4 all computed to 0px, while
+     max-w-6xl and text-xl worked — because those do not depend on --spacing.
+
+     0.25rem is Tailwind's own default, so every existing class now means what
+     whoever wrote it intended: p-4 is 1rem, py-16 is 4rem. */
+  --spacing: 0.25rem;
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);

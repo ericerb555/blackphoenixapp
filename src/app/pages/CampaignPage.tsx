@@ -163,7 +163,43 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
   };
   const headlineClass = HEADLINE[archetype] || HEADLINE.editorial;
 
+  // ── Two widths and one rhythm, rather than a different number per section ──
+  //
+  // The page previously mixed max-w-5xl, max-w-3xl and max-w-2xl with padding of
+  // py-4, py-12, py-14 and py-16 in no particular order. Nothing was broken by
+  // it, but a page whose measurements do not repeat reads as assembled rather
+  // than designed, and that is most of the difference between this and a page
+  // somebody would trust with a card number.
+  //
+  // BAND is for anything with images or columns — 1152px, where 1024 left a
+  // split hero cramped. MEASURE is for anything anyone has to actually read,
+  // held near 70 characters because that is where prose stays comfortable
+  // regardless of how wide the screen is.
+  const BAND = 'max-w-6xl mx-auto px-6 md:px-8';
+  const MEASURE = 'max-w-3xl mx-auto px-6';
+  const SECTION = 'py-20 md:py-28';
+  const SECTION_TIGHT = 'py-14 md:py-16';
+
   const softAccent = `${accent}1f`;
+
+  // ── A buy bar that follows the reader ──────────────────────────────────────
+  //
+  // The page has one call to action in the hero and one at the very bottom, and
+  // between them roughly two thousand words. Somebody convinced by the benefits
+  // block had to scroll back up or keep going to the end to act, which is the
+  // most ordinary way a long sales page loses a sale it had already won.
+  //
+  // Appears once the hero is out of view, so it never competes with the hero's
+  // own button, and it is not shown at all in the admin preview where it would
+  // just be in the way.
+  const [showBuyBar, setShowBuyBar] = useState(false);
+  useEffect(() => {
+    if (previewCampaign) return;
+    const onScroll = () => setShowBuyBar(window.scrollY > 640);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [previewCampaign]);
   const primary = campaign.products?.[0];
   // With a single featured product, the hero/closing CTA adds it straight to cart;
   // multi-product pages send shoppers to the store to choose.
@@ -224,7 +260,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       {fullBleed ? (
         <section className="relative overflow-hidden">
           {heroImage}
-          <div className="max-w-5xl mx-auto px-6 py-12 md:py-16">{heroCopy}</div>
+          <div className={`${BAND} ${SECTION_TIGHT}`}>{heroCopy}</div>
         </section>
       ) : (
         <section className="relative overflow-hidden"
@@ -237,7 +273,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
               headline happens to fill the column (497px, near enough a match).
               Stretching both columns and letting the image crop to the row
               keeps the two sides level whatever the headline does. */}
-          <div className={`max-w-5xl mx-auto px-6 py-16 md:py-24 ${
+          <div className={`${BAND} ${SECTION} ${
             stackedHero ? 'space-y-10' : 'grid md:grid-cols-2 gap-10 items-stretch'}`}>
             <div className="flex flex-col justify-center">{heroCopy}</div>
             {primary && <div className="relative min-h-[320px]">{heroImage}</div>}
@@ -247,7 +283,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Trust bar */}
       <div style={{ background: surface, borderTop: `1px solid ${ink}12`, borderBottom: `1px solid ${ink}12` }}>
-        <div className="max-w-5xl mx-auto px-6 py-4 grid grid-cols-3 gap-4 text-center text-sm" style={{ color: `${ink}a0` }}>
+        <div className={`${BAND} py-5 grid grid-cols-3 gap-4 text-center text-sm`} style={{ color: `${ink}a0` }}>
           <div className="flex items-center justify-center gap-2"><Truck className="w-4 h-4" style={{ color: accent }} /> Fast shipping</div>
           <div className="flex items-center justify-center gap-2"><ShieldCheck className="w-4 h-4" style={{ color: accent }} /> Secure checkout</div>
           <div className="flex items-center justify-center gap-2"><RefreshCcw className="w-4 h-4" style={{ color: accent }} /> Easy returns</div>
@@ -256,22 +292,31 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Benefits — laid out per direction rather than always three centred circles */}
       {!!(c.benefits && c.benefits.length) && (
-        <section className="max-w-5xl mx-auto px-6 py-16">
+        // Three centred circles with a tick inside is the single most
+        // recognisable "generated page" pattern there is — it appears on every
+        // template and signals nobody made a decision here. Replaced with a
+        // numbered row on a hairline: the number does real work (these are
+        // ordered reasons, and a reader tracks them), the rule gives the section
+        // structure without ornament, and nothing is centred for the sake of it.
+        <section className={`${BAND} ${SECTION}`}>
           <div className={archetype === 'demo' || archetype === 'story'
-            ? 'space-y-5 max-w-3xl mx-auto'
-            : 'grid md:grid-cols-3 gap-8'}>
+            ? 'max-w-3xl mx-auto divide-y'
+            : 'grid md:grid-cols-3 gap-x-10 gap-y-12'}
+            style={archetype === 'demo' || archetype === 'story' ? { borderColor: `${ink}14` } : undefined}>
             {c.benefits.map((b, i) => {
               const inline = archetype === 'demo' || archetype === 'story';
               return (
-                <div key={i} className={inline ? 'flex gap-4 items-start' : 'text-center'}>
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${inline ? '' : 'mx-auto mb-4'}`}
-                       style={{ background: softAccent }}>
-                    <Check className="w-6 h-6" style={{ color: accent }} />
+                <div key={i} className={inline ? 'py-7 first:pt-0 last:pb-0' : ''}>
+                  <div className="flex items-baseline gap-3 mb-3">
+                    <span className="text-sm font-bold tabular-nums tracking-widest"
+                          style={{ color: accent }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className="h-px flex-1" style={{ background: `${ink}1a` }} />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-lg mb-2" style={{ fontFamily: displayFamily, color: ink }}>{b.title}</h3>
-                    <p className="text-sm leading-relaxed" style={{ color: `${ink}b0` }}>{b.body}</p>
-                  </div>
+                  <h3 className="font-bold text-xl md:text-2xl mb-2 leading-snug"
+                      style={{ fontFamily: displayFamily, color: ink }}>{b.title}</h3>
+                  <p className="text-base leading-relaxed" style={{ color: `${ink}a8` }}>{b.body}</p>
                 </div>
               );
             })}
@@ -282,8 +327,8 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       {/* Worth knowing — the entertaining half. Only true, checkable facts;
           the generator is told never to invent statistics. */}
       {!!((c as any).funFacts && (c as any).funFacts.length) && (
-        <section className="py-14" style={{ background: surface }}>
-          <div className="max-w-3xl mx-auto px-6">
+        <section className={SECTION_TIGHT} style={{ background: surface }}>
+          <div className={MEASURE}>
             <h2 className="text-xs font-bold tracking-widest uppercase mb-5" style={{ color: accent }}>
               Worth knowing
             </h2>
@@ -303,8 +348,8 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Advertorial story */}
       {c.story && (
-        <section className="py-16" style={{ background: ground }}>
-          <div className="max-w-3xl mx-auto px-6">
+        <section className={SECTION} style={{ background: ground }}>
+          <div className={MEASURE}>
             {c.story.split('\n\n').map((para, i) => (
               <p key={i} className="leading-relaxed mb-4 text-lg"
                  style={{ color: `${ink}c8`, fontFamily: design.display === 'serif' ? displayFamily : undefined }}>
@@ -316,7 +361,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       )}
 
       {/* Featured products */}
-      <section className="max-w-5xl mx-auto px-6 py-16">
+      <section className={`${BAND} ${SECTION}`}>
         <h2 className="text-2xl font-bold mb-8 text-center">Featured in this collection</h2>
         <div className={`grid gap-6 ${campaign.products.length === 1 ? 'max-w-sm mx-auto' : campaign.products.length === 2 ? 'sm:grid-cols-2 max-w-2xl mx-auto' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
           {campaign.products.map((p) => (
@@ -348,8 +393,8 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Social proof */}
       {!!(c.socialProof && c.socialProof.length) && (
-        <section className="py-16" style={{ background: surface }}>
-          <div className="max-w-5xl mx-auto px-6">
+        <section className={SECTION} style={{ background: surface }}>
+          <div className={BAND}>
             <h2 className="text-2xl font-bold mb-8 text-center"
                 style={{ fontFamily: displayFamily, color: ink }}>What customers are saying</h2>
             <div className="grid md:grid-cols-3 gap-6">
@@ -370,7 +415,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* FAQ */}
       {!!(c.faq && c.faq.length) && (
-        <section className="max-w-3xl mx-auto px-6 py-16">
+        <section className={`${MEASURE} ${SECTION}`}>
           <h2 className="text-2xl font-bold mb-8 text-center"
               style={{ fontFamily: displayFamily, color: ink }}>Frequently asked</h2>
           <div className="space-y-4">
@@ -389,15 +434,46 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       )}
 
       {/* Closing CTA */}
-      <section className="py-16" style={{ background: `linear-gradient(135deg, ${accent}, #dc2626)` }}>
+      <section className={SECTION} style={{ background: `linear-gradient(135deg, ${accent}, ${accentDeep})` }}>
         <div className="max-w-2xl mx-auto px-6 text-center text-white">
-          {c.closingPitch && <p className="text-lg mb-6 opacity-95">{c.closingPitch}</p>}
+          {c.closingPitch && <p className="text-xl leading-relaxed mb-8 opacity-95">{c.closingPitch}</p>}
           <button onClick={primaryCta} className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white font-bold text-lg hover:opacity-90 transition" style={{ color: accent }}>
             <ShoppingBag className="w-5 h-5" /> {c.ctaLabel || 'Shop Now'}
           </button>
           {c.urgency && <p className="mt-4 text-sm opacity-90">{c.urgency}</p>}
         </div>
       </section>
+
+      {/* Sticky buy bar — pinned below the fold so it never fights the hero. */}
+      {showBuyBar && primary && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur"
+             style={{ background: `${ground}f2`, borderColor: `${ink}1a` }}>
+          <div className={`${BAND} py-3 flex items-center gap-4`}>
+            <ImageWithFallback src={primary.image} alt={primary.name}
+                               className="w-11 h-11 rounded-lg object-cover shrink-0 hidden sm:block" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold truncate text-sm" style={{ color: ink }}>{primary.name}</p>
+              {typeof primary.price === 'number' && (
+                <p className="text-sm tabular-nums" style={{ color: `${ink}a0` }}>
+                  ${primary.price.toFixed(2)}
+                  {primary.originalPrice && primary.originalPrice > primary.price && (
+                    <span className="ml-2 line-through" style={{ color: `${ink}60` }}>
+                      ${primary.originalPrice.toFixed(2)}
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+            <button onClick={primaryCta}
+                    className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold shadow hover:opacity-90 transition"
+                    style={{ background: `linear-gradient(90deg, ${accent}, ${accentDeep})` }}>
+              <ShoppingBag className="w-4 h-4" /> {c.ctaLabel || 'Shop Now'}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* The bar sits over the page, so the last section needs room to clear it. */}
+      {showBuyBar && <div className="h-20" aria-hidden />}
     </div>
   );
 }

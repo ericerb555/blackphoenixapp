@@ -3566,3 +3566,55 @@ Captions on the latest run: *"every drive, frozen seat" → "painful winter
 mornings" → **"in 35 seconds"***, and elsewhere "lumbar support style" and
 "synthetic fiber tech" — real numbers and real materials off the spec sheet
 rather than mood words.
+
+---
+
+## The real reason nothing aligns: every padding and margin utility in the app was dead
+
+Chasing the Page Pilot complaint down found something far larger than Page Pilot.
+
+**Measured on the built app, before the fix:**
+
+    py-4    0px
+    py-16   0px
+    px-6    0px
+    mb-4    0px
+    gap-4   16px   <- the only one that worked
+
+Every padding and margin utility across **the entire application** computed to
+zero. Not one page — all of them. Every screen has been rendering with no
+breathing room, which is exactly what "the pages don't align well and need to be
+more professional" describes.
+
+### Two causes, and both had to go
+
+**1. `--spacing` was never defined.** Tailwind v4 compiles spacing utilities to
+`calc(var(--spacing) * n)`. The stylesheets define a large `@theme` block that
+maps colours and never declares `--spacing`, so every one of those calc()
+expressions was invalid and the browser discarded the declaration. Added
+`--spacing: 0.25rem`, Tailwind's own default, so existing classes mean what
+whoever wrote them intended.
+
+That fixed `gap-4` — and nothing else, which is what pointed at the second cause.
+
+**2. An unlayered `*` reset was beating the utilities.**
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+sitting in `globals.css`, imported after Tailwind, outside any layer. In the CSS
+cascade **unlayered rules beat layered ones outright** — specificity is never
+consulted — and Tailwind v4 emits its utilities inside `@layer`. So `*` won
+against `.py-4`. `gap` survived only because the reset does not mention it, which
+is the clue that separated the two problems.
+
+Wrapped in `@layer base`. The reset still normalises browser defaults; the
+utilities can now do their job.
+
+**Verified on the built app:** py-4 16px, py-16 64px, px-6 24px, mb-4 16px,
+gap-4 16px. All correct.
+
+### This changes every screen in the app
+
+Not a Page Pilot fix. Every page, portal and dialog now gets the spacing its
+classes always asked for. That is the intended appearance, but it is a large
+visual change and worth looking at broadly rather than trusting one measurement.
