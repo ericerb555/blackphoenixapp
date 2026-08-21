@@ -40,6 +40,67 @@ const admin = createClient(
 );
 
 const POST = (id: string) => `reel_post:${id}`;
+const IG_TOKEN_KEY = "instagram_token";
+
+/**
+ * The current Instagram token, refreshed before it can die.
+ *
+ * Instagram's long-lived tokens last 60 days and do not auto-renew. A token set
+ * once as a secret and never touched again stops working in two months, and the
+ * failure is silent — the scoreboard simply stops updating and nobody notices
+ * until the numbers look stale.
+ *
+ * So the token lives in storage rather than only in an environment variable,
+ * because an env var cannot rewrite itself. `INSTAGRAM_ACCESS_TOKEN` seeds it
+ * the first time; after that the stored copy is authoritative and is refreshed
+ * whenever it is within ten days of expiring.
+ *
+ * Meta requires a token be at least 24 hours old before it can be refreshed, so
+ * a just-issued token is used as-is and refreshed on a later call.
+ */
+async function instagramToken(): Promise<{ token: string | null; note: string }> {
+  const seed = Deno.env.get("INSTAGRAM_ACCESS_TOKEN") || "";
+  const stored = (await kv.get(IG_TOKEN_KEY)) as any;
+
+  let token = String(stored?.token || seed || "");
+  if (!token) return { token: null, note: "" };
+
+  const expiresAt = stored?.expiresAt ? new Date(stored.expiresAt).getTime() : 0;
+  const issuedAt = stored?.issuedAt ? new Date(stored.issuedAt).getTime() : 0;
+  const now = Date.now();
+
+  const dueForRefresh = expiresAt > 0 && expiresAt - now < 10 * 86400_000;
+  const oldEnough = issuedAt === 0 || now - issuedAt > 25 * 3600_000; // Meta wants 24h+
+  const noExpiryRecorded = expiresAt === 0; // first use of a seeded token
+
+  if (!dueForRefresh && !noExpiryRecorded) return { token, note: "" };
+  if (dueForRefresh && !oldEnough) {
+    return { token, note: "Token is near expiry but too newly issued to refresh yet; it will refresh on a later run." };
+  }
+
+  try {
+    const url = new URL("https://graph.instagram.com/refresh_access_token");
+    url.searchParams.set("grant_type", "ig_refresh_token");
+    url.searchParams.set("access_token", token);
+    const r = await fetch(url.toString());
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j?.access_token) {
+      token = String(j.access_token);
+      await kv.set(IG_TOKEN_KEY, {
+        token,
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(now + (Number(j.expires_in) || 60 * 86400) * 1000).toISOString(),
+        refreshedAt: new Date().toISOString(),
+      });
+      return { token, note: "Token refreshed; good for another 60 days." };
+    }
+    // Refresh failed but the current token may still work — say so rather than
+    // dropping it, and let the caller see the reason.
+    return { token, note: `Could not refresh the Instagram token: ${j?.error?.message || r.status}. It will stop working when it expires.` };
+  } catch (e: any) {
+    return { token, note: `Token refresh failed: ${e?.message || e}` };
+  }
+}
 
 async function actor(c: any) {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
@@ -149,12 +210,12 @@ reelScoreboardRouter.post("/reel-scoreboard/sync-instagram", async (c) => {
   const user = await actor(c);
   if (!user) return c.json({ success: false, error: "Sign in first." }, 401);
 
-  const token = Deno.env.get("INSTAGRAM_ACCESS_TOKEN");
+  const { token, note: tokenNote } = await instagramToken();
   if (!token) {
     return c.json({
       success: false,
       configured: false,
-      error: "Set INSTAGRAM_ACCESS_TOKEN (and INSTAGRAM_BUSINESS_ID) to pull results automatically. Until then, results can be typed in — which is what TikTok needs anyway.",
+      error: "Set INSTAGRAM_ACCESS_TOKEN to pull results automatically. Until then, results can be typed in — which is what TikTok needs anyway.",
       synced: 0,
     }, 200);
   }
@@ -194,9 +255,57 @@ reelScoreboardRouter.post("/reel-scoreboard/sync-instagram", async (c) => {
         synced++;
       } catch (e: any) { failures.push(`${p.mediaId}: ${e?.message || e}`); }
     }
-    return c.json({ success: true, synced, considered: posts.length, failures: failures.slice(0, 5) });
+    return c.json({ success: true, synced, considered: posts.length, failures: failures.slice(0, 5), tokenNote });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Instagram sync failed." }, 500);
+  }
+});
+
+/**
+ * Is Instagram connected, and how long has it got?
+ *
+ * Worth its own route because the failure this guards against is silent. A token
+ * that expired three weeks ago looks exactly like an account with no new posts.
+ */
+reelScoreboardRouter.get("/reel-scoreboard/instagram-status", async (c) => {
+  const user = await actor(c);
+  if (!user) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const seeded = Boolean(Deno.env.get("INSTAGRAM_ACCESS_TOKEN"));
+    const stored = (await kv.get(IG_TOKEN_KEY)) as any;
+    if (!seeded && !stored?.token) {
+      return c.json({
+        success: true, connected: false,
+        message: "Instagram is not connected. Results can still be typed in, which is what TikTok needs anyway.",
+      });
+    }
+
+    const { token, note } = await instagramToken();
+    if (!token) return c.json({ success: true, connected: false, message: "No usable token." });
+
+    // Ask Instagram who this is. A token that has been revoked will fail here
+    // rather than at the next sync, which is the point.
+    const r = await fetch(`https://graph.instagram.com/v21.0/me?fields=id,username&access_token=${encodeURIComponent(token)}`);
+    const j = await r.json().catch(() => ({}));
+    const expiresAt = stored?.expiresAt || null;
+    const daysLeft = expiresAt ? Math.round((new Date(expiresAt).getTime() - Date.now()) / 86400_000) : null;
+
+    if (!r.ok) {
+      return c.json({
+        success: true, connected: false,
+        error: j?.error?.message || `Instagram rejected the token (${r.status}).`,
+        hint: "Tokens last 60 days. If this one lapsed, generate a new one and set INSTAGRAM_ACCESS_TOKEN again.",
+      });
+    }
+    return c.json({
+      success: true, connected: true,
+      account: { id: j.id, username: j.username },
+      expiresAt, daysLeft,
+      autoRefresh: "Refreshes automatically when within ten days of expiry.",
+      note,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not check Instagram." }, 500);
   }
 });
 

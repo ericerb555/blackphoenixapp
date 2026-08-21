@@ -3440,3 +3440,31 @@ the two secrets it needs rather than failing obscurely.
 
 - [ ] Connect Instagram (`INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ID`) to
       pull results automatically instead of typing them.
+
+### Instagram token refresh — built, committed, deliberately not connected
+
+Instagram's long-lived tokens last **60 days and do not auto-renew**. Set once as
+a secret and never touched, the scoreboard would stop updating in two months, and
+the failure is silent: it looks identical to an account with no new posts.
+
+So the token lives in storage rather than only in an env var, which cannot
+rewrite itself. `INSTAGRAM_ACCESS_TOKEN` seeds it; after that the stored copy is
+authoritative and refreshes within ten days of expiry. Meta requires a token be
+24 hours old before refreshing, so a just-issued one is used as-is and refreshed
+later rather than erroring. `GET /reel-scoreboard/instagram-status` reports the
+account and days remaining.
+
+**Verified 6/6** on the refresh decision, including a token near expiry but
+issued two hours ago correctly waiting, and an already-expired one still
+attempting rather than giving up.
+
+**Not connecting it yet, and that is the right call.** What the API saves is
+typing five numbers per post — reach, likes, comments, saves, shares — all of
+which Instagram already shows in the app. Two minutes a post against thirty
+minutes of setup plus a dependency Meta has broken before (the Basic Display API
+was killed in December 2024). Break-even is around twenty posts.
+
+The scoreboard is the valuable part and it works today with typed-in numbers.
+Five posts is enough to start seeing which archetype wins. Connect the API when
+posting volume makes typing a chore — the refresh handling is already here, so it
+becomes a one-secret job.
