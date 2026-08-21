@@ -3297,3 +3297,41 @@ the only thing between this and running.
 were "every winter... chilly seats" and "warmth at every start" — better than
 "#beforeandafter", still reaching for mood. That is the gap a real exemplar with
 a real view count is meant to close, and it cannot be judged until the key exists.
+
+### The key is set, and research measurably fixes the captions
+
+**Two bugs found before it worked, both worth recording.**
+
+1. **YouTube ranks on words, not relevance.** Searching "car seat heater"
+   returned *"Volvo just reinvented the seatbelt"* at 8.8M views as the top
+   result — it matches "seat", it is a car, and it is useless as a pattern for a
+   $15 heating pad. Being highest views-per-day, it would have dominated the
+   prompt. Now a title must carry a distinctive word from the query, and a
+   runaway outlier beyond twelve times the median is dropped.
+
+2. **A catalogue name is not a search.** "Graphite Car Seat Heating Pad" returns
+   **nothing** on YouTube — it is dropship SEO, written to match a filter rather
+   than to be spoken. Drop the colour and it returns ten. `searchTermsFor()` now
+   strips colours, materials and catalogue marketing, then falls back down the
+   tail: `car seat heating pad` → `seat heating pad` → `heating pad`. Misses are
+   cached too, so a product nobody films does not burn 100 quota units per reel.
+   7/7 on the normaliser.
+
+**The result, which is the point.**
+
+| Before research | After research |
+|---|---|
+| "toasty rides ahead" | "frozen car seats" → "every winter commute" → **"like sitting on ice"** |
+| "warming magic?" | "not an electric blanket" → "it heats your car" |
+| "cold seat blues?" | "stop freezing yourself" → "car seats should be warm" |
+| "round elegance" | — |
+
+The mood phrases are gone. *"like sitting on ice"* is exactly the concrete line
+two rounds of prompt work could not produce, because the model finally had a
+real pattern to copy rather than an adjective telling it to be concrete.
+
+**Honest caveat:** the winning sample is only 56,000 views and its top entry is
+an installation video rather than an ad. The exemplars are real but thin. A
+product with a bigger short-form presence will give the model more to work with,
+and the transcript upgrade — a few cents a video — is what would add beat timing
+on top.

@@ -46,6 +46,55 @@ export const reelResearchRouter = new Hono();
 const CACHE = (q: string) => `reel_research:${q}`;
 const CACHE_HOURS = 24;
 
+/**
+ * Turn a supplier's catalogue name into something a person would search.
+ *
+ * "Graphite Car Seat Heating Pad" returns **nothing** on YouTube. Nobody titles
+ * a video that way — it is dropship SEO, written to match a filter, not speech.
+ * Drop the leading colour and it returns ten results.
+ *
+ * So the noise words come off: colours, materials, and the marketing adjectives
+ * that pad every catalogue listing. What is left is the noun phrase somebody
+ * would actually type.
+ */
+const NOISE = new Set([
+  // colours
+  "graphite", "black", "white", "grey", "gray", "navy", "burgundy", "beige", "khaki", "ivory",
+  "silver", "golden", "gold", "rose", "pink", "blue", "green", "red", "brown", "purple",
+  // materials and finishes that rarely help a search
+  "velvet", "satin", "jacquard", "polyester", "synthetic", "faux", "pu", "pvc",
+  // catalogue marketing
+  "premium", "luxury", "professional", "portable", "multifunctional", "multifunction",
+  "upgraded", "new", "hot", "selling", "best", "universal", "adjustable", "foldable",
+  "creative", "fashionable", "fashion", "stylish", "elegant", "high-end", "quality",
+  "durable", "practical", "convenient", "household", "home", "outdoor", "indoor",
+  "mens", "womens", "men", "women", "unisex", "large", "small", "mini",
+]);
+
+/** Search terms to try, best first. */
+export function searchTermsFor(productName: string, category?: string): string[] {
+  const words = String(productName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const cleaned = words.filter((w) => !NOISE.has(w) && w.length > 1);
+  const tries: string[] = [];
+
+  if (cleaned.length >= 2) tries.push(cleaned.join(" "));
+  // The tail of a product name is usually the thing itself — "…Car Seat Heating
+  // Pad" — while the head is adjectives. If the full cleaned phrase finds
+  // nothing, the last few words usually do.
+  if (cleaned.length > 3) tries.push(cleaned.slice(-3).join(" "));
+  if (cleaned.length > 2) tries.push(cleaned.slice(-2).join(" "));
+  if (category) tries.push(String(category).toLowerCase());
+
+  // De-duplicate while keeping order, and never try something too short to mean
+  // anything.
+  return [...new Set(tries)].filter((t) => t.length >= 4).slice(0, 3);
+}
+
 /** ISO 8601 duration (PT1M30S) to seconds. */
 function durationSeconds(iso: string): number {
   const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(iso || ""));
@@ -124,7 +173,7 @@ reelResearchRouter.get("/reel-research", async (c) => {
     if (!vRes.ok) return c.json({ success: false, error: vJson?.error?.message || "Could not read video statistics.", examples: [] }, 502);
 
     const now = Date.now();
-    const examples = (vJson.items || []).map((v: any) => {
+    const scored = (vJson.items || []).map((v: any) => {
       const views = Number(v?.statistics?.viewCount || 0);
       const published = new Date(v?.snippet?.publishedAt || 0).getTime();
       const ageDays = Math.max(1, (now - published) / 86400_000);
@@ -143,7 +192,37 @@ reelResearchRouter.get("/reel-research", async (c) => {
       };
     })
       // A 3-minute review is not the format being written here.
-      .filter((v: any) => !shortOnly || (v.seconds > 0 && v.seconds <= 90))
+      .filter((v: any) => !shortOnly || (v.seconds > 0 && v.seconds <= 90));
+
+    // ── Relevance, which YouTube's own ranking will not give you ─────────────
+    //
+    // Searching "car seat heater" returned "Volvo just reinvented the seatbelt"
+    // at 8.8 million views as the top result. It matches on "seat" and it is a
+    // car, and it is useless as a pattern for a $15 heating pad — but it is the
+    // highest views-per-day in the set, so it would have dominated the prompt.
+    //
+    // A title has to carry at least one of the distinctive words from the query,
+    // ignoring the ones that match half of YouTube.
+    const STOP = new Set(["the", "and", "for", "with", "your", "car", "auto", "best", "new", "pro", "kit", "set"]);
+    const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w));
+    const relevant = terms.length
+      ? scored.filter((v: any) => {
+          const title = v.title.toLowerCase();
+          return terms.some((t) => title.includes(t));
+        })
+      : scored;
+
+    // ── And drop the runaway outlier ────────────────────────────────────────
+    //
+    // One video an order of magnitude beyond the rest is usually viral for a
+    // reason that has nothing to do with the product, and it drags the whole
+    // sample. Judged against the median rather than the mean, which the outlier
+    // would itself distort.
+    const pool = relevant.length >= 3 ? relevant : scored;
+    const perDay = [...pool].map((v: any) => v.viewsPerDay).sort((a, b) => a - b);
+    const median = perDay[Math.floor(perDay.length / 2)] || 0;
+    const examples = pool
+      .filter((v: any) => median === 0 || v.viewsPerDay <= median * 12)
       .sort((a: any, b: any) => b.viewsPerDay - a.viewsPerDay)
       .slice(0, 10);
 
