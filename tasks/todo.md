@@ -3392,3 +3392,51 @@ cause.
 
 The laser tag could not be re-tested: it carries only 2 images and a reel needs
 3, which the existing guard correctly refused.
+
+### The scoreboard — which hook shape actually works, and feeding it back
+
+The generator writes five competing variants because nobody can pick the winner
+in advance. That was only half the process. This is the other half: finding out
+which won, and writing more like it.
+
+**`reel-scoreboard.tsx`, mounted:**
+
+| Route | Purpose |
+|---|---|
+| `POST /reel-scoreboard/posts` | record that a variant was posted, with its archetype |
+| `PATCH /reel-scoreboard/posts/:id/metrics` | type in results — works for TikTok, which has no API for this |
+| `POST /reel-scoreboard/sync-instagram` | pull results automatically for connected Instagram posts |
+| `GET /reel-scoreboard` | archetypes ranked by what they earned |
+
+**Instagram cannot tell you a post was the "warning" archetype** — it has never
+heard of archetypes. So the link is recorded at posting time and metrics are
+attached afterwards, from the Graph API or by hand. Manual entry is deliberately
+first-class: TikTok offers no API that would give this, and a scoreboard that
+only worked on one platform would teach the wrong lesson by counting half the
+evidence.
+
+**Two measurement decisions that matter.**
+
+*Engagement rate, not likes.* Raw likes reward whichever reel the platform
+happened to push that week. Interactions over the people who actually saw it
+asks the question that matters.
+
+*Pooled, not an average of averages.* Verified with the case that exposes the
+difference: a post reaching 5 people with 5 interactions alongside one reaching
+10,000 with 200. Average-of-averages says **51%**. Pooled says **2.05%**, which
+is the truth. One freak post with tiny reach must not outrank real distribution.
+
+**The loop closes.** `winningArchetypesFragment()` feeds the ranking back into
+the generator, so it leans toward what has earned attention on this account —
+and stays silent until five posts carry results, because a ranking built on two
+is noise. The archetype list stops being a generic list I wrote and becomes
+Eric's own evidence.
+
+**Verified:** 6/6 on the engagement maths including zero-reach returning null
+rather than 0, and 5/5 on the ranking — warning correctly first at 5.56% pooled
+across two posts, the strongest hook surfaced with it, and problem correctly
+above result. All four routes 401 without a session; the Instagram sync names
+the two secrets it needs rather than failing obscurely.
+
+- [ ] Connect Instagram (`INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ID`) to
+      pull results automatically instead of typing them.

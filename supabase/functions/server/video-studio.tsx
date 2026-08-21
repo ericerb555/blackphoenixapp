@@ -23,6 +23,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";
+import { winningArchetypesFragment } from "./reel-scoreboard.tsx";
 
 export const videoStudioRouter = new Hono();
 
@@ -933,8 +934,12 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
       }
     } catch { /* the reel is written either way */ }
 
+    // What has actually worked for this account before. Empty until five posts
+    // carry results — a ranking built on two would steer by noise.
+    const proven = await winningArchetypesFragment();
+
     const prompt = `You write short-form product videos that people actually watch to the end.
-${researchPromptFragment(research)}
+${researchPromptFragment(research)}${proven}
 
 Product: ${product.name}
 Category: ${product.category || "general"}
