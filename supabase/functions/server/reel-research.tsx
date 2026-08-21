@@ -182,6 +182,7 @@ reelResearchRouter.get("/reel-research", async (c) => {
         id: v.id,
         title: String(v?.snippet?.title || ""),
         channel: String(v?.snippet?.channelTitle || ""),
+        channelId: String(v?.snippet?.channelId || ""),
         views,
         likes: Number(v?.statistics?.likeCount || 0),
         // The ranking signal: what is working now, not what worked once.
@@ -226,10 +227,46 @@ reelResearchRouter.get("/reel-research", async (c) => {
       .sort((a: any, b: any) => b.viewsPerDay - a.viewsPerDay)
       .slice(0, 10);
 
+    // ── Which channels own this space ───────────────────────────────────────
+    //
+    // A single video is noisy. Searching "heated seat cushion" surfaced a Honda
+    // motorbike seat and a sofa cushion — each a real result, neither a pattern
+    // worth copying. A channel that lands three videos in the same top results
+    // is not lucky; it has a formula, and the formula is the thing to study.
+    //
+    // Ranked on total reach per day across the channel's videos in this sample,
+    // and a channel needs more than one to count at all — one hit is a fluke,
+    // and a fluke is exactly what should not be mimicked.
+    const byChannel = new Map<string, any>();
+    for (const v of pool) {
+      const key = v.channelId || v.channel;
+      if (!key) continue;
+      const row = byChannel.get(key) || {
+        channelId: v.channelId, channel: v.channel,
+        videos: 0, totalViews: 0, viewsPerDay: 0, titles: [] as string[], medianSeconds: 0, seconds: [] as number[],
+      };
+      row.videos += 1;
+      row.totalViews += v.views;
+      row.viewsPerDay += v.viewsPerDay;
+      row.seconds.push(v.seconds);
+      if (row.titles.length < 4) row.titles.push(v.title);
+      byChannel.set(key, row);
+    }
+    const channels = [...byChannel.values()]
+      .filter((r) => r.videos > 1)
+      .map((r) => {
+        const s = [...r.seconds].sort((a: number, b: number) => a - b);
+        return { ...r, medianSeconds: s[Math.floor(s.length / 2)] || 0, seconds: undefined };
+      })
+      .sort((a, b) => b.viewsPerDay - a.viewsPerDay)
+      .slice(0, 5);
+
     const payload = {
       success: true,
       query: q,
       examples,
+      // The channels worth copying, and how consistently they win.
+      channels,
       // Stated so a caller can judge how much weight the sample deserves.
       totalViewsInSample: examples.reduce((s: number, v: any) => s + v.views, 0),
       medianSeconds: examples.length
@@ -252,30 +289,46 @@ reelResearchRouter.get("/reel-research", async (c) => {
  * a real example is described to the model — and one place to change when it
  * turns out the description is what needed changing.
  */
-export function researchPromptFragment(examples: any[]): string {
+export function researchPromptFragment(examples: any[], channels: any[] = []): string {
   if (!examples?.length) return "";
-  const top = examples.slice(0, 6);
-  return [
+  const lines: string[] = ["", "WHAT IS ACTUALLY WORKING FOR THIS PRODUCT RIGHT NOW.", ""];
+
+  // Channels first, because a channel that lands several videos in the same
+  // results has a repeatable formula, and a formula is worth more than a hit.
+  if (channels.length) {
+    lines.push(
+      "These channels dominate this subject — each has more than one video in the",
+      "top results, so what they do is a method rather than a lucky video:",
+      "",
+    );
+    for (const ch of channels.slice(0, 3)) {
+      lines.push(
+        `  ${ch.channel} — ${ch.videos} videos here, ${ch.viewsPerDay.toLocaleString()} views/day combined, typically ${ch.medianSeconds}s long`,
+      );
+      for (const t of (ch.titles || []).slice(0, 3)) lines.push(`      "${t}"`);
+      lines.push("");
+    }
+    lines.push(
+      "Look at what is CONSISTENT across each channel's titles: the sentence shape",
+      "they reuse, where they put the product name, whether they open on a problem,",
+      "a result or a number. That repetition is the formula. Copy the formula.",
+      "",
+    );
+  }
+
+  lines.push(
+    "And the individual videos earning the most attention per day:",
     "",
-    "WHAT IS ACTUALLY WORKING FOR THIS PRODUCT RIGHT NOW.",
-    "",
-    "These are real short videos about this product or a close relative, with",
-    "their real view counts, ranked by views per day so recent winners are not",
-    "buried under old evergreens:",
-    "",
-    ...top.map((v) =>
+    ...examples.slice(0, 6).map((v) =>
       `  ${v.views.toLocaleString()} views (${v.viewsPerDay.toLocaleString()}/day, ${v.seconds}s) — "${v.title}"`,
     ),
     "",
-    "Study the TITLES. They are the hooks that earned those numbers: what they",
-    "lead with, what they withhold, how specific they are, whether they promise a",
-    "result or name a problem. Write hooks that work the way these work.",
-    "",
     "Do NOT copy any of these titles, and do not claim anything they claim about",
-    `a different product. Match the pattern, not the words. The median length here`,
-    `is a useful signal about how long this format runs.`,
+    "a different product. Match the pattern, not the words. The typical length",
+    "above is a useful signal about how long this format runs.",
     "",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export default reelResearchRouter;

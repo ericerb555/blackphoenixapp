@@ -3519,3 +3519,50 @@ is now correctly aligned; whether it is *good* is a separate question covering
 container width, type scale, spacing rhythm, and the three-centred-circles
 benefits row that is the most recognisably generated pattern on it. That is a
 design pass worth scoping properly rather than smuggling in behind a bug fix.
+
+### Channels, not videos — find who owns a subject and copy the formula
+
+Eric: *"find the biggest channels and use theirs."*
+
+Right, and it fixes a weakness the earlier build had. Searching "heated seat
+cushion" returned a Honda motorbike seat and a sofa cushion — each a real result,
+neither a pattern. **A single video is noisy. A channel with three videos in the
+same results is not lucky; it has a formula, and the formula is the thing to
+copy.**
+
+`/reel-research` now aggregates its results by channel, ranks them on combined
+views per day, and **requires more than one video to count at all** — one hit is
+a fluke, and a fluke is exactly what should not be mimicked. Costs no extra
+quota: `channelId` and `channelTitle` already came back in the response.
+
+The prompt now leads with the channel formula and the individual videos second,
+because the repetition across a channel's titles is the signal.
+
+**It works. For "heated car seat cushion install":**
+
+    ExclusiveCoversUSA — 3 videos, 224/day, typically 61s
+        "REPLACING TOYOTA SEQUOIA SEAT BOTTOM 💺🔥WE SELL REPLACEMENT BOTTOMS"
+        "Universal Heated Seat Pads are HERE 🔥 Upgrade ANY vehicle"
+        "Infiniti Seat Upgrade — Full Install + Kit Link in Bio 👇"
+
+    Coverland — 2 videos, 168/day, typically 76s
+        "Installation Coverland Seat Cushion Cover"
+        "2025 Toyota RAV4 Seat Covers"
+
+Two visibly different formulas: one names a specific vehicle in caps with an
+emoji and a direct call to action; the other is pure search-intent titling —
+year, make, model, product.
+
+**Verified 6/6** on the aggregation, including the case that matters: a
+single-video channel doing 50,000 views/day is **excluded**, while a consistent
+three-video channel on 12,000/day ranks first. Consistency beats a spike.
+
+**Honest limit:** signal quality tracks the niche. The same product searched a
+different way found one qualifying channel doing six views a day — technically
+consistent, too small to teach anything. This earns its keep on products with a
+real short-form presence, and says little on those without one.
+
+Captions on the latest run: *"every drive, frozen seat" → "painful winter
+mornings" → **"in 35 seconds"***, and elsewhere "lumbar support style" and
+"synthetic fiber tech" — real numbers and real materials off the spec sheet
+rather than mood words.

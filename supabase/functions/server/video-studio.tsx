@@ -908,6 +908,10 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
     // configured. Best-effort: research is a sharpener, not a dependency, and a
     // failed lookup must never cost somebody their reel.
     let research: any[] = [];
+    // The channels that consistently win on this subject. Worth more than the
+    // individual videos: several videos from one channel is a formula, whereas
+    // one video doing well may be a fluke.
+    let researchChannels: any[] = [];
     let researchQuery = "";
     try {
       if (Deno.env.get("YOUTUBE_API_KEY")) {
@@ -920,7 +924,7 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
           if (cached) {
             // Cached misses count. Without this, a product nobody films would
             // burn 100 quota units on every single reel.
-            if (cached.examples?.length) { research = cached.examples; researchQuery = term; break; }
+            if (cached.examples?.length) { research = cached.examples; researchChannels = cached.channels || []; researchQuery = term; break; }
             continue;
           }
           const url = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/reel-research`);
@@ -929,7 +933,7 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
             headers: { Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
           });
           const j = await r.json().catch(() => ({}));
-          if (Array.isArray(j?.examples) && j.examples.length) { research = j.examples; researchQuery = term; break; }
+          if (Array.isArray(j?.examples) && j.examples.length) { research = j.examples; researchChannels = j.channels || []; researchQuery = term; break; }
         }
       }
     } catch { /* the reel is written either way */ }
@@ -939,7 +943,7 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
     const proven = await winningArchetypesFragment();
 
     const prompt = `You write short-form product videos that people actually watch to the end.
-${researchPromptFragment(research)}${proven}
+${researchPromptFragment(research, researchChannels)}${proven}
 
 Product: ${product.name}
 Category: ${product.category || "general"}
