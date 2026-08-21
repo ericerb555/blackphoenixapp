@@ -3468,3 +3468,54 @@ The scoreboard is the valuable part and it works today with typed-in numbers.
 Five posts is enough to start seeing which archetype wins. Connect the API when
 posting volume makes typing a chore — the refresh handling is already here, so it
 becomes a one-secret job.
+
+---
+
+## Page Pilot — the alignment bug, measured and fixed
+
+Eric: *"the pages don't align very well and need to be way more professional."*
+
+### Measured rather than guessed, and it caught me out three times
+
+Rendering the real component in a headless browser and taking measurements, my
+first three passes found **my own probe errors, not page defects**:
+
+1. Tailwind was not loaded, so `max-w-5xl` measured 1425px instead of 1024 and
+   everything looked broken. The probe's Vite config was missing the Tailwind
+   plugin the real build has.
+2. `heroStyle` is read from `design.hero`, not `design.heroStyle`.
+3. **`design` lives at `campaign.content.design`, not `campaign.design`** — so
+   every archetype fell back to the default, which is why all five variants
+   measured identically and looked like a broken design system.
+
+None of that was wrong with the page. Worth recording because "the design system
+does not work" was the wrong conclusion, twice, and the measurements said so only
+once the harness was right.
+
+### The real defect
+
+With the design data nested correctly, the archetypes clearly do work — 72px
+uppercase for `bold`, 36px for `demo`, different hero compositions. But:
+
+| | h1 | hero columns | |
+|---|---|---|---|
+| `bold/split` | 72px uppercase | [497, 492] | aligned |
+| `editorial/split` | 48px | **[304, 492]** | **188px mismatch** |
+
+A `split` hero pairs the copy against an `aspect-square` image. A loud headline
+fills the column and happens to match; a quieter one leaves the copy ~190px
+short, and `items-center` then floated the text in the middle of a tall picture
+with dead space above and below. Only `bold` escaped, by accident.
+
+**Fixed** with `items-stretch` and an image that fills the row rather than
+forcing its own square. Verified across all five archetypes: [320,320],
+[497,497], [320,320], [320,320], [320,320] — exact. Mobile stacks as before with
+no horizontal scroll.
+
+### What this does not fix
+
+"Up to today's best pages" is a design judgement, not one measurement. The page
+is now correctly aligned; whether it is *good* is a separate question covering
+container width, type scale, spacing rhythm, and the three-centred-circles
+benefits row that is the most recognisably generated pattern on it. That is a
+design pass worth scoping properly rather than smuggling in behind a bug fix.

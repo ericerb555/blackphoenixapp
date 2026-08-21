@@ -209,7 +209,12 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
     <ImageWithFallback
       src={primary.image}
       alt={primary.name}
-      className={`w-full object-cover ${fullBleed ? 'aspect-[16/9] md:aspect-[21/9]' : 'rounded-2xl shadow-2xl aspect-square'}`}
+      // In a split hero the image fills the row rather than forcing its own
+      // square, which is what left the copy column short beside it.
+      className={`w-full object-cover ${
+        fullBleed ? 'aspect-[16/9] md:aspect-[21/9]'
+                  : 'rounded-2xl shadow-2xl aspect-square md:aspect-auto md:h-full md:absolute md:inset-0'
+      }`}
     />
   );
 
@@ -224,10 +229,18 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
       ) : (
         <section className="relative overflow-hidden"
                  style={{ background: `linear-gradient(135deg, ${accent}14, ${ground} 60%)` }}>
+          {/* items-stretch, not items-center.
+              Measured: with the editorial headline the copy column comes out
+              304px against a 492px square image, and centring floated the text
+              in the middle of a tall picture with dead space above and below.
+              Only the `bold` direction escaped it, because a 72px uppercase
+              headline happens to fill the column (497px, near enough a match).
+              Stretching both columns and letting the image crop to the row
+              keeps the two sides level whatever the headline does. */}
           <div className={`max-w-5xl mx-auto px-6 py-16 md:py-24 ${
-            stackedHero ? 'space-y-10' : 'grid md:grid-cols-2 gap-10 items-center'}`}>
-            {heroCopy}
-            {primary && <div className="relative">{heroImage}</div>}
+            stackedHero ? 'space-y-10' : 'grid md:grid-cols-2 gap-10 items-stretch'}`}>
+            <div className="flex flex-col justify-center">{heroCopy}</div>
+            {primary && <div className="relative min-h-[320px]">{heroImage}</div>}
           </div>
         </section>
       )}
