@@ -988,7 +988,14 @@ export default function CustomerPortalView() {
                 </div>
               )}
 
-              {/* Featured Services */}
+              {/* Featured Services
+                  Guarded on length the same way the banner ads above are.
+                  featuredServices starts empty and is filled by a fetch, so
+                  this card was indexing [0] of an empty array and throwing
+                  `Cannot read properties of undefined (reading 'image')` —
+                  which took the whole customer portal down to a blank screen
+                  any time that fetch was slow, empty or offline. */}
+              {featuredServices.length > 0 && (
               <div className="bg-[#1A1A1A] rounded-lg border border-[#2A2A2A] p-4 flex flex-col min-h-[400px]">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -1039,6 +1046,7 @@ export default function CustomerPortalView() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             {/* Giveaways Section */}

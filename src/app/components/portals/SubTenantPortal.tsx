@@ -325,7 +325,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                   }`}>
                   <Icon className="w-4 h-4" />
                   {t.label}
-                  {t.badge && <span className="text-[8px] font-black px-1 py-0.5 rounded bg-green-500 text-black ml-1">{t.badge}</span>}
+                  {t.badge && <span className="text-[11px] font-black px-1 py-0.5 rounded bg-green-500 text-black ml-1">{t.badge}</span>}
                   {isMessages && unreadMessages > 0 && (
                     <span className="w-4 h-4 bg-indigo-500 rounded-full text-[9px] font-black text-white flex items-center justify-center ml-1">{unreadMessages}</span>
                   )}

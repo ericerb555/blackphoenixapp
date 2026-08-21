@@ -3668,3 +3668,52 @@ a 20px target perfectly well and a 44px floor there would just look clumsy.
 `pointer: coarse` match. The first run showed the floor doing nothing and the CSS
 was fine — the probe simply was not emulating touch. `setTouchEmulationEnabled`
 is what turns it on, and without it a mobile audit silently measures a desktop.
+
+## Review — the remaining ten portals on iPhone
+
+Swept all ten remaining portals at 390x844 with touch emulation on, rendering
+each real component against a stub auth context and a catch-all fetch that
+returns empty-but-successful. That last detail matters: it reproduces a slow
+connection, a new tenant, or a failed request, which is exactly the state a
+portal is most likely to be in on a phone in the field.
+
+Nine of the ten came back clean on tap targets and side-scroll on the first
+pass, which is the global 44px floor doing its job everywhere without any
+per-portal work. Two real defects turned up.
+
+### The customer portal was crashing to a blank screen
+
+`featuredServices` starts as an empty array and is filled by a fetch, but the
+Featured Services card rendered unconditionally and indexed `[0].image`. Any
+time that fetch was slow, empty or offline, the whole portal threw
+`Cannot read properties of undefined (reading 'image')` and rendered nothing at
+all — not a broken card, a blank page. The banner-ad card immediately above it
+was already guarded on `length > 0`; this one simply never was. Guarded the same
+way. The portal now renders 2502 characters where it previously rendered zero.
+
+### Sub-12px text in every portal, from one shared component
+
+Every portal reported roughly the same count of tiny text, which is the shape of
+a shared component rather than a per-page mistake. It was `SponsoredMarquee`:
+six small labels, and the strip loops its items four times, so six classes became
+~57 unreadable elements on every single screen. Raised to 12–13px there.
+
+Two 8px all-caps tab badges remained (`NEW` on landlord, `EARN` on tenant).
+Apple's smallest standard text style, Caption 2, is 11pt — an 8px pill is below
+anything they ship, so those badges were decoration nobody could read, which
+defeats the point of flagging a tab as new. Both are now 11px.
+
+### Two harness traps worth writing down
+
+The probe runs off the Vite **dev** server, not a build. `probe/vite.config.ts`
+sets `server.port` and declares no build input for `p.html`, so `vite build` +
+`vite preview` served the main app instead — and the SPA fallback answered
+`/probe/p.html` with **HTTP 200** and the app's own "Page not found" screen. A
+200 is not proof the right page loaded, and for a while this looked like every
+portal had broken at once.
+
+Separately, `while read` silently dropped the last row of results because the
+probe output had no trailing newline, which read as "the sweep found nothing".
+Both cost more time than the actual fixes did.
+
+`probe/` is removed. Typecheck and production build both clean.

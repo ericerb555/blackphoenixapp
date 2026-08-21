@@ -438,7 +438,7 @@ export default function LandlordPortalView() {
                         : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-teal-500/30'
                     }`}>
                     <Icon className="w-4 h-4" />{t.label}
-                    {t.badge && <span className="text-[8px] font-black px-1 py-0.5 rounded bg-yellow-500 text-black ml-1">{t.badge}</span>}
+                    {t.badge && <span className="text-[11px] font-black px-1 py-0.5 rounded bg-yellow-500 text-black ml-1">{t.badge}</span>}
                   </button>
                 );
               })}
@@ -456,7 +456,7 @@ export default function LandlordPortalView() {
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
-          <p className={`text-[11px] text-gray-500 mt-1 transition-opacity ${tabScroll.atEnd ? 'opacity-0' : 'opacity-100'}`}>Scroll for more →</p>
+          <p className={`text-[12px] text-gray-500 mt-1 transition-opacity ${tabScroll.atEnd ? 'opacity-0' : 'opacity-100'}`}>Scroll for more →</p>
         </div>
       </div>
 
