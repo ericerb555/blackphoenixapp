@@ -3335,3 +3335,60 @@ an installation video rather than an ad. The exemplars are real but thin. A
 product with a bigger short-form presence will give the model more to work with,
 and the transcript upgrade — a few cents a video — is what would add beat timing
 on top.
+
+### Three more products — one result proves the category data is doing damage
+
+| Product | Research sample | Captions |
+|---|---|---|
+| Deep-Cleaning Toothpaste | 17.6M views | **about a cluttered desk** |
+| Early Autumn Velvet Dress | 258k views | "tired of boring workwear" → "nothing feels sophisticated" — good |
+| Beaded Tweed Dress | 7.9k views, top result in Portuguese | "figure-flattering magic", "beaded elegance" — mood words again |
+
+**The toothpaste is the finding.** Its captions read *"cluttered desk chaos"*,
+*"spotless and organized"*, *"minty fresh desk?"* — the model wrote an entire
+reel about tidying a desk. Because the product's stored category is
+**"Home Office Storage"**, and category is fed to the model as context.
+
+That category was flagged hours ago as a dumping ground holding ant repellent,
+dental filling and a Christmas tree. This is no longer a tidiness observation: it
+is corrupting the output of the feature Eric intends to sell with. Twenty
+products carry it.
+
+**And the pattern across all three:** output quality tracks the research sample.
+258,000 views of real material produced a usable hook; 7,920 views with a
+Portuguese-language top result produced mood phrases again. The research helps
+exactly as much as there is real material to find.
+
+- [ ] Re-categorise the 20 products stuck in "Home Office Storage". Now
+      demonstrably worth doing, not merely untidy.
+
+### Categories fixed — 20 products out of the dumping ground
+
+"Home Office Storage" held ant repellent, toothpaste, a car seat heater, dental
+filling, a Christmas tree, a demon mask and a garden fence. All 20 now carry a
+category that describes them, stamped with `categoryCorrectedAt` so the change
+is traceable.
+
+Pest Control (2) · Oral Care (3) · Car Accessories · Garden & Outdoor ·
+Crafts & Hobbies · Phone & Cable Accessories · Bike & Scooter Accessories ·
+Hand Tools · Cleaning Supplies · Lighting · Cameras & Photography ·
+First Aid & Medical · Christmas & Seasonal · Costumes & Party ·
+Keychains & Tags · Event & Party Supplies · Wood Care
+
+**One was a trap worth naming.** "Stainless Steel Brass Laser Tag" is not the
+game — the description reads *"Style: love, stainless steel, waterproof,
+40×34×1.8mm"*. It is a laser-**engraved** metal tag. Filed under Keychains &
+Tags. Left alone, a reel generator would sooner or later have made a video about
+arena combat for a keyring.
+
+**Verified by re-running the product that exposed the problem.** Deep-Cleaning
+Toothpaste previously produced "cluttered desk chaos", "spotless and organized",
+"minty fresh desk?". It now produces:
+
+    "those stubborn stains" -> "never seem to lift" -> "effortlessly wash away"
+
+No desk or office language anywhere in the output. The category was the whole
+cause.
+
+The laser tag could not be re-tested: it carries only 2 images and a reel needs
+3, which the existing guard correctly refused.
