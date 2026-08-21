@@ -22,6 +22,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { researchPromptFragment } from "./reel-research.tsx";
 
 export const videoStudioRouter = new Hono();
 
@@ -902,7 +903,28 @@ videoStudioRouter.post("/video-studio/product-reel", async (c) => {
         ].slice(0, variantCount)
       : HOOK_ARCHETYPES.slice(0, variantCount);
 
+    // What is actually working for this product right now, if a YouTube key is
+    // configured. Best-effort: research is a sharpener, not a dependency, and a
+    // failed lookup must never cost somebody their reel.
+    let research: any[] = [];
+    try {
+      const cacheKey = `reel_research:${String(product.name || "").toLowerCase().slice(0, 80)}:true`;
+      const cached = (await kv.get(cacheKey)) as any;
+      if (cached?.examples?.length) {
+        research = cached.examples;
+      } else if (Deno.env.get("YOUTUBE_API_KEY")) {
+        const url = new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-3eae23a6/reel-research`);
+        url.searchParams.set("q", String(product.name || "").slice(0, 80));
+        const r = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        });
+        const j = await r.json().catch(() => ({}));
+        if (Array.isArray(j?.examples)) research = j.examples;
+      }
+    } catch { /* the reel is written either way */ }
+
     const prompt = `You write short-form product videos that people actually watch to the end.
+${researchPromptFragment(research)}
 
 Product: ${product.name}
 Category: ${product.category || "general"}
@@ -1063,6 +1085,11 @@ Return ONLY JSON:
       product: { id: product.id || product.sku, name: product.name, price, category: product.category },
       variants,
       imagesAvailable: unique.length,
+      // Surfaced so the caller can see whether these hooks were written against
+      // real winners or against the static archetypes alone.
+      researchedAgainst: research.length
+        ? { count: research.length, topTitle: research[0]?.title || "", totalViews: research.reduce((s: number, v: any) => s + Number(v.views || 0), 0) }
+        : null,
       // Post all of them and let the audience choose. Stated in the payload
       // because the instinct is to pick a favourite and post one, and picking a
       // favourite is exactly what this endpoint exists to stop.

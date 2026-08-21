@@ -3189,3 +3189,111 @@ I then read the log, allowlist anything legitimately public, and flip with
 confidence rather than hope.
 
 - [ ] Flip `AUTH_ENFORCE` once signed-in traffic exists in the shadow log.
+
+---
+
+# "Scan the internet for a winning video and mimic it" — what is actually possible
+
+Eric asked for an assistant that finds a high-performing video for a product (or
+a similar one) and feeds it into the reel creator to mimic. Researched what each
+source actually allows in August 2026.
+
+## The sources, and what they really give
+
+| Source | Programmatic access | Verdict |
+|---|---|---|
+| **YouTube Data API v3** | Official, free, 10,000 units/day (~100 searches). Titles, descriptions, **real view counts**, duration, engagement. Commercial use permitted. | **The one clean source.** |
+| **TikTok Creative Center** | Free to *browse*, **no API at all**. Programmatic access means scraping, or a paid third party (Apify). | Best content, no legitimate pipe. |
+| **Meta Ad Library API** | Outside the EU and UK it returns **political and social-issue ads only**. Commercial coverage is EU/UK. | Useless for a US business. |
+| **YouTube transcripts** | **No official API for videos you do not own.** Third-party services or scraping the player page. | Needs a paid step or a grey one. |
+
+## What can be built today, free and clean
+
+YouTube search alone carries further than it sounds:
+
+- Search the product and near-synonyms, rank by **views and views-per-day** so a
+  recent climber is not buried under an old evergreen.
+- Pull title, description, duration, view and like counts.
+- The **title is the hook**, and the duration tells you the format. Five titles
+  totalling two million views on this exact product is a real signal about what
+  language works, from real numbers rather than a static archetype list.
+- Feed those as live exemplars into the reel generator, in the same slot the
+  hardcoded archetypes occupy now.
+
+**This directly fixes the weakness found an hour ago.** Captions came out as
+"round elegance" and "frosted mystery" because the model had no concrete pattern
+to follow — only adjectives about being concrete. A real winning title, with its
+view count, is exactly the missing target.
+
+## What costs money, and what it buys
+
+Beat-level structure — where the hook lands, how fast it cuts — needs the
+transcript with timings, and there is no official route to one for a video you do
+not own. Options, cheapest first:
+
+1. **Free:** titles, durations and view counts only. Good enough to shape hooks.
+2. **~cents per video:** a third-party transcript service. Buys the opening line
+   verbatim and the cut cadence.
+3. **Paid ad-intelligence (Apify / Kalodata / similar):** TikTok Top Ads
+   programmatically. Best material, real subscription cost.
+
+## What is not on the table
+
+Downloading someone's video and re-using the footage is infringement, and no
+wrapper makes it otherwise. "Mimic" has to mean the **structure** — hook shape,
+beat count, pacing, the argument being made — which is not protectable and is
+exactly what a swipe file is.
+
+## Proposed
+
+- [ ] Z1. Build the free YouTube path: search, rank by views-per-day, return the
+      winning titles and formats, and wire them into the reel generator as live
+      exemplars beside the static archetypes.
+- [ ] Z2. Decide after seeing Z1's output whether the transcript step is worth a
+      few cents a video. Z1 is the part that answers "does this help at all",
+      and it costs nothing to find out.
+
+### Z1 — the free YouTube research path, built
+
+`GET /reel-research?q=...` finds short videos that are actually working for a
+product, and `researchPromptFragment()` folds them into the reel prompt beside
+the static archetypes.
+
+**Why ranked by views per day rather than views.** A three-year-old video with
+900,000 views is a worse guide than a three-week-old one with 200,000 — the
+second is what is working *now*. Verified: given exactly that pair, the recent
+climber ranks first and raw views do not decide.
+
+**Quota is the real constraint.** A search costs 100 of 10,000 daily units and
+the statistics call costs 1, so a research call is ~101 units and the day holds
+about 98. Results cache for 24 hours per query; asking the same question twice
+would burn a hundredth of the day's allowance for nothing.
+
+**Filtered to 90 seconds or less** — a three-minute review is not the format
+being written here — and to the last 18 months, past which the format itself has
+usually moved on.
+
+**Wired in as a sharpener, not a dependency.** The product reel looks for
+research, uses it if present, and writes the reel regardless if not. A failed
+lookup never costs somebody their reel. The response carries `researchedAgainst`
+so the caller can see whether the hooks were written against real winners or
+against the archetypes alone.
+
+**Nothing is downloaded and no footage is reused.** The prompt says explicitly:
+match the pattern, not the words, and claim nothing about our product that
+another product's title claimed about theirs.
+
+**Verified:** 9/9 on the logic that can be tested without a key — ISO duration
+parsing including hours and garbage input, the 90-second filter, and the
+views-per-day ranking beating raw views. Live: with no key set the endpoint says
+exactly what to set and why, rather than pretending or erroring; the product reel
+still produces variants with `researchedAgainst: null`.
+
+**What is needed to see it work: a free `YOUTUBE_API_KEY`.** A Google Cloud
+project with YouTube Data API v3 enabled, no card, 10,000 units a day. That is
+the only thing between this and running.
+
+**Still expected to be imperfect until then.** Today's captions without research
+were "every winter... chilly seats" and "warmth at every start" — better than
+"#beforeandafter", still reaching for mood. That is the gap a real exemplar with
+a real view count is meant to close, and it cannot be judged until the key exists.
