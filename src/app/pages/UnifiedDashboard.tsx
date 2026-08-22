@@ -34,6 +34,7 @@ import MultiDropshipperManager from '../components/MultiDropshipperManager';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import MasterScheduling from './MasterScheduling';
 import UnifiedDashboardMobile from './UnifiedDashboardMobile';
+import CommandCenterHome from './CommandCenterHome';
 import ServerDeploymentGuide from '../components/ServerDeploymentGuide';
 import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
@@ -108,6 +109,25 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   const [searchReadOnly, setSearchReadOnly] = useState(true);
   const [activeTab, setActiveTab] = useState('operations');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Two figures the summary already returns that the old layout never read.
+  // Both feed the new command center: what is owed, and what is waiting.
+  const [openInvoiceTotal, setOpenInvoiceTotal] = useState(0);
+  const [pendingWorkRequests, setPendingWorkRequests] = useState(0);
+
+  /**
+   * Escape hatch to the previous layout. `?classic=1` switches to it and is
+   * remembered; `?classic=0` comes back. Read once on mount so a re-render
+   * cannot flip the layout underneath somebody mid-task.
+   */
+  const [classicLayout] = useState(() => {
+    try {
+      const param = new URLSearchParams(window.location.search).get('classic');
+      if (param === '1') { localStorage.setItem('command_center_classic', '1'); return true; }
+      if (param === '0') { localStorage.removeItem('command_center_classic'); return false; }
+      return localStorage.getItem('command_center_classic') === '1';
+    } catch { return false; }
+  });
   const [isMobile, setIsMobile] = useState(false);
   const [forceMobileView, setForceMobileView] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
@@ -221,6 +241,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         const summary = result.summary;
         setRevenueData(summary.chartData || []); setTotalRevenue(Number(summary.totalRevenue || 0));
         setActiveJobsCount(Number(summary.activeJobsCount || 0)); setCustomersCount(Number(summary.customersCount || 0)); setTeamCount(Number(summary.teamCount || 0));
+        setOpenInvoiceTotal(Number(summary.openInvoiceTotal || 0)); setPendingWorkRequests(Number(summary.pendingWorkRequests || 0));
         setRevenueTrend(0); setJobsTrend(0); setCustomersTrend(0);
       } catch (error) { console.error('[Dashboard] Error fetching Command Center metrics:', error); }
     };
@@ -631,7 +652,35 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     );
   }
 
-  // Desktop layout
+  /**
+   * Desktop: the rebuilt command center.
+   *
+   * The old layout below is kept rather than deleted, reachable with
+   * `?classic=1` (which is remembered afterwards, and cleared with
+   * `?classic=0`). Two reasons. It is a large screen to replace in one go and
+   * an instant way back costs nothing; and it means a problem found in the new
+   * one does not need a deploy to escape from.
+   */
+  if (!classicLayout) {
+    return (
+      <CommandCenterHome
+        tabCategories={tabCategories}
+        companyName={companyName}
+        onNavigate={handleNavigation}
+        summary={{
+          totalRevenue,
+          openInvoiceTotal,
+          activeJobsCount,
+          customersCount,
+          teamCount,
+          pendingWorkRequests,
+          chartData: revenueData,
+        }}
+      />
+    );
+  }
+
+  // Desktop layout — the previous command center, kept behind ?classic=1
   return (
     <div className="min-h-screen bg-[#0A0A0A] flex">
       {/* Collapsible Sidebar */}
