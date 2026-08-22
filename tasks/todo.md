@@ -4019,3 +4019,76 @@ authorisation hole, not a cosmetic gap.
 
 The advertising changes are server-side, so they need the same deploy as vendor
 billing before they take effect.
+
+## Review — the condo authorisation hole is closed
+
+Eric asked how the role switcher really worked and who controlled it. The honest
+answer was **nobody** — it was a demo device, not a permission system, and there
+was no permission model to have a hole in. That conversation produced a design
+for a master condo account (`tasks/condo-master-account-plan.md`) and a decision
+to close the security hole now, separately, since it does not depend on the
+design.
+
+### What was wrong — two things
+
+**The role came from the browser.** `localStorage.getItem('condo_user_role')`,
+with a "Switch Role" dropdown offered to every visitor, and the financials,
+vendors, units, team and approvals tabs gated on the result. The fallback was
+`|| 'board_president'`, so a visitor with nothing stored arrived holding the
+*most* privileged role rather than the least.
+
+**The condo routes had no authentication at all.** All ten of them.
+`GET /property-management/condos` returned every association to anyone, and
+create, update and delete accepted writes from anyone. `CondoService` sent the
+public anon key — a value baked into the shipped bundle that identifies nobody —
+so the server had nothing to check even if it had wanted to.
+
+The second was the real exposure. A client-side gate decides what a screen
+draws; it does not decide what the server hands out.
+
+### What changed
+
+- **Role now comes from the account**, via a `condoRole` on the user's metadata,
+  and defaults to **resident** when unknown rather than board president. Least
+  privilege on the unknown case.
+- **The switcher survives only for platform staff** (`isOwner || isMasterAdmin
+  || isAdmin`), so Eric's cross-portal testing keeps working. It cannot escalate
+  anyone, because only someone who already holds full authority can reach it,
+  and a stored value is ignored outright for everybody else.
+- **All ten condo routes now authenticate**, through one `condoActor` helper:
+  signed in to read, platform authority to write. It fails closed deliberately —
+  refusing someone who should be allowed is a support ticket, allowing someone
+  who should not be is a breach. When per-association consent lands, that helper
+  is the single place it plugs into.
+- **`propertyManagementService` sends the real session token** across all 31 of
+  its call sites, so there is something for the server to check.
+
+### Verified in the browser, six scenarios
+
+| Who | Role given | Switcher | Board-only tabs |
+|---|---|---|---|
+| Plain visitor | Resident | no | none |
+| **Visitor with `board_president` planted in storage** | **Resident** | **no** | **none** |
+| Account assigned resident | Resident | no | none |
+| Account assigned board member | Board Member | no | all four |
+| Platform owner | Board President | yes | all four |
+| Platform owner with planted storage | Board President | yes | all four |
+
+The second row is the attack, and it now changes nothing. No console errors in
+any scenario.
+
+### Said plainly: what is not verified
+
+The **server guards are not runtime-tested**. They parse clean and follow the
+same `intakeActor` / `intakeIsAdmin` pattern a great many existing routes use,
+but unlike the vendor billing module I could not exercise these on a branch —
+they live inside the 128-file server function, and a harness would have tested a
+copy rather than the real thing. They take effect on the next deploy along with
+vendor billing and the advertising URL fix.
+
+### Still open
+
+Per-association scoping. One board must not be able to read another's records,
+and nothing enforces that yet — today every signed-in user can read every
+association. It is bounded by there being no real condo data, and it is the
+first thing the consent model fixes.

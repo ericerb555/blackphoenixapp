@@ -20,6 +20,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import { CondoService } from '../../lib/services/propertyManagementService';
+import { useAuth } from '../../contexts/AuthContext';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
 import { lookupParcel } from '../../lib/services/propertyRecordsService';
 
@@ -41,13 +42,63 @@ export default function CondoAssociationPortalView() {
   const [workRequests, setWorkRequests] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
 
-  // User role - would come from auth system in production
-  const [currentUser, setCurrentUser] = useState<CondoUser>({
-    id: 'user-1',
-    name: 'Robert Martinez',
-    email: 'robert@harborview.com',
-    role: localStorage.getItem('condo_user_role') as UserRole || 'board_president'
+  const { user, isOwner, isMasterAdmin, isAdmin } = useAuth();
+
+  /**
+   * Who this person is, and what they may do.
+   *
+   * This used to read `localStorage.getItem('condo_user_role')`, with a "Switch
+   * Role" dropdown offered to every visitor, and the financials, vendors, units,
+   * team and approvals tabs gated on the result. Anyone could make themselves
+   * board president from the browser console. The fallback made it worse: with
+   * nothing stored the default was `board_president`, so an unknown visitor
+   * arrived holding the most privileged role rather than the least.
+   *
+   * The role now comes from the account. Storage cannot grant anything.
+   *
+   * This is the interim shape. The real model is per-association consent — an
+   * association owns its records and grants administration to whoever it
+   * chooses, revocably — and when that lands the role comes from the grant
+   * rather than from account metadata. See `tasks/condo-master-account-plan.md`.
+   */
+  const canPreviewRoles = Boolean(isOwner || isMasterAdmin || isAdmin);
+
+  const accountRole: UserRole = (() => {
+    const assigned = String(
+      user?.user_metadata?.condoRole || user?.user_metadata?.condo_role || '',
+    ).toLowerCase().replace(/[\s-]+/g, '_');
+    if (['board_president', 'board_member', 'property_manager', 'resident'].includes(assigned)) {
+      return assigned as UserRole;
+    }
+    // Platform staff see the association whole, because they support it.
+    if (canPreviewRoles) return 'board_president';
+    // Everyone else gets the least the portal offers. An unrecognised visitor
+    // is a resident, never a board member.
+    return 'resident';
+  })();
+
+  /**
+   * A preview override, for platform staff only.
+   *
+   * Eric tests every portal from the owner account, so the switcher has to keep
+   * working. It cannot escalate anyone, because only somebody who already holds
+   * full authority can reach it — and it is ignored entirely for everybody else,
+   * so a stale value in a resident's browser does nothing.
+   */
+  const [rolePreview, setRolePreview] = useState<UserRole | null>(() => {
+    if (!canPreviewRoles) return null;
+    const stored = localStorage.getItem('condo_user_role') as UserRole | null;
+    return stored && ['board_president', 'board_member', 'property_manager', 'resident'].includes(stored)
+      ? stored
+      : null;
   });
+
+  const currentUser: CondoUser = {
+    id: String(user?.id || 'anonymous'),
+    name: String(user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Resident'),
+    email: String(user?.email || ''),
+    role: canPreviewRoles && rolePreview ? rolePreview : accountRole,
+  };
 
   // Get condo ID from localStorage or URL params
   const condoId = localStorage.getItem('current_condo_id') || 'demo-condo';
@@ -459,11 +510,12 @@ export default function CondoAssociationPortalView() {
     }
   };
 
-  // Role switcher for demo purposes
+  // Preview another role. Reachable only by platform staff — see canPreviewRoles.
   const switchRole = (role: UserRole) => {
-    setCurrentUser({ ...currentUser, role });
+    if (!canPreviewRoles) return;
+    setRolePreview(role);
     localStorage.setItem('condo_user_role', role);
-    toast.success(`Switched to ${getRoleDisplayName(role)} view`);
+    toast.success(`Previewing the ${getRoleDisplayName(role)} view`);
   };
 
   // Build tabs based on role permissions
@@ -524,7 +576,12 @@ export default function CondoAssociationPortalView() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {/* Role Switcher (Demo only) */}
+              {/* Role preview — platform staff only.
+                  Hidden rather than disabled for everyone else: a resident
+                  should not be shown a control that implies the board view is
+                  one click away. The guard in switchRole is the real check;
+                  this just stops the control existing. */}
+              {canPreviewRoles && (
               <div className="relative group">
                 <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition flex items-center gap-2">
                   <Key className="w-5 h-5" />
@@ -549,6 +606,7 @@ export default function CondoAssociationPortalView() {
                   </button>
                 </div>
               </div>
+              )}
 
               <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition relative">
                 <Bell className="w-5 h-5" />

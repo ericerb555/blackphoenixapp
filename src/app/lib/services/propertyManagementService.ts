@@ -1,4 +1,5 @@
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../supabase';
 
 // Test function to verify Supabase info is loaded
 console.log('🔧 Property Management Service Initialized');
@@ -9,9 +10,31 @@ const BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae
 
 console.log('  - BASE_URL:', BASE_URL);
 
-const headers = {
-  'Authorization': `Bearer ${publicAnonKey}`,
-  'Content-Type': 'application/json'
+/**
+ * The signed-in user's token, not the public anon key.
+ *
+ * Every call in this file used to send `Bearer <publicAnonKey>`, which is a
+ * value baked into the shipped bundle and identifies nobody. The condo routes
+ * consequently had no way to tell one caller from another, so they checked
+ * nothing and served every association's records to anyone who asked. Sending
+ * the real session token is what gives the server something to check.
+ *
+ * Falls back to the anon key when signed out so the request still reaches the
+ * function, which then refuses it with a 401 — the refusal belongs on the
+ * server, not here, where it could be edited out.
+ */
+const authHeaders = async (): Promise<Record<string, string>> => {
+  let token = publicAnonKey;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) token = data.session.access_token;
+  } catch {
+    // No session available; the anon key below will be refused by the server.
+  }
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
 };
 
 // ==========================================
@@ -21,13 +44,13 @@ const headers = {
 export const CondoService = {
   // Get all condo associations
   getAll: async () => {
-    const res = await fetch(`${BASE_URL}/condos`, { headers });
+    const res = await fetch(`${BASE_URL}/condos`, { headers: await authHeaders() });
     return res.json();
   },
 
   // Get single condo
   getById: async (id: string) => {
-    const res = await fetch(`${BASE_URL}/condos/${id}`, { headers });
+    const res = await fetch(`${BASE_URL}/condos/${id}`, { headers: await authHeaders() });
     return res.json();
   },
 
@@ -35,7 +58,7 @@ export const CondoService = {
   create: async (data: any) => {
     const res = await fetch(`${BASE_URL}/condos`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -45,7 +68,7 @@ export const CondoService = {
   update: async (id: string, data: any) => {
     const res = await fetch(`${BASE_URL}/condos/${id}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -55,7 +78,7 @@ export const CondoService = {
   delete: async (id: string) => {
     const res = await fetch(`${BASE_URL}/condos/${id}`, {
       method: 'DELETE',
-      headers
+      headers: await authHeaders()
     });
     return res.json();
   },
@@ -65,7 +88,7 @@ export const CondoService = {
     const url = status 
       ? `${BASE_URL}/condos/${condoId}/work-requests?status=${status}`
       : `${BASE_URL}/condos/${condoId}/work-requests`;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers: await authHeaders() });
     return res.json();
   },
 
@@ -73,7 +96,7 @@ export const CondoService = {
   createWorkRequest: async (condoId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/condos/${condoId}/work-requests`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -83,7 +106,7 @@ export const CondoService = {
   updateWorkRequest: async (condoId: string, requestId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/condos/${condoId}/work-requests/${requestId}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -99,7 +122,7 @@ export const CondoService = {
 
   // Get units
   getUnits: async (condoId: string) => {
-    const res = await fetch(`${BASE_URL}/condos/${condoId}/units`, { headers });
+    const res = await fetch(`${BASE_URL}/condos/${condoId}/units`, { headers: await authHeaders() });
     return res.json();
   },
 
@@ -107,7 +130,7 @@ export const CondoService = {
   createUnit: async (condoId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/condos/${condoId}/units`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -121,7 +144,7 @@ export const CondoService = {
 export const LandlordService = {
   getAll: async () => {
     try {
-      const res = await fetch(`${BASE_URL}/landlords`, { headers });
+      const res = await fetch(`${BASE_URL}/landlords`, { headers: await authHeaders() });
       if (!res.ok) {
         return { success: false, data: [], error: `HTTP ${res.status}` };
       }
@@ -135,7 +158,7 @@ export const LandlordService = {
 
   getById: async (id: string) => {
     try {
-      const res = await fetch(`${BASE_URL}/landlords/${id}`, { headers });
+      const res = await fetch(`${BASE_URL}/landlords/${id}`, { headers: await authHeaders() });
       if (!res.ok) {
         return { success: false, data: null, error: `HTTP ${res.status}` };
       }
@@ -150,7 +173,7 @@ export const LandlordService = {
   create: async (data: any) => {
     const res = await fetch(`${BASE_URL}/landlords`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -159,7 +182,7 @@ export const LandlordService = {
   update: async (id: string, data: any) => {
     const res = await fetch(`${BASE_URL}/landlords/${id}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -170,7 +193,7 @@ export const LandlordService = {
       const url = status
         ? `${BASE_URL}/landlords/${landlordId}/work-requests?status=${status}`
         : `${BASE_URL}/landlords/${landlordId}/work-requests`;
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, { headers: await authHeaders() });
       if (!res.ok) {
         return { success: false, data: [], error: `HTTP ${res.status}` };
       }
@@ -185,7 +208,7 @@ export const LandlordService = {
   createWorkRequest: async (landlordId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/landlords/${landlordId}/work-requests`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -194,7 +217,7 @@ export const LandlordService = {
   updateWorkRequest: async (landlordId: string, requestId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/landlords/${landlordId}/work-requests/${requestId}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -209,7 +232,7 @@ export const LandlordService = {
 
   getProperties: async (landlordId: string) => {
     try {
-      const res = await fetch(`${BASE_URL}/landlords/${landlordId}/properties`, { headers });
+      const res = await fetch(`${BASE_URL}/landlords/${landlordId}/properties`, { headers: await authHeaders() });
       if (!res.ok) {
         return { success: false, data: [], error: `HTTP ${res.status}` };
       }
@@ -224,7 +247,7 @@ export const LandlordService = {
   createProperty: async (landlordId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/landlords/${landlordId}/properties`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -237,19 +260,19 @@ export const LandlordService = {
 
 export const PropertyManagerService = {
   getAll: async () => {
-    const res = await fetch(`${BASE_URL}/property-managers`, { headers });
+    const res = await fetch(`${BASE_URL}/property-managers`, { headers: await authHeaders() });
     return res.json();
   },
 
   getById: async (id: string) => {
-    const res = await fetch(`${BASE_URL}/property-managers/${id}`, { headers });
+    const res = await fetch(`${BASE_URL}/property-managers/${id}`, { headers: await authHeaders() });
     return res.json();
   },
 
   create: async (data: any) => {
     const res = await fetch(`${BASE_URL}/property-managers`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -258,7 +281,7 @@ export const PropertyManagerService = {
   update: async (id: string, data: any) => {
     const res = await fetch(`${BASE_URL}/property-managers/${id}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -268,14 +291,14 @@ export const PropertyManagerService = {
     const url = status 
       ? `${BASE_URL}/property-managers/${managerId}/work-requests?status=${status}`
       : `${BASE_URL}/property-managers/${managerId}/work-requests`;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers: await authHeaders() });
     return res.json();
   },
 
   createWorkRequest: async (managerId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/property-managers/${managerId}/work-requests`, {
       method: 'POST',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -284,7 +307,7 @@ export const PropertyManagerService = {
   updateWorkRequest: async (managerId: string, requestId: string, data: any) => {
     const res = await fetch(`${BASE_URL}/property-managers/${managerId}/work-requests/${requestId}`, {
       method: 'PUT',
-      headers,
+      headers: await authHeaders(),
       body: JSON.stringify(data)
     });
     return res.json();
@@ -305,19 +328,19 @@ export const PropertyManagerService = {
 export const PropertyManagementDashboard = {
   // Get all approved work requests
   getApprovedWorkRequests: async () => {
-    const res = await fetch(`${BASE_URL}/work-requests/approved`, { headers });
+    const res = await fetch(`${BASE_URL}/work-requests/approved`, { headers: await authHeaders() });
     return res.json();
   },
 
   // Get all pending work requests
   getPendingWorkRequests: async () => {
-    const res = await fetch(`${BASE_URL}/work-requests/pending`, { headers });
+    const res = await fetch(`${BASE_URL}/work-requests/pending`, { headers: await authHeaders() });
     return res.json();
   },
 
   // Get dashboard stats
   getStats: async () => {
-    const res = await fetch(`${BASE_URL}/stats`, { headers });
+    const res = await fetch(`${BASE_URL}/stats`, { headers: await authHeaders() });
     return res.json();
   }
 };
@@ -339,7 +362,7 @@ export const propertyManagementService = {
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
       const res = await fetch(url, { 
-        headers,
+        headers: await authHeaders(),
         signal: controller.signal 
       });
       
@@ -387,7 +410,7 @@ export const propertyManagementService = {
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
       const res = await fetch(`${BASE_URL}/work-requests/pending`, { 
-        headers,
+        headers: await authHeaders(),
         signal: controller.signal 
       });
       

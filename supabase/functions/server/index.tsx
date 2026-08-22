@@ -1511,8 +1511,35 @@ app.get('/make-server-3eae23a6/property-management-test', (c) => c.json({
   timestamp: new Date().toISOString(),
 }));
 
+/**
+ * Who is asking about a condo association?
+ *
+ * These routes had no authentication of any kind. `GET
+ * /property-management/condos` returned every association to anyone who asked,
+ * and the create, update and delete routes accepted writes from anyone at all —
+ * `CondoService` sent the public anon key rather than a signed-in user's token,
+ * so nothing about the caller was ever established.
+ *
+ * This is the interim guard: signed in to read, platform authority to write. It
+ * fails closed on purpose. The real rule is per-association consent — an
+ * association owns its records and grants administration to whoever it chooses,
+ * revocably — and when that lands, this helper is where it plugs in, so every
+ * route asks the question in one place instead of ten.
+ *
+ * Until then a condo manager who is not a platform admin cannot write here.
+ * That is deliberate: refusing someone who should be allowed is a support
+ * ticket, and allowing someone who should not be is a breach.
+ */
+async function condoActor(c: any): Promise<{ user: any; isAdmin: boolean }> {
+  const user = await intakeActor(c);
+  if (!user) return { user: null, isAdmin: false };
+  return { user, isAdmin: await intakeIsAdmin(user) };
+}
+
 app.get('/make-server-3eae23a6/property-management/condos', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view association records.' }, 401);
     const condos = await kv.get('condos') || [];
     return c.json({ success: true, data: condos });
   } catch (error: any) {
@@ -1524,6 +1551,8 @@ app.get('/make-server-3eae23a6/property-management/condos', async (c) => {
 // Get single condo
 app.get('/make-server-3eae23a6/property-management/condos/:id', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view association records.' }, 401);
     const id = c.req.param('id');
     const condos = await kv.get('condos') || [];
     const condo = condos.find((c: any) => c.id === id);
@@ -1542,6 +1571,9 @@ app.get('/make-server-3eae23a6/property-management/condos/:id', async (c) => {
 // Create condo
 app.post('/make-server-3eae23a6/property-management/condos', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const body = await c.req.json();
     const condos = await kv.get('condos') || [];
 
@@ -1565,6 +1597,9 @@ app.post('/make-server-3eae23a6/property-management/condos', async (c) => {
 // Update condo
 app.put('/make-server-3eae23a6/property-management/condos/:id', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const id = c.req.param('id');
     const body = await c.req.json();
     const condos = await kv.get('condos') || [];
@@ -1591,6 +1626,9 @@ app.put('/make-server-3eae23a6/property-management/condos/:id', async (c) => {
 // Delete condo
 app.delete('/make-server-3eae23a6/property-management/condos/:id', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const id = c.req.param('id');
     const condos = await kv.get('condos') || [];
 
@@ -1607,6 +1645,8 @@ app.delete('/make-server-3eae23a6/property-management/condos/:id', async (c) => 
 // Get work requests for condo
 app.get('/make-server-3eae23a6/property-management/condos/:id/work-requests', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view association records.' }, 401);
     const condoId = c.req.param('id');
     const status = c.req.query('status');
 
@@ -1627,6 +1667,9 @@ app.get('/make-server-3eae23a6/property-management/condos/:id/work-requests', as
 // Create work request for condo
 app.post('/make-server-3eae23a6/property-management/condos/:id/work-requests', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const condoId = c.req.param('id');
     const body = await c.req.json();
     const allWorkRequests = await kv.get('work_requests') || [];
@@ -1653,6 +1696,9 @@ app.post('/make-server-3eae23a6/property-management/condos/:id/work-requests', a
 // Update work request for condo
 app.put('/make-server-3eae23a6/property-management/condos/:id/work-requests/:requestId', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const requestId = c.req.param('requestId');
     const body = await c.req.json();
     const allWorkRequests = await kv.get('work_requests') || [];
@@ -1679,6 +1725,8 @@ app.put('/make-server-3eae23a6/property-management/condos/:id/work-requests/:req
 // Get units for condo
 app.get('/make-server-3eae23a6/property-management/condos/:id/units', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in to view association records.' }, 401);
     const condoId = c.req.param('id');
     const allUnits = await kv.get('condo_units') || [];
     const filtered = allUnits.filter((u: any) => u.condoId === condoId);
@@ -1693,6 +1741,9 @@ app.get('/make-server-3eae23a6/property-management/condos/:id/units', async (c) 
 // Create unit for condo
 app.post('/make-server-3eae23a6/property-management/condos/:id/units', async (c) => {
   try {
+    const actor = await condoActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.isAdmin) return c.json({ success: false, error: 'You do not have permission to change association records.' }, 403);
     const condoId = c.req.param('id');
     const body = await c.req.json();
     const allUnits = await kv.get('condo_units') || [];
