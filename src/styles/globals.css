@@ -50,10 +50,25 @@
   --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* This reset has to sit inside a layer, and the reason is worth writing down.
+   Tailwind v4 emits its utilities inside @layer. In the CSS cascade an
+   UNLAYERED rule beats a layered one outright — specificity is never consulted.
+   So this bare `*`, sitting outside any layer, was winning against every
+   padding and margin utility in the application: `.py-4` lost to `*`.
+
+   Measured on the built app before this wrapper existed: py-4, py-16, px-6 and
+   mb-4 all computed to 0px, while gap-4 gave a correct 16px — gap survived only
+   because this reset never mentions it. Which is to say every screen had been
+   rendering with no padding and no margins at all.
+
+   Wrapped in @layer base the reset still normalises browser defaults, and the
+   utilities layer that follows can do its job. */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html {
