@@ -25,6 +25,10 @@ import AdvertisingHub from '../AdvertisingHub';
 import PortalUpgradeModal from './PortalUpgradeModal';
 import { useUserData } from '../../lib/hooks/useUserData';
 import SubmitReelForApproval from '../SubmitReelForApproval';
+import {
+  AdvertiserCampaignsTab, AdvertiserMediaTab, AdvertiserAnalyticsTab,
+  AdvertiserPerformanceTab, AdvertiserBillingTab,
+} from './AdvertiserTabs';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
@@ -96,6 +100,12 @@ export default function AdvertiserPortalView() {
   const [creatives, setCreatives] = useState<any[]>([]);
   const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
   const [adLoading, setAdLoading] = useState(true);
+  // Bumped after a tab creates, pauses or deletes something, which re-runs the
+  // loader below. A counter rather than a extracted function because the effect
+  // already does exactly the right fetches — this reuses them instead of
+  // growing a second copy that could drift.
+  const [adRefresh, setAdRefresh] = useState(0);
+  const reloadAds = () => setAdRefresh((n) => n + 1);
   const [adDaily, setAdDaily] = useState<any[]>([]);
   const [adByCreative, setAdByCreative] = useState<any[]>([]);
 
@@ -123,8 +133,23 @@ export default function AdvertiserPortalView() {
       finally { if (!cancelled) setAdLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [session?.access_token]);
+  }, [session?.access_token, adRefresh]);
 
+
+  // Everything the five built-out tabs need, assembled once. Passing the same
+  // object to all of them is what stops two tabs disagreeing about the same
+  // campaign — they are literally reading the same numbers.
+  const adTabProps = {
+    session,
+    adStats,
+    adDaily,
+    adByCreative,
+    creatives,
+    campaigns: adCampaigns,
+    loading: adLoading,
+    reload: reloadAds,
+    subscriptionTier,
+  };
 
   const advertiserInfo = {
     name: String(user?.user_metadata?.company || user?.user_metadata?.full_name || user?.email || 'Advertiser'),
@@ -615,45 +640,24 @@ export default function AdvertiserPortalView() {
           <LivePortalPreviews />
         )}
 
-        {activeTab === 'campaigns' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Campaign Management</h2>
-            <p className="text-gray-400">Full campaign creation and management tools would be displayed here.</p>
-          </div>
-        )}
+        {activeTab === 'campaigns' && <AdvertiserCampaignsTab {...adTabProps} />}
 
         {activeTab === 'media' && (
           <div className="space-y-6">
             <SubmitReelForApproval submitterName={advertiserInfo?.businessName || advertiserInfo?.name || 'Advertiser'} submitterType="advertiser" />
-            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-              <h2 className="text-lg font-bold text-white mb-4">Media Library</h2>
-              <p className="text-gray-400">Ad creative library and asset management would be displayed here.</p>
-            </div>
+            <AdvertiserMediaTab {...adTabProps} />
           </div>
         )}
 
-        {activeTab === 'analytics' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Advanced Analytics</h2>
-            <p className="text-gray-400">Detailed analytics and reporting dashboard would be displayed here.</p>
-          </div>
-        )}
+        {activeTab === 'analytics' && <AdvertiserAnalyticsTab {...adTabProps} />}
 
-        {activeTab === 'billing' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Billing & Invoices</h2>
-            <p className="text-gray-400">Billing history and payment management would be displayed here.</p>
-          </div>
-        )}
+        {activeTab === 'billing' && <AdvertiserBillingTab {...adTabProps} />}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="advertiser" ownerName={advertiserInfo.accountManager} />}
         {activeTab === 'plan-builder' && <PlanBuilderTab portalType="advertiser" ownerName={advertiserInfo.name} currentTier={subscriptionTier} />}
         {activeTab === 'investments' && <InvestmentTab portalType="advertiser" ownerName={advertiserInfo.name} />}
         {activeTab === 'performance' && (
-          <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-            <h2 className="text-lg font-bold text-white mb-4">Performance Reports</h2>
-            <p className="text-gray-400">Detailed performance metrics and ROI analysis would be displayed here.</p>
-          </div>
+          <AdvertiserPerformanceTab {...adTabProps} />
         )}
 
 

@@ -86,6 +86,12 @@ export interface SubscriptionPlan {
   };
   highlighted?: boolean;
   popular?: boolean;
+  /**
+   * How often this plan bills. Absent means monthly, which is what every plan
+   * in this catalogue was before weekly advertiser plans existed — so the
+   * existing entries need no edit and cannot be misread.
+   */
+  billingInterval?: 'week' | 'month';
 }
 
 export const FOUNDING_SUBSCRIBER_CONFIG = {
@@ -678,8 +684,8 @@ export const ADVERTISER_PLANS: SubscriptionPlan[] = [
     tier: 'starter',
     name: 'Advertiser Basic',
     tagline: 'For local brand awareness',
-    regularPrice: 499,
-    foundingPrice: 349, // 30% off
+    regularPrice: 299,
+    foundingPrice: 209, // 30% off
     features: [
       'Banner ads in platform',
       'Basic targeting (location)',
@@ -700,8 +706,8 @@ export const ADVERTISER_PLANS: SubscriptionPlan[] = [
     tier: 'professional',
     name: 'Advertiser Pro',
     tagline: 'For regional marketing campaigns',
-    regularPrice: 999,
-    foundingPrice: 699, // 30% off
+    regularPrice: 499,
+    foundingPrice: 349, // 30% off
     popular: true,
     features: [
       'Everything in Basic, plus:',
@@ -725,8 +731,8 @@ export const ADVERTISER_PLANS: SubscriptionPlan[] = [
     tier: 'enterprise',
     name: 'Advertiser Elite',
     tagline: 'For national brand campaigns',
-    regularPrice: 2499,
-    foundingPrice: 1749, // 30% off
+    regularPrice: 999,
+    foundingPrice: 699, // 30% off
     highlighted: true,
     features: [
       'Everything in Pro, plus:',
@@ -738,6 +744,91 @@ export const ADVERTISER_PLANS: SubscriptionPlan[] = [
       'API access for automation',
       'Quarterly strategy sessions',
       '24/7 priority support',
+    ],
+    limits: {
+      campaigns: 999999,
+      impressions: 999999,
+      support: '24/7 Phone & Priority',
+    },
+  },
+];
+
+/**
+ * ADVERTISER PLANS, BILLED WEEKLY
+ *
+ * The same three tiers on a seven-day commitment, for a campaign that runs
+ * around one event, one promotion or one season rather than continuously.
+ *
+ * Priced at a premium over a straight quarter of the monthly rate — $99
+ * against $74.75 — because that is how short buys are priced everywhere: less
+ * commitment costs more per week. It also keeps the monthly plan the better
+ * deal for anyone advertising continuously, which is the outcome we want.
+ *
+ * The impression allowance is a quarter of the monthly one, since impressions
+ * accrue over time. The campaign limit is not divided, because it caps how many
+ * campaigns run at once rather than how many are served.
+ */
+export const ADVERTISER_WEEKLY_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'ad-starter-weekly',
+    category: 'advertiser',
+    tier: 'starter',
+    billingInterval: 'week',
+    name: 'Advertiser Basic — Weekly',
+    tagline: 'A single week of local brand awareness',
+    regularPrice: 99,
+    foundingPrice: 69, // 30% off
+    features: [
+      'Banner ads in platform',
+      'Basic targeting (location)',
+      'Campaign performance dashboard',
+      'Standard ad placements',
+      'Cancel at the end of any week',
+    ],
+    limits: {
+      campaigns: 3,
+      impressions: 12500,
+      support: 'Email (48hr response)',
+    },
+  },
+  {
+    id: 'ad-professional-weekly',
+    category: 'advertiser',
+    tier: 'professional',
+    billingInterval: 'week',
+    name: 'Advertiser Pro — Weekly',
+    tagline: 'A short regional push',
+    regularPrice: 165,
+    foundingPrice: 115, // 30% off
+    features: [
+      'Everything in Basic Weekly, plus:',
+      'Premium ad placements',
+      'Advanced targeting (demographics, behavior)',
+      'A/B testing capabilities',
+      'Video ad support',
+      'Cancel at the end of any week',
+    ],
+    limits: {
+      campaigns: 10,
+      impressions: 50000,
+      support: 'Email & Chat (24hr response)',
+    },
+  },
+  {
+    id: 'ad-enterprise-weekly',
+    category: 'advertiser',
+    tier: 'enterprise',
+    billingInterval: 'week',
+    name: 'Advertiser Elite — Weekly',
+    tagline: 'A full-strength campaign for one week',
+    regularPrice: 325,
+    foundingPrice: 227, // 30% off
+    features: [
+      'Everything in Pro Weekly, plus:',
+      'Unlimited campaigns',
+      'Exclusive homepage placements',
+      'Multi-territory campaigns',
+      'Cancel at the end of any week',
     ],
     limits: {
       campaigns: 999999,
@@ -1071,6 +1162,7 @@ export const ALL_SUBSCRIPTION_PLANS: SubscriptionPlan[] = equipPortalOptions([
   ...VENDOR_PLANS,
   ...SUBCONTRACTOR_PLANS,
   ...ADVERTISER_PLANS,
+  ...ADVERTISER_WEEKLY_PLANS,
   ...INVESTOR_PLANS,
   ...TERRITORY_OWNER_PLANS,
 ]);
@@ -1080,8 +1172,22 @@ export const getPlanById = (planId: string): SubscriptionPlan | undefined => {
   return ALL_SUBSCRIPTION_PLANS.find(plan => plan.id === planId);
 };
 
-export const getPlansByCategory = (category: PlanCategory): SubscriptionPlan[] => {
-  return ALL_SUBSCRIPTION_PLANS.filter(plan => plan.category === category);
+/**
+ * Plans in a category, for one billing interval.
+ *
+ * Defaults to monthly, which is what every existing caller means and what every
+ * plan was before weekly existed. Without that default, adding the weekly
+ * advertiser plans would have quietly doubled the advertiser column on the
+ * public pricing page and shown two prices for the same tier with nothing to
+ * distinguish them.
+ */
+export const getPlansByCategory = (
+  category: PlanCategory,
+  interval: 'week' | 'month' = 'month',
+): SubscriptionPlan[] => {
+  return ALL_SUBSCRIPTION_PLANS.filter(
+    plan => plan.category === category && (plan.billingInterval || 'month') === interval,
+  );
 };
 
 export const calculatePremiumDiscountedPrice = (regularPrice: number): number => {

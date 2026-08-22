@@ -3853,3 +3853,169 @@ The production server function cannot be deployed from here: it is 128 files and
 rather than failing, so shipping the frontend first is safe.
 
     supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm --no-verify-jwt
+
+## Plan — the advertiser and condo association tabs
+
+Ten placeholder cards across two portals. They are not the same job, because the
+two portals are in very different states.
+
+### What I found first
+
+**The advertiser portal is in good shape underneath.** `advertising.tsx` is
+mounted and real: campaigns, creatives, a serve endpoint the marquee calls, and
+impression/click counting. The portal already fetches stats, creatives,
+campaigns, per-day and per-creative rollups on mount. So four of its five tabs
+are a screen away from working — the data is already in the component.
+
+**The condo association portal is not wired to anything.** It calls
+`loadDemoData()` and renders a hardcoded "Harborview Condo Association" at 1250
+Waterfront Drive, Miami, with 240 invented units and a board president called
+Robert Martinez. The signed-in user is hardcoded too, and their role is read
+from `localStorage`.
+
+That last part matters beyond cosmetics: `localStorage.getItem('condo_user_role')`
+means anyone can set themselves board president from the browser console, and
+the financials and approvals tabs are gated on exactly that value.
+
+Meanwhile a full condo backend already exists and goes unused —
+`/property-management/condos`, `/condos/:id/units`, `/condos/:id/work-requests`,
+all with CRUD, plus a `CondoService` client wrapping them. Building five tabs on
+top of `loadDemoData()` would mean five new screens all showing Miami.
+
+### Todo — advertiser
+
+- [x] **Campaigns**: list with status, create, pause, resume, end. The POST
+      route already upserts and already refuses to let one advertiser adopt
+      another's campaign, so this is the screen for routes that exist.
+- [x] **Media**: the creative library — grid, add, delete, and which campaign
+      each belongs to. Routes exist.
+- [x] **Analytics**: impressions, clicks and CTR over time from the per-day
+      rollup already being fetched.
+- [x] **Performance**: the same numbers cut per creative and per campaign, and
+      ranked — which creative earns its place and which should be killed.
+      Deliberately different from Analytics: trend there, decisions here.
+- [x] **Reuse, do not re-derive**: CTR and totals get computed in one place so
+      the four tabs cannot disagree, the same way vendor billing shares one
+      component across both sides.
+
+### Todo — condo association
+
+- [ ] **Wire the portal to the real backend first.** Load the association, its
+      units and its work requests through `CondoService` instead of
+      `loadDemoData()`, with honest empty states when an account has no
+      association yet. Everything below depends on this.
+- [ ] **Take the role off localStorage.** Derive it from the signed-in account
+      the way the other portals do. A board-only tab gated on a value the
+      browser can edit is not gated.
+- [ ] **Units & Buildings**: real units, add and edit, grouped by building.
+- [ ] **Maintenance**: real work requests, role-aware — a resident sees their
+      own, the board sees all, with approve on the board side.
+- [ ] **Documents**: reuse `PortalDocumentVault`, which already does this job in
+      the vendor, landlord and investor portals. No new code.
+- [ ] **Vendors**: the approved vendor list from the existing vendor directory,
+      with the work requests each has been assigned. No new record needed.
+
+### Decided
+
+**Advertising is sold by subscription**, and Eric wants **weekly plans alongside
+the monthly ones**, priced at a short-commitment premium rather than a straight
+quarter of the monthly rate: **$165 / $325 / $825 a week** against $499 / $999 /
+$2,499 a month. That keeps monthly the better deal per week, which is the point.
+
+So Billing needs no invented spend figure at all. The advertiser plans already
+carry real caps — 3 / 10 / unlimited campaigns and 50k / 200k / unlimited
+impressions — and `advertising.tsx` already counts impressions and clicks for
+real. Usage against cap is therefore a true number, which is exactly what a
+billing screen should show.
+
+- [x] **Weekly plans** added to the plan catalogue with proportionate caps
+      (a quarter of the monthly allowance), leaving the existing monthly plans
+      untouched.
+- [x] **Billing tab**: current plan, what it costs, what it includes, and real
+      usage against the campaign and impression caps — plus the weekly and
+      monthly options side by side so a plan can be changed from here.
+
+**The condo association portal is deferred.** Eric chose advertiser only for
+now, which is the right call while the condo surface is not being sold. The
+findings stand and are worth keeping: it runs on `loadDemoData()`, and its
+board-only tabs are gated on a role read from `localStorage`, which the browser
+can edit. Neither is fixed by this pass.
+
+### Review — the five advertiser tabs
+
+All five are built. The odd thing about this job was that the backend already
+existed: `advertising.tsx` serves ads, counts every impression and click per
+creative and rolls them up daily, and the portal was already fetching all of it
+on mount and displaying almost none of it.
+
+**Campaigns** — create, pause, resume, end, each showing how many ads sit inside
+it and how many are live. **Media** — the creative library, with add, delete,
+pause and per-ad performance, or "Not served yet" where an ad has never run.
+**Analytics** is the trend, day by day. **Performance** is the decision: ads
+ranked by click-through against the account average, with a 200-impression floor
+below which nothing is ranked, because a 7.5% rate from 40 impressions is noise
+being mistaken for a winner. A "Never served" panel says *why* each unserved ad
+is unserved — paused, no campaign, or campaign not active — which is the
+question an advertiser actually has.
+
+Still no conversions and no return on ad spend. Both need to know a click led to
+a purchase, and nothing attributes a sale back to an ad.
+
+**Pricing.** Advertiser tiers are now **$299 / $499 / $999 a month** and
+**$99 / $165 / $325 a week**. Weekly sits about 30% above a straight quarter of
+the monthly rate — $99 against $74.75 — which is how short buys are priced, and
+which keeps monthly the better deal for anyone advertising continuously. Weekly
+impression allowances are a quarter of the monthly ones; the campaign limit is
+not divided, because it caps concurrency rather than volume.
+
+`getPlansByCategory` now takes an interval and defaults to monthly, so the
+public pricing page is untouched — without that default, adding weekly plans
+would have silently doubled the advertiser column and shown two prices per tier
+with nothing distinguishing them.
+
+**Billing needs no invented figure at all.** It shows the plan, its price, and
+real usage against the caps the plan actually sells: impressions counted by the
+ad server against the 50k/200k/unlimited allowance, and active campaigns against
+3/10/unlimited. It warns at 90% of the allowance.
+
+#### A security fix that came out of this
+
+Eric asked mid-task that everything be coded as securely as possible. Reviewing
+what this touches surfaced a real hole: advertiser-supplied `linkUrl` and
+`imageUrl` were stored with a length cap and no validation, and the marquee
+renders that link straight into an `href` across the portals and the public
+store. `javascript:alert(document.cookie)` is well under 500 characters, and
+stored in that field it would have run in the browser of every visitor who
+clicked the ad — stored cross-site scripting, reachable by anyone with an
+advertiser login.
+
+Both fields are now restricted to `http` and `https` by a `safeUrl` helper,
+applied **on write and again on serve**. On serve as well because any record
+written before the check existed has never been through it, so validating only
+on write would have left those already stored to keep being served. Verified
+against 11 cases: plain http/https survive; `javascript:`, mixed-case
+`JaVaScRiPt:`, whitespace-padded, `data:`, `vbscript:`, `file:` and relative
+paths are all rejected to empty, which the callers already treat as "no link",
+so a rejected value degrades to a plain unclickable ad rather than an error.
+
+#### How it was verified
+
+Eleven render scenarios in headless Edge at 390x844 with touch emulation — all
+five tabs populated, all five empty, and the weekly pricing toggle driven by a
+real click. No errors, no side-scroll, no tap target under 44px, no sub-12px
+text anywhere. The arithmetic was checked against the rendered output: 2.17% and
+0.93% click-through from 520/24,000 and 130/14,000, +26% and −46% against a
+1.72% average, and the 7.50% ad correctly withheld at "40 of 200".
+
+The `safeUrl` guard was unit-tested separately, all 11 cases behaving correctly.
+
+#### Not done, and deliberately
+
+The condo association portal. Eric chose advertiser only. Both findings stand
+and are worth keeping in view: it runs entirely on `loadDemoData()`, and its
+board-only financial tabs are gated on a role read from `localStorage`, which
+any visitor can set from the browser console. That second one is an
+authorisation hole, not a cosmetic gap.
+
+The advertising changes are server-side, so they need the same deploy as vendor
+billing before they take effect.

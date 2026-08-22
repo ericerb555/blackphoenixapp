@@ -31,6 +31,32 @@ import * as kv from "./kv_store.tsx";
 
 export const advertisingRouter = new Hono();
 
+/**
+ * A URL we are willing to put in front of somebody else.
+ *
+ * Anything an advertiser supplies here is rendered in other people's browsers,
+ * so the only acceptable schemes are http and https. `javascript:` in a link
+ * target is stored cross-site scripting; `data:` in an image is a way to serve
+ * arbitrary content from our own origin's context. Both are rejected outright
+ * rather than sanitised, because a URL that is not a web address is not a typo
+ * to be repaired — it is someone trying something.
+ *
+ * Returns "" for anything unacceptable, which the callers already treat as
+ * "no link", so a rejected value degrades to a plain, unclickable ad.
+ */
+function safeUrl(raw: unknown): string {
+  const value = String(raw ?? "").trim().slice(0, 500);
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
+  } catch {
+    // Not parseable as an absolute URL. A relative path is not useful for an
+    // outbound ad link, so there is nothing safe to keep.
+    return "";
+  }
+}
+
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
@@ -154,8 +180,15 @@ advertisingRouter.post("/advertising/creatives", async (c) => {
       advertiserEmail: existing?.advertiserEmail || who.email,
       title,
       content: String(body.content ?? existing?.content ?? "").slice(0, 300),
-      linkUrl: String(body.linkUrl ?? existing?.linkUrl ?? "").slice(0, 500),
-      imageUrl: String(body.imageUrl ?? existing?.imageUrl ?? "").slice(0, 500),
+      // Both of these are supplied by an advertiser and then rendered in other
+      // people's browsers — the marquee strip puts the link straight into an
+      // href on nineteen surfaces, including the public store. A length cap is
+      // not validation: `javascript:alert(document.cookie)` is well under 500
+      // characters, and stored in this field it would run for every visitor who
+      // clicked the ad. Restricted to http and https here, on the server, where
+      // an advertiser cannot skip it.
+      linkUrl: safeUrl(body.linkUrl ?? existing?.linkUrl),
+      imageUrl: safeUrl(body.imageUrl ?? existing?.imageUrl),
       // Where it is allowed to appear. `marquee` is the strip the platform
       // already renders on nineteen surfaces.
       placement: ["marquee", "banner", "reel"].includes(String(body.placement)) ? body.placement : (existing?.placement || "marquee"),
@@ -226,8 +259,13 @@ advertisingRouter.get("/advertising/serve", async (c) => {
         campaignId: cr.campaignId || null,
         title: cr.title,
         content: cr.content,
-        linkUrl: cr.linkUrl,
-        imageUrl: cr.imageUrl,
+        // Sanitised again on the way out, not only on the way in. This is the
+        // route that hands a URL to every visitor's browser including
+        // signed-out ones, and any record written before the write-side check
+        // existed has never been through it. Validating only on write would
+        // leave those already stored to keep being served.
+        linkUrl: safeUrl(cr.linkUrl),
+        imageUrl: safeUrl(cr.imageUrl),
       })),
     });
   } catch (error: any) {
