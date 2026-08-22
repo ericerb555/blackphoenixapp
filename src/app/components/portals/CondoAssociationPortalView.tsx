@@ -21,11 +21,24 @@ import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import { CondoService } from '../../lib/services/propertyManagementService';
 import { useAuth } from '../../contexts/AuthContext';
+import { projectId } from '../../utils/supabase/info';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
 import { lookupParcel } from '../../lib/services/propertyRecordsService';
 
+const CONDO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
 // Role types for the condo association
-type UserRole = 'board_president' | 'board_member' | 'property_manager' | 'resident';
+/**
+ * The roles the association can grant. `owner` and `vendor` were added when the
+ * master condo account landed: a unit owner is not necessarily the person
+ * living there, and a vendor holds access to this association's work only.
+ * Both are non-governing, which the capability list below has to say
+ * explicitly — see the note on canViewFinancials.
+ */
+type UserRole = 'board_president' | 'board_member' | 'property_manager' | 'owner' | 'resident' | 'vendor';
+
+/** The roles that run the association. Everything privileged checks this list. */
+const GOVERNING_ROLES: UserRole[] = ['board_president', 'board_member', 'property_manager'];
 
 interface CondoUser {
   id: string;
@@ -42,7 +55,7 @@ export default function CondoAssociationPortalView() {
   const [workRequests, setWorkRequests] = useState<any[]>([]);
   const [units, setUnits] = useState<any[]>([]);
 
-  const { user, isOwner, isMasterAdmin, isAdmin } = useAuth();
+  const { user, session, isOwner, isMasterAdmin, isAdmin } = useAuth();
 
   /**
    * Who this person is, and what they may do.
@@ -54,25 +67,53 @@ export default function CondoAssociationPortalView() {
    * nothing stored the default was `board_president`, so an unknown visitor
    * arrived holding the most privileged role rather than the least.
    *
-   * The role now comes from the account. Storage cannot grant anything.
-   *
-   * This is the interim shape. The real model is per-association consent — an
-   * association owns its records and grants administration to whoever it
-   * chooses, revocably — and when that lands the role comes from the grant
-   * rather than from account metadata. See `tasks/condo-master-account-plan.md`.
+   * The role now comes from the association's grant. Storage cannot grant
+   * anything, and neither can account metadata — an association issues the
+   * grant and can withdraw it. See `tasks/condo-master-account-plan.md`.
    */
   const canPreviewRoles = Boolean(isOwner || isMasterAdmin || isAdmin);
 
+  /**
+   * The role comes from the association's own grant, fetched from the server.
+   *
+   * Not from storage, and no longer from account metadata either — metadata was
+   * the interim step. A grant is issued by the association and can be withdrawn
+   * by it, which is the whole point of the consent model: authority over an
+   * association is something that association gave you, and it can take it back.
+   */
+  const [standing, setStanding] = useState<any>(null);
+  const [standingLoaded, setStandingLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!session?.access_token) { setStandingLoaded(true); return; }
+      try {
+        const res = await fetch(`${CONDO_API}/condo/my-standing`, {
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setStanding(data?.standing || null);
+      } catch {
+        // Leave standing null. With no grant the portal falls to the least
+        // privileged view, which is the safe direction to fail.
+      } finally {
+        if (!cancelled) setStandingLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
+
+  const membership = standing?.memberships?.[0] || null;
+
   const accountRole: UserRole = (() => {
-    const assigned = String(
-      user?.user_metadata?.condoRole || user?.user_metadata?.condo_role || '',
-    ).toLowerCase().replace(/[\s-]+/g, '_');
-    if (['board_president', 'board_member', 'property_manager', 'resident'].includes(assigned)) {
-      return assigned as UserRole;
+    const granted = String(membership?.role || '').toLowerCase();
+    if (['board_president', 'board_member', 'property_manager', 'owner', 'resident', 'vendor'].includes(granted)) {
+      return granted as UserRole;
     }
-    // Platform staff see the association whole, because they support it.
+    // Platform staff support these accounts, so they see them whole.
     if (canPreviewRoles) return 'board_president';
-    // Everyone else gets the least the portal offers. An unrecognised visitor
+    // Everyone else gets the least this portal offers. Somebody with no grant
     // is a resident, never a board member.
     return 'resident';
   })();
@@ -323,7 +364,11 @@ export default function CondoAssociationPortalView() {
   const canManageWorkRequests = currentUser.role === 'property_manager' || canApproveExpenses;
   const canManageBudget = currentUser.role === 'property_manager' || canApproveExpenses;
   const canManageVendors = currentUser.role === 'property_manager' || canApproveExpenses;
-  const canViewFinancials = currentUser.role !== 'resident';
+  // An allowlist, not `!== 'resident'`. That test was safe only while resident
+  // was the single non-governing role; the moment owner and vendor existed it
+  // would have handed the association's financials to both of them. Naming who
+  // is allowed fails closed as roles get added — naming who is not fails open.
+  const canViewFinancials = GOVERNING_ROLES.includes(currentUser.role);
   const canSubmitRequests = true; // All roles can submit
 
   // Mock association data - use loaded data or defaults
@@ -505,6 +550,8 @@ export default function CondoAssociationPortalView() {
       case 'board_president': return 'Board President';
       case 'board_member': return 'Board Member';
       case 'property_manager': return 'Property Manager';
+      case 'owner': return 'Unit Owner';
+      case 'vendor': return 'Vendor';
       case 'resident': return 'Resident';
       default: return 'User';
     }

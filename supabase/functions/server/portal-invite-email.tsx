@@ -23,6 +23,7 @@ export const PORTAL_LABELS: Record<string, string> = {
   investor: "Investor",
   territory_owner: "Territory Owner",
   tenant: "Tenant",
+  condo_association: "Condo Association",
 };
 
 /** One-line pitch shown under the heading, tailored per portal type. */
@@ -38,6 +39,7 @@ const PORTAL_BLURB: Record<string, string> = {
   investor: "Review opportunities, track returns, and manage your portfolio.",
   territory_owner: "Operate your territory, onboard clients, and grow local revenue.",
   tenant: "Report maintenance issues, track repairs, and reach your landlord in one place.",
+  condo_association: "Review association maintenance, approvals, documents and your own unit in one place.",
 };
 
 /** The editable fields, in display order, for the Owner's Dashboard editor. */

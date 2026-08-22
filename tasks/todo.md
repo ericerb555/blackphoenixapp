@@ -4092,3 +4092,101 @@ Per-association scoping. One board must not be able to read another's records,
 and nothing enforces that yet — today every signed-in user can read every
 association. It is bounded by there being no real condo data, and it is the
 first thing the consent model fixes.
+
+## Review — the master condo account is built
+
+The design in `tasks/condo-master-account-plan.md`, implemented.
+
+### The shape, and why
+
+The association is the root entity. Administration is a **grant** against it,
+never ownership — which is Eric's rule that the master account may be held by
+anyone so long as the association consents. A management company running four
+associations therefore holds four grants and sees four separate sets of records,
+because everything keys to `condo_assoc:{id}` rather than to whoever administers
+it. Copying the landlord's `landlord_tenants:{email}` shape would have merged
+them into one bucket permanently.
+
+Consent is recorded whichever direction the relationship starts from, as asked:
+
+- A board creating its own association has consented by definition (`self`).
+- A manager creating one has not — it is marked `awaiting_board` and says so on
+  screen until a board president confirms. The manager can work meanwhile,
+  because in the real world they were hired before any software was involved;
+  what they cannot do is pretend the association agreed.
+
+### What was built
+
+**Server** — `condo-associations.tsx`, nine routes: associations, consent,
+members, invite, and `my-standing` (which the association portal now calls
+instead of deciding its own role). Roles are `board_president`, `board_member`,
+`property_manager`, `owner`, `resident`, `vendor`, with capabilities written as
+a table rather than scattered conditionals.
+
+**Client** — `CondoMasterAccount`, an Associations tab on the condo manager
+portal: the associations you administer with their consent state, and inside
+each, the roster with quota, add, invite, confirm and remove.
+
+**The association portal became a real destination.** It was routed to the demo
+hub, and `condo_association` was missing from every portal-type list, so anyone
+invited to an association would have silently landed in the customer portal.
+Added to the route registry, the portal home map, the allowed-pages map, the
+approved-routes set, the onboarding map, the login map, the payment-return
+allowlist, and the invite email's labels and blurb.
+
+### Three decisions worth recording
+
+**A vendor must already exist.** Granting a vendor access to an association
+points at their existing `vendor:` record and refuses if there is none. Minting
+a second vendor identity here would fork the registry, and this codebase already
+carries a `supplier:` / `vendor:` split that has cost real time.
+
+**Board seats do not consume the plan's sub-portal allowance.** What the Condo
+Manager Plan sells is portals for owners, residents and vendors; governance is
+not a sub-portal. So a board can always be seated even when the allowance is
+full.
+
+**The last board president cannot be removed.** Otherwise the association would
+be left with nobody able to consent to anything, ever.
+
+### Verified — 30 of 30 on a Supabase branch
+
+The module takes its dependencies by injection specifically so it could be
+deployed and driven on its own, with real users and real JWTs. It was extracted
+out of `index.tsx` for that reason: authorisation code that can only be tested
+by copying it into a harness is authorisation code nobody has tested.
+
+- a manager cannot confirm their own authority (403), nor appoint a board (403),
+  nor unseat the board president (403)
+- a manager-created association is `awaiting_board`; a president confirming it
+  flips it to `confirmed`
+- a stranger sees no associations, cannot read a roster (403), and has no
+  memberships; a unit owner cannot read the roster either, and holds `["self"]`
+- an unknown vendor is refused rather than created; an existing one is granted
+- the plan allowance is enforced, counts only owners/residents/vendors, and does
+  not block a board seat
+- the only board president cannot be removed (409)
+- withdrawing consent ends access immediately, and **only for that association**
+- signed out is refused (401)
+
+The branch was deleted afterwards.
+
+The UI was measured at 390x844 with touch emulation across three states — the
+association list, a roster drilled into by a real click, and empty. No errors,
+no side-scroll, no tap target under 44px, no sub-12px text.
+
+### A crash caught before it shipped
+
+The first mount passed `TENANT_SUBPORTAL_QUOTA` into the router by value, at
+line 510 — for a `const` declared at line 4824. That is a temporal dead zone
+error, which esbuild does not catch, so it built perfectly and would have failed
+to boot the **entire** server function on deploy. The quota is now injected as a
+getter and resolved per request.
+
+### Still open
+
+Per-association scoping is now enforced for everything in this module, but the
+older `property-management/condos` routes are still association-blind: any
+signed-in user can read any of them. They also still hold nothing but demo data,
+and the condo association portal itself continues to render `loadDemoData()` —
+wiring that portal to real associations is the next piece.

@@ -106,6 +106,7 @@ const AdvertiserPortalView = lazy(() => import("./components/portals/AdvertiserP
 const InvestorPortalView = lazy(() => import("./components/portals/InvestorPortalView"));
 const PropertyManagerPortalView = lazy(() => import("./components/portals/PropertyManagerPortalView"));
 const CondoManagerPortalView = lazy(() => import("./components/portals/CondoManagerPortalView"));
+const CondoAssociationPortalView = lazy(() => import("./components/portals/CondoAssociationPortalView"));
 const LandlordPortalView = lazy(() => import("./components/portals/LandlordPortalView"));
 const SubTenantPortal = lazy(() => import("./components/portals/SubTenantPortal"));
 const PortalDemoSelector = lazy(() => import("./pages/PortalDemoSelector"));
@@ -628,8 +629,13 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "terms":             TermsOfService,
   "terms-of-service":  TermsOfService,
 
+  // The condo association portal is a real destination now, not a preview.
+  // It pointed at the demo hub, which is why nobody invited to an association
+  // could reach it — the master condo account issues these portals, so they
+  // have to lead somewhere.
+  "condo-association-portal": CondoAssociationPortalView,
+
   // Legacy redirects (kept for backward compat)
-  "condo-association-portal": PortalDemoHub,
   "vendor-portal-new":        VendorPortalView,
   "stakeholder-hub":          UnifiedDashboard,
   "mobile-app-hub":           PortalsHub,

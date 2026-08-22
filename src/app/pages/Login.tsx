@@ -268,6 +268,7 @@ export default function Login({ onNavigate }: LoginProps) {
           service_provider: 'subcontractor-portal',
           property_manager: 'property-manager-portal',
           condo_manager: 'condo-manager-portal',
+          condo_association: 'condo-association-portal',
           landlord: 'landlord-portal',
           tenant: 'tenant-portal',
           territory_owner: 'territory-portal',

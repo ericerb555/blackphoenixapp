@@ -577,6 +577,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'customer-portal',
       'property-manager-portal',
       'condo-manager-portal',
+      'condo-association-portal',
       'landlord-portal'
     ];
 
@@ -657,6 +658,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'condo_manager': 'condo-manager-portal',
       'landlord': 'landlord-portal',
       'tenant': 'tenant-portal',
+      'condo_association': 'condo-association-portal',
     };
 
     // Admin/Owner routes that should be accessible to elevated users
@@ -748,6 +750,11 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
         'crm',
         'service-scheduling',
         'materials-center',
+        'public-store',
+        'order-tracking',
+      ],
+      'condo_association': [
+        'condo-association-portal',
         'public-store',
         'order-tracking',
       ],
@@ -877,7 +884,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
 
 const APPROVED_PORTAL_ROUTES = new Set([
   "employee-portal", "vendor-portal", "advertiser-portal", "subcontractor-portal",
-  "investor-portal", "territory-portal", "property-manager-portal", "condo-manager-portal", "landlord-portal",
+  "investor-portal", "territory-portal", "property-manager-portal", "condo-manager-portal", "condo-association-portal", "landlord-portal",
 ]);
 
 /** Keeps an invited or unapproved applicant out of role portals while leaving

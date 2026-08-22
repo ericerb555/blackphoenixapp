@@ -144,6 +144,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
+import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
 import { reelScoreboardRouter } from "./reel-scoreboard.tsx";
 import pipelineRouter from "./pipeline.tsx";
@@ -503,6 +504,15 @@ app.route("/make-server-3eae23a6", vendorProfileRouter);
 app.route("/make-server-3eae23a6", advertisingRouter);
 app.route("/make-server-3eae23a6", vendorCatalogRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
+// The condo master account. Its dependencies are injected rather than
+// imported so the module can be deployed and tested on its own — it decides
+// who may administer an association, and that is not code to ship untested.
+app.route("/make-server-3eae23a6", createCondoRouter({
+  intakeActor,
+  intakeIsAdmin,
+  deliverPortalInvite,
+  subPortalQuota: () => TENANT_SUBPORTAL_QUOTA,
+}));
 app.route("/make-server-3eae23a6", reelResearchRouter);
 app.route("/make-server-3eae23a6", reelScoreboardRouter);
 app.route("/", pipelineRouter);
@@ -5073,6 +5083,7 @@ async function fetchParcelRecord(address: string): Promise<{ parcel: any; geomet
   };
   return { parcel, geometry: feature.geometry || null };
 }
+
 
 // Generic address → parcel lookup. Read-only public data; reused by the condo
 // portal and the owner-side document views (which don't go through landlordActor).

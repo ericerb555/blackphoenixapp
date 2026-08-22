@@ -17,6 +17,7 @@ import InvestmentTab from './InvestmentTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
+import CondoMasterAccount from './CondoMasterAccount';
 import { projectId } from '../../utils/supabase/info';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -59,10 +60,11 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'revenue-ai' | 'messages' | 'documents' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'associations' | 'units' | 'owners' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'revenue-ai' | 'messages' | 'documents' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
+  { id: 'associations', label: 'Associations', icon: Building2 },
   { id: 'units', label: 'Units', icon: Building2 },
   { id: 'owners', label: 'Owners', icon: Users },
   { id: 'work-requests', label: 'Work Requests', icon: Wrench },
@@ -212,6 +214,7 @@ export default function CondoManagerPortalView() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
         {tab === 'guide' && <PortalFeatureGuide portal="condo_manager" />}
+        {tab === 'associations' && <CondoMasterAccount session={session} />}
 
         {tab === 'dashboard' && (
           <div className="space-y-6">
