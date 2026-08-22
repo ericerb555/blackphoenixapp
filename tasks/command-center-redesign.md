@@ -142,3 +142,64 @@ different disguise.
   layout has settled.
 - 91 modules may itself be the problem. Some are likely dead or duplicated —
   worth an audit, and it would do more for usability than any layout.
+
+## Audit — the 91 modules
+
+Cross-referenced every module's path against the 326 registered routes, rather
+than reading down the list by eye.
+
+### Found
+
+- **11 cards pointed at a path with no route.** Clicking them went nowhere.
+- **2 exact duplicates** — the same destination listed twice under different
+  categories.
+- **6 pages fronted by four or more cards.** Left alone: those are deliberate
+  deep links into a hub (JobTrackingHub's six tabs, and so on), not clutter.
+
+### Three of the eleven were not dead — they were mistyped
+
+Checking for near-miss routes before deleting anything was the step that
+mattered:
+
+| Card | Pointed at | Real route |
+|---|---|---|
+| Design Center | `/design` | `/design-center` → DeckDesigner |
+| Email Management | `/enterprise-email-management` | `/enterprise-email` |
+
+Both are now fixed rather than removed. The Design Center one is worth noting —
+that is a product surface, and deleting its card because the path had a typo
+would have quietly removed a route into it.
+
+### Cut
+
+Nine cards whose paths have no route anywhere: Database Admin, Data Management,
+Layout Settings, Workflow Manager, Workflow Controls, Professional Workspace,
+Clear App Data, Landing Page Editor, and Documents. Plus the two duplicates —
+Bid Room's second listing under Marketing, and Mobile Hub, which was the same
+destination as Mobile App Hub.
+
+**Documents is the one judgement call.** Its path `/documents` has no route, but
+`/document`, `/customer-documents` and `/document-scanner` all exist. None is
+obviously "the company document library" its description promised, and pointing
+a card at the wrong page is worse than removing one that already goes nowhere.
+Cut, and easy to restore once someone says where it should lead.
+
+### Result
+
+**91 modules to 80.** Re-run of the audit against the edited file: zero broken
+paths, zero duplicates, zero repeated names.
+
+## The role switcher — why a new portal looked missing
+
+Eric could not find the Condo Association portal in his role switcher. It was
+there, and deployed — verified by grepping the live bundle, where "Condo
+Association" appears three times and `condo-association-portal` four.
+
+The cause was the list itself: **14 roles at roughly 68px each, in a fixed
+`max-h-[400px]` scroll window.** About six are visible, and the ones added most
+recently sit at the bottom. A newly added portal therefore reads as missing
+rather than as needing a scroll.
+
+Sized to the viewport now — `min(70vh, 640px)` — so the whole list is reachable.
+Worth remembering the general shape of this: when something new "isn't there",
+check whether it is simply below a fold before assuming it never shipped.

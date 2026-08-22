@@ -473,7 +473,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Mobile App', path: '/hr-employee-hub', tab: 'mobile', icon: Smartphone, color: 'purple', description: 'Mobile workforce' },
         { label: 'HR Dashboard', path: '/hr-employee-hub', tab: 'hr-dashboard', icon: UserCheck, color: 'violet', description: 'HR overview' },
         { label: 'Payroll', path: '/hr-employee-hub', tab: 'payroll', icon: DollarSign, color: 'green', description: 'Payroll processing' },
-        { label: 'Documents', path: '/documents', icon: FileText, color: 'blue', description: 'Document library' },
       ]
     },
     {
@@ -482,7 +481,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       icon: Megaphone,
       modules: [
         { label: 'Quote Prep', path: '/quote-prep', icon: FileText, color: 'cyan', description: 'Prepare quotes' },
-        { label: 'Bid Room', path: '/bid-room', icon: Target, color: 'amber', description: 'Bidding center' },
         { label: 'Quote Responses', path: '/quote-response-hub', tab: 'responses', icon: MessageSquare, color: 'blue', description: 'Quote tracking' },
         { label: 'Quote Workflow', path: '/enterprise-quote-workflow', icon: ChevronRight, color: 'purple', description: 'Quote automation' },
         { label: 'Unified Project Pipeline', path: '/unified-project-pipeline', icon: TrendingUp, color: 'orange', description: 'Work Request → Quote → Contract workflow', badge: 'NEW' },
@@ -491,8 +489,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Marketing Hub', path: '/revenue-monetization-hub', tab: 'marketing', icon: Megaphone, color: 'fuchsia', description: 'Marketing central' },
         { label: 'Social Media', path: '/social-media', icon: Globe, color: 'blue', description: 'Social channels' },
         { label: 'Content Center', path: '/enterprise-content-center', icon: FileText, color: 'purple', description: 'Content management' },
-        { label: 'Design Center', path: '/design', icon: Palette, color: 'pink', description: 'All design — structural, studio & renderings' },
-        { label: 'Landing Page Editor', path: '/landing-page-editor', icon: Edit2, color: 'violet', description: 'Visual page builder', badge: 'NEW' },
+        { label: 'Design Center', path: '/design-center', icon: Palette, color: 'pink', description: 'All design — structural, studio & renderings' },
         { label: 'Work Request Form Editor', path: '/work-request-form-editor', icon: Edit2, color: 'orange', description: 'Custom form builder', badge: 'NEW' },
         { label: 'Portals Hub', path: '/portals-hub', icon: Monitor, color: 'orange', description: 'Create, edit & manage portals', badge: 'NEW' },
         { label: 'Directory Landing Page', path: '/directory-landing-page', icon: LayoutGrid, color: 'orange', description: 'New directory-style landing page', badge: 'NEW' },
@@ -533,22 +530,14 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Role Management', path: 'role-management', icon: Shield, color: 'red', description: 'Access control' },
         { label: 'Module Manager', path: '/module-manager', icon: Layers, color: 'purple', description: 'System modules' },
         { label: 'Module Access', path: '/module-access-control', icon: UserCheck, color: 'green', description: 'Module permissions' },
-        { label: 'Database Admin', path: '/database-admin', icon: Database, color: 'slate', description: 'Database tools' },
-        { label: 'Data Management', path: '/data-management', icon: Folder, color: 'blue', description: 'Data operations' },
-        { label: 'Layout Settings', path: '/layout-settings', icon: Settings, color: 'zinc', description: 'UI configuration' },
         { label: 'Admin Alerts', path: '/admin-alerts', icon: Bell, color: 'red', description: 'System alerts' },
-        { label: 'Workflow Manager', path: '/workflow-manager', icon: Zap, color: 'yellow', description: 'Automation flows' },
-        { label: 'Workflow Controls', path: '/workflow-controls', icon: Settings, color: 'zinc', description: 'Workflow settings' },
         { label: 'Messaging', path: '/messaging', icon: MessageSquare, color: 'cyan', description: 'Internal messaging' },
-        { label: 'Email Management', path: '/enterprise-email-management', icon: Mail, color: 'teal', description: 'Email system' },
+        { label: 'Email Management', path: '/enterprise-email', icon: Mail, color: 'teal', description: 'Email system' },
         { label: 'Reports', path: '/reports', icon: BarChart3, color: 'amber', description: 'Reporting tools' },
         { label: 'Enterprise Reporting', path: '/enterprise-reporting', icon: TrendingUp, color: 'green', description: 'Advanced analytics' },
-        { label: 'Professional Workspace', path: '/professional-workspace', icon: Briefcase, color: 'indigo', description: 'Pro tools' },
         { label: 'On-Call Portal', path: '/on-call-portal', icon: Bell, color: 'red', description: 'On-call management' },
-        { label: 'Mobile Hub', path: '/mobile-app-hub', icon: Smartphone, color: 'emerald', description: 'Mobile app management & control center', badge: 'POPULAR' },
         { label: 'Code Tracker', path: '/code-tracker', icon: Code, color: 'purple', description: 'Track work request → payment workflow', badge: 'NEW' },
         { label: 'Portal Global Settings', path: '/portal-global-settings', icon: Layers, color: 'purple', description: 'Global portal config' },
-        { label: 'Clear App Data', path: '/clear-data', icon: AlertCircle, color: 'red', description: 'Reset application to fresh state', badge: 'DANGER' },
       ]
     }
   ];

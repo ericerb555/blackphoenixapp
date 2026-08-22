@@ -317,7 +317,12 @@ export function RoleSwitcher() {
               <p className="text-xs text-zinc-400 mt-1">⚡ Non-owners are redirected to their portal view</p>
             </div>
             
-            <div className="max-h-[400px] overflow-y-auto">
+            {/* 14 roles at roughly 68px each is about 950px of list. In a fixed
+                400px window that showed six, and the four added most recently
+                sit below the fold — which is why a newly added portal reads as
+                missing rather than as needing a scroll. Sized to the viewport
+                instead, so the whole list is reachable on any screen. */}
+            <div className="max-h-[min(70vh,640px)] overflow-y-auto">
               {roles.map(({ role, icon: Icon, label, description, color }) => {
                 const isActive = user.role === role;
                 const colors = getColorClasses(color);
