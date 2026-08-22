@@ -46,6 +46,7 @@ export function RoleSwitcher() {
     [UserRole.INVESTOR]: 'investor-portal',
     [UserRole.PROPERTY_MANAGER]: 'property-manager-portal',
     [UserRole.CONDO_MANAGER]: 'condo-manager-portal',
+    [UserRole.CONDO_ASSOCIATION]: 'condo-association-portal',
     [UserRole.LANDLORD]: 'landlord-portal',
     [UserRole.TENANT]: 'tenant-portal',
   };
@@ -112,6 +113,12 @@ export function RoleSwitcher() {
       company: 'Lakewood Heights HOA',
       email: 'bfoster@lakewoodhoa.com',
       phone: '(817) 555-0638',
+    },
+    [UserRole.CONDO_ASSOCIATION]: {
+      name: 'Dana Reid',
+      company: 'Harbour Point Condominium Association',
+      email: 'dreid@harbourpoint.test',
+      phone: '(603) 555-0142',
     },
     [UserRole.LANDLORD]: {
       name: 'Patricia Nguyen',
@@ -227,6 +234,13 @@ export function RoleSwitcher() {
       label: 'Condo Manager',
       description: 'HOA board — units, owners & maintenance',
       color: 'cyan'
+    },
+    {
+      role: UserRole.CONDO_ASSOCIATION,
+      icon: Home,
+      label: 'Condo Association',
+      description: 'What a board member or unit owner sees',
+      color: 'violet'
     },
     {
       role: UserRole.LANDLORD,

@@ -9,7 +9,7 @@ import {
   Wrench, AlertCircle, TrendingUp, Home, MessageSquare, Settings,
   Bell, ChevronRight, CheckCircle, Shield, Package, Vote, Award,
   Check, X, UserCheck, Key, Clock, AlertTriangle, ArrowUpRight,
-  Zap, Star, Megaphone, Car,
+  Zap, Star, Megaphone, Car, Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -21,6 +21,7 @@ import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import { CondoService } from '../../lib/services/propertyManagementService';
 import { useAuth } from '../../contexts/AuthContext';
+import CondoOffersSection from './CondoOffersSection';
 import { projectId } from '../../utils/supabase/info';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
 import { lookupParcel } from '../../lib/services/propertyRecordsService';
@@ -49,7 +50,7 @@ interface CondoUser {
 }
 
 export default function CondoAssociationPortalView() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
   const [loading, setLoading] = useState(false);
   const [condoData, setCondoData] = useState<any>(null);
   const [workRequests, setWorkRequests] = useState<any[]>([]);
@@ -105,6 +106,36 @@ export default function CondoAssociationPortalView() {
   }, [session?.access_token]);
 
   const membership = standing?.memberships?.[0] || null;
+
+  /**
+   * The association itself, from the server.
+   *
+   * `loadDemoData()` still supplies the sample work requests and units below —
+   * those are the next piece — but the association a member belongs to is real
+   * now, which is what everything on this screen is about and what the offers
+   * section reasons from. A member of no association gets an honest empty state
+   * rather than somebody else's building in Miami.
+   */
+  const [realAssociation, setRealAssociation] = useState<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!session?.access_token || !membership?.associationId) return;
+      try {
+        const res = await fetch(`${CONDO_API}/condo/associations`, {
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        });
+        const data = await res.json().catch(() => ({}));
+        const hit = (Array.isArray(data?.associations) ? data.associations : [])
+          .find((a: any) => String(a.id) === String(membership.associationId));
+        if (!cancelled && hit) setRealAssociation(hit);
+      } catch {
+        // Falls back to the sample below, which is clearly labelled as such.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token, membership?.associationId]);
 
   const accountRole: UserRole = (() => {
     const granted = String(membership?.role || '').toLowerCase();
@@ -371,8 +402,15 @@ export default function CondoAssociationPortalView() {
   const canViewFinancials = GOVERNING_ROLES.includes(currentUser.role);
   const canSubmitRequests = true; // All roles can submit
 
-  // Mock association data - use loaded data or defaults
-  const associationInfo = condoData || {
+  // The real association wins over anything else. The sample below is only
+  // reached when this account belongs to no association yet.
+  const associationInfo = realAssociation
+    ? {
+        ...realAssociation,
+        totalUnits: Number(realAssociation.unitCount) || 0,
+        buildings: Number(realAssociation.buildings) || 0,
+      }
+    : condoData || {
     name: 'Harborview Condo Association',
     address: '1250 Waterfront Drive, Miami, FL 33139',
     totalUnits: 240,
@@ -570,6 +608,7 @@ export default function CondoAssociationPortalView() {
     const baseTabs = [
       { id: 'dashboard', label: 'Dashboard', icon: Home, visible: true },
       { id: 'maintenance', label: 'Maintenance', icon: Wrench, visible: true },
+      { id: 'services', label: 'Services & Offers', icon: Sparkles, visible: true },
     ];
 
     if (canApproveExpenses) {
@@ -1034,6 +1073,15 @@ export default function CondoAssociationPortalView() {
               )}
             </div>
           </div>
+        )}
+
+        {activeTab === 'services' && (
+          <CondoOffersSection
+            association={associationInfo}
+            role={currentUser.role}
+            viewerName={currentUser.name}
+            viewerEmail={currentUser.email}
+          />
         )}
 
         {activeTab === 'units' && (

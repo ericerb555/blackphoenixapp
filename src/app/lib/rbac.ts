@@ -22,6 +22,7 @@ export enum UserRole {
   INVESTOR = 'investor',
   PROPERTY_MANAGER = 'property_manager',
   CONDO_MANAGER = 'condo_manager',
+  CONDO_ASSOCIATION = 'condo_association',
   LANDLORD = 'landlord',
   TENANT = 'tenant',
 }
@@ -183,6 +184,14 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'customer.view_own_projects',
   ],
 
+  // A condo member's real authority comes from their association's grant, not
+  // from this table. These are only the baseline rights any signed-in member
+  // has: raise a request, and see their own.
+  [UserRole.CONDO_ASSOCIATION]: [
+    'customer.submit_requests',
+    'customer.view_own_projects',
+  ],
+
   [UserRole.LANDLORD]: [
     'customer.submit_requests',
     'customer.view_own_projects',
@@ -244,6 +253,7 @@ export function getRoleDisplayName(role: UserRole): string {
     [UserRole.INVESTOR]: 'Investor',
     [UserRole.PROPERTY_MANAGER]: 'Property Manager',
     [UserRole.CONDO_MANAGER]: 'Condo Manager',
+    [UserRole.CONDO_ASSOCIATION]: 'Condo Association',
     [UserRole.LANDLORD]: 'Landlord',
     [UserRole.TENANT]: 'Tenant',
   };
@@ -264,6 +274,7 @@ export function getRoleColor(role: UserRole): string {
     [UserRole.INVESTOR]: 'emerald',
     [UserRole.PROPERTY_MANAGER]: 'amber',
     [UserRole.CONDO_MANAGER]: 'cyan',
+    [UserRole.CONDO_ASSOCIATION]: 'violet',
     [UserRole.LANDLORD]: 'teal',
     [UserRole.TENANT]: 'sky',
   };
