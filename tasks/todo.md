@@ -4190,3 +4190,70 @@ older `property-management/condos` routes are still association-blind: any
 signed-in user can read any of them. They also still hold nothing but demo data,
 and the condo association portal itself continues to render `loadDemoData()` —
 wiring that portal to real associations is the next piece.
+
+## Review — the command center on a phone
+
+Eric: the command center is badly laid out and hard to navigate on a phone.
+Scoped to that one screen this time, after the global CSS revert.
+
+### What was actually wrong, measured at 390x844
+
+The mobile dashboard was already wired correctly — `UnifiedDashboard` switches
+to `UnifiedDashboardMobile` below 768px, so he was getting the right component.
+The component itself was the problem:
+
+| | Before | After |
+|---|---|---|
+| `p-4` computed padding | **0px** | 16px |
+| `pb-24` computed padding | **0px** | 96px |
+| Tap targets under 44px | **8 of 31** | 0 of 31 |
+| Sub-12px text | **8** | 0 |
+| Wide blocks flush to the screen edge | **33** | 9 |
+
+One button measured **484px wide on a 390px viewport** — extending past the
+screen and clipped by the overflow guard on the root, so part of it could not be
+reached at all.
+
+### Why the padding was zero, and why the fix is local
+
+The cause is global and already known: `* { margin: 0; padding: 0 }` sits
+outside any `@layer`, and unlayered CSS beats layered CSS outright, so it wins
+against every Tailwind utility in the application. `gap` survives only because
+the reset never mentions it.
+
+That was fixed globally once and reverted at Eric's request, because it changes
+every screen in the product at once. So this does the same job inside a single
+wrapper class, `.bp-command-center`, and touches nothing else — verified: the
+class appears in one file and nowhere else in the codebase.
+
+The mechanism is `revert-layer`. On an unlayered declaration it rolls the value
+back to the previous cascade layer, which is Tailwind's utilities layer. The
+markup already asks for the right spacing; this simply lets it through, here.
+
+### A mistake worth recording
+
+The first version of this block set `font-size: max(1em, 12px)` on every
+element inside the screen. Because these declarations are unlayered they beat
+the text utilities, so **every piece of text on the screen came out at 16px** —
+`text-xl`, `text-sm` and `text-xs` all identical, the type hierarchy gone. That
+would have shipped a worse screen than the one being fixed. It was caught by
+measuring the computed font size per utility class rather than by looking at
+whether small text had gone away. The rule now names only the two too-small
+classes, and the scale is confirmed intact: text-xl 20, base 16, sm 14, xs 12.
+
+A second self-inflicted one: a backtick inside a CSS comment terminated the JSX
+template literal and broke the file. Two rounds of "measurements" after that
+edit were of a page that never rendered. The probe reporting `stalled` is what
+caught it — worth trusting that signal rather than reading past it.
+
+### Verified at three phone widths
+
+360, 390 and 430px: no side-scroll, no tap target under 44px, no sub-12px text,
+padding landing, type scale intact, no console errors.
+
+### Still open
+
+This is one screen. Every other screen in the app still has dead padding. The
+same wrapper technique works anywhere and is safe, but doing it screen by screen
+is slower than fixing the cause — that trade is Eric's to make, and the global
+fix is a two-line change whenever he wants it.

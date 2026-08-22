@@ -133,7 +133,63 @@ export default function UnifiedDashboardMobile({
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] pb-24 w-full overflow-x-hidden">
+    <div className="bp-command-center min-h-screen bg-[#0A0A0A] pb-24 w-full overflow-x-hidden">
+      {/*
+        Spacing, tap targets and text size for this screen only.
+
+        WHY THIS EXISTS RATHER THAN A FIX IN globals.css
+
+        Every padding and margin utility in this application currently computes
+        to 0px. The cause is global: `* { margin: 0; padding: 0 }` sits outside
+        any @layer, and unlayered CSS beats layered CSS outright, so it wins
+        against every Tailwind utility. Measured on this screen: `p-4`, `p-3`
+        and `pb-24` all resolve to 0, while `gap-3` gives 12px — gap survives
+        only because the reset never mentions it.
+
+        That was fixed globally once and reverted, because fixing it changes
+        every screen in the product at once and that is not a change to make
+        as a side effect. So this block does the same job inside one wrapper
+        class and touches nothing else.
+
+        `revert-layer` is what does the work: on an unlayered declaration it
+        rolls the value back to the previous cascade layer, which is Tailwind's
+        utilities layer. The markup already asks for the right spacing — this
+        simply lets it through again, here.
+      */}
+      <style>{`
+        .bp-command-center, .bp-command-center * {
+          padding: revert-layer;
+          margin: revert-layer;
+        }
+        /* A floor on anything pressed with a thumb. Apple put the minimum at
+           44pt because a fingertip is about 10mm across and cannot be aimed. */
+        .bp-command-center button,
+        .bp-command-center a,
+        .bp-command-center [role='button'] {
+          min-height: 44px;
+        }
+        /* Width matters as much as height for an icon-only control. Applied to
+           every button rather than trying to detect which ones are icon-only:
+           anything carrying a word is already past 44px, so this only reaches
+           the ones that need it. */
+        .bp-command-center button,
+        .bp-command-center [role='button'] {
+          min-width: 44px;
+        }
+        /* Nothing on a phone should be smaller than this and still be read.
+           Named classes, not a blanket rule on every element: these
+           declarations are unlayered and so beat every Tailwind text utility.
+           A universal font-size here flattened text-xl, text-sm and text-xs to
+           one size and destroyed the type hierarchy — measured, every piece of
+           text came out at 16px. Only the too-small classes are touched. */
+        .bp-command-center [class*="text-[10px]"],
+        .bp-command-center [class*="text-[11px]"] { font-size: 12px; }
+        /* Cards in the horizontal rails were sized from the viewport and came
+           out wider than it, so their right-hand edge was clipped away by the
+           overflow guard on the root. Keep them inside the screen. */
+        .bp-command-center [class*='w-[calc(100vw'] { max-width: min(270px, calc(100vw - 2.5rem)); }
+      `}</style>
+
       {/* Mobile Header - Fixed with safe area */}
       <div className="bg-[#0F0F0F] border-b border-[#2A2A2A] px-4 py-3 sticky top-0 z-40 w-full">
         <div className="flex items-center justify-between mb-3">
