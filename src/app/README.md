@@ -83,7 +83,7 @@ business-hub/
 │   └── ...
 ├── pages/                  # Route pages (107 total)
 │   ├── OwnersDashboard.tsx
-│   ├── BidRoomV2.tsx
+│   ├── BidRoom.tsx             # Phoenix Exchange
 │   ├── UnifiedProjectPipeline.tsx
 │   └── ...
 ├── supabase/

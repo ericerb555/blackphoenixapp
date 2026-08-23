@@ -88,7 +88,6 @@ const RequestServicePage = lazy(() => import("./pages/RequestServicePage"));
 const MaterialsCenter = lazy(() => import("./pages/MaterialsCenter"));
 const PricingSettings = lazy(() => import("./pages/PricingSettings"));
 const LaborRatesConfig = lazy(() => import("./components/LaborRatesConfig"));
-const BidRoomV2 = lazy(() => import("./pages/BidRoomV2"));
 const ServiceScheduling = lazy(() => import("./pages/ServiceScheduling"));
 const UnifiedCRMHub = lazy(() => import("./pages/UnifiedCRMHub"));
 const PropertyManagementHub = lazy(() => import("./pages/PropertyManagementHub"));
@@ -468,7 +467,9 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Field / Job Tools
   "pricing-settings":    PricingSettings,
   "labor-rates-config":  LaborRatesConfig,
-  "bid-room":            BidRoomV2,
+  // "bid-room" is defined once, further down, as Phoenix Exchange. A second
+  // entry used to sit here pointing at BidRoomV2 — and because a later key in
+  // an object literal wins, it never rendered. That page has been removed.
   "service-scheduling":  ServiceScheduling,
   "unified-calendar":    CalendarScheduleView,
   "application-submissions": ApplicationSubmissions,
