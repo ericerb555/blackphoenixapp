@@ -305,6 +305,32 @@ const ADMIN_PREFIXES = [
   '/dev/',              // developer/purge endpoints have no business being open
 ];
 
+/**
+ * Forms a stranger fills in, which therefore cannot carry a session.
+ *
+ * These are matched EXACTLY, not by prefix, and that is the whole point of a
+ * separate list. `POST /referrals/attributions` has to be open so a referral
+ * code on a signup link is credited, while `POST /referrals` and
+ * `POST /referrals/records` must stay shut — a prefix entry would open all
+ * three. The same reasoning applies under /applications: submitting one is
+ * public, and anything that might later be added to approve or amend one is not.
+ *
+ * Every route here creates a record for staff to review and grants the caller
+ * nothing. Reading applications back is still administrator-only, enforced both
+ * by ADMIN tiering and by the handler itself.
+ *
+ * These were public before AUTH_ENFORCE was switched on, and enforcing it
+ * without them silently returned 401 to every applicant — the join funnel, the
+ * portal-card signups and referral attribution all failed with the error
+ * swallowed by the caller.
+ */
+const PUBLIC_POST_PATHS = [
+  '/applications',            // the five application forms
+  '/applications/submit',     // the older form endpoint, still linked
+  '/signup/universal',        // portal card signups
+  '/referrals/attributions',  // credits a referral code at signup
+];
+
 const startsWithAny = (path: string, list: string[]) =>
   list.some((entry) => path === entry || path.startsWith(entry));
 
@@ -320,6 +346,8 @@ function authTier(path: string, method: string): 'public' | 'admin' | 'user' {
   if (method === 'OPTIONS') return 'public';           // CORS preflight carries no credentials
   if (startsWithAny(p, PUBLIC_PREFIXES)) return 'public';
   if ((method === 'GET' || method === 'HEAD') && startsWithAny(p, PUBLIC_GET_PREFIXES)) return 'public';
+  // Exact match, deliberately — see the note on PUBLIC_POST_PATHS.
+  if (method === 'POST' && PUBLIC_POST_PATHS.includes(p)) return 'public';
   if (startsWithAny(p, ADMIN_PREFIXES)) return 'admin';
   return 'user';
 }
