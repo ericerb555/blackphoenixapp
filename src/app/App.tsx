@@ -77,6 +77,7 @@ const LoadingFallback = () => (
 
 // Page imports and route map live in routes.tsx — edit that file to add new pages
 import { pageMap, Login, SignUp, ForgotPassword, ResetPassword, DirectoryLandingPage } from "./routes";
+import { rememberReturnTo, clearReturnTo } from "./lib/returnTo";
 import ExitIntentPopup from "./components/ExitIntentPopup";
 import LiveChatWidget from "./components/LiveChatWidget";
 
@@ -144,7 +145,11 @@ function SignOutButton() {
       window.location.replace('/login');
     } catch (error) {
       console.error('Sign out error:', error);
-      // Don't clear localStorage on error - might lose data
+      // Don't clear localStorage on error - might lose data.
+      // The remembered destination is dropped regardless: a deliberate sign-out
+      // must not fling the next person who signs in at the previous person's
+      // page. The success path above already clears it with sessionStorage.clear().
+      clearReturnTo();
       window.location.replace('/login');
     }
   };
@@ -597,6 +602,10 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Redirect to login if not authenticated and trying to access protected route
     if (!loading && !isAuthenticated && !publicRoutes.includes(currentPath)) {
       console.log("🔒 [ProtectedRoutes] REDIRECTING TO LOGIN - user not authenticated");
+      // Remember what they were actually trying to open. Without this, Login
+      // sends everyone to their role's home page and the requested page is
+      // simply lost — which reads as the page not existing.
+      rememberReturnTo(currentPath);
       setRedirecting(true);
       window.location.href = '/login';
       return;

@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import { consumeReturnTo } from '../lib/returnTo';
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -247,6 +248,26 @@ export default function Login({ onNavigate }: LoginProps) {
       // Command Center where they can manage every portal and workflow.
       if (requiresOnboarding && !isPlatformOwner) {
         navigateOnce('portal-onboarding');
+        setIsLoading(false);
+        return;
+      }
+
+      // If they were sent here from a page they actually asked for, put them
+      // back on it. Checked against the real route map, so a value edited in the
+      // browser can only ever name a page this application has — and it is
+      // consumed, so it steers this sign-in and not the next one.
+      //
+      // Deliberately below the onboarding branch above: somebody who still has
+      // an application to finish needs to finish it, whatever they clicked.
+      // Imported here rather than at the top of the file on purpose: routes.tsx
+      // imports Login, so a top-level import back into routes is a cycle, and
+      // pageMap would be undefined while this module is still evaluating.
+      const knownRoutes = await import('../routes')
+        .then(m => Object.keys(m.pageMap))
+        .catch(() => [] as string[]);
+      const returnTo = consumeReturnTo(knownRoutes);
+      if (returnTo) {
+        navigateOnce(returnTo);
         setIsLoading(false);
         return;
       }
