@@ -3074,16 +3074,34 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
 // QUOTES — central document store used across the pipeline, invoice builder,
 // customer portal, and field-capture app. Stored one-per-key as `quote:${id}`.
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Does this quote belong to this person?
+ *
+ * Quotes carry the owner under more names than invoices do, because they are
+ * written by several different screens. `ownsFinancialRecord` covers the
+ * customer-email spellings; the rest are quote-specific.
+ */
+function ownsQuote(quote: any, email: string) {
+  if (ownsFinancialRecord(quote, email)) return true;
+  const target = String(email || '').trim().toLowerCase();
+  if (!target) return false;
+  return [quote?.userId, quote?.createdBy, quote?.customerId, quote?.clientEmail, quote?.customerEmail]
+    .some((value: any) => String(value || '').trim().toLowerCase() === target);
+}
+
 app.get('/make-server-3eae23a6/quotes', async (c) => {
   try {
+    // Scoped, not open. This returned every quote in the business to anyone who
+    // asked. The `userId` filter that was here looked like a guard and was not:
+    // it fell back to returning everything whenever the filter matched nothing,
+    // so passing an unknown id was the way to see the whole book — and passing
+    // no id at all did the same.
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+
     const all = ((await kv.getByPrefix('quote:')) as any[] || []).filter(Boolean).map(stripBase64);
-    const userId = c.req.query('userId');
-    let list = all;
-    if (userId) {
-      const filtered = all.filter((q: any) => [q.userId, q.createdBy, q.customerId, q.customerEmail, q.clientEmail].map((v: any) => String(v || '').toLowerCase()).includes(String(userId).toLowerCase()));
-      // Only narrow when the quotes actually carry an owner tag; otherwise return all.
-      list = filtered.length ? filtered : all;
-    }
+    const list = admin ? all : all.filter((q: any) => ownsQuote(q, user.email));
+
     list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     // Returned as a bare array — the object-expecting callers read `.quotes` defensively.
     return c.json(list);
@@ -3093,14 +3111,29 @@ app.get('/make-server-3eae23a6/quotes', async (c) => {
 // Alias that returns the object form for callers that expect `{ quotes: [...] }`.
 app.get('/make-server-3eae23a6/quotes/list', async (c) => {
   try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+
     const all = ((await kv.getByPrefix('quote:')) as any[] || []).filter(Boolean).map(stripBase64);
-    all.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    return c.json({ success: true, quotes: all });
+    const list = admin ? all : all.filter((q: any) => ownsQuote(q, user.email));
+    list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return c.json({ success: true, quotes: list });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load quotes.' }, 500); }
 });
 
 app.post('/make-server-3eae23a6/quotes', async (c) => {
   try {
+    // Staff only. Quotes are authored by the company — from the command centre's
+    // Start Quote flow and the change-order camera app — while customers accept
+    // them through the by-token routes, which authenticate on the token itself.
+    //
+    // This mattered more than a create check usually does: the id comes from the
+    // request body, so an unguarded POST was also an overwrite. Anyone could
+    // have rewritten the prices on an existing quote by posting its id back.
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
     const body = await c.req.json().catch(() => ({}));
     const incoming = body?.quote && typeof body.quote === 'object' ? body.quote : body;
     const now = new Date().toISOString();
@@ -3151,6 +3184,13 @@ app.get('/make-server-3eae23a6/change-orders', async (c) => {
 
 app.post('/make-server-3eae23a6/change-orders', async (c) => {
   try {
+    // Staff only, and for the same reason as quotes: the id comes from the body,
+    // so creating and overwriting are the same operation here. A change order is
+    // a change to what a customer owes.
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
     const body = await c.req.json().catch(() => ({}));
     const incoming = body?.changeOrder && typeof body.changeOrder === 'object' ? body.changeOrder : body;
     const now = new Date().toISOString();
@@ -8422,7 +8462,14 @@ async function retrieveStripeCheckoutSession(sessionId: string, account: StripeA
 
 // Read-only proof of account separation. Reports WHICH env var each business
 // resolves to and whether the two are distinct — never any key material.
-app.get('/make-server-3eae23a6/payments/stripe-separation', (c) => {
+app.get('/make-server-3eae23a6/payments/stripe-separation', async (c) => {
+  // Administrators only. It reports which Stripe accounts are configured and
+  // under which environment variables — no key material, but a map of the
+  // payment plumbing is not something to hand to every signed-in account.
+  const { user, admin } = await financialActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
   const describe = (account: StripeAccount) => {
     const { key, env } = readStripeKey(account);
     return {
@@ -9895,7 +9942,26 @@ app.patch('/make-server-3eae23a6/intake/onboarding/:id/documents/:documentId', a
 });
 
 async function financialActor(c: any) { const user = await intakeActor(c); return { user, admin: await intakeIsAdmin(user) }; }
-function ownsFinancialRecord(record: any, email: string) { const target = String(email || '').trim().toLowerCase(); return [record.customerEmail, record.customer_email, record.clientEmail, record.client_email, record.email, record.ownerEmail].some((value: any) => String(value || '').trim().toLowerCase() === target); }
+/**
+ * Does this financial record belong to this person?
+ *
+ * The empty-email guard is not defensive tidying. Without it this returned
+ * TRUE for practically every record: each owner field is coalesced with
+ * `|| ''`, so a record missing one of the six spellings compared '' against ''
+ * and matched — and every record is missing at least one. Called with no email
+ * it therefore handed back the whole book rather than nothing.
+ *
+ * Each caller happens to check for a signed-in user first, so this was latent
+ * rather than live. It is fixed here because "no identity" must mean "no
+ * records" in the predicate itself, not only in the six places that remember to
+ * ask first.
+ */
+function ownsFinancialRecord(record: any, email: string) {
+  const target = String(email || '').trim().toLowerCase();
+  if (!target) return false;
+  return [record.customerEmail, record.customer_email, record.clientEmail, record.client_email, record.email, record.ownerEmail]
+    .some((value: any) => String(value || '').trim().toLowerCase() === target);
+}
 
 const invoicePortalRoutes: Record<string, string> = { customer: 'customer-portal-app', vendor: 'vendor-portal', advertiser: 'advertiser-portal', subcontractor: 'subcontractor-portal', employee: 'employee-portal', investor: 'investor-portal', property_manager: 'property-manager-portal', condo_manager: 'condo-manager-portal', landlord: 'landlord-portal', territory_owner: 'territory-portal', tenant: 'tenant-portal' };
 function invoicePortal(value: any) { return Object.prototype.hasOwnProperty.call(invoicePortalRoutes, String(value || '')) ? String(value) : 'customer'; }
@@ -11710,6 +11776,14 @@ app.post('/make-server-3eae23a6/quotes/:id/send-to-customer', async (c) => { try
 // Editing a quote's line items from the Quote → Contract editor.
 app.put('/make-server-3eae23a6/quotes/:id', async (c) => {
   try {
+    // Staff only, and the most important of these checks: this route rewrote
+    // any quote by id with whatever the body contained, and had no
+    // authentication of any kind. The figures a customer is about to sign were
+    // editable by anyone who could name the quote.
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
     const id = c.req.param('id');
     const existing = await kv.get(`quote:${id}`) as any;
     if (!existing) return c.json({ success: false, error: 'Quote not found.' }, 404);

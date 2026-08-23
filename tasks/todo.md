@@ -4316,3 +4316,70 @@ One constant and a redeploy, about two minutes:
 The money routes the customer portal needs — `/invoices`, `/contracts`,
 `/quotes`, `/payments/*` — are enforced at "signed in", which means any signed-in
 user can read them. They need an ownership check before that is really closed.
+
+## Ownership checks on the money routes
+
+The auth gate enforces "signed in", which left the question of *whose*. Audited
+all 29 money routes — invoices, contracts, quotes, payments, change-orders —
+against what actually guards each one.
+
+### The audit had to be run twice
+
+The first pass reported 13 unguarded routes. Reading them showed three of the
+worst-looking were fine: `GET /payments` and `DELETE /invoices/:id` both require
+an administrator, and `/payments/confirm` requires a shared secret header — the
+checks simply sat on the same line as the actor lookup, which the pattern
+missed. Acting on that first list would have meant "fixing" routes that were
+already correct.
+
+The corrected audit found **six** genuinely open, and they were all in one
+place: **quotes**. Invoices, contracts and payments were already well guarded.
+
+### What was actually open
+
+| Route | Was |
+|---|---|
+| `GET /quotes` | every quote in the business, to anyone |
+| `GET /quotes/list` | the same, with no filter at all |
+| `POST /quotes` | no authentication whatsoever |
+| `PUT /quotes/:id` | **no authentication — any caller could rewrite any quote** |
+| `POST /change-orders` | signed in, but not checked against anything |
+| `GET /payments/stripe-separation` | the Stripe account map, to anyone |
+
+Two details worth keeping:
+
+**`GET /quotes` had a filter that looked like a guard and was not.** It narrowed
+by `userId`, then fell back to returning everything when the filter matched
+nothing — so an unknown id returned the whole book, and no id did the same.
+
+**`POST /quotes` was an overwrite, not just a create.** The id comes from the
+request body, so posting an existing quote's id replaced it. The figures a
+customer was about to sign were editable by anyone who could name the quote.
+
+### What they are now
+
+- **Reads** scope: an administrator sees everything, anyone else sees only quotes
+  they own, via a new `ownsQuote` that covers the five owner spellings quotes
+  use on top of the six `ownsFinancialRecord` already handles.
+- **Writes** are staff-only. Quotes are authored by the company — from the
+  command centre and the change-order camera app — while customers accept them
+  through the `by-token` routes, which authenticate on the token itself and were
+  deliberately left alone.
+
+### A latent bug the test found
+
+`ownsFinancialRecord(record, '')` returned **true for practically every
+record**. Each owner field is coalesced with `|| ''`, so a record missing one of
+the six spellings compared `''` against `''` and matched — and every record is
+missing at least one. Called with no email it handed back everything instead of
+nothing.
+
+Every caller happens to check for a signed-in user first, so it was latent
+rather than live. Fixed in the predicate itself, because "no identity" has to
+mean "no records" there and not only in the six places that remember to ask
+first. Four ownership cases now pass, including the empty one.
+
+### Verified in production
+
+All six refuse anonymously with 401; `/health` still 200; products, blog, ad
+serving and gallery unaffected.
