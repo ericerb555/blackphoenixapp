@@ -143,6 +143,7 @@ import { territoryCohortRouter } from "./territory-cohorts.tsx";
 import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
+import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
@@ -3301,6 +3302,98 @@ app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
     await kv.set(`purchase_order:${id}`, order);
     return c.json({ success: true, order });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save purchase order.' }, 500); }
+});
+
+/**
+ * Turn a chosen materials list into real purchase orders — one per vendor.
+ *
+ * WHY THIS EXISTS
+ *
+ * The Materials Center already grouped a quote's materials by vendor and showed
+ * them as purchase orders, but it only ever drew a modal and exported a CSV.
+ * Nothing was saved, so the vendor never received anything and somebody
+ * re-typed the order by hand. This is the missing link between "the customer
+ * picked these products" and "the vendor has an order".
+ *
+ * WHY LINES CARRY A vendorId
+ *
+ * The single-order route above resolves a vendor from free text when it has to,
+ * and that guessing is what once matched a two-character supplier string to
+ * Home Depot. When a line comes from a vendor's own catalogue there is nothing
+ * to guess: it knows whose product it is. So `vendorId` on the line is
+ * authoritative here, and the name is only a fallback for lines typed by hand.
+ *
+ * WHY NOTHING IS SILENTLY DROPPED
+ *
+ * Lines whose vendor cannot be established are returned in `unassigned` rather
+ * than discarded. A materials list that quietly loses two items produces a job
+ * missing two items, discovered on site.
+ */
+app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
+  try {
+    // Company-side only. A purchase order commits Black Phoenix to a spend.
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!await intakeIsAdmin(actor)) {
+      return c.json({ success: false, error: 'Administrator access is required to raise purchase orders.' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (!lines.length) return c.json({ success: false, error: 'No materials were supplied.' }, 400);
+
+    // Pickup or delivery is a real field, not a sentence in an export. The
+    // vendor has to know whether somebody is coming for it.
+    const fulfillment = body.fulfillment === 'pickup' ? 'pickup' : 'delivery';
+
+    const vendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+    const { groups, unassigned } = groupMaterialLines(lines.map((l: any) => stripBase64(l)), vendors);
+
+    const now = new Date().toISOString();
+    const stamp = Date.now().toString(36).toUpperCase();
+    const orders: any[] = [];
+
+    for (const group of groups) {
+      const vendorId = String(group.vendor.id);
+      const id = `po_${crypto.randomUUID()}`;
+      const total = group.lines.reduce((sum: number, l: any) => sum + lineTotal(l), 0);
+      const order = stripBase64({
+        id,
+        poNumber: `PO-${stamp}-${String(group.vendor.name || 'VEN').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()}`,
+        vendorId,
+        supplier: String(group.vendor.name || ''),
+        lineItems: group.lines,
+        items: group.lines.length,
+        total: Math.round(total * 100) / 100,
+        fulfillment,
+        status: 'draft',
+        // Where it came from, so a vendor question can be traced back to a job.
+        sourceQuoteId: String(body.quoteId || ''),
+        projectName: String(body.projectName || ''),
+        siteAddress: String(body.siteAddress || ''),
+        expectedDate: body.neededBy || null,
+        orderDate: now.slice(0, 10),
+        raisedBy: actor.email,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await kv.set(`purchase_order:${id}`, order);
+      orders.push(order);
+    }
+
+    return c.json({
+      success: true,
+      orders,
+      unassigned,
+      // Stated rather than implied, so the screen can say "two lines had no
+      // vendor" instead of showing a total that quietly does not add up.
+      message: unassigned.length
+        ? `${orders.length} purchase order${orders.length === 1 ? '' : 's'} created. ${unassigned.length} line${unassigned.length === 1 ? '' : 's'} had no recognised vendor.`
+        : `${orders.length} purchase order${orders.length === 1 ? '' : 's'} created.`,
+    }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to raise the purchase orders.' }, 500);
+  }
 });
 
 app.patch('/make-server-3eae23a6/purchase-orders/:id/status', async (c) => {

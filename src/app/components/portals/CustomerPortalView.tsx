@@ -50,6 +50,8 @@ import { publicAnonKey, projectId } from '../../utils/supabase/info';
 // render; anything reaching for it during render would have thrown.
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 import { authedHeaders } from '../../utils/authHeaders';
+import { VendorProductPicker, type PickedProduct } from './VendorProductPicker';
+import { mergeProductLine, catalogKey } from '../../lib/quoteLines';
 import { supabase } from '../../lib/supabase';
 import { subscribeToPush, isPushSubscribed } from '../../utils/pushNotifications';
 import CustomerSubscriptionSelectionModal from '../CustomerSubscriptionSelectionModal';
@@ -528,12 +530,21 @@ export default function CustomerPortalView() {
   // NEW: Quote Builder State
   const [quoteItems, setQuoteItems] = useState<Array<{
     id: string;
-    type: 'service' | 'ad';
+    type: 'service' | 'ad' | 'product';
     title: string;
     description: string;
     price?: string;
     image: string;
     source: string;
+    // Product lines carry where they came from. A purchase order can then be
+    // grouped by vendor with certainty instead of guessing from a supplier
+    // name, which is what once matched a two-character string to Home Depot.
+    vendorId?: string;
+    vendorName?: string;
+    sku?: string;
+    unit?: string;
+    unitPrice?: number;
+    quantity?: number;
   }>>([]);
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
@@ -580,6 +591,24 @@ export default function CustomerPortalView() {
   const removeFromQuote = (itemId: string) => {
     setQuoteItems(quoteItems.filter(item => item.id !== itemId));
     toast.success('Removed from quote request');
+  };
+
+  /**
+   * A product chosen from a vendor's catalogue, added to the same quote request
+   * the customer already builds from services — one request, one submit path.
+   *
+   * Adding the same product twice raises the quantity rather than creating a
+   * second line, because two lines for the same SKU become two lines on the
+   * purchase order and the vendor picks it twice.
+   */
+  const addProductToQuote = (product: PickedProduct) => {
+    setQuoteItems(prev => {
+      const { items, merged } = mergeProductLine(prev as any, product);
+      toast.success(merged
+        ? `Quantity updated for ${product.name}`
+        : `${product.name} added to your quote request`);
+      return items as any;
+    });
   };
 
   const submitQuoteRequest = async () => {
@@ -1116,6 +1145,13 @@ export default function CustomerPortalView() {
                   <Plus className="w-4 h-4" />
                   New Work Request
                 </PrimaryButton>
+                {/* Without this the quote builder could only be reached by first
+                    adding a service, so a customer who wants materials had no
+                    way in. */}
+                <SecondaryButton onClick={() => setShowQuoteBuilder(true)}>
+                  <Package className="w-4 h-4" />
+                  Pick Products
+                </SecondaryButton>
                 <SecondaryButton onClick={() => setActiveTab('quotes')}>
                   <FileText className="w-4 h-4" />
                   View Quotes
@@ -1737,16 +1773,44 @@ export default function CustomerPortalView() {
             <div className="p-6">
               <div className="space-y-4">
                 <div>
+                  <h4 className="text-sm font-semibold mb-1">Add products</h4>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Search what our vendors actually stock. Prices shown are theirs,
+                    so your quote reflects the real cost.
+                  </p>
+                  <VendorProductPicker
+                    theme="dark"
+                    onAdd={addProductToQuote}
+                    chosenSkus={quoteItems
+                      .filter(item => item.type === 'product')
+                      .map(item => catalogKey(item))}
+                  />
+                </div>
+
+                <div>
                   <h4 className="text-sm font-semibold mb-2">Selected Items</h4>
+                  {quoteItems.length === 0 && (
+                    <p className="text-xs text-gray-400">
+                      Nothing added yet. Search above, or add a service from the dashboard.
+                    </p>
+                  )}
                   <div className="space-y-2">
                     {quoteItems.map(item => (
                       <div key={item.id} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-3 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-8 h-8 object-cover"
-                          />
+                          {item.image ? (
+                            <img
+                              src={item.image}
+                              alt={item.title}
+                              className="w-8 h-8 object-cover"
+                            />
+                          ) : (
+                            // Catalogue products have no marketing image; a bare
+                            // <img src=""> renders as a broken-image icon.
+                            <div className="w-8 h-8 rounded bg-[#2A2A2A] flex items-center justify-center shrink-0">
+                              <Package className="w-4 h-4 text-orange-400" />
+                            </div>
+                          )}
                           <div>
                             <h5 className="text-sm font-medium">{item.title}</h5>
                             <p className="text-xs text-gray-400">{item.description}</p>

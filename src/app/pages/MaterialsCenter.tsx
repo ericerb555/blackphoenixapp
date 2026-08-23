@@ -161,6 +161,8 @@ export default function MaterialsCenter() {
   
   // Quote Integration
   const [isQuoteMode, setIsQuoteMode] = useState(false);
+  const [customerSelections, setCustomerSelections] = useState<any[]>([]);
+  const [loadingCustomerSelections, setLoadingCustomerSelections] = useState(false);
   const [quoteMaterials, setQuoteMaterials] = useState<any[]>([]);
   const [quoteWorkflowData, setQuoteWorkflowData] = useState<any>(null);
   
@@ -282,6 +284,71 @@ export default function MaterialsCenter() {
         }
       });
     }
+  };
+
+  /**
+   * Pull in the products a customer chose for themselves.
+   *
+   * The customer portal's quote builder saves catalogue selections onto the
+   * work request. Without this the chain stopped there: staff could see the
+   * request but had to re-enter every line by hand before an order could be
+   * raised, which is the re-typing this whole flow exists to remove.
+   *
+   * Their lines already carry vendorId, sku, quantity and the vendor's own
+   * price, so they arrive ready to order rather than ready to re-price.
+   */
+  const loadCustomerSelections = async () => {
+    setLoadingCustomerSelections(true);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`,
+        { headers: await authedHeaders() },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not load customer requests.');
+      const records = Array.isArray(data) ? data : (data.workRequests || []);
+      setCustomerSelections(
+        records.filter((r: any) =>
+          Array.isArray(r?.quoteItems) && r.quoteItems.some((i: any) => i?.type === 'product'),
+        ),
+      );
+    } catch (error: any) {
+      toast.error(error.message || 'Could not load customer requests.');
+    } finally {
+      setLoadingCustomerSelections(false);
+    }
+  };
+
+  const importCustomerSelections = (request: any) => {
+    const products = (request.quoteItems || []).filter((i: any) => i?.type === 'product');
+    if (!products.length) {
+      toast.error('That request has no product selections.');
+      return;
+    }
+    const lines = products.map((item: any, index: number) => ({
+      id: `quote-${request.id}-${index}`,
+      type: 'material',
+      description: item.title || item.name,
+      name: item.title || item.name,
+      quantity: Number(item.quantity) || 1,
+      unit: item.unit || 'ea',
+      unitPrice: Number(item.unitPrice) || 0,
+      totalPrice: (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
+      supplier: item.vendorName || '',
+      // The whole point: the vendor is known, so no name matching is needed.
+      vendorId: item.vendorId || '',
+      sku: item.sku || '',
+    }));
+    setQuoteMaterials(lines);
+    setQuoteWorkflowData({
+      quoteNumber: `Q-${request.id}`,
+      sourceWorkRequestId: request.id,
+      lineItems: lines,
+      createdAt: new Date().toISOString(),
+    });
+    setIsQuoteMode(true);
+    setActiveTab('quote-builder');
+    toast.success(`Imported ${lines.length} product(s) chosen by ${request.client_name || 'the customer'}`);
   };
 
   const returnToQuote = () => {
@@ -445,7 +512,7 @@ export default function MaterialsCenter() {
         
         {activeTab === 'vendor-portal' && <VendorPortalTab />}
         
-        {activeTab === 'quote-builder' && <QuoteBuilderTab quoteMaterials={quoteMaterials} removeMaterialFromQuote={removeMaterialFromQuote} updateQuoteMaterial={updateQuoteMaterial} returnToQuote={returnToQuote} isQuoteMode={isQuoteMode} />}
+        {activeTab === 'quote-builder' && <QuoteBuilderTab quoteMaterials={quoteMaterials} removeMaterialFromQuote={removeMaterialFromQuote} updateQuoteMaterial={updateQuoteMaterial} returnToQuote={returnToQuote} isQuoteMode={isQuoteMode} customerSelections={customerSelections} loadingCustomerSelections={loadingCustomerSelections} loadCustomerSelections={loadCustomerSelections} importCustomerSelections={importCustomerSelections} />}
         
         {activeTab === 'database' && <DatabaseTab />}
         
@@ -994,7 +1061,7 @@ function VendorPortalTab() {
   );
 }
 
-function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteMaterial, returnToQuote, isQuoteMode }: any) {
+function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteMaterial, returnToQuote, isQuoteMode, customerSelections = [], loadingCustomerSelections, loadCustomerSelections, importCustomerSelections }: any) {
   const totalCost = quoteMaterials.reduce((sum: number, item: any) => sum + (item.totalPrice || 0), 0);
 
   // Vendor comparison state
@@ -1006,13 +1073,62 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
   const [showPurchaseOrders, setShowPurchaseOrders] = useState(false);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [deliveryPreference, setDeliveryPreference] = useState<'pickup' | 'delivery'>('delivery');
+  const [sendingPOs, setSendingPOs] = useState(false);
+  const [sentPOs, setSentPOs] = useState<any[]>([]);
 
   if (!isQuoteMode || quoteMaterials.length === 0) {
     return (
-      <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
-        <ShoppingCart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-        <p className="text-gray-400 text-lg mb-2">No materials in quote</p>
-        <p className="text-gray-500 text-sm">Go to Catalog and click "Add to Quote" on any material</p>
+      <div className="space-y-4">
+        <div className="text-center py-12 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl">
+          <ShoppingCart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg mb-2">No materials in quote</p>
+          <p className="text-gray-500 text-sm">Go to Catalog and click "Add to Quote" on any material</p>
+        </div>
+
+        {/* The customer may already have chosen their own products. Re-keying
+            them by hand is what this whole flow exists to remove. */}
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className="text-white font-semibold mb-1">Customer product selections</h3>
+              <p className="text-sm text-gray-400">
+                Products a customer picked in their portal, at the vendor's own prices.
+              </p>
+            </div>
+            <button
+              onClick={loadCustomerSelections}
+              disabled={loadingCustomerSelections}
+              className="px-4 py-3 min-h-[44px] bg-[#2A2A2A] hover:bg-[#3A3A3A] disabled:opacity-60 text-white font-semibold rounded-lg transition"
+            >
+              {loadingCustomerSelections ? 'Loading…' : 'Check for selections'}
+            </button>
+          </div>
+
+          {customerSelections.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {customerSelections.map((request: any) => {
+                const products = (request.quoteItems || []).filter((i: any) => i?.type === 'product');
+                return (
+                  <div key={request.id} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-white font-medium">{request.client_name || request.client_email}</p>
+                      <p className="text-sm text-gray-400">
+                        {products.length} product{products.length === 1 ? '' : 's'}
+                        {request.created_at ? ` · ${new Date(request.created_at).toLocaleDateString()}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => importCustomerSelections(request)}
+                      className="px-4 py-3 min-h-[44px] bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-[#dc2626] hover:to-orange-700 text-white font-bold rounded-lg transition"
+                    >
+                      Import
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -1060,6 +1176,10 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
     // Update the material with new vendor info
     updateQuoteMaterial(material.id, {
       supplier: alternative.vendorName,
+      // The comparison already knows which vendor this price belongs to. Keeping
+      // it means the purchase order groups by vendor with certainty instead of
+      // matching the supplier name back to a vendor record and guessing.
+      vendorId: alternative.vendorId,
       unitPrice: alternative.price,
       totalPrice: alternative.price * material.quantity,
       sku: alternative.sku
@@ -1094,6 +1214,63 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
     setShowPurchaseOrders(true);
   };
 
+  /**
+   * Actually raise the orders.
+   *
+   * The preview above is worth keeping — a purchase order commits a spend and
+   * somebody should look at it first — but until now that preview was the end
+   * of the road. It drew a modal and exported a CSV, and the vendor never
+   * received anything, so the order was re-typed by hand somewhere else.
+   */
+  const sendPurchaseOrders = async () => {
+    if (!quoteMaterials.length) {
+      toast.error('There are no materials to order.');
+      return;
+    }
+    setSendingPOs(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/from-materials`,
+        {
+          method: 'POST',
+          headers: await authedHeaders(),
+          body: JSON.stringify({
+            fulfillment: deliveryPreference,
+            lines: quoteMaterials.map((m: any) => ({
+              vendorId: m.vendorId || '',
+              supplier: m.supplier || '',
+              name: m.name || m.description || 'Unnamed material',
+              sku: m.sku || '',
+              unit: m.unit || 'each',
+              quantity: Number(m.quantity) || 0,
+              unitPrice: Number(m.unitPrice) || 0,
+              totalPrice: Number(m.totalPrice) || 0,
+            })),
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Could not raise the purchase orders.');
+      }
+
+      // Say what did not go through. A materials list that quietly loses two
+      // lines becomes a job missing two items, discovered on site.
+      if (Array.isArray(data.unassigned) && data.unassigned.length) {
+        toast.warning(
+          `${data.unassigned.length} line(s) had no recognised vendor and were not ordered: ` +
+          data.unassigned.map((l: any) => l.name).join(', '),
+        );
+      }
+      toast.success(data.message || 'Purchase orders created.');
+      setSentPOs(Array.isArray(data.orders) ? data.orders : []);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not raise the purchase orders.');
+    } finally {
+      setSendingPOs(false);
+    }
+  };
+
   const exportPOToCSV = (po: any) => {
     const headers = ['Item', 'Quantity', 'Unit', 'Unit Price', 'Total', 'SKU'];
     const rows = po.items.map((item: any) => [
@@ -1125,11 +1302,63 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
     toast.success(`Exported ${po.poNumber} to CSV`);
   };
 
+  /**
+   * Raise the order for one vendor.
+   *
+   * This used to be a toast and nothing else — it said "sent to {vendor}" while
+   * saving nothing, so the screen reported success for an order that did not
+   * exist anywhere. It now creates the real record the vendor portal reads.
+   */
   const sendPORequest = async (po: any) => {
-    // In production, this would send to vendor API or email
-    toast.success(`📧 Purchase order ${po.poNumber} sent to ${po.vendor}`, {
-      description: `Delivery: ${deliveryPreference === 'pickup' ? 'Employee Pickup' : 'Delivery to Site'}`
-    });
+    if (sendingPOs) return;
+    setSendingPOs(true);
+    try {
+      const response = await fetch(
+        `${PO_API}/purchase-orders/from-materials`,
+        {
+          method: 'POST',
+          headers: await authedHeaders(),
+          body: JSON.stringify({
+            fulfillment: deliveryPreference,
+            lines: (po.items || []).map((m: any) => ({
+              vendorId: m.vendorId || '',
+              supplier: m.supplier || po.vendor || '',
+              name: m.name || m.description || 'Unnamed material',
+              sku: m.sku || '',
+              unit: m.unit || 'each',
+              quantity: Number(m.quantity) || 0,
+              unitPrice: Number(m.unitPrice) || 0,
+              totalPrice: Number(m.totalPrice) || 0,
+            })),
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Could not raise the purchase order.');
+      }
+      if (!Array.isArray(data.orders) || data.orders.length === 0) {
+        // Every line failed to resolve to a vendor. Saying "sent" here is the
+        // exact failure this rewrite exists to remove.
+        throw new Error(
+          `No order was created — “${po.vendor}” does not match a vendor on file. Pick the vendor from the price comparison first.`,
+        );
+      }
+      if (Array.isArray(data.unassigned) && data.unassigned.length) {
+        toast.warning(
+          `${data.unassigned.length} line(s) had no recognised vendor and were left off: ` +
+          data.unassigned.map((l: any) => l.name).join(', '),
+        );
+      }
+      toast.success(`Purchase order ${data.orders[0].poNumber} raised for ${po.vendor}`, {
+        description: deliveryPreference === 'pickup' ? 'Marked for employee pickup' : 'Marked for delivery to site',
+      });
+      setSentPOs(prev => [...prev, ...data.orders]);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not raise the purchase order.');
+    } finally {
+      setSendingPOs(false);
+    }
   };
 
   return (
@@ -1342,6 +1571,22 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
               </div>
             </div>
 
+            {/* One action for the common case: several vendors, one job. */}
+            {purchaseOrders.length > 1 && sentPOs.length === 0 && (
+              <div className="px-6 pb-2">
+                <button
+                  onClick={sendPurchaseOrders}
+                  disabled={sendingPOs}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-[#dc2626] hover:to-orange-700 disabled:opacity-60 text-white font-bold rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  {sendingPOs
+                    ? 'Raising…'
+                    : `Raise all ${purchaseOrders.length} purchase orders`}
+                </button>
+              </div>
+            )}
+
             {/* Purchase Orders List */}
             <div className="p-6 space-y-6">
               {purchaseOrders.map((po, idx) => (
@@ -1381,13 +1626,21 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
                       <Download className="w-4 h-4" />
                       Export CSV
                     </button>
-                    <button
-                      onClick={() => sendPORequest(po)}
-                      className="flex-1 px-4 py-3 bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-[#dc2626] hover:to-orange-700 text-white font-bold rounded-lg transition flex items-center justify-center gap-2"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Send PO Request
-                    </button>
+                    {sentPOs.some((o: any) => o.supplier === po.vendor) ? (
+                      <div className="flex-1 px-4 py-3 bg-green-500/15 border border-green-500/40 text-green-400 font-semibold rounded-lg flex items-center justify-center gap-2">
+                        <CheckCircle className="w-4 h-4" />
+                        Order raised
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => sendPORequest(po)}
+                        disabled={sendingPOs}
+                        className="flex-1 px-4 py-3 bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-[#dc2626] hover:to-orange-700 disabled:opacity-60 text-white font-bold rounded-lg transition flex items-center justify-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {sendingPOs ? 'Raising…' : 'Raise Purchase Order'}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
