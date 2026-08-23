@@ -4257,3 +4257,62 @@ This is one screen. Every other screen in the app still has dead padding. The
 same wrapper technique works anywhere and is safe, but doing it screen by screen
 is slower than fixing the cause — that trade is Eric's to make, and the global
 fix is a two-line change whenever he wants it.
+
+## AUTH_ENFORCE is on
+
+Stage B. The gate now refuses instead of logging.
+
+### What the shadow log was read for, and what it caught
+
+Flipping was not the whole job — the point of stage A was to correct the
+allowlist from evidence first. Reading it found **one change that had to be made
+before the flip, or a portal would have broken:**
+
+**`/purchase-orders` was in the admin list, and the vendor portal reads it.** A
+vendor is signed in but is not an administrator, so every vendor's Orders tab
+would have returned 403 the instant enforcement started. The route is not
+unprotected without the prefix: it resolves the caller through
+`purchaseOrderActor`, and a vendor already sees only the orders addressed to
+them while the company side sees all. The check belongs inside the route, which
+can tell those two apart, rather than in a prefix list that cannot. Removed.
+
+Two others looked like the same problem and were not, which is worth recording
+so they are not "fixed" later by mistake:
+
+- **`/payouts`** appeared to be called by the investor and landlord portals. It
+  is not — the grep matched the word in prose and labels, not a fetch.
+- **`/store/orders`** is called by the shopper portal, but `growth-commerce.tsx`
+  is not mounted in `index.tsx` at all, so that route does not exist. It
+  answered 401 before the flip and answers 401 after it. Separately worth
+  knowing: the handler in that unmounted file returns **every** order with no
+  scoping, so it must not be mounted as-is.
+
+### Verified after deploying
+
+Public surfaces still answer anonymously — health, ad serving, products, blog,
+public reels, business profiles, reviews, gallery, flash sales: all 200.
+
+Protected surfaces refuse: invoices, vendor/me, command-center/summary,
+condo/associations, vendor-billing/invoices, property-management/condos,
+purchase-orders — all 401.
+
+The gate's own log confirms it blocked exactly those seven and nothing else, and
+shows `/purchase-orders` now resolving at `tier=user` rather than admin.
+
+**`/plans` returns 401 and that is not the gate.** The log shows the gate never
+touched it; `plansRouter` guards its own paths. It is the maintenance-plan
+management API, not the public pricing catalogue — the public prices come from
+`subscriptionPlans.ts` on the frontend — so a session is the right requirement.
+Its entry in `PUBLIC_GET_PREFIXES` is now misleading and could be dropped.
+
+### Rolling back
+
+One constant and a redeploy, about two minutes:
+`AUTH_ENFORCE = false`, then
+`supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm --no-verify-jwt`.
+
+### Still open
+
+The money routes the customer portal needs — `/invoices`, `/contracts`,
+`/quotes`, `/payments/*` — are enforced at "signed in", which means any signed-in
+user can read them. They need an ownership check before that is really closed.

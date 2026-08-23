@@ -209,7 +209,12 @@ app.use('*', logger(console.log));
 // own app. So it runs in report-only first, the "would-block" lines below show
 // what real usage actually needs, and the list is corrected from evidence before
 // anything starts being refused. Flip this one constant to enforce.
-const AUTH_ENFORCE = false;
+// STAGE B: enforcing. The shadow log was read before this was flipped, and the
+// allowlist corrected from what it showed rather than from what the frontend
+// looked like it needed. `/purchase-orders` came out of the admin list at the
+// same time — see the note there; leaving it in would have refused every vendor
+// their own orders the moment this line changed.
+const AUTH_ENFORCE = true;
 
 const API_PREFIX = '/make-server-3eae23a6';
 
@@ -281,7 +286,14 @@ const ADMIN_PREFIXES = [
   '/payouts',
   '/affiliate-payouts',
   '/affiliates/',
-  '/purchase-orders',
+  // '/purchase-orders' deliberately removed before enforcement. The vendor
+  // portal reads it — a vendor is signed in but is not an administrator, so at
+  // admin tier every vendor's Orders tab would have returned 403 the moment the
+  // gate was switched on. The route is not unprotected by that: it resolves the
+  // caller through purchaseOrderActor and a vendor already sees only the orders
+  // addressed to them, while the company side sees all. The check belongs
+  // inside the route, where it can tell those two apart, rather than in a
+  // prefix list that cannot.
   '/payment-gateways',
   '/investments/payouts',
   '/subscription-plan-overrides',
