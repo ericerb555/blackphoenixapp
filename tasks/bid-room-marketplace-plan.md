@@ -122,3 +122,58 @@ worth less without it. Then first refusal, which is small and is your actual
 workflow. Then the contracted-vendor exception. Radius last, because it is the
 most expensive and the least useful while the subscriber pool is small — a
 50-mile rule matters when you have subcontractors in three towns, not two.
+
+## The request form, with photos and video — mostly already built
+
+Eric: the bid request form should look like the advanced work request, and carry
+photos and video so companies can quote properly.
+
+This is the cheapest thing he has asked for, because it exists.
+
+`WorkRequestFullView` already uploads photographs and video and stores them on
+the record as `media_attachments: { photos, videos }`. It also already captures
+most of what a subcontractor needs in order to price work without a site visit:
+
+> property type, room type, dimensions, square footage, condition, budget,
+> priority, service type, address, plus style detail — kitchen layout, cabinet
+> style, countertop, colour palette
+
+Reused for the bid room, that is:
+
+- **a `media_attachments jsonb` column on `bid_requests`** — small
+- **the same upload helper and buckets** — no change
+- **the same form**, pointed at a bid request instead of a work request — the
+  fields already match what a bidder needs
+
+So "like the advanced work request, with photos and video" is a reuse job, not a
+build. It is the one part of the model that is nearly free.
+
+### One thing to know about the media, and it is live today
+
+`project-photos`, `project-videos` and `project-blueprints` are **public
+buckets**, and the upload helper hands out `getPublicUrl` links. Two
+consequences:
+
+**Convenient.** A subcontractor invited to quote can open the photographs with
+no extra work — no signed URLs, no permission plumbing. That is part of why this
+is cheap.
+
+**But the link is the only protection.** Anyone holding the URL can view a
+customer's job-site photographs, video and blueprints, whether or not they were
+invited to bid. The buckets also carry no size limit and no file-type
+restriction, so anything of any size can be put in them.
+
+That is true right now, before any bid room work — it is not something the
+marketplace introduces. But broadcasting jobs to a paying subscriber pool
+multiplies how many people hold those links, so it is worth deciding
+deliberately:
+
+- **Leave public** — simplest, and fine if the photographs are of work rather
+  than of identifiable homes.
+- **Make private and serve signed URLs** — a customer's house is arguably theirs
+  to keep private, and a signed URL expires. Costs a little plumbing on every
+  read.
+
+The app already has a bucket configured the careful way — `make-3eae23a6-gallery`
+is public but capped at 15MB and restricted to image types — so the pattern
+exists to copy.
