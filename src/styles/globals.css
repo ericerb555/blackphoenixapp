@@ -50,25 +50,31 @@
   --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* This reset has to sit inside a layer, and the reason is worth writing down.
-   Tailwind v4 emits its utilities inside @layer. In the CSS cascade an
-   UNLAYERED rule beats a layered one outright — specificity is never consulted.
-   So this bare `*`, sitting outside any layer, was winning against every
-   padding and margin utility in the application: `.py-4` lost to `*`.
+/* ─────────────────────────────────────────────────────────────────────────────
+   DO NOT WRAP THIS IN @layer. THAT IS NOT A BUG — IT IS THE DESIGN.
 
-   Measured on the built app before this wrapper existed: py-4, py-16, px-6 and
-   mb-4 all computed to 0px, while gap-4 gave a correct 16px — gap survived only
-   because this reset never mentions it. Which is to say every screen had been
-   rendering with no padding and no margins at all.
+   What is technically true: Tailwind v4 emits its utilities inside @layer, and
+   in the CSS cascade an UNLAYERED rule beats a layered one outright, without
+   specificity ever being consulted. So this bare `*` wins against every padding
+   and margin utility in the application — `.py-4` loses to `*`. Measured on the
+   built app: py-4, py-16, px-6 and mb-4 all compute to 0px. `gap-*` still works,
+   because this reset never mentions gap.
 
-   Wrapped in @layer base the reset still normalises browser defaults, and the
-   utilities layer that follows can do its job. */
-@layer base {
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
+   Why it stays that way anyway: the entire product was designed and visually
+   tuned against this behaviour. Wrapping it in `@layer base` switches every
+   padding and margin utility back on across every screen at once, and Eric
+   reviewed that result and rejected it — the app came out looking boxy and
+   unlike the product he had signed off. It was shipped as 5a63c8fb and reverted
+   here deliberately.
+
+   So: this is a decision, not an oversight. Do not "fix" it. If a screen needs
+   spacing, use `gap-*` (which works) or explicit styles on that screen. Changing
+   this one line restyles the whole application and needs Eric's approval first.
+   ───────────────────────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 html {
