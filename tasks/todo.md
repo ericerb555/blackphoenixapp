@@ -1,74 +1,52 @@
-# The vendor and subcontractor side of Phoenix Exchange
+# One standard settings panel for every portal
 
-## What I found
+## What is wrong today
 
-**Your providers exist in two places that do not talk to each other.**
+- **15 header buttons across 9 portals do nothing.** Seven Settings gears and
+  eight notification Bells, none with a click handler at all.
+- **Three portals lie.** Condo Manager, Property Manager and Sub-Tenant have a
+  save button wired to `toast.success('Settings saved!')` and nothing else. It
+  tells somebody their settings were saved and writes nothing anywhere.
+- Landlord and Territory already save properly. They are the model.
 
-| | where | count | used by |
-|---|---|---|---|
-| KV `vendor:*` | key-value store | **6 vendors** | vendor portal, catalogues, purchase orders, billing |
-| Postgres `organizations` | platform core | **1 vendor, 1 subcontractor** | Phoenix Exchange directory, invitations, bids |
+## What already exists (and changes the plan)
 
-The Exchange reads Postgres. The six real vendors are in KV, so none of them
-could be found, invited, or asked to bid.
+Checking before building turned up more than expected:
 
-**The one vendor organisation has zero active members.** An organisation with no
-person attached is invisible to its own company: invite it, the row is written,
-the notification has nowhere to land, and nobody ever opens it.
+| | state |
+|---|---|
+| `GET`/`PUT /me/notification-prefs` | **real, server-side, per user** — and the GET returns the event list and labels for that user |
+| `GET /me/notifications` + read/clear | real — what the Bell should open |
+| `GET /me/entitlements` | real — what this user actually has access to |
+| `NotificationSettings.tsx` | good UI, but saves to **localStorage only**, so preferences do not follow a vendor to their phone |
+| `PortalGlobalSettings.tsx` | real and server-backed, but it is the **admin** screen that configures portals globally — a vendor must never open it |
 
-**Nothing closed the loop.** No code in the server had ever inserted into
-`organizations` or `organization_members`. The eleven organisations that exist
-came from the one-off backfill in migration 002, so the directory could never
-fill itself however many people applied.
+So the server work is largely done and simply was never wired to anything.
 
-## Decisions
+## The approach
 
-- **No bridge.** The existing KV vendors are left alone; the Exchange fills from
-  new applications going forward.
-- **Create the organisation even with no account**, and invite the contact to
-  claim it, so they can be invited to bid immediately.
+One `PortalSettings` component, opened by the gear in every portal. Standard
+everywhere, but it shows the right things per person on its own, because
+`/me/notification-prefs` returns that user's own event list and `/me/entitlements`
+returns what they can reach. No per-portal variants to maintain.
 
-## Done
+Nothing about any portal's layout or design changes — a dead button starts
+opening a panel.
 
-- [x] Approving a vendor or subcontractor application creates their organisation
-- [x] Contact with an account is attached as owner
-- [x] Contact without an account gets a portal invitation to claim it
-- [x] Idempotent — approving twice does not create a second organisation
-- [x] Provider experience proved end to end against the production schema
+## Todo
 
-## Not done
-
-- [ ] An organisation with no member is not flagged on screen. The invite goes
-      out, but you cannot see at a glance who has not claimed theirs.
-- [ ] The claim invitation has not been watched arriving in a real inbox.
+- [ ] `PortalSettings` panel: Account, Notifications, Your access, Sign out
+- [ ] Notifications section reads and writes `/me/notification-prefs`, so
+      preferences follow the person across devices instead of sitting in one
+      browser
+- [ ] "Your access" reads `/me/entitlements` — read-only, and it answers the
+      question each portal user actually has, which is what am I allowed to do here
+- [ ] Wire the 7 Settings gears to open it
+- [ ] Wire the 8 Bells to open it on the notifications section, backed by
+      `/me/notifications`
+- [ ] Replace the 3 fake "Settings saved!" buttons with the real panel
+- [ ] Verify in a browser at desktop and phone size, not just a passing build
 
 ## Review
 
-### What the tests caught
-
-Two different firms sharing a name were being merged into one organisation. The
-reuse check fell back to matching on company name whenever the email missed, so
-a second "Apex Tile" at a different address joined the first one. That is not a
-tidiness problem — members of one company would have sat inside the other and
-read their sealed bids. The email is now the only identity matched on, and the
-company name is consulted only when an application carries no email at all.
-
-39 assertions on the real module, all passing, including approving twice, a
-renamed company, a slug collision between two genuinely different firms, and an
-application with no company name being refused rather than guessed at.
-
-### The sealed-bid guarantee, verified
-
-Tested against the production schema inside a transaction that rolls itself
-back, so nothing was left behind — confirmed afterwards: still exactly 11
-organisations, zero requests, zero bids.
-
-| actor | requests seen | drafts seen | bids seen | highest bid visible |
-|---|---|---|---|---|
-| invited subcontractor | 1 | 0 | 1 | 7200 — their own |
-| rival subcontractor | 1 | 0 | 1 | 6800 — their own |
-| the poster | 2 | 1 | 2 | both |
-
-Neither provider can read the other's price, and neither sees a draft job even
-when invited to one — which is the leak that was closed for invitations back in
-migration 003 and now demonstrably holds for the whole flow.
+_(to be completed)_

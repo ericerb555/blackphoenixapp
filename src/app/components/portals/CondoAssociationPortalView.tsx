@@ -51,6 +51,8 @@ interface CondoUser {
 
 export default function CondoAssociationPortalView() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [loading, setLoading] = useState(false);
   const [condoData, setCondoData] = useState<any>(null);
   const [workRequests, setWorkRequests] = useState<any[]>([]);
@@ -694,7 +696,7 @@ export default function CondoAssociationPortalView() {
               </div>
               )}
 
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition relative">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition relative">
                 <Bell className="w-5 h-5" />
                 {pendingApprovals.length > 0 && canApproveExpenses && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-xs text-white font-bold">
@@ -702,7 +704,7 @@ export default function CondoAssociationPortalView() {
                   </span>
                 )}
               </button>
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -1281,6 +1283,12 @@ export default function CondoAssociationPortalView() {
         )}
       </div>
     </div>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Condo association portal"
+      />
     </LayoutManager>
   );
 }

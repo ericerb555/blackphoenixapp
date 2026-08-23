@@ -21,6 +21,7 @@ import NotificationPreferences from './NotificationPreferences';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -81,6 +82,8 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
   const tenantAddress = propertyAddress || demoProfile?.address || '— Address not set —';
 
   const [tab, setTab] = useState<Tab>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [workRequests, setWorkRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -844,9 +847,11 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                 <p className="text-gray-500 text-sm">{tenantAddress}</p>
                 <p className="text-xs text-gray-600 mt-1.5">Unit details are managed by your landlord. Contact them to update.</p>
               </div>
-              <button onClick={() => toast.success('Settings saved!')}
+              <button /* Unit details are the landlord's to change, so there was nothing here to
+                     save — this announced success for work it never did. */
+                onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }}
                 className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition">
-                Save Changes
+                Open settings
               </button>
             </div>
 
@@ -879,6 +884,13 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
       </div>
 
       <Safe><AdvertisingMarquee /></Safe>
+
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Tenant portal"
+      />
     </div>
   );
 }

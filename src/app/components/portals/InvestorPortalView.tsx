@@ -34,6 +34,8 @@ export default function InvestorPortalView() {
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'opportunities' | 'reports' | 'distributions' | 'documents' | 'plan-tracker' | 'plan-builder' | 'referrals' | 'messages'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [opportunityFilter, setOpportunityFilter] = useState<'all' | 'company' | 'property'>('all');
   const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
   const [showOpportunityModal, setShowOpportunityModal] = useState(false);
@@ -759,10 +761,10 @@ export default function InvestorPortalView() {
               <p className="text-gray-400 mt-1">{investorInfo.company} · {investorInfo.name} · {investorInfo.email}</p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Bell className="w-5 h-5" />
               </button>
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -1546,6 +1548,12 @@ export default function InvestorPortalView() {
       </div>
       </div>
     </div>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Investor portal"
+      />
     </LayoutManager>
   );
 }

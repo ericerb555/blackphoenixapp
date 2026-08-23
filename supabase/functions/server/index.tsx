@@ -11807,6 +11807,64 @@ const PORTAL_UPGRADE_PRICES: Record<string, number> = {
   'condo_manager_maintenance:condo_manager standard maintenance': 99, 'condo_manager_maintenance:condo_manager priority maintenance': 199, 'condo_manager_maintenance:condo_manager premium maintenance': 399,
 };
 
+/**
+ * What this person can actually upgrade to.
+ *
+ * Derived from PORTAL_UPGRADE_PRICES — the same map checkout validates against —
+ * rather than from a copy of the price list in the client. That is the whole
+ * point: checkout rejects any plan or amount that is not in this map, so a
+ * settings panel built from its own list would sooner or later offer an upgrade
+ * that comes back "invalid plan or price" when the customer presses buy. Reading
+ * it from here means the panel can only ever offer what will be accepted.
+ *
+ * Prices are never taken from the client. This returns them, and checkout still
+ * checks the amount against the map independently.
+ */
+app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to see upgrade options.' }, 401);
+    const email = String(user.email).toLowerCase();
+
+    const role = String(
+      user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '',
+    ).toLowerCase().replace(/[\s-]+/g, '_');
+
+    // The maintenance-plan rows are a separate product sold alongside the portal
+    // plan, so they are offered as add-ons rather than mixed into the tiers.
+    const planKey = role || 'customer';
+    const addonKey = `${planKey}_maintenance`;
+
+    const shape = (key: string) =>
+      Object.entries(PORTAL_UPGRADE_PRICES)
+        .filter(([k]) => k.startsWith(`${key}:`))
+        .map(([k, amount]) => {
+          const plan = k.slice(key.length + 1);
+          return {
+            type: key,
+            plan,
+            amount,
+            // "vendor professional" reads better as "Professional" beside a
+            // heading that already says which portal this is.
+            label: plan.replace(new RegExp(`^${planKey}[_ ]?`, 'i'), '').replace(/\b\w/g, m => m.toUpperCase()).trim(),
+          };
+        })
+        .sort((a, b) => a.amount - b.amount);
+
+    const current = (await kv.get(`subscription:${email}`)) as any;
+
+    return c.json({
+      success: true,
+      portalType: planKey,
+      plans: shape(planKey),
+      addOns: shape(addonKey),
+      current: current ? { plan: current.plan || null, status: current.status || null, amount: current.amount ?? null } : null,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load upgrade options.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/subscriptions/checkout', async (c) => {
   try {
     const { user } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in before starting a subscription.' }, 401);

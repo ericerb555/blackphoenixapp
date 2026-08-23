@@ -94,6 +94,8 @@ export default function PropertyManagerPortalView() {
   const accountEmail = user?.email || '';
   const { unread: unreadMessages, clearUnread } = usePortalMessages(user?.id || '', accountEmail);
   const [tab, setTab] = useState<Tab>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [requests, setRequests] = useState<any[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [decisionId, setDecisionId] = useState<string | null>(null);
@@ -233,7 +235,7 @@ export default function PropertyManagerPortalView() {
                 <p className="text-xs text-gray-500 font-medium">{name} · {email} · Property Manager</p>
               </div>
             </div>
-            <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
+            <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
               <Bell className="w-5 h-5" />
             </button>
           </div>
@@ -487,7 +489,10 @@ export default function PropertyManagerPortalView() {
                 <input value={email} readOnly
                   className="w-full bg-[#0A0A0A] border border-[#2A2A2A] focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm outline-none" />
               </div>
-              <button onClick={() => toast.success('Settings saved!')}
+              <button /* The fields above are readOnly, so there was never anything to save — this
+                  button announced success for work it never did. It now opens the
+                  panel where things can actually be changed. */
+              onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }}
                 className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-bold transition">
                 Save Changes
               </button>
@@ -498,6 +503,12 @@ export default function PropertyManagerPortalView() {
       </div>
 
       <Safe><AdvertisingMarquee /></Safe>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Property manager portal"
+      />
     </div>
   );
 }

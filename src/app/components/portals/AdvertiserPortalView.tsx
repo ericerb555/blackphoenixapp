@@ -46,6 +46,8 @@ export default function AdvertiserPortalView() {
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'hub' | 'placements' | 'previews' | 'campaigns' | 'media' | 'analytics' | 'billing' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'deals' | 'investments' | 'messages' | 'documents' | 'guide'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -309,10 +311,10 @@ export default function AdvertiserPortalView() {
               <p className="text-gray-400 mt-1">{advertiserInfo.name} · {advertiserInfo.accountManager} · {advertiserInfo.email}</p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Bell className="w-5 h-5" />
               </button>
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -688,6 +690,12 @@ export default function AdvertiserPortalView() {
         lockedFeature={lockedFeature}
       />
     </div>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Advertiser portal"
+      />
     </LayoutManager>
   );
 }

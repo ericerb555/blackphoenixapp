@@ -93,6 +93,10 @@ export default function SubcontractorPortal() {
   const subPhone = demoProfile?.phone || '(817) 555-0163';
 
   const [tab, setTab] = useState<Tab>('dashboard');
+
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [submittedBids, setSubmittedBids] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<any>(null);
@@ -248,10 +252,10 @@ export default function SubcontractorPortal() {
                   <AlertCircle className="w-3.5 h-3.5" /> {requestedJobs.length} bid request{requestedJobs.length > 1 ? 's' : ''}
                 </div>
               )}
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
                 <Bell className="w-5 h-5" />
               </button>
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -690,6 +694,12 @@ export default function SubcontractorPortal() {
           </div>
         </div>
       )}
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Subcontractor portal"
+      />
     </div>
   );
 }

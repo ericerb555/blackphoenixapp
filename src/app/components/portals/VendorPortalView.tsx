@@ -61,6 +61,8 @@ export default function VendorPortalView() {
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'promotions' | 'invoices' | 'payments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'api-settings' | 'investments' | 'messages' | 'documents' | 'guide'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [lockedFeature, setLockedFeature] = useState<string>('');
 
@@ -372,10 +374,10 @@ export default function VendorPortalView() {
               <p className="text-gray-400 mt-1">{vendorInfo.name} · {vendorInfo.accountManager} · {vendorInfo.email}</p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Bell className="w-5 h-5" />
               </button>
-              <button className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -1267,6 +1269,12 @@ export default function VendorPortalView() {
         lockedFeature={lockedFeature}
       />
     </div>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Vendor portal"
+      />
     </LayoutManager>
   );
 }

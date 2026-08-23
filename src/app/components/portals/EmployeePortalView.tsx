@@ -30,6 +30,8 @@ export default function EmployeePortalView() {
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'schedule' | 'tasks' | 'timesheet' | 'documents' | 'plan-tracker' | 'plan-builder' | 'performance' | 'referrals' | 'investments' | 'messages' | 'guide'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
 
   // Mock employee data — pulled from RoleSwitcher demo profile if present
   // ---------------------------------------------------------------------------
@@ -410,7 +412,7 @@ export default function EmployeePortalView() {
 
             {/* Right side actions */}
             <div className="flex items-center gap-3">
-              <button className="relative inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="relative inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                 <Bell className="w-5 h-5" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-[#ea580c] rounded-full"></span>
               </button>
@@ -418,7 +420,7 @@ export default function EmployeePortalView() {
                 <MessageSquare className="w-5 h-5" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full"></span>
               </button>
-              <button className="inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="inline-flex items-center justify-center min-w-11 min-h-11 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -1166,6 +1168,12 @@ export default function EmployeePortalView() {
           </div>
         )}
       </main>
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Employee portal"
+      />
     </div>
   );
 }

@@ -71,6 +71,8 @@ export default function CustomerPortalView() {
   const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'guide'>('dashboard');
+  const [showPortalSettings, setShowPortalSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
   const [mobileView, setMobileView] = useState(false); // Toggle mobile/desktop view
   const [workRequests, setWorkRequests] = useState<any[]>([]); // Real work requests from API
@@ -765,7 +767,7 @@ export default function CustomerPortalView() {
                 <Bell className={`w-5 h-5 ${isPushSubscribed() ? 'text-orange-400' : 'text-gray-400'}`} />
                 {unreadMessages > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full animate-pulse" />}
               </button>
-              <button className="p-2 rounded-lg bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/30 transition">
+              <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5 text-gray-400" />
               </button>
             </div>
@@ -2057,6 +2059,12 @@ function CustomerMessagesTab({ userId, userEmail, userName }: { userId: string; 
           );
         })
       )}
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Customer portal"
+      />
     </div>
   );
 }
