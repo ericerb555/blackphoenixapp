@@ -414,16 +414,29 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
   // page and looks broken rather than pending.
   const hasActiveMembership = memberships.some(m => m.status === 'active');
   if (!hasActiveMembership) {
+    // Two different situations were being told the same story. Somebody with an
+    // `invited` membership genuinely has an application to finish. Somebody with
+    // no membership at all has not been invited to anything, and telling them to
+    // "finish your application" sends them to a form that will not help — which
+    // is what the platform owner saw, because his account belongs to no
+    // organisation and the bid room is organisation-scoped by design.
+    const invitedSomewhere = memberships.length > 0;
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-6">
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-8 max-w-lg text-center">
           <Inbox className="w-8 h-8 text-orange-500 mx-auto mb-4" />
-          <p className="text-white font-bold mb-2">Your portal access is still pending</p>
-          <p className="text-sm text-gray-400">
-            You have been invited but have not finished your application yet. Complete
-            your profile and the bid room will open automatically.
+          <p className="text-white font-bold mb-2">
+            {invitedSomewhere ? 'Your portal access is still pending' : 'This account is not part of an organisation yet'}
           </p>
-          {onNavigate && (
+          <p className="text-sm text-gray-400">
+            {invitedSomewhere
+              ? 'You have been invited but have not finished your application yet. Complete your profile and the bid room will open automatically.'
+              : 'The bid room is organised around companies — jobs are posted by one and bid on by others. Once your account is attached to an organisation, it opens here automatically.'}
+          </p>
+          {/* Only offered to somebody who actually has an application to
+              finish. Sending a person with no invitation to the onboarding form
+              is a dead end. */}
+          {onNavigate && invitedSomewhere && (
             <button onClick={() => onNavigate('portal-onboarding')}
               className="mt-5 px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: '#ea580c' }}>
               Finish my application
