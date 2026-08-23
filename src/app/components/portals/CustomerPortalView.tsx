@@ -1512,6 +1512,135 @@ export default function CustomerPortalView() {
           </div>
         )}
 
+        {/*
+          Payments.
+
+          This tab was listed in the navigation and had no render block at all,
+          so choosing it produced an empty page. Found by walking every tab and
+          measuring what each one drew once the shared header and marquee were
+          subtracted — a blank tab still "renders" about 1,800 characters of
+          chrome and looks fine until you take that away.
+
+          Built from the invoices already loaded for this customer and the same
+          create-checkout call the Quotes tab uses, so it introduces no new
+          endpoint and nothing new to secure. The server scopes those invoices
+          to the person asking, and checks ownership again before it will start
+          a checkout for one.
+        */}
+        {activeTab === 'payments' && (
+          <div className="space-y-6">
+            {(() => {
+              const balanceOf = (inv: any) => Number(
+                inv.balance_due ?? inv.balanceDue ?? inv.total_amount ?? inv.total ?? inv.amount ?? 0,
+              );
+              const isSettled = (inv: any) => ['paid', 'completed', 'void', 'cancelled'].includes(String(inv.status || '').toLowerCase());
+              const outstanding = invoices.filter((inv: any) => !isSettled(inv) && balanceOf(inv) > 0);
+              const settled = invoices.filter(isSettled);
+              const dueTotal = outstanding.reduce((sum: number, inv: any) => sum + balanceOf(inv), 0);
+              const isOverdue = (inv: any) => {
+                const due = inv.due_date || inv.dueDate;
+                return due ? Date.parse(String(due)) < Date.now() : false;
+              };
+              const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+              const payInvoice = async (invoice: any) => {
+                const { data: { session } } = await supabase.auth.getSession();
+                const tok = session?.access_token || publicAnonKey;
+                const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    amount: balanceOf(invoice),
+                    description: `Invoice #${invoice.invoice_number || invoice.id}`,
+                    clientEmail: user?.email,
+                    clientName: user?.email?.split('@')[0],
+                    invoiceId: invoice.id,
+                    workRequestId: invoice.workRequestId,
+                  }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (data.checkoutUrl) window.location.assign(data.checkoutUrl);
+                else toast.error(data.error || 'Payment setup required — contact Black Phoenix to set up payments');
+              };
+
+              return (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Due now</p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums text-white">{money(dueTotal)}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {outstanding.length ? `${outstanding.length} invoice${outstanding.length === 1 ? '' : 's'}` : 'Nothing outstanding'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Overdue</p>
+                      <p className={`mt-2 text-2xl font-bold tabular-nums ${outstanding.some(isOverdue) ? 'text-red-400' : 'text-white'}`}>
+                        {outstanding.filter(isOverdue).length}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">past the due date</p>
+                    </div>
+                    <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Settled</p>
+                      <p className="mt-2 text-2xl font-bold tabular-nums text-green-400">{settled.length}</p>
+                      <p className="mt-1 text-xs text-gray-500">paid in full</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6">
+                    <h2 className="text-lg font-bold text-white">Payments</h2>
+                    <p className="mt-1 mb-5 text-sm text-gray-400">
+                      What you owe, and what has already been settled.
+                    </p>
+
+                    {invoices.length === 0 ? (
+                      <div className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-10 text-center">
+                        <CreditCard className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+                        <p className="font-semibold text-white">Nothing to pay yet</p>
+                        <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+                          Invoices appear here once work has been quoted and approved.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-[#2A2A2A]">
+                        {[...outstanding, ...settled].map((invoice: any) => {
+                          const overdue = !isSettled(invoice) && isOverdue(invoice);
+                          return (
+                            <div key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-white">
+                                  Invoice #{invoice.invoice_number || invoice.id}
+                                </p>
+                                <p className="mt-0.5 text-sm text-gray-500">
+                                  {invoice.due_date || invoice.dueDate ? `Due ${String(invoice.due_date || invoice.dueDate).slice(0, 10)}` : 'No due date'}
+                                  {overdue && <span className="ml-2 font-semibold text-red-400">overdue</span>}
+                                  {isSettled(invoice) && <span className="ml-2 font-semibold text-green-400">paid</span>}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="font-bold tabular-nums text-white">{money(balanceOf(invoice))}</span>
+                                {!isSettled(invoice) && balanceOf(invoice) > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => payInvoice(invoice)}
+                                    className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-green-500"
+                                  >
+                                    <CreditCard className="h-4 w-4" /> Pay now
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
         {activeTab === 'contracts' && (
           <div className="space-y-5">
             <div><h2 className="text-2xl font-bold text-white">Your contracts</h2><p className="mt-1 text-sm text-gray-400">Review and sign contracts connected to your approved quotes.</p></div>

@@ -4383,3 +4383,51 @@ first. Four ownership cases now pass, including the empty one.
 
 All six refuse anonymously with 401; `/health` still 200; products, blog, ad
 serving and gallery unaffected.
+
+## Customer portal, end to end
+
+Walked all fourteen tabs in a browser and checked every endpoint the portal
+calls against the live server, after the auth-gate and ownership changes.
+
+### Did the security work break anything? No.
+
+Every endpoint the portal calls still exists — no 404s — and each refuses an
+anonymous caller with 401 rather than being unreachable. The two that decide
+whether a customer can actually use the portal both check out:
+
+- **`/payments/create-checkout`** requires a session and, when paying an
+  invoice, that you own it. A customer paying their own invoice works; the
+  request already carries `invoiceId`, so that ownership check really runs.
+- **`/quotes`** now scopes by owner. Against production data that is safe:
+  all four quotes on file carry `clientEmail`, and both invoices carry an owner
+  address, so nothing is orphaned and no customer is left with an empty list by
+  the new filter. Rendered with a customer session, the Quotes tab shows the
+  quote and the invoice.
+
+### One real bug: the Payments tab drew nothing
+
+`payments` was in the tab type, in the navigation, and had **no render block at
+all**. Selecting it produced an empty page.
+
+It survived because a blank tab is not obviously blank: the marquee and header
+render on every tab, so it still produced ~1,800 characters and looked
+plausible. It only showed up after subtracting the text common to every tab and
+measuring what each one drew on its own.
+
+Built from what the portal already had — the customer's own invoices and the
+same `create-checkout` call the Quotes tab uses — so it adds no endpoint and
+nothing new to secure. It shows what is due now, how many invoices are overdue,
+what has settled, and a Pay button per outstanding invoice.
+
+### A measurement trap worth remembering
+
+Dashboard first reported as blank too, and was not. The chrome baseline was
+captured while Dashboard was the active tab, so Dashboard's own content *was*
+the baseline. Taking the baseline from a different tab showed it rendering 527
+characters — "Welcome! Submit a work request to get started. 1 Active
+Projects…". Worth remembering before reporting a default view as broken.
+
+### Result
+
+Fourteen of fourteen tabs render their own content, with no console errors, for
+a signed-in customer.
