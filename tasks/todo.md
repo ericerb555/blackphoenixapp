@@ -1,89 +1,74 @@
-# Phoenix Exchange — major upgrade
+# The vendor and subcontractor side of Phoenix Exchange
 
-## What I found before planning
+## What I found
 
-**1. There were two Exchange pages, and the better-looking one was dead.**
-`routes.tsx` defined `"bid-room"` twice. A later key wins, so `BidRoom.tsx`
-rendered and `BidRoomV2.tsx` (1257 lines of filters, presets, search, sort) was
-unreachable — and wired to a dead KV backend, while the live page sat on real
-Postgres tables with row-level security.
+**Your providers exist in two places that do not talk to each other.**
 
-**2. The portals and the landing page do not match each other.** `SponsoredMarquee`
-(landing page) genuinely scrolls and is server-backed; `AdvertisingMarquee`
-(~15 portals) is a localStorage rotating banner. Eric chose to match the portals.
+| | where | count | used by |
+|---|---|---|---|
+| KV `vendor:*` | key-value store | **6 vendors** | vendor portal, catalogues, purchase orders, billing |
+| Postgres `organizations` | platform core | **1 vendor, 1 subcontractor** | Phoenix Exchange directory, invitations, bids |
 
-**3. A security hole found on the way.** `AdvertisingMarquee.handleAdClick` sent any
-non-`http` link to `window.location.href`. A stored `javascript:` scheme executed.
+The Exchange reads Postgres. The six real vendors are in KV, so none of them
+could be found, invited, or asked to bid.
+
+**The one vendor organisation has zero active members.** An organisation with no
+person attached is invisible to its own company: invite it, the row is written,
+the notification has nowhere to land, and nobody ever opens it.
+
+**Nothing closed the loop.** No code in the server had ever inserted into
+`organizations` or `organization_members`. The eleven organisations that exist
+came from the one-off backfill in migration 002, so the directory could never
+fill itself however many people applied.
+
+## Decisions
+
+- **No bridge.** The existing KV vendors are left alone; the Exchange fills from
+  new applications going forward.
+- **Create the organisation even with no account**, and invite the contact to
+  claim it, so they can be invited to bid immediately.
 
 ## Done
 
-- [x] Removed the duplicate `"bid-room"` route key and deleted `BidRoomV2.tsx`
-- [x] Marquee on the Exchange, using the portals' own component
-- [x] `scroll` added as an **opt-in** prop — only the Exchange passes it, so the
-      ~15 portals render exactly what they rendered before
-- [x] Fixed the `javascript:` link hole (`safeAdUrl`), applied to both variants
-- [x] Search across title, trade, address and scope — every word must match
-- [x] Filters: trade, status, budget, distance, due window, emergency, has-media
-- [x] Five one-click presets, each a real question rather than a demo
-- [x] List / grid / radar-map views
-- [x] Photos and video on a request, with an http(s)-only guard on the URL
-- [x] Countdowns, first-refusal state, and a bid-spread bar (low / median / high)
-- [x] Emergency lane — emergencies lead every sort order
-- [x] 50-mile radius, measured with the same haversine the SQL uses
-- [x] Migration `011_exchange_marketplace.sql` written
-- [x] 45 unit tests on the filter logic, all passing
-- [x] Verified in a real browser at 1440px and at 390px
+- [x] Approving a vendor or subcontractor application creates their organisation
+- [x] Contact with an account is attached as owner
+- [x] Contact without an account gets a portal invitation to claim it
+- [x] Idempotent — approving twice does not create a second organisation
+- [x] Provider experience proved end to end against the production schema
 
 ## Not done
 
-- [ ] **Migration 011 is not applied anywhere.** It needs a branch test first.
-- [ ] The subscription gate (`010`) stays unapplied — separate decision.
+- [ ] An organisation with no member is not flagged on screen. The invite goes
+      out, but you cannot see at a glance who has not claimed theirs.
+- [ ] The claim invitation has not been watched arriving in a real inbox.
 
 ## Review
 
-### Where the design comes from
-
-Spacing on this screen is real CSS in `exchangeStyles.ts`, not `p-*` / `m-*`.
-Those utilities compute to 0px application-wide because the global reset is
-deliberately unlayered — so the previous version of this page had been
-rendering with no internal padding at all, which is a good part of why it looked
-plain. A class selector out-specifies a bare `*`, so the named classes apply.
-Measured in the browser: masthead 26px, card body 17px, shell 32px desktop and
-20px mobile.
-
 ### What the tests caught
 
-- Emergencies lead **every** sort, including budget and newest — otherwise a
-  burst pipe sorts below a kitchen remodel.
-- A request with no coordinates can never satisfy a radius filter. Including it
-  would claim a job is nearby when nobody knows where it is.
-- A request with no budget is never hidden by a budget filter.
-- Budget filtering is overlap, not containment, so an $8k–$15k job answers
-  "over $10k".
-- A stale `vendorId`-style reference — here a lapsed first-refusal window — reads
-  differently from one that was never set, and the UI says so.
+Two different firms sharing a name were being merged into one organisation. The
+reuse check fell back to matching on company name whenever the email missed, so
+a second "Apex Tile" at a different address joined the first one. That is not a
+tidiness problem — members of one company would have sat inside the other and
+read their sealed bids. The email is now the only identity matched on, and the
+company name is consulted only when an application carries no email at all.
 
-### What the browser caught
+39 assertions on the real module, all passing, including approving twice, a
+renamed company, a slug collision between two genuinely different firms, and an
+application with no company name being refused rather than guessed at.
 
-- The bid spread read "**3 of 2 bids**" whenever the posting org priced its own
-  job or an invitation was withdrawn after a bid landed. Now two separate facts.
-- The view toggle and preset chips were 38px. Now 44px on touch, desktop
-  density kept.
-- The marquee's dismiss button was 28px on a phone.
-- The `javascript:` test ad is **inert** when clicked, confirmed by asserting no
-  side effect fired.
+### The sealed-bid guarantee, verified
 
-### Three false alarms worth recording
+Tested against the production schema inside a transaction that rolls itself
+back, so nothing was left behind — confirmed afterwards: still exactly 11
+organisations, zero requests, zero bids.
 
-My own probe produced three "bugs" that were not bugs: a case-sensitive text
-match against a `text-transform: uppercase` pill; mangled selector quoting after
-patching the probe with escaped strings; and a `.bpx-` prefix where the
-component uses `.bp-`. Each looked like a product failure. The fix was to stop
-patching probe files with string replacement and rewrite them whole.
+| actor | requests seen | drafts seen | bids seen | highest bid visible |
+|---|---|---|---|---|
+| invited subcontractor | 1 | 0 | 1 | 7200 — their own |
+| rival subcontractor | 1 | 0 | 1 | 6800 — their own |
+| the poster | 2 | 1 | 2 | both |
 
-### Not verified
-
-The page has not run against a real database with migration 011 applied. Every
-new column and the media table are treated as optional, so it works either way,
-but the media strip and the radius filter cannot show anything real until 011
-is applied.
+Neither provider can read the other's price, and neither sees a draft job even
+when invited to one — which is the leak that was closed for invitations back in
+migration 003 and now demonstrably holds for the whole flow.

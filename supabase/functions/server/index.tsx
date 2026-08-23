@@ -144,6 +144,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
+import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
@@ -1489,9 +1490,52 @@ app.patch('/make-server-3eae23a6/applications/:id', async (c) => {
     const intake = ['approved', 'active'].includes(String(applications[index].status).toLowerCase()) ? await ensureIntake(applications[index]) : null;
     const access = intake ? await syncPortalAccess(applications[index], intake) : null;
     const planProposal = intake ? await ensureApplicationPlanProposal(applications[index], user.email) : null;
+
+    // Approving a vendor or subcontractor now also gives them an organisation in
+    // Postgres. Without it they exist in the key-value store and nowhere that
+    // Phoenix Exchange can see, so they can never be invited to price work — the
+    // directory could not fill itself no matter how many people were approved.
+    let providerOrg: any = null;
+    if (intake) {
+      const portalType = intakePortalType(applications[index]);
+      if (isProviderType(portalType)) {
+        providerOrg = await ensureProviderOrg(
+          { db: supabase, findUserIdByEmail: makeUserFinder(supabase.auth) },
+          applications[index],
+          portalType,
+        );
+        applications[index] = {
+          ...applications[index],
+          exchangeOrgId: providerOrg?.orgId || applications[index].exchangeOrgId || null,
+        };
+        // An organisation nobody can sign into is invisible to its own company:
+        // it can be invited, the row is written, and no human is ever notified.
+        // So the contact is invited to claim it.
+        if (providerOrg?.orgId && providerOrg.needsClaim) {
+          try {
+            await deliverPortalInvite({
+              name: providerName(applications[index]) || applications[index].name || '',
+              email: providerEmail(applications[index]),
+              phone: String(applications[index].phone || ''),
+              portalType,
+              grantFullAccess: false,
+              trialMonths: 0,
+              sendEmail: true,
+              sendSms: false,
+              wantQr: false,
+            });
+          } catch (inviteErr: any) {
+            // The organisation is the durable part and is already written. A
+            // failed email must not read as a failed approval.
+            console.warn('[Applications] Provider org created but the claim invite failed:', inviteErr?.message);
+          }
+        }
+      }
+    }
+
     applications[index] = { ...applications[index], planProposal: planProposal || applications[index].planProposal || null, planProposalId: planProposal?.id || applications[index].planProposalId || null };
     await kv.set(APPLICATIONS_KEY, applications);
-    return c.json({ success: true, application: applications[index], intake, access, planProposal });
+    return c.json({ success: true, application: applications[index], intake, access, planProposal, providerOrg });
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 
