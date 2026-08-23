@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Star, Quote, ChevronLeft, ChevronRight, Plus, X, Send, RefreshCw } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { toast } from 'sonner@2.0.3';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -53,7 +54,7 @@ export default function ReviewsSection() {
     setSubmitting(true);
     try {
       const res = await fetch(`${SERVER}/reviews`, {
-        method: 'POST', headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ customerName: form.name, customerEmail: form.email, rating: form.rating, reviewText: form.text, serviceType: form.service }),
       });
       if (res.ok) {

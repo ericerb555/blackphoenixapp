@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 import { consumeContentProduct } from '../lib/contentHandoff';
 
@@ -182,7 +183,7 @@ function ProductPosts({ products, loading, reload, initialSelectedId }: { produc
     try {
       const res = await fetch(`${SERVER}/email-center/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           to: recipients.split(',').map(s => s.trim()).filter(Boolean),
           subject: title || 'New from The Black Phoenix Company',

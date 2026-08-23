@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -310,7 +311,7 @@ export default function HotProductsRadar() {
   const loadLive = useCallback(async () => {
     setLoadingLive(true);
     try {
-      const res = await fetch(`${SERVER}/products?isActive=true&limit=200`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+      const res = await fetch(`${SERVER}/products?isActive=true&limit=200`, { headers: await authedHeadersOrAnon(publicAnonKey) });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to load live products (${res.status})`);
       const items: LiveProduct[] = (data.products || []).map((p: any) => ({

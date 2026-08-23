@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, Package, ArrowRight, Download, Home, Loader2, AlertCircle, Mail, Clock, ShieldCheck } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -38,7 +39,7 @@ function parseSessionFromUrl(): string | null {
 
 async function fetchOrderDetails(sessionId: string): Promise<OrderDetails> {
   const res = await fetch(`${SERVER}/stripe/session/${sessionId}`, {
-    headers: { Authorization: `Bearer ${publicAnonKey}` },
+    headers: await authedHeadersOrAnon(publicAnonKey),
   });
   if (!res.ok) throw new Error('Session not found');
   const data = await res.json();
@@ -49,10 +50,7 @@ async function sendConfirmationEmail(order: OrderDetails) {
   try {
     await fetch(`${SERVER}/email/order-confirmation`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${publicAnonKey}`,
-      },
+      headers: await authedHeadersOrAnon(publicAnonKey),
       body: JSON.stringify({
         to: order.customerEmail,
         name: order.customerName,

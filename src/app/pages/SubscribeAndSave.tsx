@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { saveDual, loadDual } from '../lib/database';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -133,7 +134,7 @@ export default function SubscribeAndSave() {
     try {
       await fetch(`${SERVER}/leads/capture`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           email, name: user?.user_metadata?.full_name || '',
           source: 'subscribe_and_save',

@@ -32,6 +32,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { companyInfo } from '../lib/config/companyInfo';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -1475,10 +1476,7 @@ export default function EnterpriseContentCenter() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/video/ai-edit`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             name: videoFile.name,
             size: videoFile.size,

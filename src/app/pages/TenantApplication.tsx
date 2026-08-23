@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Home, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
@@ -29,7 +30,7 @@ export default function TenantApplication() {
     (async () => {
       if (!token) { setValid(false); setError('This application link is missing its access token.'); return; }
       try {
-        const res = await fetch(`${API}/screening/${token}`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+        const res = await fetch(`${API}/screening/${token}`, { headers: await authedHeadersOrAnon(publicAnonKey) });
         const data = await res.json();
         if (!live) return;
         if (!data.success) throw new Error(data.error || 'Invalid link');
@@ -47,7 +48,7 @@ export default function TenantApplication() {
       setSubmitting(true); setError('');
       const res = await fetch(`${API}/screening/${token}/apply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify(f),
       });
       const data = await res.json();

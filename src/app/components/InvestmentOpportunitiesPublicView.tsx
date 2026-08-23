@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentDataSheet } from './InvestmentDataSheet';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -272,7 +273,7 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
     // Server is the source of truth; fall back to the localStorage cache / defaults.
     try {
       const res = await fetch(`${SERVER}/investments/opportunities`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.opportunities) && data.opportunities.length > 0) {

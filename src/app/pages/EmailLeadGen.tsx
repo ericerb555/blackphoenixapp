@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -82,7 +83,7 @@ export default function EmailLeadGen() {
     setLoading(true);
     try {
       const res = await fetch(`${SERVER}/leads`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       if (res.ok) {
         const data = await res.json();
@@ -100,7 +101,7 @@ export default function EmailLeadGen() {
     try {
       const res = await fetch(`${SERVER}/leads/send-email`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ leadId: lead.id, emailType: type, customMessage }),
       });
       const data = await res.json();
@@ -118,7 +119,7 @@ export default function EmailLeadGen() {
     try {
       await fetch(`${SERVER}/leads/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       setLeads(prev => prev.filter(l => l.id !== id));
       toast.info('Lead removed');
@@ -130,7 +131,7 @@ export default function EmailLeadGen() {
     try {
       const res = await fetch(`${SERVER}/leads/capture`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ ...newLead, page: 'manual-add' }),
       });
       const data = await res.json();
@@ -148,7 +149,7 @@ export default function EmailLeadGen() {
     try {
       const res = await fetch(`${SERVER}/leads/blast`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ emailType: blastType, intentFilter: blastFilter, customMessage }),
       });
       const data = await res.json();

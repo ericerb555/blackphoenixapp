@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { X, Tag, Mail, ArrowRight, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -174,7 +175,7 @@ export default function ExitIntentPopup() {
     try {
       const res = await fetch(`${SERVER}/exit-intent/capture`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ email, promoCode: config.promoCode, source: 'exit-intent', page: window.location.pathname }),
       });
       const json = await res.json();

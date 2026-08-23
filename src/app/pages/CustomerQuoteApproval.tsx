@@ -10,6 +10,7 @@ import { sendApprovedQuoteNotification } from '../utils/adminAlertHelper';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import {
   loadCustomerMembership,
   contractDiscountForMembership,
@@ -204,7 +205,7 @@ export default function CustomerQuoteApproval() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}/sign`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             signatureData,
             signerName: typedName || (tokenRecord?.clientName || 'Customer'),
@@ -876,7 +877,7 @@ export default function CustomerQuoteApproval() {
                 `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`,
                 {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+                  headers: await authedHeadersOrAnon(publicAnonKey),
                   body: JSON.stringify({
                     amount: depositAmt,
                     description: `30% Deposit — ${quote.projectTitle}`,

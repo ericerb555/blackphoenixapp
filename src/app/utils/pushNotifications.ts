@@ -4,6 +4,7 @@
  */
 
 import { projectId, publicAnonKey } from './supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -73,7 +74,7 @@ export async function subscribeToPush(userId?: string, userEmail?: string, userR
 
     // 4. Get VAPID public key from server
     const keyRes = await fetch(`${SERVER}/notifications/push/vapid-key`, {
-      headers: { Authorization: `Bearer ${publicAnonKey}` },
+      headers: await authedHeadersOrAnon(publicAnonKey),
     });
     if (!keyRes.ok) {
       console.warn('[Push] VAPID key not available — push not configured yet');

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Send, Check, Upload, X, FileText } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import ApplicationPlanBuilderSection from './ApplicationPlanBuilderSection';
 
 export interface ApplicationField {
@@ -187,7 +188,7 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(15000),
         },

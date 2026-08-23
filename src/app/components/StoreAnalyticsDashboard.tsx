@@ -16,6 +16,7 @@ import {
   ChevronDown, ChevronUp, Minus, AlertCircle,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -111,7 +112,7 @@ export default function StoreAnalyticsDashboard() {
     setError(null);
     try {
       const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/analytics/store`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.success === false) {

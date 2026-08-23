@@ -15,6 +15,7 @@ import {
 import { Building2, CreditCard, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { STRIPE_PUBLISHABLE_KEY } from '../utils/stripe/config';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -32,7 +33,7 @@ interface Company {
 async function api(path: string, method: 'GET' | 'POST' = 'GET', body?: any) {
   const res = await fetch(`${SERVER}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+    headers: await authedHeadersOrAnon(publicAnonKey),
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));

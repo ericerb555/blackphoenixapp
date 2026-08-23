@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { authedHeaders } from '../utils/authHeaders';
+import { authedHeaders, authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -186,7 +186,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       // change, and this call would be the thing that broke.
       const signupRes = await fetch(`${base}/auth/signup`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,

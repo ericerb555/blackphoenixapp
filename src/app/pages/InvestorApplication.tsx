@@ -6,6 +6,7 @@ import {
   Home, PieChart, Users, Info
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -26,7 +27,7 @@ export default function InvestorApplication() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/investments/opportunities`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         const data = await res.json();
         if (data.success && Array.isArray(data.opportunities)) {

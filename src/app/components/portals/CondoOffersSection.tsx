@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import { offersForAudience, townBasis, seasonOf, type CondoFacts, type CondoOffer } from '../../lib/condoOffers';
 import { lookupTownLoads } from '../../lib/townLoads';
 
@@ -101,7 +102,7 @@ export default function CondoOffersSection({ association, role, viewerName, view
     try {
       const res = await fetch(`${SERVER}/work-requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           clientName: viewerName || 'Condo member',
           clientEmail: viewerEmail || '',

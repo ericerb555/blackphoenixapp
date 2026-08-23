@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { useStoreConfig, effectiveUnitPrice } from '../hooks/useStoreConfig';
 import UnifiedCheckout from '../components/UnifiedCheckout';
 
@@ -129,7 +130,7 @@ export default function DigitalProductPage({ onNavigate }: Props) {
       setAccessError(null);
       try {
         const res = await fetch(`${SERVER}/marketplace/products`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.error || `Could not load the catalog (${res.status}).`);
@@ -164,7 +165,7 @@ export default function DigitalProductPage({ onNavigate }: Props) {
     try {
       const res = await fetch(
         `${SERVER}/marketplace/products/${encodeURIComponent(product.id)}/download?email=${encodeURIComponent(trimmed)}`,
-        { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        { headers: await authedHeadersOrAnon(publicAnonKey) },
       );
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {
@@ -192,7 +193,7 @@ export default function DigitalProductPage({ onNavigate }: Props) {
       try {
         const res = await fetch(`${SERVER}/marketplace/checkout/complete`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ sessionId }),
         });
         const data = await res.json().catch(() => null);
@@ -505,7 +506,7 @@ export default function DigitalProductPage({ onNavigate }: Props) {
           try {
             const res = await fetch(`${SERVER}/marketplace/checkout`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+              headers: await authedHeadersOrAnon(publicAnonKey),
               body: JSON.stringify({
                 // Dollars — the server converts to Stripe's cents.
                 items: [{ id: product.id, title: product.title, price: ep.price / 100, qty }],

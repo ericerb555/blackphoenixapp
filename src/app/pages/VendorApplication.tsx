@@ -8,6 +8,7 @@ import { toast } from 'sonner@2.0.3';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -85,7 +86,7 @@ export default function VendorApplication({ onNavigate }: VendorApplicationProps
       const remaining: any[] = [];
       for (const application of pending) {
         try {
-          const response = await fetch(`${API_BASE}/applications`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, body: JSON.stringify(application), signal: AbortSignal.timeout(12000) });
+          const response = await fetch(`${API_BASE}/applications`, { method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey), body: JSON.stringify(application), signal: AbortSignal.timeout(12000) });
           if (!response.ok) remaining.push(application);
         } catch { remaining.push(application); }
       }

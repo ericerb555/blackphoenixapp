@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Play, X, ShoppingBag, Volume2, VolumeX } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -31,7 +32,7 @@ export function ProductReels({ onShopProduct }: { onShopProduct?: (productId: st
     (async () => {
       try {
         const res = await fetch(`${SERVER}/store-content/reels`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         const data = await res.json().catch(() => null);
         if (!cancelled && res.ok && data?.success) setReels(data.reels || []);

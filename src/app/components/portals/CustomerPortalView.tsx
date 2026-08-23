@@ -467,7 +467,7 @@ export default function CustomerPortalView() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`${SERVER}/giveaways`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+        const res = await fetch(`${SERVER}/giveaways`, { headers: await authedHeadersOrAnon(publicAnonKey) });
         const j = await res.json().catch(() => ({}));
         if (!cancelled) setGiveaways(Array.isArray(j?.giveaways) ? j.giveaways : []);
       } catch { /* no giveaways is a fine outcome */ }

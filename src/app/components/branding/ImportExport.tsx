@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { ExternalLink, Camera, Download, LayoutGrid, Palette, FileText, Loader2, Search, AlertCircle, Plus } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import type { BrandingSettings, ColorPalette, Color } from './types';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -191,7 +192,7 @@ export function ImportExport({ settings, onUpdate, onAddAsset }: ImportExportPro
       setSearchError(null);
       setSearched(true);
       const res = await fetch(`${SERVER}/stock-photos/search?q=${encodeURIComponent(q)}&perPage=24`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || `Search failed with status ${res.status}`);

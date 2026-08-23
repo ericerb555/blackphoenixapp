@@ -16,6 +16,7 @@ import { toast } from 'sonner@2.0.3';
 import { PageHeader } from '../components/PageHeader';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 interface PropertyManagerApplicationProps {
   onNavigate?: (page: string) => void;
@@ -112,7 +113,7 @@ export default function PropertyManagerApplication({ onNavigate }: PropertyManag
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/applications`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(15000),
         },

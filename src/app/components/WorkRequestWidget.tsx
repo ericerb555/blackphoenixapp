@@ -3,6 +3,7 @@ import { Wrench, X, ChevronDown, Flame, Send, Check, Phone, Mail, MapPin, Clipbo
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -79,7 +80,7 @@ export default function WorkRequestWidget() {
 
     try {
       const response = await fetch(`${SERVER}/work-requests`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ clientName: form.name, clientEmail: form.email, clientPhone: form.phone, serviceType: form.service, project_name: `${form.service} service request`, description: form.details, address: form.address, urgency: form.urgency, requestNumber: ref, source: 'work_request_widget' }),
       });
       const result = await response.json().catch(() => ({}));

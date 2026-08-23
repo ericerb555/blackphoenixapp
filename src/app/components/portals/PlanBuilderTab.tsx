@@ -25,6 +25,7 @@ import {
   type PlanPreset,
 } from '../../data/maintenancePlans';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import { createPlan, listPlans, bridgePlanGiftCards, type PlanRecord } from '../../utils/plansApi';
 import PortalUpgradeModal from './PortalUpgradeModal';
 import { useAuth } from '../../contexts/AuthContext';
@@ -173,7 +174,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/price-custom`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             entityType: entity,
             portalRole: portalType,

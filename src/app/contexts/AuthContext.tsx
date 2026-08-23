@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import type { CompanyScope, CompanyContext } from '../lib/companyScope';
 
 interface UserRole {
@@ -309,10 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/register-crm`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${publicAnonKey}`,
-            },
+            headers: await authedHeadersOrAnon(publicAnonKey),
             body: JSON.stringify({
               email,
               fullName: profile?.fullName,

@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { RefreshCw, CheckCircle, AlertCircle, Zap, Upload, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { toast } from 'sonner@2.0.3';
 
 type Step = 'idle' | 'uploading' | 'publishing' | 'done' | 'error';
@@ -54,7 +55,7 @@ export default function FixMyLogo() {
     try {
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
-        { headers: { Authorization: `Bearer ${publicAnonKey}` } }
+        { headers: await authedHeadersOrAnon(publicAnonKey) }
       );
       if (res.ok) {
         const data = await res.json();
@@ -90,7 +91,7 @@ export default function FixMyLogo() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ logo_base64: logoBase64, filename: 'company-logo.png' }),
         }
       );
@@ -119,7 +120,7 @@ export default function FixMyLogo() {
     // Bust server cache
     await fetch(
       `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding/refresh`,
-      { method: 'POST', headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' } }
+      { method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey) }
     );
 
     // Update localStorage too

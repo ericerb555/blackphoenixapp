@@ -17,6 +17,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCompany } from '../contexts/CompanyContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { CampaignPromoStrip } from '../components/CampaignPromoStrip';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
 import { ActiveFlashBanner } from './FlashSaleManager';
@@ -130,7 +131,7 @@ export default function PublicStore() {
     const complete = async () => {
       try {
         setShowCheckout(true); setCheckoutStep('processing');
-        const response = await fetch(`${SERVER}/store/checkouts/${encodeURIComponent(checkoutId)}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` }, body: JSON.stringify({ sessionId }) });
+        const response = await fetch(`${SERVER}/store/checkouts/${encodeURIComponent(checkoutId)}/complete`, { method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey), body: JSON.stringify({ sessionId }) });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) throw new Error(data.error || 'Payment confirmation is still pending.');
         if (cancelled) return;
@@ -230,7 +231,7 @@ export default function PublicStore() {
 
         while (page <= MAX_PAGES && raw.length < total) {
           const url = `${SERVER}/products?isActive=true&page=${page}&limit=${PAGE_SIZE}`;
-          const res = await fetch(url, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+          const res = await fetch(url, { headers: await authedHeadersOrAnon(publicAnonKey) });
           if (!res.ok) {
             // Page 1 failing is a real error; a later page failing just means we
             // show what we already have rather than an empty store.
@@ -392,7 +393,7 @@ export default function PublicStore() {
       try {
         await fetch(`${SERVER}/leads/capture`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             email: capturedEmail,
             name: capturedName,
@@ -405,7 +406,7 @@ export default function PublicStore() {
         // Auto-send recovery email
         await fetch(`${SERVER}/leads/send-email`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             email: capturedEmail,
             name: capturedName || 'there',
@@ -425,7 +426,7 @@ export default function PublicStore() {
     try {
       await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/leads/capture`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           email: leadEmail, name: leadName, source,
           page: window.location.pathname,

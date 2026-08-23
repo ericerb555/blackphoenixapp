@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -804,7 +805,7 @@ export default function SocialMediaHub() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/social/custom-accounts`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         const json = await res.json();
         if (json.success && Array.isArray(json.accounts)) {

@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -80,7 +81,7 @@ export function useStoreProducts(fallback: StoreCatalogProduct[] = [], limit = 5
     setError(null);
     try {
       const res = await fetch(`${SERVER}/products?isActive=true&limit=${limit}`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) {

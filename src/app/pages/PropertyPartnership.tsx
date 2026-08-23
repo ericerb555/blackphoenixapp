@@ -5,6 +5,7 @@ import {
   Layers, Handshake, Info, Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import {
   recommendStrategy, STRATEGY_LABELS,
   type PropertyInputs, type StrategyKey, type StrategyRecommendation,
@@ -84,7 +85,7 @@ export default function PropertyPartnership() {
     try {
       const res = await fetch(`${SERVER}/investments/partner-properties`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({
           contact,
           property: inputs,

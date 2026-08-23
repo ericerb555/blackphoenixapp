@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { X, Plus, Calendar, Clock, Users, Package, FileText, Download, Save, AlertCircle, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -171,7 +172,7 @@ export default function ConstructionScheduleGenerator({
     let phases = standardPhases;
     try {
       const res = await fetch(`${SERVER}/design-standards/schedule-templates`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.phases) && data.phases.length > 0) {

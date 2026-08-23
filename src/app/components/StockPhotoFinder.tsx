@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { Search, Image as ImageIcon, Copy, Download, Trash2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 interface StockPhoto {
   id: string;
@@ -69,7 +70,7 @@ export default function StockPhotoFinder({ onSelect }: Props) {
     try {
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/stock-photos/search?q=${encodeURIComponent(q)}&perPage=24`,
-        { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        { headers: await authedHeadersOrAnon(publicAnonKey) },
       );
       const data = await res.json();
       if (!res.ok || !data.success) {

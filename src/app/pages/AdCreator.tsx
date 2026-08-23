@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -303,7 +304,7 @@ export default function AdCreator() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/marketplace/products`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         const data = await res.json();
         if (Array.isArray(data.products) && data.products.length > 0) {

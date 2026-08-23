@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -353,7 +354,7 @@ async function processCheckout(items: CartItem[], email: string, name: string): 
     const CHECKOUT_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/marketplace/checkout`;
     const res = await fetch(CHECKOUT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+      headers: await authedHeadersOrAnon(publicAnonKey),
       body: JSON.stringify({
         items: items.map(i => ({ id: i.product.id, title: i.product.title, price: i.product.price, qty: i.quantity })),
         email,
@@ -394,7 +395,7 @@ export default function PropertyMarketplace() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/marketplace/products`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         if (res.ok) {
           const data = await res.json();

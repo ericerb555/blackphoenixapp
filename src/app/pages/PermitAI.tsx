@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -180,7 +181,7 @@ export default function PermitAI({ initialAddress = '', initialWorkType = '', in
     try {
       const res = await fetch(`${API}/permit-ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({ message: msg, address, workType, history }),
       });
 

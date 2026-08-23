@@ -8,6 +8,7 @@ import { Upload, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { uploadImageDataUrl } from '../utils/imageStorage';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const LOGO_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -81,7 +82,7 @@ export default function UploadMyLogo() {
       try {
         await fetch(`${LOGO_SERVER}/branding-profile`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ branding: brandingProfile }),
         });
       } catch (e) {

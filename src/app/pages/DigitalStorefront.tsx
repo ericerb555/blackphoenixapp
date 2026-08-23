@@ -15,6 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { useStoreConfig, effectiveUnitPrice, volumeDiscountPercent, lineTotal } from '../hooks/useStoreConfig';
 import UnifiedCheckout from '../components/UnifiedCheckout';
 import { Truck } from 'lucide-react';
@@ -138,7 +139,7 @@ export default function DigitalStorefront() {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/marketplace/products`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         });
         if (res.ok) {
           const data = await res.json();
@@ -186,7 +187,7 @@ export default function DigitalStorefront() {
       try {
         const res = await fetch(`${SERVER}/marketplace/checkout/complete`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ sessionId }),
         });
         const data = await res.json().catch(() => null);

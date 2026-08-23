@@ -1,4 +1,5 @@
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import type { InvoicePDFData } from './pdfService';
 import { companyInfo } from '../config/companyInfo';
 
@@ -28,10 +29,7 @@ export class EmailService {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/send`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             to: recipientEmail,
             subject,
@@ -213,9 +211,7 @@ export class EmailService {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/log`,
         {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         }
       );
 

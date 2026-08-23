@@ -4,6 +4,7 @@ import {
   ChevronRight, Sparkles, Save, Inbox,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -44,7 +45,7 @@ export default function PartnerPropertyPipeline() {
     setError(null);
     try {
       const res = await fetch(`${SERVER}/investments/partner-properties`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data.error || `Server returned ${res.status}`);
@@ -64,7 +65,7 @@ export default function PartnerPropertyPipeline() {
     try {
       const res = await fetch(`${SERVER}/investments/partner-properties/${item.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify(changes),
       });
       const data = await res.json().catch(() => ({}));

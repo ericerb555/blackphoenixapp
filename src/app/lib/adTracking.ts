@@ -17,6 +17,7 @@
  */
 
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/advertising`;
 
@@ -33,7 +34,7 @@ export interface ServedAd {
 export async function fetchAds(placement = 'marquee', limit = 12): Promise<ServedAd[]> {
   try {
     const res = await fetch(`${API}/serve?placement=${encodeURIComponent(placement)}&limit=${limit}`, {
-      headers: { Authorization: `Bearer ${publicAnonKey}` },
+      headers: await authedHeadersOrAnon(publicAnonKey),
     });
     const json = await res.json().catch(() => ({}));
     return Array.isArray(json?.ads) ? json.ads : [];
@@ -56,7 +57,7 @@ async function flush() {
   try {
     await fetch(`${API}/events`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
+      headers: await authedHeadersOrAnon(publicAnonKey),
       body: JSON.stringify({ events }),
       // Lets a click that navigates away still deliver its event.
       keepalive: true,

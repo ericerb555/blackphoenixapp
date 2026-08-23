@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -80,7 +81,7 @@ export default function BuildingCodeChecker({ elements, onClose }: BuildingCodeC
     let ruleset = FALLBACK_RULESET;
     try {
       const res = await fetch(`${SERVER}/design-standards/code-rules?jurisdiction=IRC2021`, {
-        headers: { Authorization: `Bearer ${publicAnonKey}` },
+        headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const data = await res.json();
       if (res.ok && data.success && data.ruleset) {
