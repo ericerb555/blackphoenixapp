@@ -49,7 +49,7 @@ import { publicAnonKey, projectId } from '../../utils/supabase/info';
 // effects that use it. Those worked only because an effect body runs after
 // render; anything reaching for it during render would have thrown.
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-import { authedHeaders } from '../../utils/authHeaders';
+import { authedHeaders, authedHeadersOrAnon } from '../../utils/authHeaders';
 import { VendorProductPicker, type PickedProduct } from './VendorProductPicker';
 import { mergeProductLine, catalogKey } from '../../lib/quoteLines';
 import { supabase } from '../../lib/supabase';
@@ -403,7 +403,11 @@ export default function CustomerPortalView() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`${SERVER}/services`, { headers: { Authorization: `Bearer ${publicAnonKey}` } });
+        // `/services` is not on the server's public allowlist, so the anon key
+        // gets a 401 here and the catch below swallows it — which is why this
+        // section had been silently rendering empty since AUTH_ENFORCE went on.
+        // The person looking at this page is signed in, so send their token.
+        const res = await fetch(`${SERVER}/services`, { headers: await authedHeadersOrAnon(publicAnonKey) });
         const j = await res.json().catch(() => ([]));
         const rows = Array.isArray(j) ? j : (Array.isArray(j?.services) ? j.services : []);
         if (!cancelled) setFeaturedServices(rows);
