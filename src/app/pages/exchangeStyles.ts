@@ -148,6 +148,32 @@ export const EXCHANGE_CSS = `
 .bpx-radar-legend { display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin-top:14px;
   font-size:12px; color:var(--bpx-dim); }
 
+/* ── first run ────────────────────────────────────────────────────────────── */
+.bpx-firstrun { display:flex; flex-direction:column; gap:14px; }
+.bpx-firstrun-hero { border:1px solid var(--bpx-line); border-radius:20px; padding:38px 24px;
+  text-align:center; display:flex; flex-direction:column; align-items:center; gap:12px;
+  background:
+    radial-gradient(760px 240px at 50% -30%, rgba(234,88,12,.16), transparent 62%),
+    var(--bpx-surface); }
+@media (min-width:768px){ .bpx-firstrun-hero { padding:52px 40px; } }
+.bpx-firstrun-hero h2 { font-size:clamp(20px,3vw,27px); font-weight:800; letter-spacing:-.02em; margin:0; }
+.bpx-firstrun-hero > p { margin:0; max-width:56ch; color:var(--bpx-dim); font-size:14.5px; line-height:1.65; }
+.bpx-firstrun-count { font-size:12.5px; color:var(--bpx-faint); }
+
+.bpx-steps { list-style:none; display:grid; grid-template-columns:1fr; gap:12px; padding:0; margin:0; }
+@media (min-width:820px){ .bpx-steps { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+.bpx-step { position:relative; border:1px solid var(--bpx-line); border-radius:16px; padding:20px;
+  background:var(--bpx-raised); display:flex; flex-direction:column; gap:9px; }
+.bpx-step-n { position:absolute; top:16px; right:18px; font-size:26px; font-weight:800;
+  color:rgba(255,255,255,.07); line-height:1; font-variant-numeric:tabular-nums; }
+.bpx-step h3 { margin:0; font-size:15px; font-weight:700; letter-spacing:-.01em; }
+.bpx-step p { margin:0; font-size:13.5px; color:var(--bpx-dim); line-height:1.6; }
+
+.bpx-firstrun-note { display:flex; align-items:flex-start; gap:10px; padding:15px 18px;
+  border:1px solid var(--bpx-line); border-left:3px solid rgba(56,189,248,.55);
+  border-radius:14px; background:rgba(56,189,248,.05);
+  font-size:13px; color:var(--bpx-dim); line-height:1.6; }
+
 /* ── empty / states ───────────────────────────────────────────────────────── */
 .bpx-empty { border:1px solid var(--bpx-line); border-radius:20px; background:var(--bpx-surface);
   padding:52px 24px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:9px; }

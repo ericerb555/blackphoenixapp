@@ -36,7 +36,7 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import AdvertisingMarquee from '../components/AdvertisingMarquee';
+import SponsoredMarquee from '../components/SponsoredMarquee';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import {
   EMPTY_FILTERS, BUILT_IN_PRESETS, applyPreset, applyFilters, sortRequests,
@@ -517,9 +517,21 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
     <div className="bpx">
       <style>{EXCHANGE_CSS}</style>
 
-      {/* Matches the portals — same component they all use. `scroll` is opt-in
-          and only this screen passes it, so no portal changes. */}
-      <AdvertisingMarquee placement="phoenix-exchange" scroll dismissible />
+      {/*
+        The landing page's marquee, not the portals'.
+
+        AdvertisingMarquee was here first and rendered nothing at all: it reads
+        `advertisements` out of localStorage and filters on placement, and since
+        no ad has ever been placed on "phoenix-exchange" the list came back
+        empty and the component returned null. It only looked right in testing
+        because the test seeded that key by hand.
+
+        SponsoredMarquee is the one already running on the landing page — it
+        genuinely scrolls, pulls paid placements from the server with impression
+        and click tracking, and falls back to house content, so the strip is
+        never blank while nobody has bought it.
+      */}
+      <SponsoredMarquee onNavigate={onNavigate} />
 
       <div className="bpx-shell">
         {/* ── masthead ───────────────────────────────────────────────────── */}
@@ -637,7 +649,18 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
         )}
 
         {/* ── results ────────────────────────────────────────────────────── */}
-        {visible.length === 0 ? (
+        {requests.length === 0 ? (
+          /* Nothing has ever been posted. That is the state this screen will be
+             in until the first job goes up, and it is the first thing a vendor
+             or subcontractor sees — so it explains the place rather than
+             reporting that it is empty. */
+          <FirstRun
+            canPost={adminOrgs.length > 0}
+            providerCount={directory.length}
+            onPost={() => setShowCreate(true)}
+            onNavigate={onNavigate}
+          />
+        ) : visible.length === 0 ? (
           <div className="bpx-empty">
             <Gavel size={30} style={{ color: '#4b5563' }} />
             <p style={{ fontWeight: 800, fontSize: 16 }}>
@@ -941,6 +964,84 @@ function RequestCard(props: {
         </div>
       )}
     </article>
+  );
+}
+
+// ── first run ────────────────────────────────────────────────────────────────
+
+/**
+ * What the Exchange looks like before anything has been posted.
+ *
+ * This is not a placeholder. Until the first job goes up this IS the page, and
+ * it is what a subcontractor or vendor sees when they are invited in — so it
+ * has to explain what the place is for and give the one action that starts it,
+ * rather than announcing that a list is empty.
+ *
+ * The provider count is read from the directory rather than invented. Saying
+ * "hundreds of contractors" to somebody who can see there are two is how a
+ * marketplace loses the people it is trying to attract.
+ */
+function FirstRun({ canPost, providerCount, onPost, onNavigate }: {
+  canPost: boolean; providerCount: number;
+  onPost: () => void; onNavigate?: (page: string) => void;
+}) {
+  const STEPS = [
+    { n: 1, icon: FileText, title: 'Post the work',
+      body: 'Scope, budget range, site address and a deadline. Add photographs and video — a provider cannot price framing from a sentence.' },
+    { n: 2, icon: UserPlus, title: 'Invite who should price it',
+      body: 'Pick from your provider directory. They are notified by email and text, and the job appears in their Exchange straight away.' },
+    { n: 3, icon: Trophy, title: 'Compare sealed bids',
+      body: 'Prices land side by side with the spread between them. No provider can see another’s number — the database enforces that, not the screen.' },
+  ];
+
+  return (
+    <div className="bpx-firstrun">
+      <div className="bpx-firstrun-hero">
+        <div className="bpx-mark" style={{ width: 52, height: 52 }}><Gavel size={24} color="#fff" /></div>
+        <h2>Nothing has been posted yet</h2>
+        <p>
+          Phoenix Exchange is where Black Phoenix puts work out to subcontractors and
+          vendors, and where they price it back. Post the first job and it starts here.
+        </p>
+        <div className="bpx-row" style={{ justifyContent: 'center', gap: 10, marginTop: 4 }}>
+          {canPost && (
+            <button className="bpx-btn bpx-btn-primary" onClick={onPost}>
+              <Plus size={16} /> Post the first job
+            </button>
+          )}
+          {onNavigate && (
+            <button className="bpx-btn" onClick={() => onNavigate('subcontractor-application')}>
+              <UserPlus size={16} /> Bring in providers
+            </button>
+          )}
+        </div>
+        <p className="bpx-firstrun-count">
+          {providerCount === 0
+            ? 'No providers have finished onboarding yet — they appear here as soon as they do.'
+            : `${providerCount} provider${providerCount === 1 ? '' : 's'} ready to be invited.`}
+        </p>
+      </div>
+
+      <ol className="bpx-steps">
+        {STEPS.map(s => (
+          <li key={s.n} className="bpx-step">
+            <span className="bpx-step-n">{s.n}</span>
+            <s.icon size={17} style={{ color: '#fb923c' }} />
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="bpx-firstrun-note">
+        <ShieldCheck size={16} style={{ color: '#7dd3fc', flexShrink: 0 }} />
+        <span>
+          Emergencies jump the queue, jobs inside your radius can be held for first
+          refusal before they reach the wider market, and every price stays sealed
+          until you award it.
+        </span>
+      </div>
+    </div>
   );
 }
 
