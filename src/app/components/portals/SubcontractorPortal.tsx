@@ -290,7 +290,7 @@ export default function SubcontractorPortal() {
               <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-3 border-b border-[#2A2A2A] bg-[#111]">
                   <h3 className="font-bold text-white flex items-center gap-2">
-                    <Target className="w-5 h-5 text-orange-400" /> Bid Room
+                    <Target className="w-5 h-5 text-orange-400" /> Phoenix Exchange
                     {requestedJobs.length > 0 && (
                       <span className="px-2 py-0.5 bg-red-500 text-white text-xs rounded-full font-black animate-pulse">{requestedJobs.length} for you</span>
                     )}
@@ -482,7 +482,7 @@ export default function SubcontractorPortal() {
               <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-12 text-center">
                 <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
                 <p className="text-gray-400 font-medium mb-1">No bids submitted yet</p>
-                <p className="text-gray-600 text-sm mb-4">Use the Bid Room section on your dashboard to submit bids</p>
+                <p className="text-gray-600 text-sm mb-4">Use Phoenix Exchange section on your dashboard to submit bids</p>
                 <button onClick={() => setTab('dashboard')} className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-bold transition">
                   Go to Dashboard
                 </button>

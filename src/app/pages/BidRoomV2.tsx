@@ -188,13 +188,13 @@ export default function BidRoomV2() {
         });
         if (!res.ok) {
           const errText = await res.text();
-          throw new Error(`Failed to load bid room jobs (${res.status}): ${errText}`);
+          throw new Error(`Failed to load Phoenix Exchange jobs (${res.status}): ${errText}`);
         }
         const data = await res.json();
         setJobs(data.jobs || []);
       } catch (error) {
         console.error('[BidRoom] Error loading jobs:', error);
-        toast.error('Failed to load bid room jobs');
+        toast.error('Failed to load Phoenix Exchange jobs');
       }
     };
     loadJobs();

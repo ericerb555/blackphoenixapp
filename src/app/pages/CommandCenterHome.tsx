@@ -65,7 +65,7 @@ export interface CommandCenterHomeProps {
  * real module list rather than invented, so each one goes somewhere.
  */
 const DEFAULT_PINS = [
-  'Active Jobs', 'Work Request Intake', 'Master Schedule', 'Bid Room',
+  'Active Jobs', 'Work Request Intake', 'Master Schedule', 'Phoenix Exchange',
   'Job Financials', 'Materials Center', 'CRM Hub', 'eCommerce Store',
 ];
 

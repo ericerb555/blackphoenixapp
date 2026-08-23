@@ -409,7 +409,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'eCommerce Store', path: '/enterprise-content-center', tab: 'ecommerce', icon: Store, color: 'orange', description: 'All store tools in one place — catalog, suppliers, orders, pricing & insights', badge: 'HUB' },
         { label: 'Active Jobs', path: '/job-tracking-hub', tab: 'active-jobs', icon: Briefcase, color: 'orange', description: 'Track active jobs and statuses' },
         { label: 'Projects', path: '/projects-new', icon: Building2, color: 'blue', description: 'Project management and tracking' },
-        { label: 'Bid Room', path: '/bid-room', icon: Target, color: 'amber', description: 'Quick access to bidding center', badge: 'QUICK' },
+        { label: 'Phoenix Exchange', path: '/bid-room', icon: Target, color: 'amber', description: 'Quick access to bidding center', badge: 'QUICK' },
         { label: 'Job Financials', path: '/job-tracking-hub', tab: 'job-financial', icon: DollarSign, color: 'green', description: 'Job costs and budgets' },
         { label: 'Master Schedule', path: '/job-tracking-hub', tab: 'master-schedule', icon: Calendar, color: 'purple', description: 'Company-wide scheduling' },
         { label: 'Service Schedule', path: '/job-tracking-hub', tab: 'service-schedule', icon: Clock, color: 'cyan', description: 'Service appointments' },

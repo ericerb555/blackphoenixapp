@@ -197,7 +197,7 @@ export function RoleSwitcher() {
       role: UserRole.SUBCONTRACTOR,
       icon: Wrench,
       label: 'Subcontractor',
-      description: 'Elite Construction LLC — jobs, bids & bid room',
+      description: 'Elite Construction LLC — jobs, bids & Phoenix Exchange',
       color: 'orange'
     },
     {

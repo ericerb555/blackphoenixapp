@@ -509,7 +509,7 @@ export default function SubcontractorOnboarding({ isOpen, onClose, onSignup }: S
                   >
                     <div className="text-center mb-12">
                       <h2 className="text-4xl font-black text-white mb-4">Choose Your Plan</h2>
-                      <p className="text-lg text-gray-400">All plans include access to the bid room</p>
+                      <p className="text-lg text-gray-400">All plans include access to Phoenix Exchange</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -576,9 +576,9 @@ export default function SubcontractorOnboarding({ isOpen, onClose, onSignup }: S
                       <div className="flex items-start gap-3">
                         <Sparkles className="w-6 h-6 text-[#ea580c] flex-shrink-0" />
                         <div>
-                          <h4 className="font-bold text-white mb-2">Bid Room Access Included</h4>
+                          <h4 className="font-bold text-white mb-2">Phoenix Exchange Access Included</h4>
                           <p className="text-sm text-gray-400">
-                            All subscription plans include full access to our bid room where you can view and bid on available jobs. 
+                            All subscription plans include full access to our Phoenix Exchange where you can view and bid on available jobs. 
                             Higher tiers get priority notifications and featured placement in contractor search results.
                           </p>
                         </div>

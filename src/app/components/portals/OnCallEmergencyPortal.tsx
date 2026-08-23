@@ -215,7 +215,7 @@ export default function OnCallEmergencyPortal() {
     existingJobs.push(bidRoomJob);
     localStorage.setItem('bidRoomJobs', JSON.stringify(existingJobs));
 
-    toast.success('Call sent to Bid Room successfully!', {
+    toast.success('Call sent to Phoenix Exchange successfully!', {
       description: 'Contractors can now submit bids for this job'
     });
 
@@ -439,7 +439,7 @@ export default function OnCallEmergencyPortal() {
                       className="flex items-center justify-center gap-2 px-4 py-3 bg-transparent border-2 border-purple-500 text-purple-400 rounded-xl font-bold transition-all duration-300 hover:border-purple-400 hover:shadow-purple-500/50 hover:shadow-xl hover:scale-105"
                     >
                       <Gavel className="w-5 h-5" />
-                      Send to Bid Room
+                      Send to Phoenix Exchange
                     </button>
                     <button
                       onClick={() => handleViewDetails(call.id)}
@@ -465,7 +465,7 @@ export default function OnCallEmergencyPortal() {
         )}
       </div>
 
-      {/* Send to Bid Room Modal */}
+      {/* Send to Phoenix Exchange Modal */}
       {showBidRoomModal && selectedCallForBid && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#1A1A1A] border-2 border-purple-500/30 rounded-2xl max-w-2xl w-full p-8 shadow-2xl shadow-purple-500/20">
@@ -476,7 +476,7 @@ export default function OnCallEmergencyPortal() {
                   <Gavel className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white">Send to Bid Room</h2>
+                  <h2 className="text-2xl font-bold text-white">Send to Phoenix Exchange</h2>
                   <p className="text-sm text-gray-400">Open this call for contractor bidding</p>
                 </div>
               </div>
@@ -528,7 +528,7 @@ export default function OnCallEmergencyPortal() {
                 <div>
                   <p className="text-white font-semibold mb-1">What happens next?</p>
                   <ul className="text-sm text-gray-300 space-y-1">
-                    <li>• This call will be posted to the Bid Room</li>
+                    <li>• This call will be posted to Phoenix Exchange</li>
                     <li>• Qualified contractors can submit competitive bids</li>
                     <li>• You can review and select the best bid</li>
                     <li>• Bidding deadline: 24 hours from now</li>
@@ -549,7 +549,7 @@ export default function OnCallEmergencyPortal() {
                 onClick={handleConfirmSendToBidRoom}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-purple-500/20 hover:shadow-xl hover:scale-105"
               >
-                Confirm & Send to Bid Room
+                Confirm & Send to Phoenix Exchange
               </button>
             </div>
           </div>

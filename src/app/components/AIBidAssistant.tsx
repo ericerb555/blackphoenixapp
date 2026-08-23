@@ -369,7 +369,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
                 <AlertCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-blue-300">
                   <strong>Recommendation:</strong>{' '}
-                  {analysis.recommendedAction === 'send_to_bid_room' && 'Send to bid room for competitive bidding'}
+                  {analysis.recommendedAction === 'send_to_bid_room' && 'Send to Phoenix Exchange for competitive bidding'}
                   {analysis.recommendedAction === 'direct_assign' && 'Direct assign to the best match'}
                   {analysis.recommendedAction === 'select_top_3' && 'Invite top 3 providers to quote'}
                   {analysis.recommendedAction === 'no_matches' && 'No suitable providers found - may need external sourcing'}

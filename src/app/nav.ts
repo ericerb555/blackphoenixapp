@@ -36,7 +36,7 @@ export const navigationSections: NavSection[] = [
     icon: "Wrench",
     items: [
       { name: "Project Pipeline",      path: "unified-project-pipeline" },
-      { name: "Bid Room",              path: "bid-room",              badge: "NEW" },
+      { name: "Phoenix Exchange",      path: "bid-room",              badge: "NEW" },
       { name: "Change Order Camera",   path: "change-order-camera",   badge: "NEW" },
       { name: "Service Scheduling",    path: "service-scheduling" },
       { name: "Waste & Disposal",      path: "waste-disposal-tracking", badge: "NEW" },
@@ -103,7 +103,7 @@ export const navigationSections: NavSection[] = [
     name: "Operations",
     icon: "Workflow",
     items: [
-      { name: "Bid Room",           path: "bid-room",            badge: "NEW" },
+      { name: "Phoenix Exchange",   path: "bid-room",            badge: "NEW" },
       { name: "eCommerce Store",    path: "enterprise-content-center?tab=ecommerce", badge: "HUB" },
       { name: "Maintenance Plans",  path: "maintenance-plans",   badge: "NEW" },
       { name: "Materials Center",   path: "materials-center",    badge: "NEW" },

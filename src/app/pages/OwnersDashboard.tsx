@@ -207,7 +207,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         { name: 'Invoices', path: 'invoices', icon: FileText },
         { name: 'Quick Quote / Estimate', path: 'estimates', icon: FileText },
         { name: 'Quotes Workflow', path: 'quote-to-contract-workflow', icon: FileText },
-        { name: 'Bid Room', path: 'bid-room', icon: Award }
+        { name: 'Phoenix Exchange', path: 'bid-room', icon: Award }
       ]
     },
     {

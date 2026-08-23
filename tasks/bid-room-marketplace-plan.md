@@ -177,3 +177,42 @@ deliberately:
 The app already has a bucket configured the careful way — `make-3eae23a6-gallery`
 is public but capped at 15MB and restricted to image types — so the pattern
 exists to copy.
+
+## Named: Phoenix Exchange
+
+Eric chose **Phoenix Exchange**, kept under Black Phoenix with a light touch —
+the parent company named small rather than in the title. "Black Phoenix" came
+out of the product name because *Phoenix Exchange* is punchier and the
+association still carries; "Services" came out because it was a filler word that
+turned a name into a description.
+
+Exchange beat Guild, Forge and Yard because it is neutral between the two
+audiences — a homeowner posting and a subcontractor quoting both belong on an
+exchange — and because it is not trade-bound, so it still fits the day the
+marketplace carries cleaning or landscaping rather than only construction.
+
+### The rename went to the labels, not the plumbing
+
+28 user-facing strings across 10 files. The route is still `bid-room`, the
+tables are still `bid_requests`, `bids` and `bid_invitations`, the RLS helpers
+keep their names, and the components are still `BidRoom.tsx`. Renaming a schema
+is a migration with real risk and no customer benefit; renaming labels is
+minutes. Comments still say bid room because they describe the code, which is
+still called that.
+
+**One trap this nearly walked into.** Six lines carried a label *and* an
+identifier — `{ label: 'Bid Room', path: '/bid-room' }`. A blanket
+find-and-replace would have broken the route; skipping those lines entirely
+would have been worse in a subtler way, because the new command centre matches
+pinned tools **by label**. Renaming the pin without renaming the module would
+have silently dropped Phoenix Exchange off the dashboard with nothing to
+indicate why. Both halves were changed together and checked: the pin list and
+the module list now read the same string.
+
+### Still open in this area
+
+`routes.tsx` defines `"bid-room"` **twice** — line 471 to `BidRoomV2` and line
+565 to `BidRoom`. The last key wins in a JavaScript object, so `BidRoomV2` is
+unreachable dead code. It is the only duplicate route key in the file. Left
+alone deliberately: changing which component answers the route is a behaviour
+change, not a rename, and worth deciding on its own.

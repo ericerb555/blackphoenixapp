@@ -35,7 +35,7 @@ const MODULES: Module[] = [
   { id: 'job-financial-tracker', name: 'Job Financial Tracker', description: 'Per-job profit/loss and cost tracking', category: 'Financial', icon: BarChart3, color: 'text-yellow-400', enabled: true, roles: ['owner', 'admin'], plans: ['enterprise'] },
   // Projects & Work
   { id: 'unified-project-pipeline', name: 'Project Pipeline', description: 'Full project workflow from quote to completion', category: 'Projects', icon: Workflow, color: 'text-violet-400', enabled: true, roles: ['owner', 'admin', 'manager'], plans: ['starter', 'pro', 'enterprise'] },
-  { id: 'bid-room', name: 'Bid Room', description: 'Competitive bidding and quote management', category: 'Projects', icon: Workflow, color: 'text-violet-400', enabled: true, roles: ['owner', 'admin'], plans: ['pro', 'enterprise'] },
+  { id: 'bid-room', name: 'Phoenix Exchange', description: 'Competitive bidding and quote management', category: 'Projects', icon: Workflow, color: 'text-violet-400', enabled: true, roles: ['owner', 'admin'], plans: ['pro', 'enterprise'] },
   { id: 'service-scheduling', name: 'Service Scheduling', description: 'Job scheduling and calendar management', category: 'Projects', icon: Wrench, color: 'text-violet-400', enabled: true, roles: ['owner', 'admin', 'manager', 'employee'], plans: ['pro', 'enterprise'] },
   { id: 'permit-ai', name: 'PermitAI', description: 'AI-powered NH permit and building code assistant', category: 'Projects', icon: Zap, color: 'text-violet-400', enabled: true, roles: ['owner', 'admin', 'manager'], plans: ['pro', 'enterprise'] },
   // Store

@@ -1077,7 +1077,7 @@ export const PLATFORM_CAPABILITIES_BY_CATEGORY: Record<PlanCategory, string[]> =
   construction: [
     '📐 AI Blueprint Analyzer & Structural Design tools',
     '📋 PermitAI permit automation + AI Variance Filing',
-    '🏗️ Bid Room, Master Scheduling & Change Order Camera',
+    '🏗️ Phoenix Exchange, Master Scheduling & Change Order Camera',
     '🌦️ Weather job-site monitoring & waste/disposal tracking',
     '📸 Progress photo documentation & job financial tracker',
   ],
@@ -1102,7 +1102,7 @@ export const PLATFORM_CAPABILITIES_BY_CATEGORY: Record<PlanCategory, string[]> =
     '🎯 Retargeting pixels, exit-intent popups, live chat & review collection',
   ],
   subcontractor: [
-    '🏗️ Bid Room & lead marketplace access',
+    '🏗️ Phoenix Exchange & lead marketplace access',
     '📸 Change Order Camera & progress documentation',
     '🧰 Materials Center & Purchase Orders',
     '📅 Scheduling, invoicing & integrated payment processing',

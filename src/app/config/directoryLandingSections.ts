@@ -117,7 +117,7 @@ export const DIRECTORY_SECTIONS: DirectorySection[] = [
     image: 'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=800&q=80',
     navigate: 'contractor-network-landing-page',
     portalRoute: 'subcontractor-portal',
-    benefits: ['Bid Room & Lead Marketplace', 'Change Order Camera', 'Integrated Payments', 'Professional Network'],
+    benefits: ['Phoenix Exchange & Lead Marketplace', 'Change Order Camera', 'Integrated Payments', 'Professional Network'],
     cohortType: 'contractor'
   },
   {

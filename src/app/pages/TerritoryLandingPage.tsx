@@ -386,7 +386,7 @@ export default function TerritoryLandingPage({ onNavigate }: TerritoryLandingPag
                 icon: Wrench,
                 color: 'from-blue-600 to-cyan-600',
                 title: 'Subcontractor Network',
-                items: ['Build your own sub network under your territory', 'Assign jobs to subs and track progress', 'Manage sub applications and approvals', 'Shared bid room for project opportunities'],
+                items: ['Build your own sub network under your territory', 'Assign jobs to subs and track progress', 'Manage sub applications and approvals', 'Shared Phoenix Exchange for project opportunities'],
               },
               {
                 icon: Building2,

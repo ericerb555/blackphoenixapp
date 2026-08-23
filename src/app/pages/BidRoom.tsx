@@ -156,7 +156,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
     setFatal(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) { setFatal('Sign in to use the bid room.'); return; }
+      if (!session?.user) { setFatal('Sign in to use Phoenix Exchange.'); return; }
 
       // Everything below is RLS-filtered. No org_id filters are applied here on
       // purpose — adding them would imply the client is what enforces scope.
@@ -212,7 +212,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
       setDirectory((dir || []) as Org[]);
     } catch (err: any) {
       console.error('[BidRoom] load failed:', err);
-      setFatal(err?.message || 'Could not load the bid room.');
+      setFatal(err?.message || 'Could not load Phoenix Exchange.');
     } finally {
       setLoading(false);
     }
@@ -308,7 +308,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
             toast.error(
               `Not reached: ${unreached.map((f: any) =>
                 `${f.org} (${f.emailReason || f.smsReason || 'no contact details'})`).join(', ')}. ` +
-              `They will still see the invitation when they open the bid room.`,
+              `They will still see the invitation when they open Phoenix Exchange.`,
               { duration: 9000 },
             );
           }
@@ -388,7 +388,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
         <div className="flex items-center gap-3 text-gray-400">
           <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
-          Loading the bid room…
+          Loading Phoenix Exchange…
         </div>
       </div>
     );
@@ -399,7 +399,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-6">
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-8 max-w-md text-center">
           <AlertTriangle className="w-8 h-8 text-orange-500 mx-auto mb-4" />
-          <p className="text-white font-bold mb-2">The bid room could not load</p>
+          <p className="text-white font-bold mb-2">The Phoenix Exchange could not load</p>
           <p className="text-sm text-gray-400 mb-5">{fatal}</p>
           <button onClick={load} className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ background: '#ea580c' }}>
             Try again
@@ -430,8 +430,8 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
           </p>
           <p className="text-sm text-gray-400">
             {invitedSomewhere
-              ? 'You have been invited but have not finished your application yet. Complete your profile and the bid room will open automatically.'
-              : 'The bid room is organised around companies — jobs are posted by one and bid on by others. Once your account is attached to an organisation, it opens here automatically.'}
+              ? 'You have been invited but have not finished your application yet. Complete your profile and Phoenix Exchange will open automatically.'
+              : 'The Phoenix Exchange is organised around companies — jobs are posted by one and bid on by others. Once your account is attached to an organisation, it opens here automatically.'}
           </p>
           {/* Only offered to somebody who actually has an application to
               finish. Sending a person with no invitation to the onboarding form
@@ -460,7 +460,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
               <Gavel className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Bid Room</h1>
+              <h1 className="text-2xl font-bold text-white">Phoenix Exchange</h1>
               <p className="text-sm text-gray-400">
                 Post work, invite providers, and compare sealed bids.
               </p>
@@ -520,7 +520,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
           </p>
           <p className="text-sm text-gray-500">
             {tab === 'posted'
-              ? 'Post work to the bid room and invite providers to price it.'
+              ? 'Post work to Phoenix Exchange and invite providers to price it.'
               : 'When someone invites you to bid, the job appears here.'}
           </p>
         </div>
