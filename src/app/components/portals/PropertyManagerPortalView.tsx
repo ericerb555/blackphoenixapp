@@ -18,6 +18,7 @@ import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };

@@ -24,6 +24,7 @@ import AdvertisingMarquee from '../AdvertisingMarquee';
 import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import AddJobPhotosButton from '../AddJobPhotosButton';
+import PortalSettings from './PortalSettings';
 
 export default function EmployeePortalView() {
   

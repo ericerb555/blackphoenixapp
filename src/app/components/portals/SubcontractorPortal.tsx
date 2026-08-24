@@ -14,6 +14,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
 class MarqueeSafe extends Component<{ children: ReactNode }, { err: boolean }> {

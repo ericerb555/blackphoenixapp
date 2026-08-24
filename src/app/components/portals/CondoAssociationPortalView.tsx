@@ -25,6 +25,7 @@ import CondoOffersSection from './CondoOffersSection';
 import { projectId } from '../../utils/supabase/info';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
 import { lookupParcel } from '../../lib/services/propertyRecordsService';
+import PortalSettings from './PortalSettings';
 
 const CONDO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

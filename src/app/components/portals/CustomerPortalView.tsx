@@ -57,6 +57,7 @@ import { subscribeToPush, isPushSubscribed } from '../../utils/pushNotifications
 import CustomerSubscriptionSelectionModal from '../CustomerSubscriptionSelectionModal';
 import { useUserProfile } from '../../lib/hooks/useUserProfile';
 import { useUserData } from '../../lib/hooks/useUserData';
+import PortalSettings from './PortalSettings';
 
 interface Message {
   id: string;
@@ -1872,6 +1873,13 @@ export default function CustomerPortalView() {
           } catch (error: any) { toast.error(error.message || 'Could not start secure checkout.'); }
         }}
       />
+
+      <PortalSettings
+        open={showPortalSettings}
+        onClose={() => setShowPortalSettings(false)}
+        initialSection={settingsSection}
+        portalName="Customer portal"
+      />
     </div>
   );
 }
@@ -2059,12 +2067,6 @@ function CustomerMessagesTab({ userId, userEmail, userName }: { userId: string; 
           );
         })
       )}
-      <PortalSettings
-        open={showPortalSettings}
-        onClose={() => setShowPortalSettings(false)}
-        initialSection={settingsSection}
-        portalName="Customer portal"
-      />
     </div>
   );
 }

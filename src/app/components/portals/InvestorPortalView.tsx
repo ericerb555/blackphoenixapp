@@ -26,6 +26,7 @@ import InvestmentContract from './InvestmentContract';
 import PlanBuilderTab from './PlanBuilderTab';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 const INVEST_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
 

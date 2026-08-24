@@ -33,6 +33,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 const VENDOR_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

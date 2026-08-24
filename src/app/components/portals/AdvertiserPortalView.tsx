@@ -37,6 +37,7 @@ import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 const AD_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

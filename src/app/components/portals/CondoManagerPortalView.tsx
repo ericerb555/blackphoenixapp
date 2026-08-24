@@ -19,6 +19,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import CondoMasterAccount from './CondoMasterAccount';
 import { projectId } from '../../utils/supabase/info';
+import PortalSettings from './PortalSettings';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
