@@ -1,51 +1,71 @@
-# One standard settings panel for every portal
+# Accurate quoting: real prices, real labour hours
 
-## What is wrong today
+## What I found
 
-- **15 header buttons across 9 portals do nothing.** Seven Settings gears and
-  eight notification Bells, none with a click handler at all.
-- **Three portals lie.** Condo Manager, Property Manager and Sub-Tenant have a
-  save button wired to `toast.success('Settings saved!')` and nothing else. It
-  tells somebody their settings were saved and writes nothing anywhere.
-- Landlord and Territory already save properly. They are the model.
+**The quote generator invents every number.** `quote-generator.tsx` references
+`vendor_catalog` 0 times, `kv.get` 0, `labor_rate` 0, `pricing_settings` 0,
+`supabase` 0. Every unit cost, every labour rate and every vendor name comes out
+of gpt-4o. The fallback path names a supplier "Supply House". The *structure* is
+good — waste factors, crew productivity, permits, disposal, overhead broken out
+— but nothing underneath is yours, and it cannot be current: the model has no
+idea what lumber costs this week.
 
-## What already exists (and changes the plan)
+**Your real inputs exist and are ignored.**
 
-Checking before building turned up more than expected:
+| input | where | state |
+|---|---|---|
+| Labour rates, 12 trades | `labor_rates:global`, server | real, shared — **0 saved in production** (code defaults only) |
+| Markups, margin, overhead, tax | `pricingConfig` | **localStorage only** — the server cannot read it at all |
+| Vendor catalogue prices | `vendor_catalog:*`, server | real — **1 item in production** |
 
-| | state |
-|---|---|
-| `GET`/`PUT /me/notification-prefs` | **real, server-side, per user** — and the GET returns the event list and labels for that user |
-| `GET /me/notifications` + read/clear | real — what the Bell should open |
-| `GET /me/entitlements` | real — what this user actually has access to |
-| `NotificationSettings.tsx` | good UI, but saves to **localStorage only**, so preferences do not follow a vendor to their phone |
-| `PortalGlobalSettings.tsx` | real and server-backed, but it is the **admin** screen that configures portals globally — a vendor must never open it |
+**What is missing entirely: how long work takes.** You have $/hour for twelve
+trades and nothing that says a tiled floor is 0.1 hours a square foot. Rates
+without production rates cannot produce a labour number, which is why the model
+was left to guess it.
 
-So the server work is largely done and simply was never wired to anything.
+`deckQuote.ts` already does this correctly for decks — "hours per square foot,
+builder's own productivity number", defaulting to **0** so it never invents one.
+That is the pattern to generalise.
 
-## The approach
+## Plan
 
-One `PortalSettings` component, opened by the gear in every portal. Standard
-everywhere, but it shows the right things per person on its own, because
-`/me/notification-prefs` returns that user's own event list and `/me/entitlements`
-returns what they can reach. No per-portal variants to maintain.
+### A. A task catalogue with real labour hours
+- [ ] `labor_tasks:global` on the server, beside the rates, so it is shared
+- [ ] Each task: trade, name, unit, **hours per unit**, crew size, minimum hours
+- [ ] Minimum hours matters — a 20 sq ft tile patch is still half a day, and
+      hours-per-unit alone prices small jobs far too low
+- [ ] Condition multipliers: demolition first, tight access, second storey,
+      pattern layouts (herringbone is not the same as a straight lay)
+- [ ] Seeded with industry starting figures for your twelve trades —
+      **clearly labelled as starting points, and editable**, because they are
+      not yet measurements of your crews
+- [ ] Editing UI beside the rates, showing when each was last changed by you
 
-Nothing about any portal's layout or design changes — a dead button starts
-opening a panel.
+### B. Let the server see your pricing settings
+- [ ] Move `pricingConfig` from localStorage to the server. The generator
+      physically cannot read markups or margin today, so it invents those too
 
-## Todo
+### C. Reprice deterministically after the model
+- [ ] Model does the takeoff — what work, what materials, what quantities
+- [ ] Then the server replaces its numbers: catalogue price where a SKU matches,
+      your task hours × your trade rate for labour, your markups and margin
+- [ ] The model never sets a price that we hold a real number for
 
-- [ ] `PortalSettings` panel: Account, Notifications, Your access, Sign out
-- [ ] Notifications section reads and writes `/me/notification-prefs`, so
-      preferences follow the person across devices instead of sitting in one
-      browser
-- [ ] "Your access" reads `/me/entitlements` — read-only, and it answers the
-      question each portal user actually has, which is what am I allowed to do here
-- [ ] Wire the 7 Settings gears to open it
-- [ ] Wire the 8 Bells to open it on the notifications section, backed by
-      `/me/notifications`
-- [ ] Replace the 3 fake "Settings saved!" buttons with the real panel
-- [ ] Verify in a browser at desktop and phone size, not just a passing build
+### D. Say where every number came from
+- [ ] Each line marked: vendor catalogue (with vendor and date), your own rate,
+      or estimated
+- [ ] A quote that cannot show its source for a figure should say so rather than
+      let it pass as priced
+
+### E. Pipeline
+- [ ] Surface the priced quote and its confidence in the Work Request → Quote →
+      Contract → Invoice board
+
+## Open question for Eric
+
+The seeded production rates are industry figures, not measurements of his crews.
+They should be treated as a starting point to correct, and the UI should say so
+rather than presenting them as fact.
 
 ## Review
 

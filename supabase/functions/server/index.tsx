@@ -3134,6 +3134,13 @@ app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
 
 app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
   try {
+    // These rates decide what every quote charges, so writing them is an
+    // administrator's job. Reading stays open to any signed-in user because the
+    // pipeline prices work with them.
+    const actor = await intakeActor(c);
+    if (!actor?.email || !(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required to change labour rates.' }, 403);
+    }
     const body = await c.req.json().catch(() => ({}));
     const laborRates = Array.isArray(body.laborRates) ? body.laborRates : [];
     const profitSettings = body.profitSettings || null;
@@ -3141,6 +3148,62 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
     await kv.set('labor_rates:global', { laborRates, profitSettings, lastSaved, updatedAt: new Date().toISOString() });
     return c.json({ success: true, laborRates, profitSettings, lastSaved });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save labor rates.' }, 500); }
+});
+
+/**
+ * Production rates — how long each task takes.
+ *
+ * An hourly rate on its own cannot price labour; something has to say that a
+ * tiled floor is about a tenth of an hour per square foot. Without these the
+ * estimator had no choice but to ask a language model to guess the hours.
+ *
+ * Only the tasks Eric has edited are stored. The catalogue itself ships in the
+ * client (`laborTasks.ts`) and his saved rows are merged over it, so new tasks
+ * added in a release still appear and his corrections are never overwritten by
+ * a later seed change.
+ */
+app.get('/make-server-3eae23a6/labor-tasks/get', async (c) => {
+  try {
+    const stored = await kv.get('labor_tasks:global') as any;
+    if (!stored) return c.json({ success: true, tasks: [], lastSaved: null });
+    return c.json({ success: true, tasks: stored.tasks || [], lastSaved: stored.lastSaved || null });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load labour tasks.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/labor-tasks/save', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email || !(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required to change labour hours.' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = Array.isArray(body.tasks) ? body.tasks : [];
+
+    // Sanitised field by field rather than stored as posted: these numbers
+    // multiply straight into a customer's price, so a negative rate or a string
+    // where an hour count belongs must not survive the trip.
+    const tasks = incoming.slice(0, 500).map((t: any) => ({
+      id: String(t?.id ?? '').slice(0, 80),
+      tradeId: String(t?.tradeId ?? '').slice(0, 60),
+      name: String(t?.name ?? '').slice(0, 160),
+      unit: String(t?.unit ?? 'each').slice(0, 20),
+      hoursPerUnit: Math.max(0, Math.min(1000, Number(t?.hoursPerUnit) || 0)),
+      crewSize: Math.max(1, Math.min(50, Math.round(Number(t?.crewSize) || 1))),
+      minimumHours: Math.max(0, Math.min(2000, Number(t?.minimumHours) || 0)),
+      notes: String(t?.notes ?? '').slice(0, 400),
+      // Anything arriving here has been through the editor, so it is his.
+      source: 'yours',
+      updatedAt: new Date().toISOString(),
+    })).filter((t: any) => t.id && t.tradeId);
+
+    const lastSaved = new Date().toISOString();
+    await kv.set('labor_tasks:global', { tasks, lastSaved, updatedBy: actor.email });
+    return c.json({ success: true, tasks, lastSaved });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to save labour tasks.' }, 500);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

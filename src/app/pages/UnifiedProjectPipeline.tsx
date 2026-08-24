@@ -1079,7 +1079,18 @@ export default function UnifiedProjectPipeline() {
               <Percent className="w-5 h-5" />
               Labor Rates & Markups
             </button>
-            
+
+            {/* Labour hours per task. Sits beside the rates because one is
+                useless without the other — a rate cannot price work until
+                something says how long the work takes. */}
+            <button
+              onClick={() => navigate('/labor-hours-config')}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#ea580c]/10 to-orange-600/10 border-2 border-[#ea580c]/30 hover:border-[#ea580c] text-[#ea580c] hover:text-white font-semibold rounded-lg transition-all hover:shadow-lg hover:shadow-[#ea580c]/20"
+            >
+              <Clock className="w-5 h-5" />
+              Labor Hours by Task
+            </button>
+
             {/* Search */}
             <div className="relative w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
