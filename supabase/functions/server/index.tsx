@@ -145,6 +145,7 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
+import { repriceEstimate } from "./repriceEstimate.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
@@ -2409,6 +2410,28 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       if (b.estimatedCosts?.total || b.costEstimates?.total) extraParts.push(`- Prior cost estimate: $${Number(b.estimatedCosts?.total || b.costEstimates?.total).toLocaleString()}`);
     }
 
+    // Load what the company actually charges, so the model's guesses can be
+    // replaced before anything is totalled. Each is optional: a missing
+    // catalogue or an unsaved rate simply leaves those lines marked estimated
+    // rather than failing the quote.
+    const [catalogRaw, ratesRaw, pricingRaw] = await Promise.all([
+      kv.getByPrefix('vendor_catalog:').catch(() => []),
+      kv.get('labor_rates:global').catch(() => null),
+      kv.get('pricing_config:global').catch(() => null),
+    ]);
+
+    const vendors = ((await kv.getByPrefix('vendor:').catch(() => [])) as any[] || []).filter(Boolean);
+    const vendorNames = new Map(vendors.map((v: any) => [String(v?.id || ''), String(v?.name || '')]));
+    const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
+      vendorId: i?.vendorId,
+      vendorName: vendorNames.get(String(i?.vendorId)) || '',
+      name: i?.name, sku: i?.sku, unit: i?.unit,
+      price: Number(i?.price) || 0,
+      updatedAt: i?.updatedAt, isActive: i?.isActive,
+    }));
+    const rates = ((ratesRaw as any)?.laborRates || []) as any[];
+    const settings = ((pricingRaw as any)?.config || {}) as any;
+
     const { estimate, usedAI } = await runEstimator({
       title: workRequest.title,
       serviceType: workRequest.serviceType,
@@ -2416,7 +2439,7 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       location: workRequest.location || workRequest.address,
       estimatedValue: workRequest.estimatedValue,
       extra: extraParts.join('\n'),
-    });
+    }, (raw) => repriceEstimate(raw, { catalog, rates, settings }));
 
     console.log('[Auto-Quote] Estimator result:', {
       usedAI,
@@ -2432,6 +2455,10 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     return c.json({
       success: true,
       usedAI,
+      // How much of this quote rests on real figures rather than the model's
+      // guesses, so the screen can say so instead of presenting every number
+      // with the same confidence.
+      priceSummary: (estimate as any).priceSummary || null,
       // New-style fields
       materials: estimate.materials,
       labor: estimate.labor,
@@ -3162,6 +3189,60 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
  * added in a release still appear and his corrections are never overwritten by
  * a later seed change.
  */
+/**
+ * Markups, margin, overhead and tax.
+ *
+ * These lived in localStorage, which meant they existed in one browser and the
+ * server could not read them at all — so the estimator invented an overhead and
+ * a profit percentage alongside everything else it was inventing. Stored here
+ * they apply to every quote from every machine.
+ */
+app.get('/make-server-3eae23a6/pricing-config/get', async (c) => {
+  try {
+    const stored = await kv.get('pricing_config:global') as any;
+    return c.json({ success: true, config: stored?.config || null, lastSaved: stored?.lastSaved || null });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load pricing settings.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/pricing-config/save', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email || !(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required to change pricing settings.' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = body?.config && typeof body.config === 'object' ? body.config : {};
+
+    // Bounded field by field. These percentages multiply into every customer's
+    // price, so a negative margin or a string where a rate belongs must not
+    // survive the trip in.
+    const pct = (v: any, max = 1000) => Math.max(0, Math.min(max, Number(v) || 0));
+    const byCategory: Record<string, number> = {};
+    for (const [k, v] of Object.entries(incoming.materialMarkupByCategory || {})) {
+      if (typeof k === 'string' && k.length <= 60) byCategory[k.slice(0, 60)] = pct(v);
+    }
+
+    const config = {
+      materialMarkup: pct(incoming.materialMarkup),
+      materialMarkupByCategory: byCategory,
+      laborMarkup: pct(incoming.laborMarkup),
+      profitMargin: pct(incoming.profitMargin),
+      overheadPercentage: pct(incoming.overheadPercentage),
+      taxRate: pct(incoming.taxRate, 100),
+      allowDiscounts: incoming.allowDiscounts !== false,
+      maxDiscountPercentage: pct(incoming.maxDiscountPercentage, 100),
+    };
+
+    const lastSaved = new Date().toISOString();
+    await kv.set('pricing_config:global', { config, lastSaved, updatedBy: actor.email });
+    return c.json({ success: true, config, lastSaved });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to save pricing settings.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/labor-tasks/get', async (c) => {
   try {
     const stored = await kv.get('labor_tasks:global') as any;

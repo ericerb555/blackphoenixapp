@@ -117,6 +117,65 @@ export function savePricingConfig(config: PricingConfig): void {
   }
 }
 
+/**
+ * The same settings, on the server.
+ *
+ * localStorage was the only home these had, which meant the markups and the
+ * margin existed in one browser and the quote generator — which runs on the
+ * server — could not read them at all. So it invented an overhead and a profit
+ * percentage alongside everything else it was inventing.
+ *
+ * The local copy is kept as a cache so the settings screen still paints
+ * instantly and still works offline; the server copy is the one that prices
+ * quotes.
+ */
+export async function loadPricingConfigFromServer(
+  fetchImpl: typeof fetch,
+  serverUrl: string,
+  headers: Record<string, string>,
+): Promise<PricingConfig> {
+  try {
+    const res = await fetchImpl(`${serverUrl}/pricing-config/get`, { headers });
+    const data = await res.json().catch(() => ({}));
+    if (data?.success && data.config) {
+      const merged: PricingConfig = {
+        ...defaultPricingConfig,
+        ...data.config,
+        laborRates: { ...defaultPricingConfig.laborRates, ...(data.config.laborRates || {}) },
+        materialMarkupByCategory: {
+          ...defaultPricingConfig.materialMarkupByCategory,
+          ...(data.config.materialMarkupByCategory || {}),
+        },
+      };
+      savePricingConfig(merged);
+      return merged;
+    }
+  } catch {
+    // Falling back to the local copy is right: an unreachable server should not
+    // reset somebody's markups to the defaults mid-edit.
+  }
+  return loadPricingConfig();
+}
+
+export async function savePricingConfigToServer(
+  config: PricingConfig,
+  fetchImpl: typeof fetch,
+  serverUrl: string,
+  headers: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  savePricingConfig(config);
+  try {
+    const res = await fetchImpl(`${serverUrl}/pricing-config/save`, {
+      method: 'POST', headers, body: JSON.stringify({ config }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.success) return { ok: false, error: data?.error || 'Could not save to the server.' };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Could not reach the server.' };
+  }
+}
+
 // Apply markup to material cost based on category
 export function applyMaterialMarkup(cost: number, category: string, config?: PricingConfig): number {
   const pricingConfig = config || loadPricingConfig();

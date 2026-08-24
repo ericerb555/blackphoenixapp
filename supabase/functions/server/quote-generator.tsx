@@ -140,7 +140,16 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
       unit: m.unit || 'each',
       unitCost: round2(unitCost),
       totalCost,
+      // "Supply House" only when nothing real is known. A repriced line brings
+      // the actual vendor with it, and the fallback name must never sit on a
+      // quote as though it were a supplier somebody chose.
       supplier: m.vendor || 'Supply House',
+      // Provenance carried through from repricing. Rebuilding the line without
+      // these would drop the very labels that let a quote show which figures
+      // are real, which is the point of repricing at all.
+      priceSource: m.priceSource || 'estimated',
+      priceAsOf: m.priceAsOf ?? null,
+      modelUnitCost: m.modelUnitCost ?? round2(unitCost),
       visible: true,
     };
   });
@@ -158,6 +167,12 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
       hourlyRate: round2(rate),
       totalCost: round2(hours * rate),
       productivityNote: l.productivityNote || '',
+      // The rate may be the company's; the hours are always the model's takeoff,
+      // and the two are labelled separately so neither borrows the other's
+      // credibility.
+      rateSource: l.rateSource || 'estimated',
+      hoursSource: l.hoursSource || 'estimated',
+      modelHourlyRate: l.modelHourlyRate ?? round2(rate),
       visible: true,
     };
   });
@@ -256,7 +271,17 @@ function heuristicEstimate(input: EstimatorInput) {
   }, input);
 }
 
-export async function runEstimator(input: EstimatorInput) {
+/**
+ * Replace the model's prices with the company's own before anything is totalled.
+ *
+ * Injected rather than imported so this module keeps no opinion about where
+ * catalogue prices or labour rates live, and so the repricing can be tested
+ * without an estimator run. When it is absent — no key, no data — the estimate
+ * simply comes back as it always did.
+ */
+export type Repricer = (estimate: any) => { estimate: any; summary?: any };
+
+export async function runEstimator(input: EstimatorInput, reprice?: Repricer) {
   if (!Deno.env.get('OPENAI_API_KEY')) {
     console.log('[AI Quote Generator] No OPENAI_API_KEY — using heuristic fallback.');
     return { estimate: heuristicEstimate(input), usedAI: false };
@@ -273,12 +298,32 @@ export async function runEstimator(input: EstimatorInput) {
       response_format: { type: 'json_object' }, // guarantees parseable JSON
     });
     const raw = JSON.parse(completion.choices[0].message.content || '{}');
-    const estimate = assembleEstimate(raw, input);
+
+    // The company's prices go in BEFORE anything is totalled. Repricing after
+    // assembly would leave every subtotal, the overhead, the profit and the tax
+    // computed from the model's invented unit costs — the quote would show real
+    // line prices under a fabricated total, which is the worst of both.
+    let priced = raw;
+    let priceSummary: any = null;
+    if (reprice) {
+      try {
+        const out = reprice(raw);
+        priced = out?.estimate ?? raw;
+        priceSummary = out?.summary ?? null;
+      } catch (err: any) {
+        // A failure here must not lose the estimate. It falls through with the
+        // model's own numbers, and the summary stays null so nothing claims to
+        // be priced from real data when it is not.
+        console.error('[AI Quote Generator] Repricing failed, keeping model prices:', err?.message || err);
+      }
+    }
+
+    const estimate = assembleEstimate(priced, input);
     // If the model returned nothing usable, fall back rather than send an empty quote.
     if (estimate.materials.length === 0 && estimate.labor.length === 0) {
       return { estimate: heuristicEstimate(input), usedAI: false };
     }
-    return { estimate, usedAI: true };
+    return { estimate: { ...estimate, priceSummary }, usedAI: true };
   } catch (error: any) {
     console.error('[AI Quote Generator] Estimator error, falling back:', error?.message || error);
     return { estimate: heuristicEstimate(input), usedAI: false };

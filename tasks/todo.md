@@ -41,20 +41,20 @@ That is the pattern to generalise.
       not yet measurements of your crews
 - [ ] Editing UI beside the rates, showing when each was last changed by you
 
-### B. Let the server see your pricing settings
-- [ ] Move `pricingConfig` from localStorage to the server. The generator
+### B. Let the server see your pricing settings — DONE
+- [x] Move `pricingConfig` from localStorage to the server. The generator
       physically cannot read markups or margin today, so it invents those too
 
-### C. Reprice deterministically after the model
-- [ ] Model does the takeoff — what work, what materials, what quantities
-- [ ] Then the server replaces its numbers: catalogue price where a SKU matches,
+### C. Reprice deterministically after the model — DONE
+- [x] Model does the takeoff — what work, what materials, what quantities
+- [x] Then the server replaces its numbers: catalogue price where a SKU matches,
       your task hours × your trade rate for labour, your markups and margin
-- [ ] The model never sets a price that we hold a real number for
+- [x] The model never sets a price that we hold a real number for
 
 ### D. Say where every number came from
-- [ ] Each line marked: vendor catalogue (with vendor and date), your own rate,
+- [x] Each line marked: vendor catalogue (with vendor and date), your own rate,
       or estimated
-- [ ] A quote that cannot show its source for a figure should say so rather than
+- [x] A quote that cannot show its source for a figure should say so rather than
       let it pass as priced
 
 ### E. Pipeline

@@ -7,11 +7,26 @@ import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Settings, Save, RotateCcw, Wrench, Package } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { BackToDashboard } from '../components/BackToDashboard';
-import { loadPricingConfig, savePricingConfig, defaultPricingConfig, PricingConfig } from '../lib/pricingConfig';
+import { loadPricingConfig, savePricingConfig, loadPricingConfigFromServer, savePricingConfigToServer, defaultPricingConfig, PricingConfig } from '../lib/pricingConfig';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 export default function PricingSettings() {
   const [config, setConfig] = useState<PricingConfig>(loadPricingConfig());
   const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // The server copy is what prices quotes, so it wins over the local cache.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const fromServer = await loadPricingConfigFromServer(fetch, SERVER, await authedHeaders());
+        setConfig(fromServer);
+      } catch { /* the cached copy is already on screen */ }
+    })();
+  }, []);
 
   useEffect(() => {
     const loaded = loadPricingConfig();
@@ -48,12 +63,20 @@ export default function PricingSettings() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
-    savePricingConfig(config);
+  const handleSave = async () => {
+    setSaving(true);
+    // Saved to the server, not just this browser. These percentages are read
+    // by the quote generator when it reprices an estimate, and while they sat
+    // in localStorage it could not see them at all — so the promise this
+    // toast made was not being kept.
+    const result = await savePricingConfigToServer(config, fetch, SERVER, await authedHeaders());
+    setSaving(false);
+    if (!result.ok) {
+      toast.error(result.error || 'Saved on this device only — the server refused it.');
+      return;
+    }
     setHasChanges(false);
-    toast.success('Pricing settings saved successfully!', {
-      description: 'All future quotes will use these settings.',
-    });
+    toast.success('Pricing settings saved.', { description: 'Every quote from now on uses these figures.' });
   };
 
   const handleReset = () => {
