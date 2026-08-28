@@ -172,6 +172,103 @@ async function putAsset(bytes: Uint8Array, ext: string, contentType: string): Pr
   }
 }
 
+/**
+ * Objects of exactly known size that somebody can put in a photograph.
+ *
+ * WHY THIS BEATS WHAT WE DID BEFORE
+ *
+ * The analysis scaled from assumed standards — "an entry door is 80 inches",
+ * "siding courses expose 4 to 8 inches". The assumption is the error. Real
+ * entry doors are 78, 80 or 82 inches; that siding range is itself ±30%, and
+ * every dimension derived from it inherits that.
+ *
+ * These do not vary. A sheet of US Letter is 8.5 by 11 inches in every house in
+ * the country. Photographed flat against the wall it is a scale reference in the
+ * same plane as the thing being measured, which is the only circumstance where
+ * a single scale factor is actually valid — the reason a known width at the near
+ * corner does not scale the far corner is perspective, and staying in one plane
+ * is how that is avoided rather than worked around.
+ *
+ * Asking a homeowner for a sheet of paper is also a smaller ask than asking for
+ * a measurement: nothing to own, nothing to read, nothing to get wrong.
+ */
+interface ScaleObject { id: string; label: string; longIn: number; shortIn: number; note: string }
+
+const SCALE_OBJECTS: ScaleObject[] = [
+  {
+    id: "letter", label: "sheet of US Letter paper", longIn: 11, shortIn: 8.5,
+    note: "Ordinary printer paper. The best one — large, flat, rectangular and high contrast.",
+  },
+  {
+    id: "a4", label: "sheet of A4 paper", longIn: 11.69, shortIn: 8.27,
+    note: "297 by 210 mm.",
+  },
+  {
+    id: "dollar", label: "US dollar bill", longIn: 6.14, shortIn: 2.61,
+    note: "Every note is the same size whatever its value. Good for close work.",
+  },
+  {
+    id: "card", label: "credit or bank card", longIn: 3.37, shortIn: 2.125,
+    note: "ISO/IEC 7810 ID-1, 85.60 by 53.98 mm, identical worldwide.",
+  },
+];
+
+/**
+ * The scale section of the prompt, built from whatever the customer says they
+ * put in the shot.
+ *
+ * Two planes are kept separate deliberately. A reference taped to the wall
+ * scales what is on the wall; one lying on the ground scales the ground. Using
+ * one for the other reintroduces exactly the perspective error the reference
+ * was there to remove, so the model is told plainly not to.
+ */
+function scaleSection(refs: Array<{ object: string; placement: string }>): string {
+  const known = refs
+    .map(r => ({ obj: SCALE_OBJECTS.find(o => o.id === r.object), placement: r.placement }))
+    .filter(r => r.obj) as Array<{ obj: ScaleObject; placement: string }>;
+
+  if (!known.length) {
+    return `SCALE. Photographs have no inherent scale, and nothing of known size was
+placed in these. Derive dimensions only from a reference of known size that you
+can actually see, and name it:
+  · a standard entry door is 80 inches tall, 36 inches wide
+  · a standard exterior step riser is 7 to 7.75 inches
+  · lap siding courses expose 4 to 8 inches
+  · a concrete block is 8 inches tall, 16 long
+  · a brick course with mortar is about 2.67 inches
+These are assumptions about typical construction, not measurements of this
+house, so mark every dimension you take from them as basis "assumed-standard".
+State which reference you used and how confident you are. Perspective, camera
+tilt and lens distortion all bias these — assume every number is an estimate to
+be checked with a tape.`;
+  }
+
+  const lines = known.map(r =>
+    `  · A ${r.obj.label} — exactly ${r.obj.longIn} by ${r.obj.shortIn} inches — placed ${
+      r.placement === "ground" ? "flat on the ground" : "flat against the wall"
+    }. ${r.obj.note}`);
+
+  return `SCALE. Something of known size was deliberately placed in these photographs.
+
+${lines.join("\n")}
+
+FIND IT FIRST, before estimating anything. It is an exact measurement of this
+house on this day, and it beats every assumption about typical construction.
+Anything you derive from it, mark basis "scale-object" and name which one.
+
+STAY IN ITS PLANE. A reference against the wall scales what is on the wall — the
+sill height, the ledger run, window and door sizes. A reference on the ground
+scales the ground. Do not use one to measure the other: the whole reason a known
+width at the near corner cannot scale the far corner is perspective, and a
+reference only escapes that for things at its own depth and orientation.
+
+If you cannot find it, say so in "scaleReference" and fall back to assumptions —
+a standard entry door is 80 inches tall, a step riser 7 to 7.75, lap siding
+courses expose 4 to 8, a brick course about 2.67. Mark anything from those
+"assumed-standard". Never report a number as scale-object when you did not
+actually find the object.`;
+}
+
 const ANALYSIS_SYSTEM = `You are a deck builder standing in the customer's yard looking at their house,
 deciding how a deck attaches to it. You are reading photographs, so you can see
 what is there but you cannot measure anything directly.
@@ -181,16 +278,7 @@ so — "not visible" is a useful answer and a guess is not. A wrong siding call
 sends the crew with the wrong flashing; a wrong sill height builds a deck that
 steps up into the door.
 
-SCALE. Photographs have no inherent scale. Derive dimensions only from a
-reference of known size that you can actually see, and name it:
-  · a standard entry door is 80 inches tall, 36 inches wide
-  · a standard exterior step riser is 7 to 7.75 inches
-  · lap siding courses expose 4 to 8 inches
-  · a concrete block is 8 inches tall, 16 long
-  · a brick course with mortar is about 2.67 inches
-State which reference you used for each dimension and how confident you are.
-Perspective, camera tilt and lens distortion all bias these — assume every
-number you give is an estimate to be checked with a tape.
+__SCALE_SECTION__
 
 Return ONLY a JSON object, no prose and no code fence:
 {
@@ -211,12 +299,20 @@ Return ONLY a JSON object, no prose and no code fence:
     "doorType": "slider | french | entry | none visible",
     "sillHeightInches": 0,
     "sillReference": "what you scaled it from",
+    "sillBasis": "scale-object | assumed-standard | not-visible",
     "sillConfidence": "high | medium | low",
     "rimJoistVisible": true,
     "rimJoistNote": "what the band/rim area looks like — this is what a ledger bolts to",
     "ledgerRunFeet": 0,
     "ledgerRunReference": "what you scaled it from",
+    "ledgerRunBasis": "scale-object | assumed-standard | not-visible",
     "ledgerRunConfidence": "high | medium | low"
+  },
+  "scaleReference": {
+    "found": false,
+    "which": "which of the placed objects you found, if any",
+    "where": "on the wall | on the ground | not found",
+    "note": "how well it read — flat and square to camera, or angled and small"
   },
   "obstructions": [
     { "item": "hose bib | electric meter | gas meter | dryer vent | AC condenser | window well | basement window | light | outlet | downspout",
@@ -227,6 +323,7 @@ Return ONLY a JSON object, no prose and no code fence:
     "slope": "flat | gentle | steep | not visible",
     "note": "what the ground does under the proposed deck",
     "dropAcrossDeckInches": 0,
+    "dropBasis": "scale-object | assumed-standard | not-visible",
     "dropConfidence": "high | medium | low"
   },
   "suggested": {
@@ -256,6 +353,30 @@ Report it whenever you can see one, measure it the same way you measure anything
 else — by naming your scale reference — and note its condition, because a
 tear-out is a real line on the quote.`;
 
+/** The system prompt for one request, with its scale section spliced in. */
+export function analysisSystem(refs: Array<{ object: string; placement: string }>): string {
+  return ANALYSIS_SYSTEM.replace("__SCALE_SECTION__", scaleSection(refs));
+}
+
+/** What the client says was put in the shot, kept to things we actually know. */
+export function readScaleRefs(raw: unknown): Array<{ object: string; placement: string }> {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: Array<{ object: string; placement: string }> = [];
+  for (const r of raw.slice(0, 4)) {
+    const object = String((r as any)?.object || "").trim();
+    if (!SCALE_OBJECTS.some(o => o.id === object)) continue;
+    const placement = String((r as any)?.placement || "wall").trim() === "ground" ? "ground" : "wall";
+    // One reference per plane. Two sheets on the same wall add nothing and give
+    // the model a chance to pick the one further from what it is measuring.
+    const key = `${object}:${placement}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ object, placement });
+  }
+  return out;
+}
+
 /**
  * Read the house from one or more photos.
  *
@@ -268,6 +389,7 @@ app.post("/analyze", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const images: string[] = Array.isArray(body?.images) ? body.images.slice(0, MAX_IMAGES) : [];
     const note: string = typeof body?.note === "string" ? body.note.slice(0, 800) : "";
+    const scaleRefs = readScaleRefs(body?.scaleRefs);
 
     if (!images.length) return c.json({ error: "Add at least one photo of the house." }, 400);
 
@@ -290,6 +412,9 @@ app.post("/analyze", async (c) => {
       text: [
         `${blocks.length} photo${blocks.length > 1 ? "s" : ""} of the same house.`,
         note ? `What the customer said: ${note}` : "",
+        scaleRefs.length
+          ? `Something of known size was placed in these photographs — find it before you estimate anything.`
+          : "",
         "Read the wall a deck would attach to and report it as JSON.",
       ].filter(Boolean).join("\n\n"),
     });
@@ -299,7 +424,7 @@ app.post("/analyze", async (c) => {
       model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
       max_tokens: 8000,
       thinking: { type: "adaptive" },
-      system: ANALYSIS_SYSTEM,
+      system: analysisSystem(scaleRefs),
       messages: [{ role: "user", content: blocks }],
     });
 
