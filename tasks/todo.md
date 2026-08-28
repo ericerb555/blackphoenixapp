@@ -477,6 +477,83 @@ design rather than restyled.
 - [ ] Picking one offers — never applies automatically — the matching patch to
       the deck model, so the quote follows a decision a person made
 
+---
+
+# Capturing the real house: what HOVER does and does not give us
+
+## HOVER covers the facade and not the ground
+
+Read off the JSON measurement schema (`summarized_json`, `full_json`,
+`sketch_json`, `paint_measurements`):
+
+**Gives us** — roof facets and pitch, ridges, valleys, rakes, gutters; facades
+broken out by material (brick, stucco, siding) with area and `openings_total`;
+`windows` and `doors` arrays with `width_x_height` and area; `walls_area`,
+`ceiling_edges`, `floor_edges`, `max_ceiling_height`.
+
+**Does not give us** — any elevation, grade, terrain slope, foundation height,
+story height or **sill height** field. They are absent from every schema.
+
+For a deck that is exactly half the problem solved:
+
+| what a deck needs | HOVER |
+|---|---|
+| which wall, and how long the ledger can run | yes — facade areas and edges |
+| siding type, for the right flashing | yes — facades by material |
+| window and door sizes to clear | yes — openings |
+| **door sill height above grade** | **no** |
+| **ground slope across the footprint** | **no** |
+
+Those two absent numbers are precisely the two that `house-capture`'s analysis
+already flags as guesses (`sillConfidence`, `dropConfidence`). Sill height sets
+the deck surface — get it wrong and the deck steps up into the door. Slope sets
+post lengths and footing depths.
+
+So HOVER removes the guessing about the *house* and removes none of the
+guessing about the *ground*.
+
+## "Photo and video tech that gives exact measurements"
+
+**What we have is estimation, not measurement**, and it says so itself. The
+analysis prompt derives dimensions from known-size references — a door is 80in,
+a brick course 2.67in, siding courses 4–8in — and instructs: *"assume every
+number you give is an estimate to be checked with a tape."* The floor-plan video
+route is a stub that returns "Video processing not yet implemented."
+
+**The physical limit worth understanding:** a single moving camera cannot
+recover absolute scale. Structure-from-motion reconstructs shape up to an
+unknown scale factor, so every photogrammetry pipeline needs a scale source:
+
+- a known reference in frame (what we do now, and the weakest)
+- **phone IMU/ARKit motion** — gives true metric scale, typically 1–3% on short
+  spans
+- **LiDAR** on a Pro iPhone — direct metric depth, accurate but only to ~5m, so
+  ideal for a sill height and poor for a whole house
+- survey equipment — exact and not a phone
+
+So "exact from photos alone" is not a thing that exists, for anyone. Exact from
+*photos plus a scale source* very much is.
+
+## Where that leaves it
+
+The last mile — sill height and grade drop — is faster and more accurate with a
+tape and a laser level on a site visit than with any camera pipeline, and a £30
+laser measure beats a $999/year subscription for those two figures. That is not
+a reason to skip capture; it is a reason to be honest about which numbers come
+from where.
+
+The system that would actually meet "every house, first time":
+
+- [ ] Facade geometry from a real capture (HOVER, or photogrammetry) —
+      replaces the invented box wall in `DeckViewer3D`
+- [ ] Sill height and grade captured deliberately: LiDAR/ARKit where the phone
+      has it, otherwise two prompted numbers someone typed after measuring
+- [ ] The model records **where each number came from** and never presents a
+      guessed one as measured — the same discipline the quote repricing already
+      applies to money
+- [ ] Render from the CAD scene once the house is real; the photo render becomes
+      a cross-check
+
 ## Review
 
 ### Pricing standards (F)
