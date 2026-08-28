@@ -332,6 +332,96 @@ correspond to a deck that prices and draws.
   test before anything else is built, because every deck already quoted goes
   through this path.
 
+---
+
+# Plan: show a customer what we designed, for any trade
+
+Eric: "we should be able to use it for decks kitchen bathrooms everything
+really."
+
+## The good news: the storage layer is already trade-agnostic
+
+Nothing here needs a new backend model.
+
+- `/design-links/attach` keys designs as `design_project:${ownerKey}:${id}` and
+  `ownerKey` is already a parameter — it merely *defaults* to `"decks"`.
+  `kitchens`, `bathrooms` and anything else work the day a designer exists.
+- `/design-links/files` takes `label`, `category`, `dataUri`, `customerId`,
+  `jobId`, `designId`. Not one deck-specific field. Its own comment says it
+  takes a data URI because "everything the design centre produces is generated
+  in the browser — a permit packet PDF, a captured drawing, a render."
+- `/my-files` resolves the customer **from the signed-in session**, never from a
+  parameter, and re-checks ownership before handing out a URL.
+
+So this is wiring, not construction. Only `DeckDesigner` exists today, but it is
+the one to wire, and the pieces are generic.
+
+## The thing that must be fixed before any of it ships
+
+**Filing a document currently makes it customer-visible, and there is no way to
+file one that is not.** The record written by `/files` has no
+`sharedWithCustomer` field, and `/my-files` returns everything matching the
+customer id.
+
+Today that is invisible because `/my-files` is dead code — nothing calls it. The
+moment the portal section in phase C exists, **every document ever filed becomes
+customer-visible retroactively**, including anything staff put through
+ProjectLinkPanel's "Add a file" as internal working material. Turning the
+feature on is what creates the exposure, which is exactly the kind of thing that
+is easy to ship without noticing.
+
+So phase A is not optional and not last.
+
+## Plan
+
+### A. Sharing is explicit, and it fails closed
+- [ ] `sharedWithCustomer: boolean` on the file record, default **false**
+- [ ] `/my-files` returns only records where it is `true` — a record without the
+      field is treated as not shared, so everything already filed stays hidden
+      rather than being revealed by the upgrade
+- [ ] A staff-only route to share and un-share one document
+- [ ] The staff folder view shows which documents the customer can see, because
+      "who can see this" is not something to keep in your head
+
+### B. One "Share with the customer" action, used everywhere
+- [ ] A small component taking `{ label, category, dataUri }` and the design's
+      customer — nothing about decks in it
+- [ ] Wire it to the render, to each of the three looks, and to the permit
+      packet and calculation sheets
+- [ ] Fix the dangling wire: `ProjectLinkPanel` exposes `fileDocument` through
+      `onFilerReady` and **nothing in `DeckDesigner` consumes it**, which is why
+      filing anything today means download-then-re-upload
+
+### C. A Designs section in the customer portal
+- [ ] Reads `/my-files`, grouped by design and job
+- [ ] Images shown as a gallery — this is the point, the customer sees the three
+      looks side by side rather than an emailed attachment
+- [ ] PDFs listed as documents
+- [ ] **Built to match the existing portal, not restyled.** `PortalDocumentVault`
+      is the pattern to copy — same layout language, same accent handling. The
+      portals keep their design unless Eric asks otherwise.
+
+### D. Beyond decks
+- [ ] Pass a real `ownerKey` per trade rather than letting it default
+- [ ] Portal groups by trade so a customer having a kitchen and a bathroom done
+      sees two folders, not one pile
+- [ ] Nothing else — B and C are already trade-agnostic, and a kitchen designer
+      built later files through the same route with `ownerKey: 'kitchens'`
+
+### E. Tell them it is there
+- [ ] A document shared with nobody notified is a document nobody opens
+- [ ] Reuse whatever the portal already uses for messages rather than inventing
+      a second notification path
+
+## Open questions for Eric
+
+1. **Should the customer be able to pick a look in the portal?** "I want number
+   two" coming back through the portal rather than a phone call is worth real
+   money on a sales cycle, and it would feed the choice straight back to the
+   deck model. It is also more work and needs thought about what a choice
+   commits either side to.
+2. **Notification channel** — email, or a portal message, or both.
+
 ## Review
 
 ### Pricing standards (F)
