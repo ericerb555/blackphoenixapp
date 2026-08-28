@@ -226,6 +226,112 @@ reprice, or be labelled on its face as changing the price. A pretty picture that
 silently disagrees with the quote is the same class of problem as a quote priced
 from figures nobody set.
 
+---
+
+# Scope: wrap-around and L-shaped decks
+
+Not a plan to execute yet — this is the estimate Eric asked for.
+
+## The good news first
+
+`buildMembers(m)` in `deckModel.ts` is a real single source of truth, and its
+own comment says so: *"This is the single place framing is decided. Every view
+renders whatever this returns, so none of them can drift from the others."*
+That holds up — 13 call sites, and the 3D viewer, the framing plan, the takeoff,
+the quote and the permit packet all go through `buildMembers` or `takeoff`.
+
+More importantly, `Member` is **already shape-agnostic**. It is a positioned box
+— `pos`, `size`, optional `rot` — with a `kind`. Nothing about it assumes a
+rectangle. So the 827-line 3D viewer and the framing plan canvas largely come
+along for free: give them members for an L-shaped deck and they draw an L-shaped
+deck.
+
+This is the difference between a rewrite and an extension. It is an extension.
+
+## Where the rectangle is actually baked in
+
+Two kinds of problem, and only the second is hard.
+
+**Scalars that assume one rectangle.** Each is a line or two, but they are
+load-bearing and they leak into the permit set and the price:
+
+| what | where | why it breaks |
+|---|---|---|
+| `deckArea = widthFt * depthFt` | `deckModel.ts:614` | area of an L is not w×d |
+| `joistSpanFt = depthFt - cantileverFt` | `deckModel.ts:627` | an L has a span per section |
+| decking area, `widthFt * depthFt` | `deckQuote.ts:159,225` | under-orders boards |
+| ledger fasteners and flashing by `widthFt` | `deckQuote.ts:218,219` | a wrap-around has ledger on two walls |
+| `tributary`, span checks off one scalar | `deckStructural.ts:137,152` | code check must run per section |
+| viewport bounds, house wall drawn full width | `FramingPlanCanvas.tsx:43-63` | wrong bounds, wrong wall |
+
+**The genuinely hard part: the framing engine and the outline.**
+`buildMembers` is ~450 lines that lay one ledger along the wall, one beam line at
+`depthFt - cantilever`, and joists in one direction. Two things get difficult:
+
+1. **The interior join.** Where two sections meet there is no rim joist, no
+   railing and no post line — but there usually is a shared beam, and the joists
+   of one section often bear on it. Getting this wrong produces a deck with a
+   railing running through the middle of it, or a beam missing where the load
+   actually is. This is the real work.
+2. **The railing outline.** Guard currently runs the perimeter of a rectangle.
+   For an L it has to run the perimeter of a polygon, minus the house-attached
+   edges, minus the join. That is genuine geometry, and it is what an inspector
+   looks at.
+
+## How I would represent it
+
+**Sections, not polygons.** `DeckModel` grows a list of rectangular sections,
+each with its own size, its own joist direction, and which of its edges meet the
+house.
+
+Rejected: a general polygon footprint. It is more flexible and much worse here,
+because framing an arbitrary polygon means choosing joist direction and beam
+lines per region anyway — and, decisively, **DCA 6 span tables only apply to a
+rectangular framed bay**. Keeping every section a rectangle keeps each one
+inside the prescriptive tables, which is what lets this print a permit set
+without an engineer's stamp. A polygon model would push most decks out of
+prescriptive design, which is a much bigger problem than a missing shape.
+
+Sections also match how a builder describes it — "16 by 12 across the back, then
+10 by 8 wrapping round the side" — and multi-level later is just an elevation
+per section.
+
+## Phases, honestly sized
+
+**1 — Model and framing engine.** Sections in `DeckModel`, `buildMembers`
+emitting per section, shared-edge handling, polygon railing outline. *The bulk
+of the work, and where all the risk is.* Everything else is small by comparison.
+
+**2 — Scalars.** Area becomes a sum, joist span becomes the worst section,
+ledger run becomes the total house-attached edge. Touches `takeoff`,
+`deckQuote`, `deckStructural`, `deckAnnotations`. Mechanical once phase 1 gives
+the right members.
+
+**3 — Drawings and bounds.** `FramingPlanCanvas` bounds from sections rather
+than `widthFt`; permit packet dimensions each section. `DeckViewer3D` and
+`DeckScenery` need their camera framing and ground plane checked, but should not
+need structural change.
+
+**4 — A way to enter the shape.** Recommend **preset shapes with dimensions**
+— straight, L-left, L-right, U, wrap-around-corner — rather than a drag editor.
+Presets cover the overwhelming majority of real jobs, are far cheaper, and
+cannot produce a shape the framing engine has never seen. A freeform editor is a
+separate project and would want phase 1 proven first.
+
+**5 — Renders and looks.** Once the model holds a shape, `renderPrompt` can
+describe it, and layout variants become honest — a wrap-around render would
+correspond to a deck that prices and draws.
+
+## What I would want agreed before starting
+
+- **Presets or freeform** for entering the shape. I recommend presets.
+- **Multi-level in or out.** Out, for now — it is a second elevation per section
+  and it drags stairs between levels in with it.
+- **Backwards compatibility.** Every existing saved deck is a single rectangle.
+  A one-section model must behave byte-identically to today, and that is worth a
+  test before anything else is built, because every deck already quoted goes
+  through this path.
+
 ## Review
 
 ### Pricing standards (F)
