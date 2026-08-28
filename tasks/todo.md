@@ -721,6 +721,124 @@ dimensions.
 - [ ] Segmented feet/inches entry with plausibility checks
 - [ ] Provenance on every dimension, carried into the drawings and the quote
 
+---
+
+# Scope: interior capture for kitchens and bathrooms
+
+## What is reused, and what is new
+
+**Reused as-is** — image and video frame handling, the scale references and the
+two-plane rule shipped in J, the spend ceiling, private storage with signed
+URLs, the customer folder and sharing, the provenance discipline.
+
+`analysisSystem()` is already a function that composes a prompt, so the clean
+extension is a `subject` parameter — `deck-wall`, `kitchen`, `bathroom` — where
+only the prompt and the returned schema differ. One module, three subjects,
+rather than three modules that drift apart.
+
+**New** — a prompt and schema per room type, and capture guidance written for
+somebody standing in their own kitchen.
+
+## Three ways an interior is genuinely different
+
+**1. It is a closed room, not one wall.** The deck capture reads a single
+facade. A kitchen needs every wall and how they meet — that is a floor plan, and
+it needs coverage from opposite corners plus a slow video pan to carry the
+parallax that closes it.
+
+**2. Occlusion is severe and it hides the expensive things.** Cabinets cover the
+walls, appliances block corners, and the pipework is inside the units. The
+camera cannot see the things that decide the price.
+
+**3. Scale references work better here.** Indoors the sheet is closer, flatter
+and better lit than on a house exterior. Interiors also carry good secondary
+references: a range is 30in wide, a dishwasher 24in, a toilet rough-in 12in.
+
+## Kitchen: what the analysis should return
+
+**Geometry** — wall runs with lengths and how they connect; ceiling height and
+any soffit or bulkhead; window positions and sizes, which govern wall cabinets;
+door positions **and swings**, which govern clearances; openings to other rooms.
+
+**Services, which are the money** — sink and its waste position; gas line if
+there is one; outlets, switches and where lighting is fed; HVAC registers and
+returns; the existing hood, and crucially whether it is ducted out or
+recirculating.
+
+**Existing conditions** — cabinet run lengths and condition; worktop material;
+appliance sizes and whether they are staying; flooring type and whether it runs
+under the units; wall finish and any tile.
+
+## Bathroom: what differs
+
+Smaller, wetter and far more constrained by fixtures.
+
+- **Toilet rough-in** — the distance from the finished wall to the closet bolts.
+  10, 12 or 14 inches, and it decides which toilets fit at all. A scale card on
+  the floor beside it reads this well
+- Vanity width and whether the waste is centred
+- Tub or shower type — alcove, drop-in, freestanding, or a pan — and its size
+- Whether there is a window in the wet area, which changes the waterproofing
+- The extract fan, and whether it actually ducts outside or into the loft
+- Existing tile and where it stops
+
+## What a photograph cannot tell us, and why it matters more here
+
+This is the part to be loud about. In a kitchen the **cost drivers are
+invisible**:
+
+- What is inside the wall — waste lines, vents, whether a wall is load-bearing
+- Panel capacity and whether circuits exist for what is being added
+- Where a hood duct could actually run
+- Subfloor condition, and whether the floor is level
+- What is under the existing floor covering
+
+Moving a waste line is thousands of pounds of difference and it cannot be seen.
+So the schema needs a `mustVerify` list that is treated as a first-class output
+rather than a footnote — the exterior capture already has `notVisible`, and this
+extends that idea and gives it teeth. **A quote built on an interior capture
+alone is not a quote, and the output should say so on its face.**
+
+## Capture guidance, written for a homeowner
+
+Beyond the general rules: a few specific asks worth far more than their effort.
+
+- [ ] **Open the cabinet under the sink and photograph inside.** One picture,
+      and it shows the waste, the supplies, the shutoffs and whether there is a
+      disposal. The highest-value single photograph in the whole set
+- [ ] A slow pan right around the room on video, back to where it started
+- [ ] From each corner, looking at the opposite corner
+- [ ] The scale sheet taped to one wall at worktop height
+- [ ] For a bathroom, the scale card on the floor beside the toilet
+- [ ] Optional: the electrical panel, for capacity
+- [ ] Optional: outside where the hood or fan comes out, if they know
+
+## Phases
+
+**1 — Subject parameter.** `analysisSystem(subject, refs)`, prompts and schemas
+per subject. Small, and it is the piece everything else hangs off.
+
+**2 — Kitchen and bathroom prompts and schemas**, with `mustVerify` promoted to
+a real output.
+
+**3 — Capture guidance in the portal**, reusing the flow from K with room-shaped
+steps and the under-sink shot called out.
+
+**4 — Somewhere for it to go.** A captured room is only worth having if
+something reads it. Until a kitchen designer exists, the honest deliverable is a
+measured survey filed in the customer's folder — which is genuinely useful on
+its own for quoting, and is what a designer would need on day one anyway.
+
+## The thing not to pretend
+
+`DeckDesigner` is the only designer in the repo, and none of it transfers.
+`DeckModel` is a rectangle with joists, beams and posts; `buildMembers()`
+produces framing lumber; the checks are DCA 6 span tables. A kitchen needs
+cabinet runs, appliance clearances, NKBA working clearances, a worktop, and
+receptacle and ventilation code — its own model, its own rules, its own
+catalogue, its own drawings. It is a second product of comparable size to the
+deck designer, not a mode of it. Capture first is the right order regardless.
+
 ## Review
 
 ### Pricing standards (F)
