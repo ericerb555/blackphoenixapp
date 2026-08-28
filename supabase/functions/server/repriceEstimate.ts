@@ -51,7 +51,15 @@ export interface PricingSettings {
   taxRate?: number;
 }
 
-export type PriceSource = 'catalogue' | 'your-rate' | 'estimated';
+/**
+ * Where a number came from.
+ *
+ * `standard` sits deliberately between the company's own figures and the
+ * model's guess. A standard trade rate is a real, defensible number — far
+ * better than training-data recall — but it is not this company's rate, and a
+ * quote that cannot tell those apart is the same dishonesty in a smarter suit.
+ */
+export type PriceSource = 'catalogue' | 'your-rate' | 'standard' | 'estimated';
 
 /**
  * The model's trade words are not the company's trade ids, and the gap is not
@@ -183,6 +191,8 @@ export function repriceLabor(
   line: any,
   rates: LaborRate[],
   settings: PricingSettings,
+  /** True when `rates` are the standard table rather than the company's saved ones. */
+  ratesAreStandard = false,
 ): RepricedLabor {
   const modelRate = round2(Number(line?.hourlyRate) || 0);
   const tradeId = mapTrade(line?.trade) || mapTrade(line?.role);
@@ -195,7 +205,12 @@ export function repriceLabor(
   const apply = (rate: number) => round2(rate * (1 + laborMarkup / 100));
 
   if (found && Number(found.hourlyRate) > 0) {
-    return { hourlyRate: apply(Number(found.hourlyRate)), source: 'your-rate', tradeId, modelHourlyRate: modelRate };
+    return {
+      hourlyRate: apply(Number(found.hourlyRate)),
+      source: ratesAreStandard ? 'standard' : 'your-rate',
+      tradeId,
+      modelHourlyRate: modelRate,
+    };
   }
   return { hourlyRate: apply(modelRate), source: 'estimated', tradeId, modelHourlyRate: modelRate };
 }
@@ -205,8 +220,26 @@ export interface RepriceSummary {
   materialsFromCatalogue: number;
   laborPriced: number;
   laborAtYourRates: number;
-  /** 0–1. How much of the money in this quote rests on a real figure. */
+  laborAtStandardRates: number;
+  /**
+   * 0–1. How much of the money rests on a real figure rather than the model's
+   * recollection — catalogue prices, the company's rates, or standard rates.
+   */
   confidence: number;
+  /**
+   * 0–1. How much rests on THIS COMPANY's figures specifically. Reported apart
+   * from confidence because "defensible" and "ours" are different claims, and
+   * collapsing them would let a quote priced entirely from a standard table
+   * read as though Eric had set every number himself.
+   */
+  onYourFigures: number;
+  /**
+   * True when the markup, overhead, margin and tax applied here are the standard
+   * ones rather than the company's. Reported because those percentages move
+   * every line in the quote, so a screen showing only where the *base* costs
+   * came from would still be hiding whose business rules set the final price.
+   */
+  settingsAreStandard: boolean;
   /** Plain sentence for the screen, so nobody has to interpret a ratio. */
   note: string;
 }
@@ -220,9 +253,16 @@ export interface RepriceSummary {
  */
 export function repriceEstimate(
   estimate: any,
-  deps: { catalog: CatalogItem[]; rates: LaborRate[]; settings: PricingSettings },
+  deps: {
+    catalog: CatalogItem[];
+    rates: LaborRate[];
+    settings: PricingSettings;
+    /** True when rates/settings are the standard tables, not the company's own. */
+    ratesAreStandard?: boolean;
+    settingsAreStandard?: boolean;
+  },
 ): { estimate: any; summary: RepriceSummary } {
-  const { catalog = [], rates = [], settings = {} } = deps || ({} as any);
+  const { catalog = [], rates = [], settings = {}, ratesAreStandard = false, settingsAreStandard = false } = deps || ({} as any);
 
   const materials = (Array.isArray(estimate?.materials) ? estimate.materials : []).map((m: any) => {
     const priced = repriceMaterial(m, catalog, settings);
@@ -241,7 +281,7 @@ export function repriceEstimate(
   });
 
   const labor = (Array.isArray(estimate?.labor) ? estimate.labor : []).map((l: any) => {
-    const priced = repriceLabor(l, rates, settings);
+    const priced = repriceLabor(l, rates, settings, ratesAreStandard);
     const hours = Number(l?.hours) || 0;
     return {
       ...l,
@@ -271,32 +311,61 @@ export function repriceEstimate(
     .filter((m: any) => m.priceSource === 'catalogue')
     .reduce((s: number, m: any) => s + (Number(m.totalCost) || 0), 0);
   const laborMoney = labor.reduce((s: number, l: any) => s + (Number(l.totalCost) || 0), 0);
-  const yourRateMoney = labor
-    .filter((l: any) => l.rateSource === 'your-rate')
+  const moneyWhere = (src: PriceSource) => labor
+    .filter((l: any) => l.rateSource === src)
     .reduce((s: number, l: any) => s + (Number(l.totalCost) || 0), 0);
+  const yourRateMoney = moneyWhere('your-rate');
+  const standardRateMoney = moneyWhere('standard');
 
   const total = materialMoney + laborMoney;
   // Weighted by money, not by line count: ten cheap screws priced from the
   // catalogue should not make a quote look solid when the cabinetry is a guess.
-  const confidence = total > 0 ? round2((catalogueMoney + yourRateMoney) / total) : 0;
+  const confidence = total > 0
+    ? round2((catalogueMoney + yourRateMoney + standardRateMoney) / total)
+    : 0;
+  const onYourFigures = total > 0 ? round2((catalogueMoney + yourRateMoney) / total) : 0;
 
   const fromCatalogue = materials.filter((m: any) => m.priceSource === 'catalogue').length;
   const atYourRates = labor.filter((l: any) => l.rateSource === 'your-rate').length;
+  const atStandard = labor.filter((l: any) => l.rateSource === 'standard').length;
+
+  const pc = (n: number) => Math.round(n * 100);
+  // Whether any of this quote leans on the standard table. Branching on this
+  // before branching on the amount matters: a real quote usually lands in the
+  // middle band, so wording the standards caveat only into the high band would
+  // mean the sentence that keeps standard rates from reading as Eric's own
+  // figures is the one that almost never appears.
+  const leansOnStandards = confidence - onYourFigures > 0.005;
+  const remainder = confidence < 0.8 ? ' The rest is estimated.' : '';
+
+  // Written so it never overclaims. A quote priced from the standard table is
+  // defensible and should say exactly that, rather than borrowing the authority
+  // of figures Eric has actually set.
+  let note: string;
+  if (total <= 0) {
+    note = 'Nothing priced yet.';
+  } else if (confidence < 0.3) {
+    note = `Only ${pc(confidence)}% is priced from real figures — most of this quote is estimated. It should be reviewed before it goes to a customer.`;
+  } else if (!leansOnStandards) {
+    note = confidence >= 0.8
+      ? `${pc(confidence)}% of this quote is priced from your own catalogue and rates.`
+      : `${pc(confidence)}% is priced from your own catalogue and rates.${remainder} Add vendor prices to raise it.`;
+  } else if (onYourFigures > 0) {
+    note = `${pc(confidence)}% is priced from real figures — ${pc(onYourFigures)}% your own, the rest standard trade rates.${remainder} Saving your own rates makes more of it yours.`;
+  } else {
+    note = `${pc(confidence)}% is priced from standard trade rates, not the model's guesses — but none of it is your own figures yet.${remainder} Save your rates and vendor prices to make this quote yours.`;
+  }
 
   const summary: RepriceSummary = {
     materialsPriced: materials.length,
     materialsFromCatalogue: fromCatalogue,
     laborPriced: labor.length,
     laborAtYourRates: atYourRates,
+    laborAtStandardRates: atStandard,
     confidence,
-    note:
-      total <= 0
-        ? 'Nothing priced yet.'
-        : confidence >= 0.8
-          ? `${Math.round(confidence * 100)}% of this quote is priced from your own catalogue and rates.`
-          : confidence >= 0.3
-            ? `${Math.round(confidence * 100)}% is priced from your own figures; the rest is estimated. Add vendor prices and labour rates to raise it.`
-            : `Only ${Math.round(confidence * 100)}% is priced from your own figures — most of this quote is estimated. It should be reviewed before it goes to a customer.`,
+    onYourFigures,
+    settingsAreStandard,
+    note,
   };
 
   return { estimate: repriced, summary };

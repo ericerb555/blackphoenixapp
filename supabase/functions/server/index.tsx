@@ -146,6 +146,7 @@ import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { repriceEstimate } from "./repriceEstimate.ts";
+import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
@@ -2429,8 +2430,11 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       price: Number(i?.price) || 0,
       updatedAt: i?.updatedAt, isActive: i?.isActive,
     }));
-    const rates = ((ratesRaw as any)?.laborRates || []) as any[];
-    const settings = ((pricingRaw as any)?.config || {}) as any;
+    // Standards until the company saves its own, so a quote is defensible from
+    // day one instead of falling back to the model's recollection. Which of the
+    // two was used is carried through and reported, never disguised.
+    const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
+    const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw);
 
     const { estimate, usedAI } = await runEstimator({
       title: workRequest.title,
@@ -2439,7 +2443,7 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       location: workRequest.location || workRequest.address,
       estimatedValue: workRequest.estimatedValue,
       extra: extraParts.join('\n'),
-    }, (raw) => repriceEstimate(raw, { catalog, rates, settings }));
+    }, (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }));
 
     console.log('[Auto-Quote] Estimator result:', {
       usedAI,
@@ -3154,8 +3158,17 @@ app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
 app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
   try {
     const stored = await kv.get('labor_rates:global') as any;
-    if (!stored) return c.json({ success: true, laborRates: [], profitSettings: null, lastSaved: null });
-    return c.json({ success: true, laborRates: stored.laborRates || [], profitSettings: stored.profitSettings || null, lastSaved: stored.lastSaved || null });
+    // Standards when nothing has been saved, and `usingStandards` says so —
+    // otherwise the rates screen shows twelve trades while the quote engine
+    // sees an empty list, and the two disagree about what the company charges.
+    const { rates, usingStandards } = resolveLaborRates(stored);
+    return c.json({
+      success: true,
+      laborRates: rates,
+      usingStandards,
+      profitSettings: stored?.profitSettings || null,
+      lastSaved: stored?.lastSaved || null,
+    });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load labor rates.' }, 500); }
 });
 
@@ -3200,7 +3213,10 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
 app.get('/make-server-3eae23a6/pricing-config/get', async (c) => {
   try {
     const stored = await kv.get('pricing_config:global') as any;
-    return c.json({ success: true, config: stored?.config || null, lastSaved: stored?.lastSaved || null });
+    // Same reasoning as the rates: standards until the company sets its own, and
+    // the caller is told which it received.
+    const { settings, usingStandards } = resolvePricing(stored);
+    return c.json({ success: true, config: settings, usingStandards, lastSaved: stored?.lastSaved || null });
   } catch (error: any) {
     return c.json({ success: false, error: error.message || 'Unable to load pricing settings.' }, 500);
   }

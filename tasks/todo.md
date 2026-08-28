@@ -67,6 +67,27 @@ The seeded production rates are industry figures, not measurements of his crews.
 They should be treated as a starting point to correct, and the UI should say so
 rather than presenting them as fact.
 
+### F. Standards on the server, so a quote is defensible from day one — IN PROGRESS
+
+The rates and markups had defaults in the browser only. Nothing was ever saved,
+so the server saw an empty list and marked every labour line `estimated`. Quotes
+came back at near-zero confidence for no good reason.
+
+- [x] Run the repricer locally against a realistic estimate and watch the
+      numbers — confidence off the floor, lines marked `standard` not
+      `your-rate`, `onYourFigures` still 0 when nothing is saved
+- [x] Confirm saved figures still win over the standards
+- [x] Two problems the run surfaced, both fixed:
+      - the note only mentioned standards in the ≥80% band, and real quotes
+        land in the middle band, so the sentence that stops standards reading
+        as Eric's own figures almost never appeared
+      - `pricing-config/get` returning standards instead of `null` made
+        `loadPricingConfigFromServer` overwrite markups held only in
+        localStorage, which is where they all lived until last commit
+- [x] Commit and push
+- [ ] Deploy the edge function
+- [ ] Generate a real quote in the running app and read the summary off the screen
+
 ## Review
 
 _(to be completed)_

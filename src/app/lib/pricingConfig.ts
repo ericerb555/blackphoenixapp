@@ -137,7 +137,13 @@ export async function loadPricingConfigFromServer(
   try {
     const res = await fetchImpl(`${serverUrl}/pricing-config/get`, { headers });
     const data = await res.json().catch(() => ({}));
-    if (data?.success && data.config) {
+    // `usingStandards` means nothing has been saved server-side and the server
+    // handed back the standard table. Taking that would overwrite markups that
+    // exist only in this browser — which is where they all lived until the
+    // server copy was added, so it is the common case, not an edge one. The
+    // quote engine still prices from the standards on its own; this only
+    // decides what the settings screen shows.
+    if (data?.success && data.config && !data.usingStandards) {
       const merged: PricingConfig = {
         ...defaultPricingConfig,
         ...data.config,
