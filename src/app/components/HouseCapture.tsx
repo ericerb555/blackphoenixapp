@@ -30,6 +30,7 @@ import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
 import { isVideoFile, isImageFile } from '../lib/localFolder';
+import { DEFAULT_LOOKS, applyLook, lookAppearance, lookCaption } from '../lib/deckLooks';
 import type { DeckModel } from '../lib/deckModel';
 import LocalFolderPicker from './LocalFolderPicker';
 
@@ -83,6 +84,7 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
   // and the photograph is not.
   const [wall, setWall] = useState('');
   const [replacing, setReplacing] = useState(false);
+  const [looks, setLooks] = useState<any[] | null>(null);
 
   const photoInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -305,6 +307,99 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
       setBusy(null);
     }
   }, [photos, renderOn, model, analysis, extra, wall, replacing]);
+
+  /**
+   * The same deck on the same wall in three finishes, to sit in front of a
+   * customer. Everything but the finishes is held still on purpose — a
+   * comparison only works if one thing varies.
+   */
+  const makeLooks = useCallback(async () => {
+    const photo = photos[renderOn];
+    if (!photo) return;
+
+    const others: string[] = [];
+    let budget = MAX_PAYLOAD_BYTES - dataUrlBytes(photo);
+    for (const [i, p] of photos.entries()) {
+      if (i === renderOn) continue;
+      const size = dataUrlBytes(p);
+      if (size > budget) continue;
+      budget -= size;
+      others.push(p);
+    }
+
+    // Each look is resolved into a real deck here, so what gets rendered and
+    // what would get priced are the same object rather than two descriptions
+    // that have to agree.
+    const payload = DEFAULT_LOOKS.map(look => {
+      const deck = applyLook(model, look);
+      return {
+        id: look.id,
+        name: look.name,
+        pitch: look.pitch,
+        caption: lookCaption(deck),
+        appearance: lookAppearance(deck),
+        deck,
+      };
+    });
+
+    setBusy(`Rendering ${payload.length} looks`);
+    setLooks(null);
+    try {
+      const res = await fetch(`${SERVER}/house-capture/looks`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          photo,
+          references: others,
+          house: analysis?.house || {},
+          attachment: {
+            wallDescription: analysis?.attachment?.wallDescription || '',
+            wallOverride: wall.trim(),
+            doorType: analysis?.attachment?.doorType || '',
+          },
+          existing: {
+            replacing,
+            widthFt: Number(analysis?.existingDeck?.widthFt) || 0,
+            depthFt: Number(analysis?.existingDeck?.depthFt) || 0,
+          },
+          extra,
+          looks: payload,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `Looks failed (${res.status}).`);
+      setLooks(json.looks || []);
+      if (json.failed > 0) {
+        toast.error(`${json.rendered} of ${json.rendered + json.failed} looks rendered — the rest failed.`);
+      } else {
+        toast.success(`${json.rendered} looks ready.`);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'The looks failed.');
+    } finally {
+      setBusy(null);
+    }
+  }, [photos, renderOn, model, analysis, extra, wall, replacing]);
+
+  /**
+   * Take a look. This patches the real deck model, so the 3D view, the drawings
+   * and the quote all move with it — which is the whole reason each look is a
+   * model patch rather than a description in a prompt.
+   */
+  const chooseLook = useCallback((look: any) => {
+    const d = look?.deck;
+    if (!d) return;
+    onApply({
+      deckingFinish: d.deckingFinish,
+      railFinish: d.railFinish,
+      deckingDirection: d.deckingDirection,
+      widthFt: d.widthFt,
+      depthFt: d.depthFt,
+      heightFt: d.heightFt,
+      stairs: d.stairs,
+    });
+    toast.success(`"${look.name}" applied — the quote follows the new materials.`);
+  }, [onApply]);
 
   const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
   const btn = 'flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed';
@@ -537,6 +632,57 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {busy || `Render a ${model.widthFt}' × ${model.depthFt}' deck onto this photo`}
           </button>
+
+          {/*
+            Deliberately a second, separate button. Three looks is three image
+            calls, so it costs about three times a single render — that is a
+            decision to make on purpose, not something the ordinary button
+            should quietly do.
+          */}
+          <button onClick={makeLooks} disabled={!!busy} className={`${btn} w-full text-white mt-2`}
+            style={{ background: 'rgba(234,88,32,0.14)', border: '1px solid rgba(234,88,32,0.35)' }}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-[#ea580c]" />}
+            {busy || `Show ${DEFAULT_LOOKS.length} looks to choose from`}
+          </button>
+          <p className="text-[11px] text-gray-600 mt-1 mb-1">
+            Same deck, same wall, {DEFAULT_LOOKS.length} sets of materials — {DEFAULT_LOOKS.length} renders.
+          </p>
+
+          {looks && looks.length > 0 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {looks.map((l: any) => (
+                <div key={l.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] overflow-hidden flex flex-col">
+                  {l.url ? (
+                    <img src={l.url} alt={l.name} className="w-full aspect-[3/2] object-cover" />
+                  ) : (
+                    <div className="w-full aspect-[3/2] flex items-center justify-center px-3 text-center">
+                      <span className="text-[11px] text-red-400">{l.error || 'This one did not render.'}</span>
+                    </div>
+                  )}
+                  <div className="p-3 flex flex-col gap-1 grow">
+                    <p className="text-xs font-bold text-white">{l.name}</p>
+                    <p className="text-[11px] text-gray-500">{l.pitch}</p>
+                    <p className="text-[11px] text-gray-400 mt-1">{l.caption}</p>
+                    {l.url && (
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => chooseLook(l)}
+                          className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold text-white"
+                          style={{ background: '#ea580c' }}>
+                          Use this one
+                        </button>
+                        <a href={l.url} download={`${(site.projectName || 'deck').replace(/[^\w-]+/g, '-')}-${l.id}-not-to-scale.png`}
+                          target="_blank" rel="noreferrer"
+                          className="px-2 py-1.5 rounded-lg text-[11px] font-semibold text-white flex items-center"
+                          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {render && (
             <div className="mt-3">

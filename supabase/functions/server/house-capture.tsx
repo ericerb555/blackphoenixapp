@@ -342,6 +342,87 @@ function renderPrompt(deck: any, house: any, attachment: any, existing: any, ext
  * photo. The caller is told plainly, in the response, that this is not a
  * measured drawing.
  */
+
+type PaintResult =
+  | { ok: true; b64: string }
+  | { ok: false; error: string; status: number };
+
+/**
+ * One deck, painted onto one photograph.
+ *
+ * Extracted so that rendering a single concept and rendering three looks side
+ * by side go down exactly the same path. Two copies of this would drift, and
+ * the failure would be three images that do not match each other — which is the
+ * one thing a set of options must never do.
+ */
+async function paintDeck(opts: {
+  parts: { mediaType: string; base64: string };
+  references: string[];
+  prompt: string;
+  key: string;
+}): Promise<PaintResult> {
+  const { parts, references, prompt, key } = opts;
+  const ext = parts.mediaType.includes("png") ? "png" : "jpg";
+
+  const blobFor = (uri: string) => {
+    const p = splitDataUri(uri);
+    if (!p) return null;
+    return new Blob([base64ToBytes(p.base64)], { type: p.mediaType });
+  };
+
+  const primary = new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType });
+
+  const buildForm = (multi: boolean) => {
+    const form = new FormData();
+    form.append("model", "gpt-image-1");
+    if (multi) {
+      // First image is the one being rendered onto; the rest are reference.
+      form.append("image[]", primary, `house.${ext}`);
+      references.forEach((uri, i) => {
+        const b = blobFor(uri);
+        if (b) form.append("image[]", b, `reference-${i}.jpg`);
+      });
+    } else {
+      form.append("image", primary, `house.${ext}`);
+    }
+    form.append("prompt", multi
+      ? `${prompt}\n\nThe FIRST image is the photograph to render. The remaining images are more views of the SAME house — use them to get the siding, trim, roof, windows and proportions right, but do not change the camera position or composition of the first image.`
+      : prompt);
+    form.append("size", "1536x1024");
+    form.append("quality", "high");
+    form.append("input_fidelity", "high");
+    return form;
+  };
+
+  const call = (multi: boolean) => fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: buildForm(multi),
+  });
+
+  let res = await call(references.length > 0);
+
+  // If the multi-image form is rejected, fall back to the single-image call
+  // rather than failing. A render from one photo is worth far more than an
+  // error message, and this path already worked.
+  if (!res.ok && references.length > 0) {
+    const detail = await res.text();
+    console.log(`[house] multi-image render failed ${res.status}, retrying with one: ${detail.slice(0, 200)}`);
+    res = await call(false);
+  }
+
+  if (!res.ok) {
+    const detail = await res.text();
+    console.log(`[house] render failed ${res.status}: ${detail.slice(0, 400)}`);
+    return { ok: false, error: `Render failed (${res.status}). ${detail.slice(0, 200)}`, status: 502 };
+  }
+
+  const json = await res.json();
+  const b64 = json?.data?.[0]?.b64_json;
+  if (!b64) return { ok: false, error: "The render came back empty.", status: 502 };
+  return { ok: true, b64 };
+}
+
 app.post("/render", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
@@ -368,7 +449,6 @@ app.post("/render", async (c) => {
     const key = Deno.env.get("OPENAI_API_KEY");
     if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
 
-    const ext = parts.mediaType.includes("png") ? "png" : "jpg";
     const prompt = renderPrompt(deck, house, attachment, existing, extra);
 
     // Extra views of the same house. One photograph shows one wall from one
@@ -380,64 +460,10 @@ app.post("/render", async (c) => {
       ? body.references.slice(0, MAX_IMAGES - 1)
       : [];
 
-    const blobFor = (uri: string) => {
-      const p = splitDataUri(uri);
-      if (!p) return null;
-      return new Blob([base64ToBytes(p.base64)], { type: p.mediaType });
-    };
+    const shot = await paintDeck({ parts, references, prompt, key });
+    if (!shot.ok) return c.json({ error: shot.error }, shot.status as any);
 
-    const primary = new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType });
-
-    const buildForm = (multi: boolean) => {
-      const form = new FormData();
-      form.append("model", "gpt-image-1");
-      if (multi) {
-        // First image is the one being rendered onto; the rest are reference.
-        form.append("image[]", primary, `house.${ext}`);
-        references.forEach((uri, i) => {
-          const b = blobFor(uri);
-          if (b) form.append("image[]", b, `reference-${i}.jpg`);
-        });
-      } else {
-        form.append("image", primary, `house.${ext}`);
-      }
-      form.append("prompt", multi
-        ? `${prompt}\n\nThe FIRST image is the photograph to render. The remaining images are more views of the SAME house — use them to get the siding, trim, roof, windows and proportions right, but do not change the camera position or composition of the first image.`
-        : prompt);
-      form.append("size", "1536x1024");
-      form.append("quality", "high");
-      form.append("input_fidelity", "high");
-      return form;
-    };
-
-    const call = (multi: boolean) => fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}` },
-      body: buildForm(multi),
-    });
-
-    let res = await call(references.length > 0);
-
-    // If the multi-image form is rejected, fall back to the single-image call
-    // rather than failing. A render from one photo is worth far more than an
-    // error message, and this path already worked.
-    if (!res.ok && references.length > 0) {
-      const detail = await res.text();
-      console.log(`[house] multi-image render failed ${res.status}, retrying with one: ${detail.slice(0, 200)}`);
-      res = await call(false);
-    }
-
-    if (!res.ok) {
-      const detail = await res.text();
-      console.log(`[house] render failed ${res.status}: ${detail.slice(0, 400)}`);
-      return c.json({ error: `Render failed (${res.status}). ${detail.slice(0, 200)}` }, 502);
-    }
-
-    const json = await res.json();
-    const b64 = json?.data?.[0]?.b64_json;
-    if (!b64) return c.json({ error: "The render came back empty." }, 502);
-
-    const url = await putAsset(base64ToBytes(b64), "png", "image/png");
+    const url = await putAsset(base64ToBytes(shot.b64), "png", "image/png");
     if (!url) return c.json({ error: "The render was made but could not be stored." }, 500);
 
     return c.json({
@@ -449,6 +475,107 @@ app.post("/render", async (c) => {
   } catch (err: any) {
     console.log(`[house] render error: ${err?.message || err}`);
     return c.json({ error: `Render failed: ${err?.message || err}` }, 500);
+  }
+});
+
+/** Three images is enough to sell from and cheap enough to run twice. */
+const MAX_LOOKS = 3;
+
+/**
+ * The same deck, on the same wall, in a few different finishes.
+ *
+ * WHAT MAKES THIS SELL RATHER THAN CONFUSE
+ *
+ * Everything except the finishes is held still — same photograph, same wall,
+ * same size, same stairs. A customer comparing three images should be deciding
+ * between materials, not trying to work out what else moved. That is why the
+ * placement and replacement instructions come from the same `renderPrompt` the
+ * single render uses, with only the deck's finish fields varying per look.
+ *
+ * WHY EACH ONE CARRIES ITS DECK BACK
+ *
+ * The caller gets the exact deck each image represents, so choosing a look can
+ * update the model and let the quote follow. An image a customer picks that the
+ * estimate then contradicts is worse than no image at all.
+ *
+ * COST
+ *
+ * Each look is its own `gpt-image-1` call at high quality, so three looks cost
+ * three renders. That is why this is a separate endpoint and a separate button
+ * rather than something the ordinary render quietly does.
+ */
+app.post("/looks", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const photo: string = typeof body?.photo === "string" ? body.photo : "";
+    const house = body?.house || {};
+    const attachment = {
+      wallDescription: String(body?.attachment?.wallDescription || "").slice(0, 200),
+      wallOverride: String(body?.attachment?.wallOverride || "").slice(0, 200),
+      doorType: String(body?.attachment?.doorType || "").slice(0, 60),
+    };
+    const existing = {
+      replacing: body?.existing?.replacing === true,
+      widthFt: Number(body?.existing?.widthFt) || 0,
+      depthFt: Number(body?.existing?.depthFt) || 0,
+    };
+    const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 400) : "";
+
+    // Each look arrives as a fully resolved deck plus the words describing its
+    // finishes. The words are built on the client from the same finish tables
+    // the 3D view uses, so a render can never show a colour the model does not
+    // also hold.
+    const looks: any[] = Array.isArray(body?.looks) ? body.looks.slice(0, MAX_LOOKS) : [];
+    if (!looks.length) return c.json({ error: "No looks were asked for." }, 400);
+
+    const parts = splitDataUri(photo);
+    if (!parts) return c.json({ error: "Pick a photo of the house to render onto." }, 400);
+
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
+
+    const references: string[] = Array.isArray(body?.references)
+      ? body.references.slice(0, MAX_IMAGES - 1)
+      : [];
+
+    // Run them together — three sequential high-quality renders is a long wait
+    // in front of a customer, and they do not depend on one another.
+    const settled = await Promise.all(looks.map(async (look: any) => {
+      const deck = look?.deck || {};
+      const appearance = [
+        look?.appearance?.decking ? `· ${look.appearance.decking}` : "",
+        look?.appearance?.railing ? `· ${look.appearance.railing}` : "",
+      ].filter(Boolean).join("\n");
+
+      const prompt = renderPrompt(deck, house, attachment, existing,
+        [extra, appearance].filter(Boolean).join("\n"));
+
+      const shot = await paintDeck({ parts, references, prompt, key });
+      if (!shot.ok) return { id: look?.id, name: look?.name, error: shot.error };
+
+      const url = await putAsset(base64ToBytes(shot.b64), "png", "image/png");
+      if (!url) return { id: look?.id, name: look?.name, error: "Rendered but could not be stored." };
+
+      return { id: look?.id, name: look?.name, pitch: look?.pitch, caption: look?.caption, deck, url };
+    }));
+
+    const ok = settled.filter((r: any) => r.url);
+    // A partial set is still worth showing — two good images beat an error —
+    // but the caller is told which ones failed rather than being handed a
+    // shorter list and left to wonder.
+    if (!ok.length) {
+      return c.json({ error: settled[0]?.error || "None of the looks could be rendered." }, 502);
+    }
+
+    return c.json({
+      looks: settled,
+      rendered: ok.length,
+      failed: settled.length - ok.length,
+      disclaimer: "Artist's impressions for discussion. Not to scale and not construction documents — the permit set uses the measured drawings.",
+    });
+  } catch (err: any) {
+    console.log(`[house] looks error: ${err?.message || err}`);
+    return c.json({ error: `Looks failed: ${err?.message || err}` }, 500);
   }
 });
 

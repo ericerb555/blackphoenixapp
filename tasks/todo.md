@@ -189,7 +189,21 @@ This is the one Eric actually hit, and it is not an edge case — see
       the old deck's position is the best evidence available
 - [ ] Feed it to the analysis too, so it reports the existing deck's size
 
-### D. A few looks to show a client
+### D. A few looks to show a client — DONE, with one part refused
+
+**Shape variants are not built, and should not be.** `DeckModel` is a single
+rectangle (`widthFt` × `depthFt`) and the structural engine, the takeoff and the
+permit drawings are all built on it. An L-shape, a wrap-around or a second level
+cannot be represented, so rendering one would produce an image nothing
+downstream could price or draw — the exact picture/quote disagreement this
+section set out to avoid. Eric asked for layout variants; this is the one part
+of that ask that cannot be delivered honestly without extending the model and
+everything under it. Flagged rather than faked.
+
+What the model *can* express, and therefore what varies: decking finish (12),
+railing (7, and cable and glass are real geometry not colours), size, height,
+stairs and board direction. Every look is a `Partial<DeckModel>` patch, so
+"Use this one" moves the real model and the quote follows.
 - [ ] Render 2–3 variants in one go — same house, same wall, same size, with
       different decking and railing combinations
 - [ ] Show them side by side, each labelled with its materials, so a customer
