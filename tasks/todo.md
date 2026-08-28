@@ -136,6 +136,82 @@ clip in H.265 will still fail — with an honest message rather than a misleadin
 one. Fixing it properly means transcoding, server-side or via WebAssembly.
 Flagged to Eric, deferred by choice.
 
+---
+
+# The deck lands on the wrong side of the house
+
+Eric: "we are just trying to rebuild a deck and it built a deck on the wrong
+side of the house — this is not going to work."
+
+## What is actually wrong
+
+Three separate defects, and the first one is the galling one.
+
+**1. The right answer is worked out, then thrown away.**
+`/house-capture/analyze` already returns an `attachment` object
+(`house-capture.tsx:118-130`) whose very first field is
+`"wallDescription": "which wall the deck would attach to, as seen"`, along with
+`doorType` and `doorPresent`. The client then sends the render only
+`house: analysis?.house || {}` (`HouseCapture.tsx:262`) — siding and trim
+colours. **`attachment` never leaves the browser.** The system identifies the
+correct wall and discards it before rendering.
+
+**2. The render's only placement instruction is a hardcoded sentence.**
+`house-capture.tsx:241`: `"Add a newly built residential deck attached to the
+wall where the door is"`. A house has a front door, a slider, often a garage
+and a bulkhead. Nothing says which, so the image model picks the most visually
+obvious one — usually the front.
+
+**3. Nothing in the system knows what a rebuild is.**
+The prompt says *add* a new deck and *change nothing about the house*. Handed a
+photo with an existing deck in it, the model keeps the old deck and puts a new
+one somewhere else. There is no `existingDeck` concept anywhere in the codebase.
+This is the one Eric actually hit, and it is not an edge case — see
+`rebuilds-not-new-builds.md`; a renovation company mostly replaces things.
+
+## Plan
+
+### A. Stop discarding the wall
+- [ ] Send `analysis.attachment` to `/render` alongside `house`
+- [ ] Build the placement line from `wallDescription` and `doorType` instead of
+      the hardcoded "where the door is"
+- [ ] When the wall is unknown, say so in the prompt rather than guessing
+
+### B. Let Eric state the wall, and override the read
+- [ ] Show the wall the analysis chose, as editable text, so it is never a
+      silent decision
+- [ ] Typing a wall wins over the analysis — he is standing in the yard
+
+### C. Rebuilds as a first-class case
+- [ ] A "replacing an existing deck" toggle
+- [ ] When set, the prompt says the existing deck is demolished and removed, and
+      the new one is built in its footprint — which also fixes placement, since
+      the old deck's position is the best evidence available
+- [ ] Feed it to the analysis too, so it reports the existing deck's size
+
+### D. A few looks to show a client
+- [ ] Render 2–3 variants in one go — same house, same wall, same size, with
+      different decking and railing combinations
+- [ ] Show them side by side, each labelled with its materials, so a customer
+      can be walked through the options
+- [ ] Each variant is a separate image call, so note the cost: `gpt-image-1` at
+      high quality is roughly 20¢ an image, so three looks is about 60¢ a go
+- [ ] Keep the existing single render as the default and make variants a
+      deliberate action, so nobody triples the bill by accident
+
+## Decided
+
+Eric wants variants to vary **materials and layout**, and wants **placement
+fixed first** before any of D is built.
+
+Layout variants carry a consequence that must not be left implicit: a
+wrap-around or a bumped-out section is a different quantity of decking, framing
+and railing, so the quote no longer matches whichever image the customer picks.
+When D is built, choosing a layout has to either update the deck model and
+reprice, or be labelled on its face as changing the price. A pretty picture that
+silently disagrees with the quote is the same class of problem as a quote priced
+from figures nobody set.
+
 ## Review
 
 ### Pricing standards (F)

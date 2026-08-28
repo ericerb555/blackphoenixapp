@@ -146,9 +146,25 @@ Return ONLY a JSON object, no prose and no code fence:
     "ledgerAttached": true,
     "why": "one or two sentences on why these numbers, in a builder's voice"
   },
+  "existingDeck": {
+    "present": false,
+    "wallDescription": "which wall it is on, if there is one",
+    "widthFt": 0,
+    "depthFt": 0,
+    "sizeReference": "what you scaled it from",
+    "condition": "what the decking, framing, posts and railing look like",
+    "salvageable": "what could be reused, if anything — usually nothing structural"
+  },
   "cautions": ["things that would change the price or the permit"],
   "notVisible": ["what a photo could not show that still has to be checked on site"]
-}`;
+}
+
+EXISTING DECK. Most of this company's work is replacing something, not building
+on bare ground. If a deck is already there, it is the most useful thing in the
+photograph: it shows exactly where the new one goes and roughly how big it was.
+Report it whenever you can see one, measure it the same way you measure anything
+else — by naming your scale reference — and note its condition, because a
+tear-out is a real line on the quote.`;
 
 /**
  * Read the house from one or more photos.
@@ -223,8 +239,64 @@ app.post("/analyze", async (c) => {
   }
 });
 
+/**
+ * Where does the deck go?
+ *
+ * This used to be one hardcoded sentence — "attached to the wall where the door
+ * is" — which is why decks came back on the wrong side of the house. A house has
+ * a front door, a slider, usually a garage and often a bulkhead, so that phrase
+ * left the image model to pick whichever door was most visually obvious, and it
+ * picks the front.
+ *
+ * Meanwhile `/analyze` was already reporting `attachment.wallDescription` —
+ * "which wall the deck would attach to, as seen" — and the client was dropping
+ * it before calling render. The answer existed and was being thrown away.
+ *
+ * Three sources, most trustworthy first: what the operator typed (they are
+ * standing in the yard), what the analysis read off the photographs, and
+ * failing both, an honest admission that we do not know rather than a guess
+ * dressed as an instruction.
+ */
+function placementLines(attachment: any, existing: any): string[] {
+  const stated = String(attachment?.wallOverride || "").trim();
+  const read = String(attachment?.wallDescription || "").trim();
+  const door = String(attachment?.doorType || "").trim().toLowerCase();
+  const doorPhrase = door && door !== "none visible" ? `the ${door} door` : "the door";
+
+  // Replacing something is the strongest placement signal there is: the old
+  // deck's own footprint is visible in the photograph, so there is nothing left
+  // to infer. This is also the common case for a renovation company.
+  if (existing?.replacing) {
+    const size = Number(existing?.widthFt) > 0 && Number(existing?.depthFt) > 0
+      ? ` The existing deck is roughly ${existing.widthFt} by ${existing.depthFt} feet.`
+      : "";
+    return [
+      `This is a REPLACEMENT. The photograph shows an existing deck.${size}`,
+      `Demolish and remove that existing deck completely — its decking, railing, framing, posts and stairs —`,
+      `and build the new deck in exactly the same position, attached to the same wall, in the same footprint.`,
+      stated ? `The wall is ${stated}.` : ``,
+      `Do not leave any part of the old deck in the image, and do not place the new deck anywhere else on the house.`,
+    ].filter(Boolean);
+  }
+
+  if (stated) {
+    return [`Build the deck attached to ${stated}. Do not place it on any other wall of the house.`];
+  }
+  if (read) {
+    // Only name the door when the wall description has not already named one,
+    // so this does not come out as "the rear wall with the sliding door — the
+    // wall with the slider door".
+    const alreadySaysDoor = /\bdoor|slider|french|entry\b/i.test(read);
+    const suffix = alreadySaysDoor ? "" : ` — the wall with ${doorPhrase}`;
+    return [`Build the deck attached to ${read}${suffix}. Do not place it on any other wall.`];
+  }
+  return [
+    `Build the deck attached to the wall with ${doorPhrase} that faces the back garden, not the street-facing front entrance.`,
+  ];
+}
+
 /** Describe the deck to an image model in the words a photographer would use. */
-function renderPrompt(deck: any, house: any, extra: string): string {
+function renderPrompt(deck: any, house: any, attachment: any, existing: any, extra: string): string {
   const w = Number(deck?.widthFt) || 16;
   const d = Number(deck?.depthFt) || 12;
   const h = Number(deck?.heightFt) || 3;
@@ -233,12 +305,21 @@ function renderPrompt(deck: any, house: any, extra: string): string {
   const stairs = deck?.stairs === false ? "no stairs" : "a set of stairs down to grade with matching railing";
   const siding = house?.sidingType && house.sidingType !== "unknown" ? house.sidingType : "the existing siding";
 
+  // "Change nothing" cannot stand unqualified on a replacement — the old deck
+  // is the one thing that must change, and an unqualified instruction to leave
+  // the scene alone is why renders came back with two decks in them.
+  const preserve = existing?.replacing
+    ? `Change nothing about the house itself. The ONLY thing removed from the scene is the old deck.`
+    : `Change nothing about the house itself.`;
+
   return [
     `Photorealistic architectural visualization. Keep this exact photograph of the house — same camera position,`,
     `same lens, same daylight, same shadows, same ${siding}, same trim, same roof, same landscaping and background.`,
-    `Change nothing about the house itself.`,
+    preserve,
     ``,
-    `Add a newly built residential deck attached to the wall where the door is:`,
+    ...placementLines(attachment, existing),
+    ``,
+    `The new deck:`,
     `· about ${w} feet wide along the house and ${d} feet out from it`,
     `· deck surface about ${h} feet above the ground, so you can see the framing and posts underneath`,
     `· ${decking} deck boards running in neat parallel courses`,
@@ -267,6 +348,18 @@ app.post("/render", async (c) => {
     const photo: string = typeof body?.photo === "string" ? body.photo : "";
     const deck = body?.deck || {};
     const house = body?.house || {};
+    // The wall the analysis read, plus anything the operator typed over it.
+    // Trimmed to a sane length because it goes straight into a prompt.
+    const attachment = {
+      wallDescription: String(body?.attachment?.wallDescription || "").slice(0, 200),
+      wallOverride: String(body?.attachment?.wallOverride || "").slice(0, 200),
+      doorType: String(body?.attachment?.doorType || "").slice(0, 60),
+    };
+    const existing = {
+      replacing: body?.existing?.replacing === true,
+      widthFt: Number(body?.existing?.widthFt) || 0,
+      depthFt: Number(body?.existing?.depthFt) || 0,
+    };
     const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 400) : "";
 
     const parts = splitDataUri(photo);
@@ -276,7 +369,7 @@ app.post("/render", async (c) => {
     if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
 
     const ext = parts.mediaType.includes("png") ? "png" : "jpg";
-    const prompt = renderPrompt(deck, house, extra);
+    const prompt = renderPrompt(deck, house, attachment, existing, extra);
 
     // Extra views of the same house. One photograph shows one wall from one
     // angle, and the model has to invent everything it cannot see — which is

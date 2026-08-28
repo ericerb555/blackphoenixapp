@@ -78,6 +78,11 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
   const [render, setRender] = useState<{ url: string; disclaimer: string } | null>(null);
   const [renderOn, setRenderOn] = useState(0);
   const [extra, setExtra] = useState('');
+  // The wall, and whether this is a tear-out. Both start from what the analysis
+  // read and can be overruled — the person using this is standing in the yard
+  // and the photograph is not.
+  const [wall, setWall] = useState('');
+  const [replacing, setReplacing] = useState(false);
 
   const photoInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -190,6 +195,19 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
       if (!res.ok) throw new Error(json?.error || `Analysis failed (${res.status}).`);
       setAnalysis(json.analysis);
       onRead?.(json.analysis);
+
+      // Seed the wall and the tear-out flag from what was just read, so the
+      // render starts from the analysis instead of a hardcoded guess. Both stay
+      // editable — this is a starting point, not a decision.
+      const att = json.analysis?.attachment;
+      const old = json.analysis?.existingDeck;
+      if (old?.present) {
+        setReplacing(true);
+        setWall(String(old.wallDescription || att?.wallDescription || ''));
+        toast.message('There is already a deck here — set up as a replacement.');
+      } else if (att?.wallDescription) {
+        setWall(String(att.wallDescription));
+      }
       toast.success('House read.');
     } catch (err: any) {
       toast.error(err?.message || 'Could not read the house.');
@@ -260,6 +278,20 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
           references: others,
           deck: model,
           house: analysis?.house || {},
+          // This used to send `house` alone, so the wall the analysis had
+          // already identified never reached the renderer and the prompt fell
+          // back to "the wall where the door is" — which is how a deck ended up
+          // on the wrong side of the house.
+          attachment: {
+            wallDescription: analysis?.attachment?.wallDescription || '',
+            wallOverride: wall.trim(),
+            doorType: analysis?.attachment?.doorType || '',
+          },
+          existing: {
+            replacing,
+            widthFt: Number(analysis?.existingDeck?.widthFt) || 0,
+            depthFt: Number(analysis?.existingDeck?.depthFt) || 0,
+          },
           extra,
         }),
       });
@@ -272,7 +304,7 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
     } finally {
       setBusy(null);
     }
-  }, [photos, renderOn, model, analysis, extra]);
+  }, [photos, renderOn, model, analysis, extra, wall, replacing]);
 
   const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
   const btn = 'flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed';
@@ -474,6 +506,31 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
           <input value={extra} onChange={e => setExtra(e.target.value)}
             placeholder="Anything to include — pergola, lighting, bench seating, a particular railing"
             className="w-full px-3 py-2 mb-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#ea580c]" />
+
+          {/*
+            Which wall, stated out loud. The renderer used to be handed nothing
+            but the siding colour and left to infer placement from "the wall
+            where the door is", which put decks on the front of the house. It is
+            shown as an editable field rather than a read-only label because the
+            person using this is standing in the yard and the photograph is not.
+          */}
+          <label className="block text-[11px] font-semibold text-gray-400 mb-1">Which wall</label>
+          <input value={wall} onChange={e => setWall(e.target.value)}
+            placeholder="e.g. the back wall with the slider, facing the garden"
+            className="w-full px-3 py-2 mb-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#ea580c]" />
+          {!wall.trim() && (
+            <p className="text-[11px] text-amber-500/80 mb-2">
+              No wall set — the render will have to guess, and it usually guesses the front door.
+            </p>
+          )}
+
+          <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+            <input type="checkbox" checked={replacing} onChange={e => setReplacing(e.target.checked)}
+              className="w-4 h-4 accent-[#ea580c]" />
+            <span className="text-xs text-gray-300">
+              Replacing an existing deck — tear the old one out and build in its place
+            </span>
+          </label>
 
           <button onClick={makeRender} disabled={!!busy} className={`${btn} w-full text-white`}
             style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
