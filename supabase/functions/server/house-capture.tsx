@@ -24,6 +24,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
+import * as kv from "./kv_store.tsx";
 
 const app = new Hono();
 
@@ -45,10 +46,99 @@ async function requireSignedIn(c: any, next: any) {
   const { data, error } = await serviceClient().auth.getUser(token);
   if (error || !data?.user) return c.json({ error: "Sign in required." }, 401);
   c.set("userId", data.user.id);
+  c.set("actor", data.user);
   await next();
 }
 
 app.use("*", requireSignedIn);
+
+/* ───────────────────────── spend ceiling ───────────────────────── */
+
+/**
+ * A ceiling on images, per account.
+ *
+ * WHY THIS EXISTS
+ *
+ * The gate above is `requireSignedIn`, not `requireStaff` — every portal
+ * customer, vendor, subcontractor and tenant with an account can reach the
+ * render routes. Each image is roughly twenty cents of `gpt-image-1` at high
+ * quality and a set of looks is three of them, so an unbounded loop against
+ * these routes is simply a bill. Nothing stopped that before this.
+ *
+ * Counted on the server against the user id from the verified token. A limit
+ * the browser enforces is not a limit — the client decides nothing here.
+ *
+ * Reserved before the call and refunded if it fails, rather than charged on
+ * success. Charging afterwards lets a burst of parallel requests all pass the
+ * same check before any of them has been counted.
+ */
+const RENDER_LIMIT = 10;
+const budgetKey = (userId: string) => `render_budget:${userId}`;
+const limitKey = (userId: string) => `render_budget_limit:${userId}`;
+
+const STAFF_ROLES = new Set([
+  "admin", "owner", "super_admin", "superadmin", "staff", "employee",
+  "project_manager", "estimator", "office",
+]);
+
+function isStaff(user: any): boolean {
+  const role = String(user?.user_metadata?.role || user?.app_metadata?.role || "").toLowerCase();
+  return STAFF_ROLES.has(role);
+}
+
+/**
+ * Take `n` images out of this account's allowance.
+ *
+ * Returns null when allowed. Returns a response body when refused, worded so
+ * somebody who has simply been designing gets a way forward rather than a
+ * failure they cannot interpret.
+ */
+/**
+ * The decision itself, kept pure so the boundary can be tested.
+ *
+ * Getting this off by one either turns paying customers away a render early or
+ * lets every account spend more than intended, and neither is visible by
+ * reading it.
+ */
+export function budgetDecision(used: number, limit: number, n: number):
+  { allowed: true } | { allowed: false; error: string } {
+  if (used + n <= limit) return { allowed: true };
+  const left = Math.max(0, limit - used);
+  return {
+    allowed: false,
+    error: left === 0
+      ? `You have used all ${limit} of your renders. Get in touch and we will open up some more.`
+      : `That would take ${n} renders and you have ${left} left. Try a single render, or get in touch and we will open up some more.`,
+  };
+}
+
+async function reserveImages(user: any, n: number): Promise<{ error: string; used: number; limit: number } | null> {
+  if (isStaff(user)) return null;
+
+  const id = String(user?.id || "");
+  if (!id) return { error: "Sign in required.", used: 0, limit: 0 };
+
+  // A per-account override, so Eric can lift the ceiling for one customer
+  // without changing it for everybody.
+  const override = Number(await kv.get(limitKey(id))) || 0;
+  const limit = override > 0 ? override : RENDER_LIMIT;
+
+  const used = Number(await kv.get(budgetKey(id))) || 0;
+  const verdict = budgetDecision(used, limit, n);
+  if (!verdict.allowed) return { error: verdict.error, used, limit };
+
+  await kv.set(budgetKey(id), used + n);
+  return null;
+}
+
+/** Give back images that were reserved for a render that never happened. */
+async function refundImages(user: any, n: number): Promise<void> {
+  if (isStaff(user)) return;
+  const id = String(user?.id || "");
+  if (!id) return;
+  const used = Number(await kv.get(budgetKey(id))) || 0;
+  await kv.set(budgetKey(id), Math.max(0, used - n));
+}
 
 /** Split a data URI into the parts the APIs want. Returns null if unusable. */
 function splitDataUri(uri: string): { mediaType: string; base64: string } | null {
@@ -460,11 +550,21 @@ app.post("/render", async (c) => {
       ? body.references.slice(0, MAX_IMAGES - 1)
       : [];
 
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, 1);
+    if (refused) return c.json(refused, 429);
+
     const shot = await paintDeck({ parts, references, prompt, key });
-    if (!shot.ok) return c.json({ error: shot.error }, shot.status as any);
+    if (!shot.ok) {
+      await refundImages(actor, 1);
+      return c.json({ error: shot.error }, shot.status as any);
+    }
 
     const url = await putAsset(base64ToBytes(shot.b64), "png", "image/png");
-    if (!url) return c.json({ error: "The render was made but could not be stored." }, 500);
+    if (!url) {
+      await refundImages(actor, 1);
+      return c.json({ error: "The render was made but could not be stored." }, 500);
+    }
 
     return c.json({
       url,
@@ -538,6 +638,13 @@ app.post("/looks", async (c) => {
       ? body.references.slice(0, MAX_IMAGES - 1)
       : [];
 
+    // A set of looks is one image per look, so it costs what it costs. Reserved
+    // as a block: half a set is not worth showing anyone, so it is better to
+    // refuse the whole thing than to render two and run dry on the third.
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, looks.length);
+    if (refused) return c.json(refused, 429);
+
     // Run them together — three sequential high-quality renders is a long wait
     // in front of a customer, and they do not depend on one another.
     const settled = await Promise.all(looks.map(async (look: any) => {
@@ -560,6 +667,8 @@ app.post("/looks", async (c) => {
     }));
 
     const ok = settled.filter((r: any) => r.url);
+    // Give back whatever did not become an image.
+    if (ok.length < looks.length) await refundImages(actor, looks.length - ok.length);
     // A partial set is still worth showing — two good images beat an error —
     // but the caller is told which ones failed rather than being handed a
     // shorter list and left to wonder.
@@ -686,6 +795,13 @@ app.post("/photoreal", async (c) => {
     // Keeps the structure from drifting while the materials and light change.
     form.append("input_fidelity", "high");
 
+    // Costs an image like any other render, so it comes out of the same
+    // allowance. Leaving one paid route uncounted would make the ceiling
+    // decorative.
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, 1);
+    if (refused) return c.json(refused, 429);
+
     const res = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` },
@@ -695,15 +811,22 @@ app.post("/photoreal", async (c) => {
     if (!res.ok) {
       const detail = await res.text();
       console.log(`[house] photoreal failed ${res.status}: ${detail.slice(0, 400)}`);
+      await refundImages(actor, 1);
       return c.json({ error: `Render failed (${res.status}). ${detail.slice(0, 200)}` }, 502);
     }
 
     const json = await res.json();
     const b64 = json?.data?.[0]?.b64_json;
-    if (!b64) return c.json({ error: "The render came back empty." }, 502);
+    if (!b64) {
+      await refundImages(actor, 1);
+      return c.json({ error: "The render came back empty." }, 502);
+    }
 
     const url = await putAsset(base64ToBytes(b64), "png", "image/png");
-    if (!url) return c.json({ error: "The render was made but could not be stored." }, 500);
+    if (!url) {
+      await refundImages(actor, 1);
+      return c.json({ error: "The render was made but could not be stored." }, 500);
+    }
 
     return c.json({
       url,

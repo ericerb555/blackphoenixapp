@@ -269,6 +269,20 @@ app.post("/files", requireStaff, async (c) => {
       sizeBytes: bytes.length,
       createdAt: new Date().toISOString(),
       createdBy: user?.email || "",
+      /**
+       * Whether the customer can see this.
+       *
+       * Filing and sharing are different acts. A cost breakdown, a supplier
+       * quote or a half-finished drawing all belong in a customer's folder
+       * without belonging in front of the customer, and before this field
+       * existed there was no way to express the difference — everything filed
+       * was returned by /my-files.
+       *
+       * Default false, and asked for explicitly. Getting this wrong exposes one
+       * customer's internal paperwork to them, so it fails closed.
+       */
+      sharedWithCustomer: body?.sharedWithCustomer === true,
+      sharedAt: body?.sharedWithCustomer === true ? new Date().toISOString() : null,
     };
     await kv.set(fileKey(id), record);
 
@@ -277,6 +291,118 @@ app.post("/files", requireStaff, async (c) => {
   } catch (err: any) {
     console.log(`[design-links] file save failed: ${err?.message || err}`);
     return c.json({ error: `Could not file that document: ${err?.message || err}` }, 500);
+  }
+});
+
+/**
+ * Show a document to the customer, or stop showing it.
+ *
+ * Separate from filing on purpose. Putting a drawing in someone's folder and
+ * putting it in front of them are different decisions, often made at different
+ * times by different people, and collapsing them into one act is how internal
+ * paperwork ends up on a customer's screen.
+ */
+app.post("/files/:id/share", requireStaff, async (c) => {
+  try {
+    const user = c.get("user");
+    const id = c.req.param("id");
+    const record: any = await kv.get(fileKey(id));
+    if (!record) return c.json({ error: "That document could not be found." }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const share = body?.shared !== false;
+
+    const updated = {
+      ...record,
+      sharedWithCustomer: share,
+      sharedAt: share ? new Date().toISOString() : null,
+      sharedBy: share ? (user?.email || "") : "",
+    };
+    await kv.set(fileKey(id), updated);
+
+    console.log(`[design-links] ${share ? "shared" : "unshared"} ${id} for customer ${record.customerId}`);
+    return c.json({ success: true, file: { ...updated, path: undefined } });
+  } catch (err: any) {
+    return c.json({ error: `Could not change sharing: ${err?.message || err}` }, 500);
+  }
+});
+
+/* ─────────────────────── which one they liked ─────────────────────── */
+
+const choiceKey = (ownerKey: string, designId: string) => `design_choice:${ownerKey}:${designId}`;
+
+/**
+ * The customer saying which option they like.
+ *
+ * A PREFERENCE, NOT AN ACCEPTANCE. This is deliberately not a quote status and
+ * deliberately not stored against a quote. Someone pointing at the picture they
+ * like best has not agreed a price, and a record that blurs the two is the sort
+ * of thing that ends in an argument on a doorstep. Quote acceptance already
+ * exists, on its own tab, with its own record and its own consequences.
+ *
+ * They can change their mind as often as they want; the latest one wins.
+ */
+app.post("/my-choice", async (c) => {
+  try {
+    const user = await actor(c);
+    if (!user) return c.json({ error: "Sign in required." }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const ownerKey = String(body?.ownerKey || "decks").trim().slice(0, 40);
+    const designId = String(body?.designId || "").trim();
+    const fileId = String(body?.fileId || "").trim();
+    if (!designId || !fileId) return c.json({ error: "Which design, and which option?" }, 400);
+
+    // The file has to be one of theirs and one they were actually shown —
+    // otherwise this route is a way to point at somebody else's document.
+    const record: any = await kv.get(fileKey(fileId));
+    if (!record || record.sharedWithCustomer !== true) {
+      return c.json({ error: "That option could not be found." }, 404);
+    }
+
+    const contacts = ((await kv.get(CRM_CONTACTS_KEY)) as any[]) || [];
+    const me = contacts.find((x: any) => String(x.email || "").toLowerCase() === String(user.email || "").toLowerCase());
+    if (!me || String(record.customerId) !== String(me.id)) {
+      return c.json({ error: "That option could not be found." }, 404);
+    }
+
+    const choice = {
+      designId, ownerKey, fileId,
+      label: record.label || "",
+      customerId: me.id,
+      chosenAt: new Date().toISOString(),
+    };
+    await kv.set(choiceKey(ownerKey, designId), choice);
+
+    console.log(`[design-links] customer ${me.id} chose ${fileId} on ${ownerKey}/${designId}`);
+    return c.json({ success: true, choice });
+  } catch (err: any) {
+    return c.json({ error: `Could not record that choice: ${err?.message || err}` }, 500);
+  }
+});
+
+/** What the customer picked, for staff and for the customer's own screen. */
+app.get("/choice/:ownerKey/:designId", async (c) => {
+  try {
+    const user = await actor(c);
+    if (!user) return c.json({ error: "Sign in required." }, 401);
+    const choice = await kv.get(choiceKey(c.req.param("ownerKey"), c.req.param("designId")));
+    if (!choice) return c.json({ choice: null });
+
+    // Staff see any choice. A customer sees only their own, so this route
+    // cannot be used to read what somebody else picked.
+    const roleOk = await (async () => {
+      const contacts = ((await kv.get(CRM_CONTACTS_KEY)) as any[]) || [];
+      const me = contacts.find((x: any) => String(x.email || "").toLowerCase() === String(user.email || "").toLowerCase());
+      if (me && String((choice as any).customerId) === String(me.id)) return true;
+      const role = String(user.user_metadata?.role || user.app_metadata?.role || "").toLowerCase();
+      return STAFF_ROLES.has(role);
+    })();
+
+    if (!roleOk) return c.json({ choice: null });
+    return c.json({ choice });
+  } catch (err: any) {
+    return c.json({ error: `Could not read that choice: ${err?.message || err}` }, 500);
   }
 });
 
@@ -332,6 +458,12 @@ app.get("/my-files", async (c) => {
     const all = (await kv.getByPrefix(FILE_PREFIX)) || [];
     const files = all
       .filter((f: any) => String(f?.customerId || "") === String(me.id))
+      // Explicitly shared, and nothing else. `=== true` rather than a truthy
+      // test on purpose: every record filed before sharing existed has no such
+      // field, and those must stay hidden. Reading this route as "everything
+      // filed against you" is what would have turned switching the portal on
+      // into a disclosure of every internal document ever filed.
+      .filter((f: any) => f?.sharedWithCustomer === true)
       .map((f: any) => ({ ...f, path: undefined, createdBy: undefined }))
       .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -353,8 +485,11 @@ app.get("/my-files/:id/url", async (c) => {
 
     const contacts = ((await kv.get(CRM_CONTACTS_KEY)) as any[]) || [];
     const me = contacts.find((x: any) => String(x.email || "").toLowerCase() === String(user.email || "").toLowerCase());
-    // The check that matters: this file must belong to the caller.
-    if (!me || String(record.customerId) !== String(me.id)) {
+    // Two checks, and both have to pass: this file must belong to the caller,
+    // AND it must have been shared with them. Filtering the listing alone would
+    // be a hidden-button defence — the id is guessable enough to matter, and an
+    // unshared document is unshared however it was reached.
+    if (!me || String(record.customerId) !== String(me.id) || record.sharedWithCustomer !== true) {
       return c.json({ error: "That document could not be found." }, 404);
     }
 

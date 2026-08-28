@@ -413,14 +413,69 @@ So phase A is not optional and not last.
 - [ ] Reuse whatever the portal already uses for messages rather than inventing
       a second notification path
 
-## Open questions for Eric
+## Decided
 
-1. **Should the customer be able to pick a look in the portal?** "I want number
-   two" coming back through the portal rather than a phone call is worth real
-   money on a sales cycle, and it would feed the choice straight back to the
-   deck model. It is also more work and needs thought about what a choice
-   commits either side to.
-2. **Notification channel** — email, or a portal message, or both.
+**The customer can pick a look**, and **both** email and a portal message go out
+when something is shared.
+
+### A choice is a preference, not an acceptance
+
+This is the part to get right. A customer clicking "this is the one" is saying
+which deck they like, not agreeing a price. Quote acceptance already exists on
+its own tab with its own record, and the two must not blur — a picture picked in
+a portal that later reads as agreement to a figure is the sort of thing that
+ends in an argument on a doorstep. So:
+
+- The choice is recorded against the design, not against a quote
+- Nothing about it changes a quote's status
+- The wording says liked, preferred, chosen — never accepted or approved
+- It can be changed as often as they like, and the latest one wins
+
+### G. The customer photographs and renders their own house
+
+Eric: "the customer should be able to take picture and render there own house to
+add to there folders to use and build or rebuild decks."
+
+**A cost hole exists today, and it is not created by this feature.**
+`house-capture.tsx:51` is `app.use("*", requireSignedIn)` — *signed in*, not
+*staff*. Every portal customer, vendor, subcontractor and tenant with an account
+can already call `/render` and `/looks`. There is no quota, no rate limit and no
+per-account ceiling on a route that spends roughly 20¢ an image and 60¢ for a
+set of three. A loop against it is a bill.
+
+That has to be closed whether or not customers ever get the button, and it must
+be closed *before* the button exists, because the button is an invitation.
+
+- [ ] A per-account render budget, counted on the server, refusing past the
+      ceiling. Never a client-side check — the client decides nothing that
+      spends money
+- [ ] A sensible free allowance per customer, then a clear "ask us" message
+      rather than a silent failure
+- [ ] Staff are not limited the same way
+
+**Filing.** `/design-links/files` is `requireStaff`, so a customer cannot put
+anything in their own folder today.
+
+- [ ] A customer-scoped filing route that writes only to the caller's own
+      folder, resolved from the session and never from a posted customer id
+- [ ] Something the customer made is theirs to see, so it is shared by default
+      — but marked as customer-created, so staff can tell at a glance which
+      documents came from which side
+
+**The screen.** A capture panel in the portal, matching the portal's existing
+design rather than restyled.
+
+- [ ] Photograph or video the house, same as the staff tool
+- [ ] Render, and it lands in their folder
+- [ ] Enough framing that a customer understands this is a sketch to talk about
+      and not a quote
+
+### F. Let the customer choose
+- [ ] Each shared look carries an id the customer can select
+- [ ] The choice is stored against the design with a timestamp
+- [ ] Staff see which one was picked, and when
+- [ ] Picking one offers — never applies automatically — the matching patch to
+      the deck model, so the quote follows a decision a person made
 
 ## Review
 
