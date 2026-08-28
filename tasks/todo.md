@@ -554,6 +554,173 @@ The system that would actually meet "every house, first time":
 - [ ] Render from the CAD scene once the house is real; the photo render becomes
       a cross-check
 
+---
+
+# Measured numbers, entered by a person
+
+## ARKit is out, and it is not close
+
+`caniuse/webxr`: Safari on iOS is **Not supported** at every version through
+26.6. Desktop Safari is disabled by default. Chrome for Android is partial. No
+depth or LiDAR API is exposed to the web on iOS at all. ARKit is native, so
+reaching it means a Capacitor or React Native shell and an App Store review —
+a separate product. The app is a plain Vite SPA with a service worker and no
+native shell.
+
+## Eric's answer is the better one anyway
+
+"I can add in measurements as well as we can prompt customers to add them in as
+well."
+
+A typed tape measurement is **exact**. Every camera-derived number is an
+estimate with error bars — including anything ARKit would have produced at 1–3%.
+This replaces the weakest link with the strongest one, costs nothing, and works
+on every phone.
+
+## The numbers that actually matter
+
+Only a handful, and the analysis already knows which ones it is unsure of:
+
+| number | why it matters | today |
+|---|---|---|
+| door sill height above grade | sets the deck surface; wrong and the deck steps up into the door | guessed, `sillConfidence` |
+| ledger run available | how wide the deck can be | guessed, `ledgerRunConfidence` |
+| grade drop across the footprint | post lengths, footing depths | guessed, `dropConfidence` |
+| obstructions and their positions | hose bib, meter, dryer vent move a ledger | read from the photo |
+
+Siding type, door type and openings the vision model reads reliably and can
+stay as they are.
+
+## Plan
+
+### H. A measurement worth trusting, and a record of which is which
+- [ ] Each of those numbers shown with what the analysis guessed **and** its own
+      confidence, next to a field to type the real one
+- [ ] A typed number wins, always, and is marked `measured`
+- [ ] An untouched number stays marked `estimated`
+- [ ] `DeckModel` carries the provenance, and the drawings and the quote can say
+      which is which — the same discipline `repriceEstimate` already applies to
+      money, applied to dimensions. A wrong sill height is a deck that does not
+      meet the door, and that is worth being as careful about as a price
+- [ ] Nothing that has not been measured is ever presented as measured
+
+### I. Ask the customer for them
+- [ ] A short prompted list in the portal — three numbers, not a form
+- [ ] A diagram per number showing exactly what to measure from and to, because
+      "sill height" means nothing to a homeowner and "from the ground to the
+      bottom of the door" means everything
+- [ ] Their answers arrive marked as customer-supplied, distinct from Eric's own
+      — both are measured, but one of them he took himself
+- [ ] Flag anything implausible rather than accepting it silently: a 4-inch sill
+      or a 60-foot ledger is a typo, and catching it in the portal is cheaper
+      than catching it on site
+
+---
+
+# The customer capture: make scale free and measurement optional
+
+## The idea that changes the design
+
+**Do not ask a homeowner to measure anything.** Ask them to put a sheet of
+printer paper on the wall.
+
+A sheet of US Letter is 8.5 by 11 inches, exactly, in every house in the
+country. Taped flat next to the back door and photographed, it is a **scale
+reference in the plane we care about** — which is precisely the condition under
+which a single scale factor is valid. From that one object the analysis can
+derive the sill height, the ledger run and the window positions itself.
+
+So the division of labour becomes: **scale is the customer's job, measurement is
+ours.** Theirs costs them a piece of paper and ten seconds. Nothing to own,
+nothing to read, nothing to get wrong.
+
+Compare that with asking for "the sill height", which requires them to own a
+tape, know what a sill is, know where to measure from, and type it in the right
+units. Every one of those is a place to lose them, and a confidently wrong
+number is worse than no number because it looks like data.
+
+### Why a sheet of paper and not something clever
+
+- Everyone has one. No printing, no app, no purchase.
+- It is exactly a known size — no variation, unlike a door or a siding course.
+- It is big, flat, rectangular and high contrast, so it reads from across a yard
+  and its corners give perspective information as well as scale.
+- Fallbacks for close work, both exactly standardised: a dollar bill
+  (6.14 × 2.61in) and a credit card (ISO/IEC 7810 ID-1, 85.6 × 54.0mm).
+
+### Two sheets, two planes
+
+The out-of-plane problem does not go away with one reference. A second sheet
+**laid on the ground** where the deck's outer corner will sit gives the ground
+plane its own scale, which is the only cheap way to get anything real about
+grade drop from a photograph.
+
+## Everything still works without it
+
+The capture must degrade, never block:
+
+| what we get | what the numbers are worth |
+|---|---|
+| photos only | estimates from assumed standards — what we have today |
+| + paper on the wall | scale-calibrated against a real object in the right plane |
+| + paper on the ground | the ground plane too, so grade stops being a pure guess |
+| + numbers Eric typed on site | measured, and they beat everything above |
+
+Each level is marked, and nothing is ever presented as measured when it was
+scaled. The same discipline `repriceEstimate` applies to money, applied to
+dimensions.
+
+## The flow, and why each step is shaped this way
+
+1. **Invite.** A link from Eric. No account creation before they see what is
+   being asked of them.
+2. **One screen that sets expectations.** "Three photos and a sheet of paper.
+   About five minutes." People abandon what they cannot see the end of.
+3. **The paper step, with an example photo.** One instruction and one picture,
+   not a paragraph. The reason given in a single line — "it tells us the size of
+   everything else" — because people follow instructions they understand.
+4. **Guided photos**, each with an example: straight on at the door; the whole
+   wall from one corner; a slow walk along it on video. The video is the one
+   that carries parallax, which is what makes anything three-dimensional
+   recoverable.
+5. **A plain-language readback — the step that does the real work.**
+   "Your door looks about 2ft 9in above the ground, and the wall is about 24ft
+   across. Does that sound right?" with *Looks right* and *Let me correct it*.
+   Confirming a number is enormously easier than producing one, and it catches
+   the errors that matter without a tape ever being involved.
+6. **Only then, and only for anything still uncertain**, ask for a real
+   measurement — with a diagram showing what to measure from and to.
+7. **Done.** The render lands in their folder.
+
+## Rules for the input itself
+
+- [ ] Feet and inches as separate controls, never free text. "6" means six of
+      something and we should not have to guess which
+- [ ] Plausibility checked as they type — a 4in sill or a 60ft ledger is a typo,
+      and catching it here costs nothing while catching it on site costs a visit
+- [ ] Every number carries who supplied it: estimated, scaled, customer-measured
+      or Eric-measured. All four are different kinds of trust
+- [ ] Skipping is always allowed and never punished
+
+## Plan
+
+### J. Scale references
+- [ ] Reference objects with exact dimensions, and the analysis prompt told to
+      use one when present in preference to any assumed standard
+- [ ] Report which reference it used and what it derived from it, so a scaled
+      number is distinguishable from a guessed one
+- [ ] Handle both planes — wall sheet and ground sheet — separately
+
+### K. The customer capture screen
+- [ ] Guided steps with an example image each, matching the existing portal
+      design rather than restyled
+- [ ] The readback-and-confirm step
+- [ ] Graceful at every level of effort, including none
+
+### L. Measurements where they still matter
+- [ ] Segmented feet/inches entry with plausibility checks
+- [ ] Provenance on every dimension, carried into the drawings and the quote
+
 ## Review
 
 ### Pricing standards (F)
