@@ -22,6 +22,8 @@
  * will still miss, which is why every file it sorts can be moved by hand.
  */
 
+import { isVideoFile } from './localFolder';
+
 export type JobFileKind = 'photo' | 'drawing';
 
 export interface SortedJobFile {
@@ -59,8 +61,12 @@ export function sortJobFile(file: File, path?: string): SortedJobFile {
   const base = parts.length ? parts[parts.length - 1] : file.name;
   const dirs = parts.slice(0, -1);
 
-  // Nobody films a drawing, so a clip is always footage of the site.
-  if (file.type.startsWith('video/')) {
+  // Nobody films a drawing, so a clip is always footage of the site. Checked by
+  // name as well as MIME type: with an empty `type` — routine for .MOV on
+  // Windows — a file called "deck framing walkaround.MOV" fell through to the
+  // name test below, matched "framing", and was sent to the drawing reader,
+  // which can only decode a still.
+  if (isVideoFile(file)) {
     return { file, path: rel, kind: 'photo', reason: 'video of the site' };
   }
 

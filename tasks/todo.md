@@ -85,9 +85,101 @@ came back at near-zero confidence for no good reason.
         `loadPricingConfigFromServer` overwrite markups held only in
         localStorage, which is where they all lived until last commit
 - [x] Commit and push
-- [ ] Deploy the edge function
-- [ ] Generate a real quote in the running app and read the summary off the screen
+- [x] Deploy the edge function (`make-server-3eae23a6`; the slug is not `server`,
+      and `config.toml` holds the `.tsx` entrypoint mapping)
+- [x] Confirm it boots — both routes answer, rejecting an anon key with
+      "Sign in required" rather than failing to start
+- [ ] Generate a real quote in the running app and read the summary off the
+      screen. Needs a signed-in session, so this one is Eric's to do.
+
+---
+
+# Videos in the deck builder
+
+Eric: "I am trying to upload a video for the deck builder and it doesn't allow
+me to upload videos." He asked for them to go to the `project-videos` bucket.
+
+**They should not.** The deck designer never uploads video by design — it decodes
+the clip in the browser, takes up to six frames, and posts only those. The
+endpoint behind it hard-requires images (`house-capture.tsx:55` matches
+`^data:(image/...)`), so a video in a bucket would be a file nobody reads.
+Storing the clip is a separate feature; he chose not to do it now.
+
+## The gates, and the fix for each
+
+- [x] **Empty MIME type is silently dropped.** `HouseCapture.fromFolder` filters
+      on `file.type`, and the File System Access API frequently reports `''`
+      for `.MOV`/`.avi`. Matches neither filter, discarded with no message.
+      → new `isVideoFile`/`isImageFile` in `localFolder.ts` fall back to the
+      file name when the browser gives no type; anything matching neither now
+      says so instead of vanishing
+- [x] **Same silent drop in `LocalFolderPicker`**, which then says "No photos in
+      that folder" — wrong twice over
+- [x] **Container allowlist too narrow.** `localFolder.ts:102` listed only
+      `mp4|mov|m4v|webm|avi`; now also `.mkv .mts .m2ts .3gp .3g2 .mpg .mpeg
+      .wmv .flv .ogv .ts`. Being generous is safe — an undecodable file is
+      caught later by `framesFromVideo`, which explains itself
+- [x] **A success toast that lies.** Frames sliced away by `MAX_PHOTOS` while
+      reporting success. Now refuses up front with a reason, and clips are
+      taken *before* stills, since the panel itself says a walking video is the
+      most useful thing to capture and arrival order was discarding it
+- [x] **`jobFolderSort` routes a video to the drawings pile** when the type is
+      empty and the name contains "framing", "plan" etc. Now tested by name too
+- [x] **The codec error blames the container.** Replaced "Try an MP4 or MOV"
+      with the actual cause and the setting that fixes it (iPhone
+      Camera → Formats → Most Compatible)
+
+## Not doing now
+
+HEVC/H.265 transcoding. Chrome on Windows cannot decode it at all, so an iPhone
+clip in H.265 will still fail — with an honest message rather than a misleading
+one. Fixing it properly means transcoding, server-side or via WebAssembly.
+Flagged to Eric, deferred by choice.
 
 ## Review
 
-_(to be completed)_
+### Pricing standards (F)
+
+Shipped as `5c57a89e` and deployed to `make-server-3eae23a6`. The rates and
+markups now exist server-side in `pricingDefaults.ts`, so quotes stop coming
+back near-zero. Anything priced from them is marked `standard`, not `your-rate`,
+and the summary reports `confidence` and `onYourFigures` separately so a quote
+priced from a standard table cannot read as Eric's own figures.
+
+Running it turned up two things reading the code had not:
+
+1. The standards caveat only printed above 80% confidence, and real quotes land
+   in the middle band — so the one sentence protecting against overclaiming was
+   the one that almost never appeared.
+2. `pricing-config/get` returning standards instead of `null` made the client
+   overwrite markups held only in localStorage, which is where they all lived
+   until the server copy was added the commit before.
+
+**Not verified:** the routes require a signed-in session, so the summary has not
+been seen rendered on a real quote. The function boots and both routes answer;
+the payload itself is unconfirmed.
+
+### Videos in the deck builder
+
+Eric asked for videos to upload to `project-videos`. They should not, and doing
+it would not have fixed anything: the deck designer deliberately never uploads
+video, it decodes the clip in the browser and posts up to six still frames.
+`house-capture.tsx:55` hard-requires `data:image/...`, so a stored video would
+be a file nobody reads. Told him, and he chose to fix the reading instead.
+
+Four of the six gates were the same bug wearing different clothes — testing
+`file.type.startsWith('video/')` when Windows hands back an empty type through
+the File System Access API. Two of the six failed **silently**, which is why it
+read as "the app won't take videos" rather than as an error.
+
+Verified by running the predicates and the sorter against twelve filename/MIME
+combinations, including the trap where `deck framing walkaround.MOV` with no
+type was being routed to the drawing reader. All pass.
+
+**Not verified:** none of this has been exercised in a real browser with a real
+video file. The logic is tested; the screen is not.
+
+**Still broken on purpose:** an iPhone recording in "High Efficiency" is H.265,
+which Chrome on Windows cannot decode at all. It now fails with an honest
+message naming the camera setting that fixes it, but it still fails. Real
+support means transcoding — server-side or WebAssembly — and Eric deferred it.

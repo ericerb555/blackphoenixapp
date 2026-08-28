@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner';
 import {
   supportsFolderAccess, pickFolder, reopenFolder, refreshFolder,
-  rememberedFolderName, isVideoName,
+  rememberedFolderName, isVideoName, isVideoFile, isImageFile,
   type LocalFolder, type LocalPhoto,
 } from '../lib/localFolder';
 
@@ -138,11 +138,19 @@ export default function LocalFolderPicker({
   /** Firefox and Safari: a whole folder through a normal input. */
   const fallbackPick = useCallback(async (list: FileList | null) => {
     if (!list?.length) return;
+    // Falls back to the file name when the browser reports no MIME type, which
+    // it often does for .MOV and .avi. Testing `type` alone dropped real videos
+    // here and then blamed the folder for holding no photos.
     const images = Array.from(list)
-      .filter(f => f.type.startsWith('image/') || (allowVideo && f.type.startsWith('video/')))
+      .filter(f => isImageFile(f) || (allowVideo && isVideoFile(f)))
       .sort((a, b) => b.lastModified - a.lastModified)
       .slice(0, limit);
-    if (!images.length) { toast.error('No photos in that folder.'); return; }
+    if (!images.length) {
+      toast.error(allowVideo
+        ? 'Nothing in that folder we can read as a photo or video.'
+        : 'No photos in that folder.');
+      return;
+    }
     // webkitRelativePath is the only place the fallback path keeps the subfolder.
     await onPick(images, images.map(f => (f as any).webkitRelativePath || f.name));
     toast.success(`${images.length} taken from that folder.`);

@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
+import { isVideoFile, isImageFile } from '../lib/localFolder';
 import type { DeckModel } from '../lib/deckModel';
 import LocalFolderPicker from './LocalFolderPicker';
 
@@ -103,13 +104,21 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
   const addVideo = useCallback(async (files: FileList | File[] | null) => {
     const file = files ? (Array.from(files as any)[0] as File | undefined) : undefined;
     if (!file) return;
+    // No room means the frames would be extracted and then sliced away by the
+    // cap below, while a success toast claimed they had been added. Say it
+    // plainly instead — a video that silently does nothing is the complaint
+    // this whole change exists to answer.
+    const room = MAX_PHOTOS - photos.length;
+    if (room < 1) {
+      toast.error(`Already holding ${MAX_PHOTOS} photos. Remove a few to pull frames from a video.`);
+      return;
+    }
     setBusy('Pulling frames');
     try {
-      const room = Math.max(1, MAX_PHOTOS - photos.length);
       const frames = await framesFromVideo(file, Math.min(6, room), undefined, (d, t) =>
         setBusy(`Pulling frame ${d} of ${t}`));
       setPhotos(p => [...p, ...frames].slice(0, MAX_PHOTOS));
-      toast.success(`${frames.length} frames taken from the video.`);
+      toast.success(`${frames.length} frame${frames.length > 1 ? 's' : ''} taken from the video.`);
     } catch (err: any) {
       toast.error(err?.message || 'That video could not be read.');
     } finally {
@@ -123,10 +132,22 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
    * pulled rather than being treated as one enormous photo.
    */
   const fromFolder = useCallback(async (files: File[]) => {
-    const stills = files.filter(f => f.type.startsWith('image/'));
-    const clips = files.filter(f => f.type.startsWith('video/'));
-    if (stills.length) await addPhotos(stills);
+    const clips = files.filter(isVideoFile);
+    const stills = files.filter(f => !isVideoFile(f) && isImageFile(f));
+
+    // Clips go first. The panel tells you a video walking past the wall is the
+    // single most useful thing to take, and stills going first meant a folder
+    // holding a dozen photos filled every slot and left the clip nothing — the
+    // most valuable file discarded by arrival order.
     for (const clip of clips) await addVideo([clip]);
+    if (stills.length) await addPhotos(stills);
+
+    // Anything the browser could name neither. Previously these matched no
+    // filter and vanished without a word.
+    const skipped = files.length - clips.length - stills.length;
+    if (skipped > 0) {
+      toast.error(`${skipped} file${skipped > 1 ? 's were' : ' was'} not a photo or video and could not be read.`);
+    }
   }, [addPhotos, addVideo]);
 
   // Deliveries from the job folder land through the same handler a folder pick

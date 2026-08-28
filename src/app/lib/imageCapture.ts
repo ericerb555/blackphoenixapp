@@ -106,7 +106,16 @@ export async function framesFromVideo(
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const fail = () => reject(new Error('That video could not be opened. Try an MP4 or MOV.'));
+      // Naming the real cause matters. The old wording — "try an MP4 or MOV" —
+      // was usually shown to somebody who had just handed it a MOV, so it read
+      // as the app being broken. What actually fails is the codec: an iPhone
+      // recording in "High Efficiency" is H.265 inside a .mov, and Chrome on
+      // Windows cannot decode it at any container. The setting that fixes it is
+      // the one worth naming, because it is the only part the operator controls.
+      const fail = () => reject(new Error(
+        'The browser could not decode that video. If it came off an iPhone, set '
+        + 'Camera > Formats to "Most Compatible" and re-record, or convert the clip to H.264 MP4.',
+      ));
       video.onloadedmetadata = () => resolve();
       video.onerror = fail;
       // A video that never fires either event would hang the button forever.

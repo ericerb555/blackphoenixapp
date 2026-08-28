@@ -99,7 +99,13 @@ async function ensureReadable(handle: any, request: boolean): Promise<boolean> {
 /* ── listing ── */
 
 const IMAGE_RE = /\.(jpe?g|png|webp|heic|heif|avif|gif|bmp)$/i;
-const VIDEO_RE = /\.(mp4|mov|m4v|webm|avi)$/i;
+// Widened past the four obvious containers. A phone is not the only thing that
+// records a site: .mts/.m2ts come off camcorders and drones, .3gp off older
+// handsets, and a file missing from this list does not fail loudly — it simply
+// never appears in the picker, which reads as "the app won't take videos".
+// Being generous here is safe: anything the browser cannot decode is caught
+// later by framesFromVideo, which says so plainly.
+const VIDEO_RE = /\.(mp4|mov|m4v|webm|avi|mkv|mts|m2ts|3gp|3g2|mpe?g|wmv|flv|ogv|ts)$/i;
 
 /** Stop a listing from walking an entire drive if someone picks one. */
 const MAX_FILES = 400;
@@ -225,3 +231,22 @@ export function forgetFolder(slot = 'photos'): Promise<void> {
 }
 
 export const isVideoName = (name: string) => VIDEO_RE.test(name);
+export const isImageName = (name: string) => IMAGE_RE.test(name);
+
+/**
+ * Is this file a video?
+ *
+ * Ask the browser first, then fall back to the name. The fallback is the whole
+ * point: the File System Access API routinely hands back a File with `type: ''`
+ * — Windows decides the MIME type from a registry mapping, and `.MOV`, `.avi`
+ * and `.mts` are often simply absent from it. Code that tested
+ * `file.type.startsWith('video/')` therefore discarded real videos silently,
+ * matching neither the image branch nor the video branch, which is the worst
+ * possible failure: no file, no error, nothing to act on.
+ */
+export const isVideoFile = (file: File) =>
+  file.type ? file.type.startsWith('video/') : isVideoName(file.name);
+
+/** Counterpart to `isVideoFile`, with the same reasoning about an empty type. */
+export const isImageFile = (file: File) =>
+  file.type ? file.type.startsWith('image/') : isImageName(file.name);
