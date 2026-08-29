@@ -395,12 +395,26 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         </div>
       </motion.div>
 
-      {/* Sign In Button - Fixed Top Right */}
-      <div className="fixed top-6 right-6 z-50">
+      {/*
+        Sign In — fixed top right.
+
+        It sits over the hero, and the company name behind it is enormous white
+        display type that overflows the viewport. At common laptop widths the
+        button lands directly on those letters, and an orange control on top of
+        white lettering on a photograph reads as part of the headline rather
+        than as a button — reported, reasonably, as the sign-in button being
+        gone.
+
+        Two things fix that and neither changes the page's design. The button
+        gets its own dark ground so it always separates from whatever is behind
+        it, and it starts fully opaque rather than fading in — the only control
+        that lets anybody into the app should never depend on an animation
+        having run.
+      */}
+      <div className="fixed top-4 right-4 z-[60] rounded-2xl bg-black/70 p-1.5 shadow-xl shadow-black/50 ring-1 ring-white/15 backdrop-blur-md">
         <motion.button
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 1, x: 0 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
           onClick={() => handleNavigate('login')}
           className="px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all flex items-center gap-2 group"
         >
