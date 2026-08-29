@@ -1003,6 +1003,121 @@ layout; the current 340px rail beside eleven panels can never be one.
 - Whether customers ever see this directly, or only its output through their
   portal.
 
+---
+
+# Re-plan: the design centre inside the pipeline
+
+Eric, stopping a build: *"this need to speak to the rest of the app the pipeline
+runs it all we need to rethink this and plan better."*
+
+## The correction
+
+The design centre has been treated as a tool that happens to produce numbers. It
+is not. **It is how a pipeline item gets quoted.** A design that computes a price
+and stores it nowhere is an island, and islands are how a drawing and a quote
+come to disagree.
+
+## The spine it has to join
+
+`work request → quote-draft → quote-sent → quote-approved → contract → invoice
+→ payment`, over `wr:` and `quote:` records.
+
+The customer portal reads the **same** `quote:` records, scoped by `ownsQuote()`
+matching on `clientEmail`, `customerEmail`, `customerId`, `userId` or
+`createdBy`. So a quote written correctly appears in the pipeline *and* the
+customer's portal with no further plumbing. There is nothing to build for
+sharing a quote — only for writing one properly.
+
+## Where the design centre sits
+
+A design **produces the quote that moves a work request to `quote-draft`.**
+
+Two entry points, because Eric works both ways:
+
+- **From a pipeline item** — the normal path. Open a work request, design it,
+  quote it. The customer, address and job are already known.
+- **Standalone** — sketching for a walk-in, or speculating before anything
+  formal exists. It must be attachable to a work request afterwards, or able to
+  raise one.
+
+Standalone must stay as light as it is now. Requiring a work request before
+anyone can draw a deck would be the same mistake as requiring a project before
+designing one trade.
+
+## The quote follows the design, but adjusting it is a decision
+
+Eric: *"if the design changes after a quote the quote will need adjusting after
+adjustments if nessasarry."*
+
+So the quote records **which version of the design it was made from**. When the
+design moves past that, the quote is shown as out of date and there is one
+action to bring it up to date. It is never silently recalculated — a number in
+front of a customer must not move because somebody nudged a joist spacing, and
+whether a change is worth re-quoting is a judgement, not arithmetic.
+
+## Four rules this establishes
+
+1. **Every figure the design centre produces writes a real record** in the store
+   the rest of the app already reads.
+2. **Material prices come from `vendor_catalog:` through `matchCatalogItem`** —
+   the same path work-request quotes use, carrying the same provenance of
+   catalogue, standard or estimated.
+3. **A design belongs to a job.** Drawings, permit packets and renders attach to
+   the same pipeline item as the quote, not to a parallel folder.
+4. **Nothing new gets its own store** without first asking why the existing one
+   will not do.
+
+## What this makes wrong in today's uncommitted work
+
+Honest accounting, because three of these are the same mistake:
+
+- **`DeckQuotePanel` calculates and writes nothing.** Wrong in kind, not merely
+  incomplete. It has to create a `quote:` record against a pipeline item.
+- **`deck_price_book` on the server is a fourth island.** Material prices belong
+  in `vendor_catalog:`. The two routes added for it should come out.
+- **`SidingTakeoff` is on its own page** rather than being a trade inside the
+  design centre, and it prices nothing into the pipeline either.
+- **The stage rail is fine** and independent of all this — it reorganises what
+  is on screen and writes nothing.
+
+## Plan
+
+### 1. A design knows its job
+- [ ] A design carries a `workRequestId` as well as a customer
+- [ ] Opening a work request offers to design it; opening the design centre
+      standalone offers to attach to one or raise one
+- [ ] Attaching pulls the customer and address across rather than retyping them
+
+### 2. The quote is a real quote
+- [ ] The Price stage creates a `quote:` record — line items, totals, the
+      customer's email, the design id and the design version
+- [ ] It advances the pipeline item to `quote-draft`
+- [ ] The customer's email must be on it or `ownsQuote()` will not match and it
+      is invisible to them, silently. That is the failure to guard hardest
+- [ ] Refuse to write a quote whose materials are unpriced, or write it as a
+      draft that says so — a total missing the decking is worse than no total
+
+### 3. Materials price where everything else does
+- [ ] Price deck lines through `vendor_catalog:` and `matchCatalogItem`
+- [ ] Mark each line catalogue, standard or estimated, as `repriceEstimate` does
+- [ ] Remove the deck price book routes
+
+### 4. Out of date, not silently wrong
+- [ ] The quote stores the design version it came from
+- [ ] The design centre and the pipeline both show when a quote is behind its
+      design
+- [ ] One deliberate action brings it up to date, keeping the previous version
+
+### 5. Then the other trades
+Siding moves into the design centre as a second trade and quotes down the same
+path. Doors and windows next. Only then bathrooms and kitchens.
+
+## Open
+
+- Whether a stale quote should also warn the customer's portal, or only staff.
+- Whether a design may be quoted before it is attached to anything, and the
+  work request created at that moment.
+
 ## Review
 
 ### Pricing standards (F)
