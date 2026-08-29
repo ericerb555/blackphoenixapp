@@ -980,10 +980,26 @@ already a phone layout, whereas a 340px rail beside eleven panels is not.
    because bathrooms share most of their machinery with kitchens and are
    smaller, so doing them first makes kitchens cheaper.
 
+## Where it is used — settled
+
+"Laptop and desktop mostly but we need phone for site visits."
+
+The design work is a desk activity and may assume a big screen. The phone case
+is **site visits specifically**: photographing and filming the existing space,
+typing the measurements that must be measured rather than scaled, and looking at
+what has already been designed. Not laying out a kitchen on a phone.
+
+That keeps the phone requirement affordable. Rather than making every screen
+responsive, **the stages that happen on site must work on a phone and the rest
+need only stay reachable** — Capture first, then Show, since a render is worth
+having in front of a customer in their own driveway. Design, Price and Documents
+can stay desk-shaped.
+
+It also settles the layout argument. One stage at a time is already a phone
+layout; the current 340px rail beside eleven panels can never be one.
+
 ## Still open
 
-- **Who works in it, and on what** — laptop only, or a phone on site? That
-  changes the layout more than anything else here.
 - Whether customers ever see this directly, or only its output through their
   portal.
 
