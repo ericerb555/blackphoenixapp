@@ -41,6 +41,17 @@ export default function InvoicesNew() {
   const [stellarTransactionHash, setStellarTransactionHash] = useState('');
   const [stellarAmount, setStellarAmount] = useState('');
   const [stellarLoading, setStellarLoading] = useState(false);
+  // Recording money that arrived by hand — a check, cash, a transfer done
+  // outside Stripe. Every other payment route here leaves a processor record
+  // behind it; this one leaves only what gets typed, so it asks for enough to
+  // find the payment on a bank statement later.
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
+  const [payMethod, setPayMethod] = useState<'check' | 'cash' | 'bank_transfer' | 'other'>('check');
+  const [payAmount, setPayAmount] = useState('');
+  const [payReference, setPayReference] = useState('');
+  const [payReceivedAt, setPayReceivedAt] = useState('');
+  const [payNote, setPayNote] = useState('');
+  const [paySaving, setPaySaving] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     draft: 0,
@@ -167,6 +178,55 @@ export default function InvoicesNew() {
       const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Stellar payments are not currently available.'); setStellarInstructions(result);
     } catch (error: any) { toast.error(error?.message || 'Could not load Stellar instructions.'); setStellarInvoice(null); }
     finally { setStellarLoading(false); }
+  };
+
+  /** Open the record-payment panel, defaulting to settling the whole balance. */
+  const openRecordPayment = (invoice: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPayingInvoice(invoice);
+    setPayMethod('check');
+    // Prefilled because paying the balance in full is the common case, and it
+    // is easier to change a number than to look one up.
+    setPayAmount(String(invoice.balance_due ?? ''));
+    setPayReference('');
+    setPayReceivedAt(new Date().toISOString().slice(0, 10));
+    setPayNote('');
+  };
+
+  const submitRecordPayment = async () => {
+    if (!payingInvoice) return;
+    setPaySaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices/${encodeURIComponent(payingInvoice.id)}/record-payment`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(payAmount),
+            method: payMethod,
+            reference: payReference,
+            receivedAt: payReceivedAt,
+            note: payNote,
+          }),
+        },
+      );
+      const result = await response.json();
+      // The server decides whether this settles the invoice; the screen only
+      // reports what it decided.
+      if (!response.ok || !result.success) throw new Error(result.error || 'Could not record that payment.');
+      toast.success(result.invoice?.status === 'paid'
+        ? 'Payment recorded — invoice settled.'
+        : `Payment recorded — $${Number(result.invoice?.balance_due || 0).toFixed(2)} still due.`);
+      setPayingInvoice(null);
+      loadInvoices();
+      loadStats();
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not record that payment.');
+    } finally {
+      setPaySaving(false);
+    }
   };
 
   const submitStellarPayment = async () => {
@@ -592,6 +652,17 @@ export default function InvoicesNew() {
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={(e) => handleViewInvoice(invoice, e)} className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/10 hover:bg-orange-600/20 rounded-lg text-orange-400 text-sm font-semibold transition border border-orange-500/20"><Eye className="w-4 h-4" /> View</button>
                   {isOwner ? <button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"><Edit2 className="w-4 h-4" /> Edit</button> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="grid grid-cols-2 gap-2"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="flex items-center justify-center gap-1 px-2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold transition"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH bank</button></div> : <span className="flex items-center justify-center rounded-lg border border-white/10 text-sm text-gray-400">{invoice.status === 'paid' ? 'Paid' : 'No payment due'}</span>}
+                  {/*
+                    Recording a check or cash. Only for staff, only on an issued
+                    invoice with something still outstanding — the same
+                    conditions the server enforces, so the button and the rule
+                    agree rather than the button being the rule.
+                  */}
+                  {isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && (
+                    <button onClick={(e) => openRecordPayment(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 rounded-lg text-emerald-400 text-sm font-semibold transition border border-emerald-500/20">
+                      <DollarSign className="w-4 h-4" /> Record check or cash
+                    </button>
+                  )}
                   {isOwner && <button onClick={(e) => handleDeleteClick(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 rounded-lg text-red-400 text-sm font-semibold transition border border-red-500/20"><Trash2 className="w-4 h-4" /> Delete</button>}
                   {!isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && <button onClick={(e) => openStellarInstructions(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/35 px-3 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/10"><Wallet className="w-4 h-4" /> Pay with Stellar</button>}
                 </div>
@@ -723,6 +794,84 @@ export default function InvoicesNew() {
           pageSize={15}
           pageSizeOptions={[10, 15, 25, 50]}
         />
+      )}
+
+      {payingInvoice && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-500/25 bg-[#121212] p-6 text-white shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">Record a payment</p>
+                <h2 className="mt-1 text-xl font-bold">Invoice {payingInvoice.invoice_number}</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  ${Number(payingInvoice.balance_due || 0).toFixed(2)} outstanding
+                </p>
+              </div>
+              <button onClick={() => setPayingInvoice(null)} className="text-gray-400 hover:text-white">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-2">
+                {([['check', 'Check'], ['cash', 'Cash'], ['bank_transfer', 'Transfer'], ['other', 'Other']] as const).map(([id, label]) => (
+                  <button key={id} onClick={() => setPayMethod(id)}
+                    className={`rounded-lg px-2 py-2 text-xs font-bold transition ${
+                      payMethod === id
+                        ? 'bg-emerald-600 text-white'
+                        : 'border border-white/10 text-gray-300 hover:bg-white/5'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold text-gray-400">Amount received</span>
+                <input value={payAmount} onChange={(e) => setPayAmount(e.target.value)}
+                  inputMode="decimal" placeholder="0.00"
+                  className="mt-1 w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" />
+              </label>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold text-gray-400">
+                  {payMethod === 'check' ? 'Check number' : 'Reference'}
+                  {payMethod === 'check' && <span className="text-emerald-400"> — required</span>}
+                </span>
+                <input value={payReference} onChange={(e) => setPayReference(e.target.value)}
+                  placeholder={payMethod === 'check' ? 'e.g. 1042' : 'optional'}
+                  className="mt-1 w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" />
+              </label>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold text-gray-400">Date received</span>
+                <input type="date" value={payReceivedAt} onChange={(e) => setPayReceivedAt(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white" />
+              </label>
+
+              <label className="block">
+                <span className="text-[11px] font-semibold text-gray-400">Note</span>
+                <input value={payNote} onChange={(e) => setPayNote(e.target.value)}
+                  placeholder="optional"
+                  className="mt-1 w-full rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" />
+              </label>
+
+              {/*
+                Said out loud because this is the one payment path with no
+                processor behind it. Whoever presses this is the record.
+              */}
+              <p className="text-[11px] text-gray-500">
+                Recorded against your name and today's date. A part payment leaves the invoice open for the rest.
+              </p>
+
+              <button onClick={submitRecordPayment}
+                disabled={paySaving || !(Number(payAmount) > 0) || (payMethod === 'check' && !payReference.trim())}
+                className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-bold text-white hover:bg-emerald-500 disabled:opacity-50">
+                {paySaving ? 'Recording…' : 'Record payment'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {stellarInvoice && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-2xl border border-cyan-500/25 bg-[#121212] p-6 text-white shadow-2xl"><div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Stellar payment instructions</p><h2 className="mt-1 text-xl font-bold">Invoice {stellarInvoice.invoice_number}</h2><p className="mt-1 text-sm text-gray-400">Crypto transfers are reconciled before this USD invoice is marked paid.</p></div><button onClick={() => setStellarInvoice(null)} className="text-gray-400 hover:text-white"><XCircle className="h-5 w-5" /></button></div>{stellarLoading ? <p className="py-8 text-center text-gray-400">Loading secure payment instructions…</p> : stellarInstructions ? <div className="space-y-4"><div className="rounded-xl border border-white/10 bg-black/25 p-4"><div className="mb-2 flex justify-between text-sm"><span className="text-gray-400">Network</span><strong>{stellarInstructions.wallet.network === 'testnet' ? 'Testnet' : 'Public Network'}</strong></div><div className="mb-2 flex justify-between text-sm"><span className="text-gray-400">Asset</span><strong>{stellarInstructions.wallet.assetCode}</strong></div><p className="mb-1 text-xs text-gray-400">Receiving address</p><div className="flex gap-2"><code className="min-w-0 flex-1 break-all rounded-lg bg-black/50 p-2 text-xs text-cyan-200">{stellarInstructions.wallet.publicKey}</code><button onClick={() => navigator.clipboard?.writeText(stellarInstructions.wallet.publicKey)} className="rounded-lg border border-white/10 px-3 text-cyan-300 hover:bg-white/5"><Copy className="h-4 w-4" /></button></div>{stellarInstructions.wallet.assetIssuer && <p className="mt-3 break-all text-xs text-gray-400">Issuer: {stellarInstructions.wallet.assetIssuer}</p>}{stellarInstructions.wallet.memoInstructions && <p className="mt-3 text-sm text-amber-200">Memo: {stellarInstructions.wallet.memoInstructions}</p>}</div><div className="grid gap-3"><input value={stellarAmount} onChange={(e) => setStellarAmount(e.target.value)} placeholder={`Amount sent in ${stellarInstructions.wallet.assetCode}`} className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><input value={stellarTransactionHash} onChange={(e) => setStellarTransactionHash(e.target.value.trim())} placeholder="64-character Stellar transaction hash" className="rounded-lg border border-[#2a2a2a] bg-[#0a0a0a] px-3 py-2.5 text-white placeholder-gray-600" /><button onClick={submitStellarPayment} disabled={stellarLoading || stellarTransactionHash.length !== 64} className="rounded-lg bg-cyan-600 px-4 py-3 font-bold text-white hover:bg-cyan-500 disabled:opacity-50">Submit transaction for reconciliation</button></div></div> : null}</div></div>}

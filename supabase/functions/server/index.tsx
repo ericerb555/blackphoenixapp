@@ -10528,6 +10528,147 @@ app.delete('/make-server-3eae23a6/invoices/:id', async (c) => {
   catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete invoice.' }, 500); }
 });
 
+/**
+ * Money that arrived by hand — a check, cash, a bank transfer done outside Stripe.
+ *
+ * WHY THIS ROUTE EXISTS AND WHY IT IS NOT THE EDIT ROUTE
+ *
+ * PUT /invoices/:id refuses to accept a status of paid at all, answering "use
+ * verified payment confirmation to mark an invoice paid". That guard is right:
+ * marking an invoice settled is not an edit, and it should not be reachable by
+ * patching a field. But no verified path existed for offline money, so a
+ * contractor paid by check — which is most of how this business is actually
+ * paid — had nowhere to record it.
+ *
+ * This is that path. It is deliberately narrow: it does not take a status, it
+ * takes a payment. The status is then derived from the arithmetic rather than
+ * asserted by the caller, so nobody can declare an invoice settled without
+ * saying what settled it.
+ *
+ * THE AUDIT TRAIL IS THE FEATURE
+ *
+ * Every other way this system takes money leaves a processor record behind it —
+ * a Stripe session, a Stellar transaction hash. This one has nothing but
+ * somebody's word, so it keeps its own evidence: each payment is appended with
+ * who recorded it, when, by what method and against what reference. A check
+ * number is not decoration; it is the only thing that ties this row to a bank
+ * statement when the month is reconciled.
+ */
+/**
+ * What one payment does to an invoice.
+ *
+ * Pure, and separate from the route, because this is the arithmetic that
+ * decides whether somebody is still owed money. A boundary error here either
+ * leaves a settled invoice chasing a customer for a penny or marks an unpaid
+ * one closed, and neither is visible by reading it.
+ */
+export function settleInvoicePayment(total: number, alreadyPaid: number, amount: number): {
+  paidAmount: number; balanceDue: number; status: 'paid' | 'partial';
+} {
+  const paidAmount = money(alreadyPaid + amount);
+  const balanceDue = money(total - paidAmount);
+  return {
+    paidAmount,
+    balanceDue: Math.max(0, balanceDue),
+    // Half a cent of float drift must not leave an invoice permanently a penny
+    // short of settled.
+    status: balanceDue <= 0.005 ? 'paid' : 'partial',
+  };
+}
+
+app.post('/make-server-3eae23a6/invoices/:id/record-payment', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    // Staff only, on the server. A customer must never be able to declare their
+    // own invoice settled, and hiding the button is not a check.
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required to record a payment.' }, 403);
+
+    const invoice = await kv.get(`invoice:${c.req.param('id')}`) as any;
+    if (!invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404);
+    if (invoice.is_draft || invoice.status === 'draft') {
+      return c.json({ success: false, error: 'Issue this invoice before recording a payment against it.' }, 409);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    const METHODS = new Set(['cash', 'check', 'bank_transfer', 'other']);
+    const method = String(body.method || '').toLowerCase();
+    if (!METHODS.has(method)) {
+      return c.json({ success: false, error: 'Payment method must be cash, check, bank_transfer or other.' }, 400);
+    }
+
+    // Totals are recomputed from the invoice the server holds, never from
+    // anything the client sends alongside the amount.
+    const total = money(invoice.total_amount ?? invoice.total ?? 0);
+    const alreadyPaid = money(invoice.paid_amount ?? 0);
+    const outstanding = money(total - alreadyPaid);
+
+    const amount = money(body.amount);
+    if (!(amount > 0)) return c.json({ success: false, error: 'Enter the amount received.' }, 400);
+    if (outstanding <= 0) return c.json({ success: false, error: 'This invoice has no balance outstanding.' }, 409);
+    // Refused rather than clamped. An overpayment is nearly always a typo, and
+    // silently taking the smaller number would hide it; a real overpayment is a
+    // credit, which is a different thing than a payment and is not this route.
+    if (amount > outstanding) {
+      return c.json({
+        success: false,
+        error: `That is more than the ${outstanding.toFixed(2)} outstanding. Record ${outstanding.toFixed(2)} to settle it, or check the amount.`,
+      }, 400);
+    }
+
+    // A check with no number cannot be found on a bank statement later, which
+    // is the entire reason for writing it down.
+    const reference = String(body.reference || '').trim().slice(0, 80);
+    if (method === 'check' && !reference) {
+      return c.json({ success: false, error: 'Enter the check number.' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const receivedAt = (() => {
+      const raw = String(body.receivedAt || '').trim();
+      if (!raw) return now;
+      const t = Date.parse(raw);
+      if (!Number.isFinite(t)) return now;
+      // A payment cannot have been received tomorrow.
+      return t > Date.now() ? now : new Date(t).toISOString();
+    })();
+
+    const payment = {
+      id: crypto.randomUUID(),
+      amount,
+      method,
+      reference,
+      note: String(body.note || '').trim().slice(0, 300),
+      receivedAt,
+      recordedAt: now,
+      recordedBy: user.email,
+      channel: 'manual',
+    };
+
+    const payments = Array.isArray(invoice.payments) ? [...invoice.payments, payment] : [payment];
+    // Derived from the arithmetic, never asserted by the caller.
+    const { paidAmount, balanceDue, status } = settleInvoicePayment(total, alreadyPaid, amount);
+
+    const updated = {
+      ...invoice,
+      payments,
+      paid_amount: paidAmount,
+      balance_due: balanceDue,
+      status,
+      paidAt: status === 'paid' ? (invoice.paidAt || now) : null,
+      updatedAt: now,
+      updatedBy: user.email,
+    };
+    await kv.set(`invoice:${invoice.id}`, updated);
+
+    console.log(`[invoices] ${user.email} recorded ${method} ${amount} against ${invoice.invoice_number || invoice.id} — now ${status}`);
+    return c.json({ success: true, invoice: updated, payment }, 201);
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to record that payment.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/payments', async (c) => {
   try {
     const { user, admin } = await financialActor(c); if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
