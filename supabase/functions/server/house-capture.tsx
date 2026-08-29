@@ -354,8 +354,95 @@ else — by naming your scale reference — and note its condition, because a
 tear-out is a real line on the quote.`;
 
 /** The system prompt for one request, with its scale section spliced in. */
-export function analysisSystem(refs: Array<{ object: string; placement: string }>): string {
-  return ANALYSIS_SYSTEM.replace("__SCALE_SECTION__", scaleSection(refs));
+/**
+ * Reading the whole outside of the house, rather than the one wall a deck
+ * attaches to.
+ *
+ * A DIFFERENT JOB FROM THE DECK READ
+ *
+ * The deck analysis studies a single facade in depth — sill height, rim joist,
+ * what a ledger can bolt to. A siding takeoff needs the opposite shape of
+ * answer: every wall, roughly, with its area and its openings, because siding is
+ * sold by the square across the whole building. Asking one prompt to do both
+ * produces a worse version of each.
+ *
+ * WHY IT REPORTS PER WALL RATHER THAN A TOTAL
+ *
+ * A single "about 1,100 square feet" cannot be checked. Wall by wall, somebody
+ * standing in the yard can see that the back was called 32 feet when it is 28
+ * and fix that one number. It also lets the takeoff mark each wall separately,
+ * so measuring one of them upgrades that wall alone rather than the whole thing
+ * staying an estimate.
+ */
+const SIDING_SYSTEM = `You are an estimator standing outside a house working out what it would take
+to re-side it. You are reading photographs, so you can see what is there but you
+cannot measure anything directly.
+
+Report only walls you can actually see. A wall that is not in frame is not a
+guess to be made — leave it out and say so. Four confident walls beat six with
+two invented.
+
+__SCALE_SECTION__
+
+MEASURING A WALL. Give its length along the ground and its height from grade to
+the eave. If it has a gable, give the rise of the triangle ABOVE the eave
+separately — do not roll it into the height, because a gable is half the area of
+the rectangle under it and folding the two together overstates a cape or a
+colonial by several squares.
+
+OPENINGS. Count the windows and doors on each wall and give a typical size. They
+matter twice over: the big ones come off the area, and every one of them needs
+trim around it.
+
+Return ONLY a JSON object, no prose and no code fence:
+{
+  "house": {
+    "storeys": 1,
+    "sidingType": "vinyl lap | wood clapboard | fiber cement | brick | stucco | stone | shingle | board and batten | unknown",
+    "sidingColor": "plain language",
+    "sidingCondition": "what the existing siding looks like — this is a tear-off unless it is being sided over",
+    "outsideCorners": 4,
+    "insideCorners": 0
+  },
+  "elevations": [
+    {
+      "label": "front | back | left | right, or plain language",
+      "widthFt": 0,
+      "heightToEaveFt": 0,
+      "gableRiseFt": 0,
+      "storeys": 1,
+      "openings": { "count": 0, "typicalWidthFt": 3, "typicalHeightFt": 4 },
+      "basis": "scale-object | assumed-standard | not-visible",
+      "reference": "what you scaled it from",
+      "confidence": "high | medium | low"
+    }
+  ],
+  "notVisible": ["walls or details a photo could not show, which still have to be measured"],
+  "cautions": ["things that would change the price — second storey, steep grade, obstructions"]
+}
+
+Every number here is an estimate to be checked with a tape before material is
+ordered. Say so honestly in confidence rather than rounding your uncertainty
+away.`;
+
+export type CaptureSubject = "deck-wall" | "siding";
+
+/**
+ * The system prompt for one request.
+ *
+ * One composer, two subjects. The scale section is shared because a known-size
+ * object works identically whichever question is being asked of the photograph.
+ */
+export function analysisSystem(
+  refs: Array<{ object: string; placement: string }>,
+  subject: CaptureSubject = "deck-wall",
+): string {
+  const base = subject === "siding" ? SIDING_SYSTEM : ANALYSIS_SYSTEM;
+  return base.replace("__SCALE_SECTION__", scaleSection(refs));
+}
+
+export function readSubject(raw: unknown): CaptureSubject {
+  return String(raw ?? "") === "siding" ? "siding" : "deck-wall";
 }
 
 /** What the client says was put in the shot, kept to things we actually know. */
@@ -390,6 +477,7 @@ app.post("/analyze", async (c) => {
     const images: string[] = Array.isArray(body?.images) ? body.images.slice(0, MAX_IMAGES) : [];
     const note: string = typeof body?.note === "string" ? body.note.slice(0, 800) : "";
     const scaleRefs = readScaleRefs(body?.scaleRefs);
+    const subject = readSubject(body?.subject);
 
     if (!images.length) return c.json({ error: "Add at least one photo of the house." }, 400);
 
@@ -415,7 +503,9 @@ app.post("/analyze", async (c) => {
         scaleRefs.length
           ? `Something of known size was placed in these photographs — find it before you estimate anything.`
           : "",
-        "Read the wall a deck would attach to and report it as JSON.",
+        subject === "siding"
+          ? "Read every wall you can see and report them as JSON."
+          : "Read the wall a deck would attach to and report it as JSON.",
       ].filter(Boolean).join("\n\n"),
     });
 
@@ -424,7 +514,7 @@ app.post("/analyze", async (c) => {
       model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
       max_tokens: 8000,
       thinking: { type: "adaptive" },
-      system: analysisSystem(scaleRefs),
+      system: analysisSystem(scaleRefs, subject),
       messages: [{ role: "user", content: blocks }],
     });
 

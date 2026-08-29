@@ -14,11 +14,22 @@
  * from, and the takeoff is only ever as good as its weakest one.
  */
 
-import { useMemo, useState } from 'react';
-import { Plus, Trash2, Home, Info } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, Home, Info, Camera, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Elevation, ExteriorModel, SidingMaterial, DimensionSource } from '../lib/exteriorModel';
 import { DEFAULT_EXTERIOR } from '../lib/exteriorModel';
 import { buildSidingQuote, DEFAULT_SIDING_OPTIONS } from '../lib/sidingQuote';
+import { exteriorFromCapture, captureSummary } from '../lib/sidingFromCapture';
+import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
+import { isVideoFile } from '../lib/localFolder';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
+
+const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+/** Comfortably inside the edge request limit, same budget the house capture uses. */
+const MAX_PAYLOAD_BYTES = 4_000_000;
+const MAX_IMAGES = 12;
 
 const MATERIALS: Array<{ id: SidingMaterial; label: string }> = [
   { id: 'vinyl', label: 'Vinyl' },
@@ -59,6 +70,75 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
     ...initial,
   });
   const [includeTearOff, setIncludeTearOff] = useState(true);
+  const [reading, setReading] = useState<string | null>(null);
+  const [readNote, setReadNote] = useState<string | null>(null);
+  // Whether a sheet of paper was put in the shot. It is the difference between
+  // walls that are scaled and walls that are guessed, so it is asked plainly
+  // rather than inferred.
+  const [usedScaleSheet, setUsedScaleSheet] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * Read the walls off photographs.
+   *
+   * Video is welcome and is turned into frames here, because walking the
+   * building is how somebody naturally captures four elevations, and parallax
+   * across those frames is most of what makes a wall length recoverable at all.
+   */
+  const readFromPhotos = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setReading('Reading the photos');
+    setReadNote(null);
+    try {
+      const shots: string[] = [];
+      for (const f of Array.from(files)) {
+        if (shots.length >= MAX_IMAGES) break;
+        if (isVideoFile(f)) {
+          const room = MAX_IMAGES - shots.length;
+          shots.push(...await framesFromVideo(f, Math.min(6, room)));
+        } else {
+          shots.push(await fileToDataUrl(f));
+        }
+      }
+      if (!shots.length) throw new Error('Nothing in that selection could be read.');
+
+      // Trim from the end rather than failing the request outright.
+      let send = shots;
+      while (send.length > 1 && send.reduce((n, p) => n + dataUrlBytes(p), 0) > MAX_PAYLOAD_BYTES) {
+        send = send.slice(0, -1);
+      }
+
+      setReading('Working out the walls');
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SERVER}/house-capture/analyze`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images: send,
+          subject: 'siding',
+          scaleRefs: usedScaleSheet ? [{ object: 'letter', placement: 'wall' }] : [],
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `Could not read those photos (${res.status}).`);
+
+      const seeded = exteriorFromCapture(json.analysis || {});
+      if (!seeded.elevations?.length) {
+        toast.error('No walls could be read from those photos.');
+        setReadNote(captureSummary(seeded));
+        return;
+      }
+      // Merged over what is already set, so the corner count and waste factor
+      // somebody has adjusted are not thrown away by a re-read.
+      setModel(m => ({ ...m, ...seeded }));
+      setReadNote(captureSummary(seeded));
+      toast.success(`${seeded.elevations.length} walls read from the photos.`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not read those photos.');
+    } finally {
+      setReading(null);
+    }
+  };
 
   const patch = (i: number, p: Partial<Elevation>) =>
     setModel(m => ({ ...m, elevations: m.elevations.map((e, n) => (n === i ? { ...e, ...p } : e)) }));
@@ -81,6 +161,43 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
           <p className="mt-1 text-sm text-gray-500">
             Measure each wall once. Quantities and hours come out the other side.
           </p>
+        </div>
+
+        {/* ── read the walls off photos ───────────────────────────────── */}
+        <div className={card}>
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={() => photoInput.current?.click()} disabled={!!reading}
+              className="flex items-center gap-2 rounded-xl border border-[#ea580c]/40 bg-[#ea580c]/10 px-4 py-2.5 text-sm font-bold text-[#ea580c] transition hover:bg-[#ea580c]/20 disabled:opacity-40">
+              {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              {reading || 'Read the walls from photos'}
+            </button>
+            <input ref={photoInput} type="file" multiple accept="image/*,video/*" className="hidden"
+              onChange={e => { readFromPhotos(e.target.files); e.currentTarget.value = ''; }} />
+
+            {/*
+              Asked rather than assumed. A sheet of paper taped to the wall is
+              the difference between walls that are scaled against something
+              real and walls guessed from typical construction, and claiming the
+              first when it was the second is the one thing this must not do.
+            */}
+            <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-gray-300">
+              <input type="checkbox" checked={usedScaleSheet} onChange={e => setUsedScaleSheet(e.target.checked)}
+                className="h-4 w-4 accent-[#ea580c]" />
+              A sheet of printer paper is taped to the wall in these photos
+            </label>
+          </div>
+
+          <p className="mt-2 text-[11px] text-gray-600">
+            Walk the building — photos or a video of each side. Nothing read from a photograph is
+            ever treated as measured; tape a sheet of paper to the wall and it can at least be
+            scaled against something real.
+          </p>
+
+          {readNote && (
+            <p className="mt-2 flex gap-2 text-[11px] text-amber-500/90">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {readNote}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
