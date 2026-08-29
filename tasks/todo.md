@@ -839,6 +839,52 @@ receptacle and ventilation code — its own model, its own rules, its own
 catalogue, its own drawings. It is a second product of comparable size to the
 deck designer, not a mode of it. Capture first is the right order regardless.
 
+---
+
+# Siding takeoff — DONE
+
+Eric asked for the full takeoff rather than a visualiser: real facade areas,
+openings deducted, corners, trim, starter, a priced job.
+
+- [x] `exteriorModel.ts` — elevations with gables, opening deductions, corners,
+      staging, and a `source` per wall so a takeoff is only as good as its
+      weakest one
+- [x] `sidingQuote.ts` — the lines a supplier's ticket actually has, plus the
+      labour those lines imply, drawn from the shared task catalogue
+- [x] `SidingTakeoff.tsx` — somewhere to enter the walls and read the result
+- [x] Reachable from the pipeline, beside the rates and the task hours
+
+**Quantities and hours only, never prices.** Prices come from the vendor
+catalogue and the trade rates like everything else, so a siding job cannot end
+up being the one quote in the system priced by its own private arithmetic.
+
+**What made it cheap:** the pricing spine already existed. `laborTasks.ts`
+carries siding productivity — vinyl 0.030 hr/sq ft, fibre cement 0.048, cedar
+0.058, trim 0.055/lin ft, wrap 0.008 — with crew sizes and minimum hours, and
+`siding` is already a trade at $60/hr in the standards. Only the geometry was
+missing.
+
+**Verified by running it**, not by reading it: the areas checked against hand
+arithmetic (gable triangle, the deduction floor, trim following every opening
+including the ones too small to deduct, staging counting only the tall walls),
+and the page itself rendered in a headless browser through a throwaway entry
+with no router or auth gate, which is the only way to see a component actually
+execute in this codebase.
+
+**Two judgement calls worth knowing about:**
+
+- Openings under 10 sq ft are not deducted, but they *are* trimmed. Those answer
+  different questions — the offcut from a small window is unusable, so deducting
+  it produces an order that comes up short, while the window still needs
+  J-channel round it.
+- Minimum hours are honoured. A single gable end is 132 sq ft, which
+  hours-per-square-foot alone prices at four hours; it is eight, because the
+  crew still travels, sets up, stages and cleans up.
+
+**Not done:** the walls are typed in. Seeding them from a capture is the obvious
+next step and `SidingTakeoff` already takes an `initial` prop as the seam for
+it, but nothing passes it yet.
+
 ## Review
 
 ### Pricing standards (F)

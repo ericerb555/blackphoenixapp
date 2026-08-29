@@ -26,7 +26,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  FileText, DollarSign, CheckCircle, Clock, Play, Eye, Edit2,
+  FileText, DollarSign, CheckCircle, Clock, Play, Eye, Edit2, Home,
   Send, FileSignature, Package, TrendingUp, Filter, Search,
   Plus, ArrowRight, User, MapPin, Calendar, AlertCircle, Sparkles,
   Building2, Phone, Mail, Wrench, ChevronRight, Star, CircleDot,
@@ -1089,6 +1089,18 @@ export default function UnifiedProjectPipeline() {
             >
               <Clock className="w-5 h-5" />
               Labor Hours by Task
+            </button>
+
+            {/* Siding is quoted off wall areas rather than off a deck model, so
+                it gets its own takeoff. It uses the same trade rates and task
+                hours as everything else, which is why it belongs here beside
+                them rather than in the design centre. */}
+            <button
+              onClick={() => navigate('/siding-takeoff')}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#ea580c]/10 to-orange-600/10 border-2 border-[#ea580c]/30 hover:border-[#ea580c] text-[#ea580c] hover:text-white font-semibold rounded-lg transition-all hover:shadow-lg hover:shadow-[#ea580c]/20"
+            >
+              <Home className="w-5 h-5" />
+              Siding Takeoff
             </button>
 
             {/* Search */}
