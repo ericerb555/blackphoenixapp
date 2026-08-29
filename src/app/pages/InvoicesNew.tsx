@@ -180,6 +180,24 @@ export default function InvoicesNew() {
     finally { setStellarLoading(false); }
   };
 
+  /**
+   * Open an invoice.
+   *
+   * The card already looked clickable — `cursor-pointer`, a hover state, and
+   * buttons inside it calling `stopPropagation` as though something sat behind
+   * them — but nothing was ever wired to it, so clicking an invoice did
+   * nothing. Both views now go through here so the card and the list behave the
+   * same way rather than one of them being the real one.
+   */
+  const openInvoice = (invoice: Invoice) => {
+    // Editing is an administrator action. A customer clicking their own invoice
+    // should not be dropped into the editor for it, so for them this stays a
+    // no-op rather than opening something they cannot save.
+    if (!isOwner) return;
+    setInvoiceToEdit(invoice);
+    setShowCreateModal(true);
+  };
+
   /** Open the record-payment panel, defaulting to settling the whole balance. */
   const openRecordPayment = (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -583,7 +601,14 @@ export default function InvoicesNew() {
             return (
               <div
                 key={invoice.id}
-                className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6 hover:border-orange-500/30 hover:bg-gradient-to-br hover:from-orange-600/5 hover:to-orange-700/5 transition cursor-pointer group"
+                onClick={() => openInvoice(invoice)}
+                role={isOwner ? 'button' : undefined}
+                tabIndex={isOwner ? 0 : undefined}
+                onKeyDown={isOwner ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInvoice(invoice); } } : undefined}
+                // Only offer the pointer to somebody the click will actually do
+                // something for. Showing a hand to a customer who cannot edit is
+                // the same lie the card was telling everyone before.
+                className={`bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6 hover:border-orange-500/30 hover:bg-gradient-to-br hover:from-orange-600/5 hover:to-orange-700/5 transition group ${isOwner ? 'cursor-pointer' : ''}`}
               >
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
@@ -788,6 +813,9 @@ export default function InvoicesNew() {
           ] as DataTableColumn<Invoice>[]}
           data={filteredInvoices}
           emptyMessage="No invoices found"
+          // DataTable has supported this all along and it was never passed, so
+          // the list view had the same dead click as the cards.
+          onRowClick={(invoice) => openInvoice(invoice)}
           rowHoverEffect={true}
           defaultSort={{ key: 'issue_date', direction: 'desc' }}
           pagination={true}
