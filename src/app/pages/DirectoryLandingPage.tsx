@@ -78,6 +78,14 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
   // Promotions carousel state
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
+  /**
+   * Whether the opening logo flourish is finished with the screen.
+   *
+   * Held in state rather than poked into the DOM, so the overlay is genuinely
+   * unmounted rather than merely hidden by an attribute that React may
+   * reconcile away or that never gets set at all.
+   */
+  const [bounceDone, setBounceDone] = useState(false);
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [selectedPromo, setSelectedPromo] = useState<any>(null);
 
@@ -139,6 +147,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       color: 'blue'
     }
   ];
+
+  /**
+   * The flourish comes off the screen after five seconds whatever happens.
+   *
+   * The animation is 4s after a 0.4s delay, so this only ever fires when the
+   * animation did not finish — which is exactly the case that used to leave a
+   * full-screen overlay sitting over the sign-in button indefinitely. Belt and
+   * braces on a decorative effect, because the cost of it sticking is that
+   * nobody can get into the app.
+   */
+  useEffect(() => {
+    const t = setTimeout(() => setBounceDone(true), 5000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Auto-rotate promotions every 3 seconds
   useEffect(() => {
@@ -366,34 +388,49 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] w-full" style={{ width: '100%', maxWidth: '100vw', overflow: 'visible' }}>
-      {/* Logo Bounce Animation - FIXED OUTSIDE NORMAL FLOW */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0 }}
-        animate={{ opacity: [0, 1, 1, 0], scale: [0, 10, 10, 1] }}
-        transition={{
-          duration: 4,
-          delay: 0.4,
-          times: [0, 0.3, 0.6, 1],
-          ease: "easeInOut"
-        }}
-        style={{ display: 'flex' }}
-        onAnimationComplete={() => {
-          // Hide this element after animation completes
-          const el = document.getElementById('bounce-logo');
-          if (el) el.style.display = 'none';
-        }}
-        id="bounce-logo"
-        className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
-      >
-        <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-          <img
-                  src={phoenixLogo}
-                  alt={companyName || 'Black Phoenix'}
-                  className="w-full h-full object-contain p-4"
-                  style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                />
-        </div>
-      </motion.div>
+      {/*
+        The opening logo flourish.
+
+        This is a full-viewport overlay at z-10000 — far above everything on the
+        page, including the sign-in button — so while it is on screen it covers
+        the lot. That is fine for four seconds and not fine for any longer.
+
+        It used to remove itself by reaching into the DOM from an animation
+        callback and setting display none on its own node. That works right up
+        until the callback does not fire: a tab backgrounded during load, an
+        interrupted animation, a browser that declines to run it. Then a
+        full-screen overlay sits over the page permanently and the sign-in
+        button is buried underneath, present in the DOM and impossible to see.
+
+        So it is unmounted from React state instead, with a timer that removes
+        it regardless of whether the animation ever reports finishing. A
+        decorative flourish must never be able to outlive itself and take the
+        way into the app down with it.
+      */}
+      {!bounceDone && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{ opacity: [0, 1, 1, 0], scale: [0, 10, 10, 1] }}
+          transition={{
+            duration: 4,
+            delay: 0.4,
+            times: [0, 0.3, 0.6, 1],
+            ease: "easeInOut"
+          }}
+          onAnimationComplete={() => setBounceDone(true)}
+          id="bounce-logo"
+          className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
+        >
+          <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
+            <img
+                    src={phoenixLogo}
+                    alt={companyName || 'Black Phoenix'}
+                    className="w-full h-full object-contain p-4"
+                    style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
+                  />
+          </div>
+        </motion.div>
+      )}
 
       {/*
         Sign In — fixed top right.
