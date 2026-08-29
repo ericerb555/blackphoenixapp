@@ -885,6 +885,108 @@ execute in this codebase.
 next step and `SidingTakeoff` already takes an `initial` prop as the seam for
 it, but nothing passes it yet.
 
+---
+
+# The Design Centre — what it is, and what has to happen
+
+Eric: *"this is suppose to be an area we can build out decks kitchens,
+bathrooms, render houses for siding, we do doors and windows as well — i want
+this place to be a one stop shop… this section has been overhauled two times
+already and its still not correct."*
+
+## Why two overhauls missed
+
+Not arrangement. The page has **no model of what is being designed and no model
+of where the work is up to**, so there is nothing to arrange around.
+
+Eleven panels render in one scroll behind a 340px rail — Drawings, Assistant,
+Customer and job, The job folder, Read a sketch, Finishes, The existing house,
+Loads and footings, Permit packet, Connection details, Build specification.
+Deck-only structural panels sit beside genuinely generic ones with nothing
+distinguishing them, and capture, design, pricing and paperwork are all on
+screen at once, always. Rearranging eleven panels yields a different pile of
+eleven panels.
+
+## The rule that governs the rebuild
+
+**A single-trade job must never get heavier to serve the multi-trade case.**
+
+Eric wants to single a trade out or group them, by job. That means designing one
+deck must not require creating a project and then adding a deck to it. Grouping
+is an action taken when a job needs it, never a container step imposed on the
+common case. Making the simple job pay for the complex one is exactly how a
+third overhaul fails.
+
+## The spine — identical for every trade
+
+1. **Job** — customer, address, and which trades are in scope. One or many.
+2. **Capture** — photos and video of what is there, read into numbers that
+   carry their provenance: measured, scaled, or estimated.
+3. **Design** — *the only trade-specific step.*
+4. **Price** — through the vendor catalogue and the trade rates, like
+   everything else, so no trade is priced by private arithmetic.
+5. **Show** — render onto the customer's own photograph, options side by side,
+   shared to their portal.
+6. **Documents** — quote, drawings, permit packet, specification.
+
+Five of those six are shared. That is the whole argument for one design centre
+rather than five products.
+
+## What each trade needs in step 3, and what exists
+
+| trade | the model it needs | today |
+|---|---|---|
+| **Decks** | rectangle, joists, beams, posts, footings; DCA 6 spans | **built** — `deckModel`, `buildMembers`, permit packet, spec, quote |
+| **Siding** | elevations, openings, corners, waste | **built** — `exteriorModel`, `sidingQuote`, capture seeding. Sitting on its own page instead of in here |
+| **Doors & windows** | a schedule of openings — size, type, operation, U-value, finish | **nothing.** Cheapest to add: the siding capture already reads openings |
+| **Bathrooms** | fixtures, rough-in dimensions, waterproofing, ventilation | **nothing** — scoped in the interior capture section above |
+| **Kitchens** | cabinet runs, appliance clearances, worktop, services | **nothing** — the largest single piece of work here |
+
+The storage already anticipates all of it: designs are keyed
+`design_project:${ownerKey}:${id}` where `ownerKey` is the trade and merely
+defaults to `decks`, and `analysisSystem()` already takes a subject. The seams
+exist and have never been used.
+
+## Layout
+
+Replace eleven always-visible panels with **a job header, a stage rail, and one
+working area**.
+
+- **Job header** — customer, address, trades in scope. Always visible, one line.
+  Adding a trade happens here.
+- **Stage rail** — Capture, Design, Price, Show, Documents. Shows what is done
+  and what is not, so the next thing to do is obvious.
+- **Working area** — one stage at a time. The Design stage swaps by trade;
+  everything else is the same component whatever the job is.
+
+What this buys: a deck job shows deck things, a siding job shows siding things,
+and neither shows the other's. The Assistant and the job folder move to the job
+header where they apply to everything, rather than being two of eleven panels.
+
+Phone survivability follows from this almost for free — one stage at a time is
+already a phone layout, whereas a 340px rail beside eleven panels is not.
+
+## Build order, proposed
+
+1. **The shell** — job header, stage rail, one working area, with decks as the
+   only trade. Nothing new is designed; the existing panels are redistributed
+   into stages. This proves the structure without risking the one trade that
+   currently works.
+2. **Siding moves in** as the second trade. Mostly built already, so it tests
+   whether the shell genuinely accepts a second trade cheaply. If it does not,
+   better to learn that here than after building kitchens.
+3. **Doors and windows** — small, and the capture already reads openings.
+4. **Bathrooms**, then **kitchens** — the two real builds, in that order,
+   because bathrooms share most of their machinery with kitchens and are
+   smaller, so doing them first makes kitchens cheaper.
+
+## Still open
+
+- **Who works in it, and on what** — laptop only, or a phone on site? That
+  changes the layout more than anything else here.
+- Whether customers ever see this directly, or only its output through their
+  portal.
+
 ## Review
 
 ### Pricing standards (F)
