@@ -1261,6 +1261,94 @@ function intakePortalType(application: any) {
   return 'customer';
 }
 
+/**
+ * Every portal that has been granted, and to whom.
+ *
+ * WHY THIS DID NOT EXIST
+ *
+ * `syncPortalAccess` has been writing a record on every grant all along —
+ * email, portal type, name, status, onboarding status and both dates — and
+ * nothing has ever read them back as a list. So the honest answer to "how do I
+ * know when somebody creates a portal" was that you did not: the fact was
+ * recorded and there was nowhere to see it.
+ *
+ * WHY IT IS STAFF ONLY
+ *
+ * It reads across every customer, vendor, subcontractor and tenant in the
+ * business at once. That is precisely the kind of route that must not be
+ * reachable by any of them, so it is gated on the same administrator rule the
+ * financial routes use rather than on being signed in.
+ *
+ * The CRM record is joined here rather than in the browser, so a register can
+ * show a person — their company, their phone — instead of an email address, and
+ * so the screen does not fetch the whole contact book to label a list.
+ */
+app.get('/make-server-3eae23a6/portal-access', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+
+    const [raw, contactsRaw] = await Promise.all([
+      kv.getByPrefix('portal_access:').catch(() => []),
+      kv.get(CRM_CONTACTS_KEY).catch(() => []),
+    ]);
+
+    const contacts = (contactsRaw as any[]) || [];
+    const byEmail = new Map(
+      contacts.filter(Boolean).map((x: any) => [String(x.email || '').toLowerCase(), x]),
+    );
+
+    const records = ((raw as any[]) || []).filter(Boolean).map((r: any) => {
+      const email = String(r.email || '').toLowerCase();
+      const contact = byEmail.get(email);
+      return {
+        id: r.id || `${email}:${r.portalType}`,
+        email,
+        portalType: String(r.portalType || 'customer'),
+        name: r.applicantName || contact?.name || '',
+        company: contact?.company || contact?.companyName || '',
+        phone: contact?.phone || '',
+        customerId: contact?.id || null,
+        status: String(r.status || 'onboarding'),
+        onboardingStatus: String(r.onboardingStatus || ''),
+        applicationId: r.applicationId || null,
+        createdAt: r.createdAt || null,
+        updatedAt: r.updatedAt || null,
+        // Somebody waiting on us, rather than somebody using their portal. This
+        // is what turns the register from a count into a list of things to do.
+        needsAttention: ['onboarding', 'active_pending_requirements', 'pending_documents'].includes(
+          String(r.status || '').toLowerCase(),
+        ),
+      };
+    });
+
+    // Newest first, because "what has changed since I last looked" is the real
+    // question behind "how do I know".
+    records.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+    const tally = (key: 'portalType' | 'status') =>
+      records.reduce<Record<string, number>>((acc, r) => {
+        const k = r[key] || 'unknown';
+        acc[k] = (acc[k] || 0) + 1;
+        return acc;
+      }, {});
+
+    return c.json({
+      success: true,
+      records,
+      total: records.length,
+      needsAttention: records.filter(r => r.needsAttention).length,
+      byPortalType: tally('portalType'),
+      byStatus: tally('status'),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load the portal register.' }, 500);
+  }
+});
+
 function intakeTasks(portalType: string, application?: any) {
   const base = [{ id: 'identity', label: 'Government-issued photo ID', required: true, status: 'pending' }];
   const contractorRequest = application?.taxClassification?.requestedPath === 'independent_contractor_1099';

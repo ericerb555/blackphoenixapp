@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import PortalRegister from '../components/PortalRegister';
 import {
   Users, Building2, Search, Filter, Mail, MessageSquare, Plus,
   Download, Upload, Send, CheckSquare, Tag, UserCheck, Home,
@@ -40,6 +41,8 @@ interface Contact {
 
 export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [searchQuery, setSearchQuery] = useState('');
+  /** Contacts, or the register of who has a portal. */
+  const [crmView, setCrmView] = useState<'contacts' | 'portals'>('contacts');
   const [selectedType, setSelectedType] = useState<ContactType | 'all'>('all');
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
@@ -505,8 +508,29 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
           </div>
         </div>
 
+        {/*
+          Who has a portal.
+
+          A tab rather than a page, because it describes the same people the
+          contact list does — a vendor with a portal is a contact, and putting
+          the register somewhere else would make you hold two lists of the same
+          person in your head.
+        */}
+        <div className="mt-6 flex items-center gap-2">
+          {([['contacts', 'Contacts'], ['portals', 'Portals']] as const).map(([id, text]) => (
+            <button key={id} onClick={() => setCrmView(id)}
+              className={`rounded-lg px-4 py-2 text-sm font-bold transition ${
+                crmView === id
+                  ? 'bg-[#ea580c] text-white'
+                  : 'border border-[#2A2A2A] text-gray-400 hover:text-white'
+              }`}>
+              {text}
+            </button>
+          ))}
+        </div>
+
         {/* Search and Filter Bar */}
-        <div className="mt-6 flex items-center gap-4">
+        <div className={`mt-6 items-center gap-4 ${crmView === 'contacts' ? 'flex' : 'hidden'}`}>
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -579,8 +603,16 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
         )}
       </div>
 
+      {/* Who has a portal. A sibling of the contact list rather than nested in
+          it, so neither has to know about the other. */}
+      {crmView === 'portals' && (
+        <div className="p-6">
+          <PortalRegister onOpenCustomer={() => setCrmView('contacts')} />
+        </div>
+      )}
+
       {/* Contact Type Tabs */}
-      <div className="bg-[#0F0F0F] border-b border-[#2A2A2A] px-6 overflow-x-auto">
+      <div className={`bg-[#0F0F0F] border-b border-[#2A2A2A] px-6 overflow-x-auto ${crmView === 'contacts' ? '' : 'hidden'}`}>
         <div className="flex items-center gap-2 py-4 min-w-max">
           {contactTypes.map((type) => {
             const Icon = type.icon;
@@ -609,7 +641,7 @@ export default function UnifiedCRMHub({ onNavigate }: { onNavigate?: (page: stri
       </div>
 
       {/* Main Content */}
-      <div className="p-6">
+      <div className={`p-6 ${crmView === 'contacts' ? '' : 'hidden'}`}>
         {/* Stats Bar */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="p-4 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg">
