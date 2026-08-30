@@ -19,6 +19,7 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
 const designProjectsRouter = new Hono();
@@ -37,6 +38,62 @@ const VERSION_PREFIX = (id: string) => `design_version:${id}:`;
 const VERSION_KEY = (id: string, versionId: string) => `design_version:${id}:${versionId}`;
 
 const MAX_VERSIONS = 30; // keep the most recent N snapshots per project
+
+/* ── site photos attached to a project ──────────────────────────────────────
+ *
+ * WHY THESE EXIST
+ *
+ * Photos were never part of a saved deck. The save payload carried the model,
+ * the site, the loads and the takeoff, and nothing else — so a folder of site
+ * photos opened in the designer lived only as `File` objects in the browser's
+ * memory, read straight off the machine. Closing the deck, or saving it and
+ * starting another, dropped them. Reopening the project could not bring them
+ * back because they had never been written anywhere. Reported as "I added
+ * photos to the saved deck and now they are not there", which is exactly what
+ * happened.
+ *
+ * These live in a private bucket rather than in the project record because a
+ * job's photographs are megabytes and the record is read on every list.
+ */
+const PHOTO_BUCKET = 'make-3eae23a6-design-photos';
+const PHOTOS_KEY = (ownerKey: string, id: string) => `design_photos:${ownerKey}:${id}`;
+const MAX_PHOTOS_PER_PROJECT = 60;
+const MAX_PHOTO_BYTES = 12 * 1024 * 1024; // a phone photo, generously
+const PHOTO_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png',
+  'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
+};
+
+function service() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+}
+
+/**
+ * The person asking, or null.
+ *
+ * The anon key is a valid JWT and every visitor's browser carries one, so it
+ * reaches these routes. It resolves to no user, which is the point: photographs
+ * of a customer's house are not public, and "has a token" is not the same
+ * question as "is somebody".
+ */
+async function photoActor(c: any) {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const { data, error } = await service().auth.getUser(token);
+    return error || !data?.user ? null : data.user;
+  } catch { return null; }
+}
+
+async function ensurePhotoBucket(sb: any) {
+  const { data: buckets } = await sb.storage.listBuckets();
+  if (!(buckets || []).some((b: any) => b.name === PHOTO_BUCKET)) {
+    await sb.storage.createBucket(PHOTO_BUCKET, { public: false });
+  }
+}
 
 function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
@@ -236,6 +293,141 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects', async (c) => 
   } catch (error: any) {
     console.error('[DesignProjects] Save error:', error);
     return c.json({ success: false, error: error?.message || 'Failed to save project' }, 500);
+  }
+});
+
+/**
+ * POST /design-projects/:id/photos — attach site photos to a saved project.
+ *
+ * Body: { ownerKey?, photos: [{ name, dataUri }] }
+ *
+ * Only accepts image types, only from a signed-in person, and only up to a
+ * ceiling per project — an upload route that takes anything at any size from
+ * anybody is a way to fill somebody else's storage bill.
+ */
+designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', async (c) => {
+  try {
+    const user = await photoActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to attach photos.' }, 401);
+
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const ownerKey = String(body?.ownerKey || 'shared').trim() || 'shared';
+
+    const project = await kv.get(PROJECT_KEY(ownerKey, id));
+    if (!project) return c.json({ success: false, error: 'That project could not be found.' }, 404);
+
+    const incoming = Array.isArray(body?.photos) ? body.photos.slice(0, MAX_PHOTOS_PER_PROJECT) : [];
+    if (!incoming.length) return c.json({ success: false, error: 'No photos were sent.' }, 400);
+
+    const sb = service();
+    await ensurePhotoBucket(sb);
+
+    const existing: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
+    const room = MAX_PHOTOS_PER_PROJECT - existing.length;
+    if (room <= 0) {
+      return c.json({ success: false, error: `This project already holds ${MAX_PHOTOS_PER_PROJECT} photos.` }, 409);
+    }
+
+    const added: any[] = [];
+    const skipped: string[] = [];
+    for (const item of incoming.slice(0, room)) {
+      const name = String(item?.name || 'photo').slice(0, 200);
+      const m = /^data:([a-z0-9.+/-]+);base64,(.+)$/i.exec(String(item?.dataUri || '').trim());
+      if (!m) { skipped.push(`${name} — could not be read`); continue; }
+
+      const contentType = m[1].toLowerCase();
+      const ext = PHOTO_TYPES[contentType];
+      if (!ext) { skipped.push(`${name} — ${contentType} is not an image`); continue; }
+
+      let bytes: Uint8Array;
+      try {
+        const bin = atob(m[2]);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } catch { skipped.push(`${name} — could not be decoded`); continue; }
+
+      if (bytes.byteLength > MAX_PHOTO_BYTES) {
+        skipped.push(`${name} — larger than ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)}MB`);
+        continue;
+      }
+
+      const photoId = crypto.randomUUID();
+      const path = `${ownerKey}/${id}/${photoId}.${ext}`;
+      const { error } = await sb.storage.from(PHOTO_BUCKET).upload(path, bytes, { contentType, upsert: true });
+      if (error) { skipped.push(`${name} — ${error.message}`); continue; }
+
+      added.push({
+        photoId, name, path, contentType,
+        bytes: bytes.byteLength,
+        addedAt: new Date().toISOString(),
+        addedBy: String(user.email || '').toLowerCase(),
+      });
+    }
+
+    if (added.length) await kv.set(PHOTOS_KEY(ownerKey, id), [...existing, ...added]);
+
+    console.log(`[DesignProjects] ${added.length} photo(s) attached to ${id}${skipped.length ? `, ${skipped.length} skipped` : ''}`);
+    return c.json({ success: true, added: added.length, skipped, total: existing.length + added.length });
+  } catch (error: any) {
+    console.error('[DesignProjects] Photo upload error:', error);
+    return c.json({ success: false, error: error?.message || 'Could not attach those photos.' }, 500);
+  }
+});
+
+/**
+ * GET /design-projects/:id/photos?owner=... — the photos attached to a project.
+ *
+ * Signed URLs rather than public ones, so a link that leaks stops working
+ * rather than standing open forever.
+ */
+designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id/photos', async (c) => {
+  try {
+    const user = await photoActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to view these photos.', photos: [] }, 401);
+
+    const ownerKey = normalizeOwner(c);
+    const id = c.req.param('id');
+    const records: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
+    if (!records.length) return c.json({ success: true, photos: [] });
+
+    const sb = service();
+    const photos = await Promise.all(records.map(async (r) => {
+      let url: string | null = null;
+      try {
+        const { data } = await sb.storage.from(PHOTO_BUCKET).createSignedUrl(r.path, 60 * 60);
+        url = data?.signedUrl || null;
+      } catch { /* a photo that will not sign is reported without a link */ }
+      return { photoId: r.photoId, name: r.name, contentType: r.contentType, addedAt: r.addedAt, url };
+    }));
+
+    return c.json({ success: true, photos });
+  } catch (error: any) {
+    console.error('[DesignProjects] Photo list error:', error);
+    return c.json({ success: false, error: error?.message || 'Could not read those photos.', photos: [] }, 500);
+  }
+});
+
+/** DELETE /design-projects/:id/photos/:photoId — detach one photo. */
+designProjectsRouter.delete('/make-server-3eae23a6/design-projects/:id/photos/:photoId', async (c) => {
+  try {
+    const user = await photoActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to remove photos.' }, 401);
+
+    const ownerKey = normalizeOwner(c);
+    const id = c.req.param('id');
+    const photoId = c.req.param('photoId');
+
+    const records: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
+    const target = records.find((r) => r.photoId === photoId);
+    if (!target) return c.json({ success: false, error: 'That photo is not on this project.' }, 404);
+
+    try { await service().storage.from(PHOTO_BUCKET).remove([target.path]); } catch { /* record goes either way */ }
+    await kv.set(PHOTOS_KEY(ownerKey, id), records.filter((r) => r.photoId !== photoId));
+
+    return c.json({ success: true, removed: photoId });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not remove that photo.' }, 500);
   }
 });
 

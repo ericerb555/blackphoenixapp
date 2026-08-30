@@ -82,6 +82,38 @@ top of one we hope works.
 - [ ] 4. Add `tsconfig.json` and a `typecheck` script; triage the real errors
 - [ ] 5. Plan kitchens and bathrooms properly
 
+## URGENT — deck photos do not survive a save
+
+Reported while step 1 was in progress. Diagnosed, not yet fixed.
+
+Photos are never stored with a deck project. The save payload in
+`DeckDesigner.tsx:544` is `{ kind, model, site, loads, takeoff, ...link }` —
+there is no photo field in it. So reopening a saved deck cannot show photos:
+they were never written, rather than written and lost.
+
+Three things compound it:
+
+1. `JobFolder` clears its own list the instant Send is pressed
+   (`setSorted([])`, JobFolder.tsx:56). The files pass through to the house
+   capture step and the card empties.
+2. The photos only ever existed as `File` objects read live from a folder on
+   the machine, held in React state.
+3. `hardReset()` calls `forgetFolder` on all three slots — `job-folder`,
+   `job-photos`, `sketches` — and it runs on both Save-as-new and New
+   (DeckDesigner.tsx:524, called at 552 and 674). So saving also drops the
+   remembered folder.
+
+### Proposed fix
+
+- [ ] Store the picked photos against the project when it saves, and list them
+      back when it opens. There is already a private bucket and an upload path
+      for exactly this shape of thing in `design-links.tsx`.
+- [ ] Stop `hardReset` forgetting the job folder on a plain save. Starting a
+      genuinely new deck should forget it; filing the current one should not.
+
+Not started — waiting on confirmation, and on one detail of what "cannot add
+any" looks like on screen.
+
 ## Review
 
 (to be completed)

@@ -39,6 +39,7 @@ import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
 import { DESIGN_OWNER_KEY } from '../lib/designProjectService';
+import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
 import { setCurrentJob } from '../lib/currentJob';
 import {
   DEFAULT_DECK, takeoff,
@@ -302,6 +303,16 @@ function DesignerSession({ session, onSession }: {
   const [sketchDrop, setSketchDrop] = useState<{ files: File[]; n: number }>({ files: [], n: 0 });
 
   /**
+   * How many site photos this project holds on the server.
+   *
+   * Shown because the old behaviour — photos that appeared to attach and then
+   * quietly were not there on reopening — is indistinguishable from working
+   * unless the count is on screen. A number the operator can check beats a
+   * silent success.
+   */
+  const [storedPhotos, setStoredPhotos] = useState(0);
+
+  /**
    * What the two readers made of the folder, held here so the assistant can see
    * both at once. Neither reader needs the other's result; the assistant does,
    * because the whole point is reconciling a dimensioned drawing against what
@@ -458,6 +469,47 @@ function DesignerSession({ session, onSession }: {
 
   useEffect(() => { loadList(); }, [loadList]);
 
+  /**
+   * File the session's site photos against the saved project.
+   *
+   * DECLARED ABOVE ITS CALLERS ON PURPOSE. `save` names this in its dependency
+   * array, and a dependency array is an ordinary expression evaluated during
+   * render rather than lazily when the callback runs — so a `const` declared
+   * further down would still be in its temporal dead zone and would throw on
+   * the first render. That exact mistake took this whole page down once.
+   *
+   * `attachedPhotos` remembers which `File` objects have already gone up, by
+   * identity, so pressing Save twice does not file the same photograph twice.
+   * The set is per session, which is right: a reopened project reloads its
+   * photos from the server and those are already attached by definition.
+   */
+  const attachedPhotos = useRef<Set<File>>(new Set());
+
+  const attachPendingPhotos = useCallback(async (designId: string) => {
+    const pending = photoDrop.files.filter(
+      (f) => f.type.startsWith('image/') && !attachedPhotos.current.has(f),
+    );
+    if (!pending.length) return;
+
+    try {
+      const { added, skipped } = await uploadDesignPhotos(
+        designId, DESIGN_OWNER_KEY, pending, await headers(),
+      );
+      pending.forEach((f) => attachedPhotos.current.add(f));
+      if (added > 0) {
+        setStoredPhotos((n) => n + added);
+        toast.success(`${added} site photo${added === 1 ? '' : 's'} filed with the project.`);
+      }
+      // Said out loud rather than swallowed: a photo that silently failed to
+      // attach is the bug this whole change exists to fix.
+      if (skipped.length) {
+        toast.error(`${skipped.length} photo${skipped.length === 1 ? '' : 's'} not filed — ${skipped[0]}`);
+      }
+    } catch (err: any) {
+      toast.error('The deck saved, but its photos could not be filed.');
+    }
+  }, [photoDrop]);
+
   const save = useCallback(async () => {
     if (!site.projectName.trim()) { toast.error('Give the project a name.'); return; }
     setSaving(true);
@@ -483,13 +535,19 @@ function DesignerSession({ session, onSession }: {
       setSavedVersion(Number(data.project.version) || null);
       setClean(JSON.stringify({ model, site, loads }));
       toast.success(`Saved — version ${data.project.version}`);
+
+      // Photos go with the project, not with the tab. Anything picked from the
+      // job folder this session is attached now, so reopening the deck brings
+      // the site photographs back with it. Done after the save because the
+      // project must exist before anything can hang off it.
+      await attachPendingPhotos(data.project.id);
       loadList();
     } catch (err: any) {
       toast.error(err?.message || 'Could not save.');
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, savedId, loadList]);
+  }, [site, model, bom, loads, link, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -524,6 +582,14 @@ function DesignerSession({ session, onSession }: {
     for (const slot of ['job-folder', 'job-photos', 'sketches']) {
       forgetFolder(slot).catch(() => { /* nothing remembered for that slot */ });
     }
+    // The photos belonged to the deck being closed. Clearing the loaded files
+    // and the count together stops the next deck opening with the last job's
+    // photographs attached to it, and stops them being filed against it on the
+    // first save.
+    setPhotoDrop({ files: [], n: 0 });
+    setSketchDrop({ files: [], n: 0 });
+    setStoredPhotos(0);
+    attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
   }, [onSession]);
 
@@ -716,6 +782,31 @@ function DesignerSession({ session, onSession }: {
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
+
+      // Bring the site photographs back with the deck. They are fetched as
+      // `File` objects so the house-capture step cannot tell a restored photo
+      // from one just picked out of a folder, which keeps this to one code path.
+      //
+      // Deliberately not awaited before the success message: the deck is open
+      // and usable the moment its model is set, and a slow photo download
+      // should not make opening a project feel slow.
+      (async () => {
+        try {
+          const stored = await listDesignPhotos(full.id, DESIGN_OWNER_KEY, await headers());
+          setStoredPhotos(stored.length);
+          if (!stored.length) return;
+
+          const files = await photosAsFiles(stored);
+          if (!files.length) return;
+          // Already on the server, so they must not be uploaded again on the
+          // next save.
+          files.forEach((f) => attachedPhotos.current.add(f));
+          setPhotoDrop((d) => ({ files, n: d.n + 1 }));
+          toast.success(`${files.length} site photo${files.length === 1 ? '' : 's'} restored.`);
+        } catch {
+          toast.error('The deck opened, but its site photos could not be loaded.');
+        }
+      })();
     } catch (err: any) {
       toast.error(err?.message || 'Could not open that project.');
     } finally {
@@ -1160,6 +1251,18 @@ function DesignerSession({ session, onSession }: {
             <div className={`space-y-4 ${stage === 'capture' ? '' : 'hidden'}`}>
               <PanelErrorBoundary name="The job folder">
                 <JobFolder onSend={sendFolder} />
+
+                {/* What is actually filed against the project, as opposed to
+                    what is merely loaded into this tab. The two were the same
+                    thing for a long time and it was never visible which. */}
+                {(storedPhotos > 0 || photoDrop.files.length > 0) && (
+                  <p className="mt-2 text-[11px] text-gray-500">
+                    {storedPhotos > 0
+                      ? `${storedPhotos} site photo${storedPhotos === 1 ? '' : 's'} filed with this project.`
+                      : 'Site photos loaded — they are filed when you save.'}
+                    {savedId ? '' : ' Save the deck to keep them.'}
+                  </p>
+                )}
               </PanelErrorBoundary>
 
               <PanelErrorBoundary name="The existing house">
