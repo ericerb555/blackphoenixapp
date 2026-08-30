@@ -633,11 +633,25 @@ function renderPrompt(deck: any, house: any, attachment: any, existing: any, ext
     `· ${railing} railing at 36 inches with evenly spaced balusters`,
     `· pressure treated posts on concrete footings, with visible beam and joists under the deck`,
     `· ${stairs}`,
-    extra ? `· ${extra}` : ``,
     ``,
     `The deck must sit correctly in the scene: perspective matching the house, contact shadows on the ground,`,
     `the deck surface just below the door threshold, and the railing occluding what is behind it.`,
     `No people, no furniture, no text, no watermark. Clean new construction on a real property.`,
+
+    // The operator's own words go LAST and are marked as overriding.
+    //
+    // They used to be one bullet in the middle of the list above, with the same
+    // weight as every generated line. So "no stairs" sat directly under a
+    // generated line asking for stairs, and the picture followed whichever it
+    // liked. The person typing this is standing in the yard looking at the
+    // house; the generated lines are inferences. When they disagree, the person
+    // wins.
+    ...(extra ? [
+      ``,
+      `IMPORTANT — instructions from the builder. These override anything above`,
+      `that contradicts them, including the deck description:`,
+      extra,
+    ] : []),
   ].filter(Boolean).join("\n");
 }
 
@@ -748,7 +762,7 @@ app.post("/render", async (c) => {
       widthFt: Number(body?.existing?.widthFt) || 0,
       depthFt: Number(body?.existing?.depthFt) || 0,
     };
-    const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 400) : "";
+    const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 1500) : "";
 
     const parts = splitDataUri(photo);
     if (!parts) return c.json({ error: "Pick a photo of the house to render onto." }, 400);
@@ -912,7 +926,7 @@ app.post("/looks", async (c) => {
       widthFt: Number(body?.existing?.widthFt) || 0,
       depthFt: Number(body?.existing?.depthFt) || 0,
     };
-    const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 400) : "";
+    const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 1500) : "";
 
     // Each look arrives as a fully resolved deck plus the words describing its
     // finishes. The words are built on the client from the same finish tables

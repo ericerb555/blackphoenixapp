@@ -636,9 +636,28 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
             Uses the photo outlined above and the current deck size. Tap another photo to switch.
           </p>
 
-          <input value={extra} onChange={e => setExtra(e.target.value)}
-            placeholder="Anything to include — pergola, lighting, bench seating, a particular railing"
-            className="w-full px-3 py-2 mb-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#ea580c]" />
+          {/*
+            The builder's own instructions.
+
+            This was a single unlabelled line whose placeholder only invited
+            additions — "pergola, lighting, bench seating" — so it read as a
+            garnish rather than as direction, and what was typed into it landed
+            as one bullet in the middle of a generated list where it carried no
+            more weight than a line it contradicted. It is now the last word the
+            renderer reads, and it is told to follow this over anything above it
+            that disagrees.
+          */}
+          <label className="block text-[11px] font-semibold text-gray-400 mb-1">
+            Tell the render exactly what you want
+          </label>
+          <textarea value={extra} onChange={e => setExtra(e.target.value)} rows={3} maxLength={1500}
+            placeholder={'Say it plainly, and correct it if it got something wrong. For example:\n"Stairs come off the left end, not the middle."\n"No pergola. Square white balusters, not black."\n"The deck wraps around the corner to the side door."'}
+            className="w-full px-3 py-2 mb-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-[#ea580c] resize-y" />
+          <p className="text-[11px] text-gray-600 mb-2">
+            {extra.trim()
+              ? `These instructions override the deck description. ${1500 - extra.length} characters left.`
+              : 'Anything typed here overrides the generated description — useful when a render comes back wrong.'}
+          </p>
 
           {/*
             Which wall, stated out loud. The renderer used to be handed nothing
