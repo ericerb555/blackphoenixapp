@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
   FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
@@ -1238,6 +1239,44 @@ function DesignerSession({ session, onSession }: {
                 onFilerReady={f => { filer.current = f; }} />
             </PanelErrorBoundary>
 
+            {/* ── Site photos ───────────────────────────────────────────────
+                Deliberately OUTSIDE the stage gate, unlike everything else.
+
+                The job folder that loads photos lives in Capture. Opening a
+                saved deck lands on Design. So from a reopened project there was
+                no photo control anywhere on screen and no indication that one
+                existed on another stage — reported, accurately, as "I pulled up
+                a saved deck, I have no photos and nowhere to add them".
+
+                This is not a second picker. It reports what the project holds
+                and sends you to the one that already exists, because two
+                pickers writing to the same place is how they end up
+                disagreeing. */}
+            {trade === 'deck' && (
+              <div className={card}>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                  <ImageIcon className="w-4 h-4 text-[#ea580c]" /> Site photos
+                </h2>
+                <p className="text-xs text-gray-500 mb-3">
+                  {storedPhotos > 0
+                    ? `${storedPhotos} photo${storedPhotos === 1 ? '' : 's'} filed with this project — they open with it.`
+                    : photoDrop.files.length > 0
+                      ? `${photoDrop.files.length} photo${photoDrop.files.length === 1 ? '' : 's'} loaded but not yet filed.`
+                      : 'None filed against this project yet.'}
+                  {photoDrop.files.length > 0 && !savedId && ' Save the deck to keep them.'}
+                </p>
+                {stage !== 'capture' && (
+                  <button
+                    onClick={() => setStage('capture')}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition"
+                    style={{ background: '#ea580c', color: '#fff' }}>
+                    <FolderOpen className="w-4 h-4" />
+                    {storedPhotos > 0 ? 'Add or review photos' : 'Add site photos'}
+                  </button>
+                )}
+              </div>
+            )}
+
             {trade === 'deck' && <>
 
             {/* ── Capture ────────────────────────────────────────────────
@@ -1251,18 +1290,6 @@ function DesignerSession({ session, onSession }: {
             <div className={`space-y-4 ${stage === 'capture' ? '' : 'hidden'}`}>
               <PanelErrorBoundary name="The job folder">
                 <JobFolder onSend={sendFolder} />
-
-                {/* What is actually filed against the project, as opposed to
-                    what is merely loaded into this tab. The two were the same
-                    thing for a long time and it was never visible which. */}
-                {(storedPhotos > 0 || photoDrop.files.length > 0) && (
-                  <p className="mt-2 text-[11px] text-gray-500">
-                    {storedPhotos > 0
-                      ? `${storedPhotos} site photo${storedPhotos === 1 ? '' : 's'} filed with this project.`
-                      : 'Site photos loaded — they are filed when you save.'}
-                    {savedId ? '' : ' Save the deck to keep them.'}
-                  </p>
-                )}
               </PanelErrorBoundary>
 
               <PanelErrorBoundary name="The existing house">
