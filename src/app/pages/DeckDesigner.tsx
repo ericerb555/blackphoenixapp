@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
-  FolderOpen, Plus,
+  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
@@ -126,6 +126,27 @@ async function headers() {
 const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '', jobTitle: '' };
 
 /**
+ * The trades the design centre covers.
+ *
+ * All seven are listed because all seven are the business, and a tool that only
+ * shows what happens to be finished reads as a smaller product than it is. The
+ * three that are not built say so on their own tile rather than being
+ * discovered by pressing them — a button that looks like the working ones and
+ * then does nothing is worse than one that admits what it is.
+ */
+type TradeId = 'deck' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
+
+const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> = [
+  { id: 'deck', label: 'Decks', icon: Hammer, built: true },
+  { id: 'siding', label: 'Siding', icon: Home, built: true },
+  { id: 'openings', label: 'Doors & windows', icon: DoorOpen, built: true },
+  { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: false },
+  { id: 'bathroom', label: 'Bathrooms', icon: Bath, built: false },
+  { id: 'flooring', label: 'Flooring', icon: Layers, built: true },
+  { id: 'roofing', label: 'Roofing', icon: Triangle, built: false },
+];
+
+/**
  * Where work goes when the server will not take it.
  *
  * 'New deck' used to refuse to clear the desk if parking failed, reasoning that
@@ -224,7 +245,7 @@ function DesignerSession({ session, onSession }: {
    * navigation act and not an edit: nothing about the deck is discarded by
    * looking at the siding.
    */
-  const [trade, setTrade] = useState<'deck' | 'siding' | 'openings' | 'flooring'>('deck');
+  const [trade, setTrade] = useState<TradeId>('deck');
 
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
@@ -713,7 +734,7 @@ function DesignerSession({ session, onSession }: {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Hammer className="w-6 h-6 text-[#ea580c]" /> Deck Designer
+              <Hammer className="w-6 h-6 text-[#ea580c]" /> Design Center
             </h1>
             <p className="text-sm text-gray-400 mt-0.5">
               One model, three drawings. The framing plan and the rendering are the same geometry,
@@ -798,21 +819,28 @@ function DesignerSession({ session, onSession }: {
           contain — the customer, the capture, the pricing and the documents are
           the same work whichever trade this is.
         */}
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Trade</span>
-          {([['deck', 'Deck'], ['siding', 'Siding'], ['openings', 'Doors & windows'], ['flooring', 'Flooring']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setTrade(id)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                trade === id
-                  ? 'bg-white/10 text-white ring-1 ring-[#ea580c]/50'
-                  : 'border border-[#2A2A2A] text-gray-500 hover:text-white'
-              }`}>
-              {label}
-            </button>
-          ))}
-          <span className="ml-2 text-[11px] text-gray-600">
-            Kitchens and bathrooms come next.
-          </span>
+        <div className="mb-4">
+          <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Design tools</h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            {TRADES.map(t => {
+              const on = trade === t.id;
+              return (
+                <button key={t.id} onClick={() => setTrade(t.id)}
+                  className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-4 transition ${
+                    on
+                      ? 'border-[#ea580c] bg-[#ea580c]/10 text-white'
+                      : 'border-[#2A2A2A] bg-[#111] text-gray-400 hover:border-[#ea580c]/40 hover:text-white'
+                  }`}>
+                  <t.icon className={`h-5 w-5 ${on ? 'text-[#ea580c]' : ''}`} />
+                  <span className="text-center text-xs font-bold leading-tight">{t.label}</span>
+                  {/* Said on the button rather than discovered by pressing it.
+                      A tile that looks identical to a working one and then does
+                      nothing is worse than one that admits what it is. */}
+                  {!t.built && <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-600">soon</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mb-4 flex flex-wrap gap-1.5">
@@ -1036,10 +1064,30 @@ function DesignerSession({ session, onSession }: {
               </PanelErrorBoundary>
             )}
 
+            {/* The trades that are listed and not yet built. Says what it would
+                take rather than showing an empty working area, because a blank
+                screen reads as broken and this is neither broken nor finished. */}
+            {!TRADES.find(t => t.id === trade)?.built && (
+              <div className={card}>
+                <h2 className="text-sm font-bold text-white">
+                  {TRADES.find(t => t.id === trade)?.label} — not built yet
+                </h2>
+                <p className="mt-2 text-sm text-gray-400">
+                  {trade === 'kitchen' && 'A kitchen needs cabinet runs, appliance clearances, worktops and the services behind the walls — and the cost drivers are the ones a photograph cannot see, like where the waste line runs. It is the largest of the remaining trades.'}
+                  {trade === 'bathroom' && 'A bathroom is smaller than a kitchen and far more constrained: fixture positions, the toilet rough-in, waterproofing and ventilation. It shares most of its machinery with kitchens, so doing it first makes kitchens cheaper.'}
+                  {trade === 'roofing' && 'Roofing needs facets and pitches rather than flat areas, plus ridges, valleys, rakes, eaves, flashing and layers to strip. The siding capture already reads roof planes, so the measuring half has a head start.'}
+                </p>
+                <p className="mt-3 text-[11px] text-gray-600">
+                  Everything around it already works — the customer, the capture, the pricing and the
+                  quote are shared, so this is the model in the middle and nothing else.
+                </p>
+              </div>
+            )}
+
             {/* Said plainly rather than shown as an empty stage. A deck produces
                 a permit packet and a build specification; the equivalents for
                 the other trades are not written. */}
-            {trade !== 'deck' && stage === 'documents' && (
+            {trade !== 'deck' && TRADES.find(t => t.id === trade)?.built && stage === 'documents' && (
               <div className={card}>
                 <p className="text-sm text-gray-400">
                   No documents for this trade yet. A deck produces a permit packet and a build

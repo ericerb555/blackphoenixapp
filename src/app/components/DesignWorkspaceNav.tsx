@@ -22,7 +22,7 @@ export interface WorkspaceLink {
 }
 
 export const DESIGN_TOOLS: WorkspaceLink[] = [
-  { id: 'deck-designer', label: 'Deck designer', hint: '3D, framing and plan from one model', icon: Hammer, route: 'deck-designer' },
+  { id: 'deck-designer', label: 'Design center', hint: 'Every trade — deck, siding, openings, flooring', icon: Hammer, route: 'deck-designer' },
   { id: 'stairs', label: 'Stair calculator', hint: 'Risers, run and stringer cuts on site', icon: ArrowDownRight, route: 'stair-calculator' },
   { id: 'permits', label: 'Permits & zoning', hint: 'Town requirements and submission log', icon: Building2, route: 'permit-tracker' },
   { id: 'variances', label: 'Zoning variance', hint: 'Draft and file a variance application', icon: FileSignature, route: 'variances' },

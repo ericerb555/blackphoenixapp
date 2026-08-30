@@ -47,6 +47,8 @@ interface TabCategory { id: string; label: string; icon: any; modules: ModuleCar
 export interface CommandCenterHomeProps {
   tabCategories: TabCategory[];
   companyName: string;
+  /** The company mark, shown beside the name. */
+  companyLogo?: string | null;
   onNavigate: (path: string, tab?: string) => void;
   summary: {
     totalRevenue: number;
@@ -102,7 +104,7 @@ function delinquentFrom(invoices: any[]) {
 }
 
 export default function CommandCenterHome({
-  tabCategories, companyName, onNavigate, summary,
+  tabCategories, companyName, companyLogo, onNavigate, summary,
 }: CommandCenterHomeProps) {
   const [query, setQuery] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -217,9 +219,19 @@ export default function CommandCenterHome({
       {/* ── Header: search first, everything else behind one button ───────── */}
       <header className="sticky top-0 z-30 border-b border-[#2A2A2A] bg-[#0F0F0F]/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-6 py-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold">{companyName}</h1>
-            <p className="text-xs text-gray-500">Command Center</p>
+          {/* The company's own mark and name, top left, the way every portal
+              and the landing page already do it. */}
+          <div className="flex min-w-0 items-center gap-2.5">
+            {companyLogo
+              ? <img src={companyLogo} alt={companyName}
+                  className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+              : <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-600 to-orange-700 text-sm font-black">
+                  {companyName.slice(0, 1).toUpperCase()}
+                </div>}
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-bold">{companyName}</h1>
+              <p className="text-xs text-gray-500">Command Center</p>
+            </div>
           </div>
 
           <div className="relative min-w-[16rem] flex-1">

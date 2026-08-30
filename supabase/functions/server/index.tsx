@@ -3352,6 +3352,14 @@ app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
   try {
     const actor = await intakeActor(c);
     if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    // Administrator, not merely signed in. This answers with what the company
+    // PAYS for material — the vendor catalogue and the typed price book — and
+    // every customer, vendor, subcontractor and tenant with a portal account is
+    // signed in. Handing them a list of SKUs and getting back the cost basis
+    // they are quoted against is a commercial leak, not an untidy edge case.
+    if (!(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
 
     const body = await c.req.json().catch(() => ({}));
     const lines = Array.isArray(body?.lines) ? body.lines.slice(0, 200) : [];
@@ -3420,6 +3428,13 @@ app.get('/make-server-3eae23a6/deck-price-book', async (c) => {
   try {
     const actor = await intakeActor(c);
     if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    // Reading this was left open to anyone signed in on the reasoning that
+    // quoting needs it. That reasoning was wrong: quoting is done by staff, and
+    // "anyone signed in" includes every customer being quoted. These are the
+    // prices the company pays.
+    if (!(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
     const stored = await kv.get('deck_price_book:global') as any;
     return c.json({
       success: true,

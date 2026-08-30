@@ -35,6 +35,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import MasterScheduling from './MasterScheduling';
 import UnifiedDashboardMobile from './UnifiedDashboardMobile';
 import CommandCenterHome from './CommandCenterHome';
+import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ServerDeploymentGuide from '../components/ServerDeploymentGuide';
 import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
@@ -131,7 +132,22 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   const [isMobile, setIsMobile] = useState(false);
   const [forceMobileView, setForceMobileView] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
-  const [companyName, setCompanyName] = useState('Your Company');
+  /**
+   * The company's own name, never a placeholder.
+   *
+   * This said "Your Company" at the top of the command centre, which is a
+   * stand-in that reads as somebody else's product. It came from
+   * `/business-profiles`, and there are no business profile records in this
+   * project at all — so the placeholder was not a brief flash before the real
+   * name arrived, it was permanent.
+   *
+   * The landing page has had this right all along through
+   * `loadBrandingWithFallback`, which tries the server, then localStorage, and
+   * refuses a base64 logo that would not survive being shown on another device.
+   * Using the same loader here means one answer to "whose app is this" rather
+   * than two, and the fallback is the real company rather than a blank.
+   */
+  const [companyName, setCompanyName] = useState('The Black Phoenix Company');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
   const [alertCount, setAlertCount] = useState(8);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
@@ -195,13 +211,25 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           const profiles = await response.json();
           if (profiles && profiles.length > 0) {
             const profile = profiles[0];
-            setCompanyName(profile.name || 'Your Company');
-            setCompanyLogo(profile.logo || null);
+            if (profile.name) setCompanyName(profile.name);
+            if (profile.logo) setCompanyLogo(profile.logo);
           }
         }
       } catch (error) {
         // Silently fail and use defaults
       }
+
+      // Then the loader the landing page uses, which reaches the branding the
+      // business-profiles route does not. Only ever overwrites with something
+      // real, so a missing branding record cannot blank out a name that the
+      // first call already found.
+      try {
+        const branding = await loadBrandingWithFallback();
+        const name = branding?.company_name;
+        const logo = branding?.logo_url || branding?.logo_primary || branding?.logoPrimary;
+        if (name) setCompanyName(name);
+        if (logo) setCompanyLogo(logo);
+      } catch { /* the defaults are the real company, so this is survivable */ }
     };
 
     fetchCompanyBranding();
@@ -630,6 +658,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         tabCategories={tabCategories}
         companyName={companyName}
         companyLogo={companyLogo}
+        companyLogo={companyLogo}
         totalRevenue={totalRevenue}
         revenueTrend={revenueTrend}
         activeJobsCount={activeJobsCount}
@@ -655,6 +684,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       <CommandCenterHome
         tabCategories={tabCategories}
         companyName={companyName}
+        companyLogo={companyLogo}
         onNavigate={handleNavigation}
         summary={{
           totalRevenue,
