@@ -20,7 +20,25 @@ type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'draft' | 'pending' | 'paid' | 'overdue';
 
 export default function InvoicesNew() {
-  const { user, isOwner } = useAuth();
+  const { user, isOwner: isCompanyOwner, isAdmin, isMasterAdmin } = useAuth();
+
+  /**
+   * Who may manage an invoice on this screen.
+   *
+   * `isOwner` alone was too narrow, and it made the whole tab inert: it is true
+   * only when there is a row in `company_members` with role 'owner' and
+   * is_active set, so an administrator — or an owner whose membership row was
+   * never written — got no Edit button, no payment button, and a card that did
+   * nothing when clicked. Nothing on screen explained why.
+   *
+   * The server is the real gate and always was: every write goes through
+   * `financialActor` and is refused without administrator access. So this
+   * decides what is worth offering, and the server decides what is allowed.
+   * Matching the server's notion of who manages money is the point — a UI
+   * stricter than the rule behind it is indistinguishable from a broken screen.
+   */
+  const canManage = Boolean(isCompanyOwner || isAdmin || isMasterAdmin);
+  const isOwner = canManage;
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
