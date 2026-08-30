@@ -22,7 +22,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Camera, Video, Upload, Sparkles, Loader2, X, AlertTriangle, Info,
+  Camera, Video, Upload, Sparkles, Loader2, X, AlertTriangle, Info, Send,
   Home, Ruler, Download, ImageIcon, CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -69,9 +69,19 @@ interface Props {
    * placed than this component to decide which parts of it matter.
    */
   onRead?: (analysis: any) => void;
+  /** Who the design belongs to, so a send button can name them. */
+  customerName?: string;
+  /**
+   * File a picture into the customer's folder and show it to them.
+   *
+   * Passed in rather than done here because this component has no idea who the
+   * customer is — that lives with the design, and a component that reached out
+   * to find it would be the second place that decision is made.
+   */
+  onSendToCustomer?: (label: string, dataUri: string) => Promise<boolean>;
 }
 
-export default function HouseCapture({ model, site, onApply, incoming, onRead }: Props) {
+export default function HouseCapture({ model, site, onApply, incoming, onRead, customerName, onSendToCustomer }: Props) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -386,6 +396,34 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
    * and the quote all move with it — which is the whole reason each look is a
    * model patch rather than a description in a prompt.
    */
+  /**
+   * Put a render in front of the customer.
+   *
+   * The render lives in private storage behind a signed URL, so the bytes are
+   * fetched back and filed as a document against the customer. That keeps one
+   * filing route for everything the design centre produces rather than a second
+   * path that only images use.
+   */
+  const [sending, setSending] = useState<string | null>(null);
+  const sendToCustomer = useCallback(async (url: string, label: string) => {
+    if (!onSendToCustomer) return;
+    setSending(url);
+    try {
+      const blob = await (await fetch(url)).blob();
+      const dataUri: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(new Error('That image could not be read back.'));
+        r.readAsDataURL(blob);
+      });
+      await onSendToCustomer(label, dataUri);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not send that to the customer.');
+    } finally {
+      setSending(null);
+    }
+  }, [onSendToCustomer]);
+
   const chooseLook = useCallback((look: any) => {
     const d = look?.deck;
     if (!d) return;
@@ -670,6 +708,14 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
                           style={{ background: '#ea580c' }}>
                           Use this one
                         </button>
+                        {onSendToCustomer && (
+                          <button onClick={() => sendToCustomer(l.url, `${l.name} — ${l.caption}`)}
+                            disabled={sending === l.url} title="Send this look to the customer"
+                            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold text-white flex items-center disabled:opacity-50"
+                            style={{ background: 'rgba(234,88,12,0.2)', border: '1px solid rgba(234,88,12,0.4)' }}>
+                            {sending === l.url ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                         <a href={l.url} download={`${(site.projectName || 'deck').replace(/[^\w-]+/g, '-')}-${l.id}-not-to-scale.png`}
                           target="_blank" rel="noreferrer"
                           className="px-2 py-1.5 rounded-lg text-[11px] font-semibold text-white flex items-center"
@@ -690,12 +736,23 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead }:
                 className="w-full rounded-xl border border-[#2A2A2A]" />
               <div className="flex items-center justify-between gap-3 mt-2">
                 <p className="text-[11px] text-gray-500">{render.disclaimer}</p>
-                <a href={render.url} download={`${(site.projectName || 'deck').replace(/[^\w-]+/g, '-')}-concept-not-to-scale.png`}
-                  target="_blank" rel="noreferrer"
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                  <Download className="w-4 h-4" /> Save
-                </a>
+                <div className="shrink-0 flex items-center gap-2">
+                  {onSendToCustomer && (
+                    <button onClick={() => sendToCustomer(render.url, 'Deck concept on your house')}
+                      disabled={sending === render.url}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ background: '#ea580c' }}>
+                      {sending === render.url ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {customerName ? `Send to ${customerName.split(' ')[0]}` : 'Send to customer'}
+                    </button>
+                  )}
+                  <a href={render.url} download={`${(site.projectName || 'deck').replace(/[^\w-]+/g, '-')}-concept-not-to-scale.png`}
+                    target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white"
+                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                    <Download className="w-4 h-4" /> Save
+                  </a>
+                </div>
               </div>
             </div>
           )}
