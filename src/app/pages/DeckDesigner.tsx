@@ -10,7 +10,7 @@
  * the thing is being built — so the address is captured at design time rather
  * than bolted on at print time.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
   FolderOpen, Plus,
@@ -28,6 +28,7 @@ import JobFolder from '../components/JobFolder';
 import { forgetFolder } from '../lib/localFolder';
 import DeckFinishPicker from '../components/DeckFinishPicker';
 import ConnectionDetails from '../components/ConnectionDetails';
+import DeckQuotePanel from '../components/DeckQuotePanel';
 import SketchImport from '../components/SketchImport';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
@@ -182,6 +183,50 @@ function DesignerSession({ session, onSession }: {
   const [mode, setMode] = useState<ViewMode>('3d');
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(session.id);
+  /**
+   * How anything produced here reaches the customer's folder.
+   *
+   * Held in a ref rather than state because it is a function handed up by the
+   * customer panel, and re-rendering the whole designer every time that panel
+   * re-creates its callback would be a lot of work for nothing.
+   */
+  const filer = useRef<((label: string, category: string, dataUri: string, shared?: boolean) => Promise<boolean>) | null>(null);
+
+  /**
+   * Which part of the work is on screen.
+   *
+   * This page used to render eleven panels in one scroll — capture, design,
+   * pricing and paperwork all at once, whatever you were actually doing. It had
+   * been reorganised twice without landing, because the trouble was never the
+   * arrangement: there was no notion of what stage the work was at, so there
+   * was nothing to arrange around.
+   *
+   * Design is the default because it is where most returns to this page are
+   * headed, and because it is closest to what the page used to show.
+   */
+  const [stage, setStage] = useState<'capture' | 'design' | 'price' | 'documents'>('design');
+
+  /**
+   * Take the address from the job the design is attached to, but never quietly
+   * replace one somebody typed.
+   *
+   * Filling an empty field saves retyping an address that is already on the
+   * work request. Overwriting a filled one is a different act entirely: the
+   * address sets snow load, frost depth and the code edition, so silently
+   * moving it would silently change the structure of the deck. When the two
+   * disagree the designer is told and chooses.
+   */
+  useEffect(() => {
+    const fromJob = String(link.jobAddress || '').trim();
+    if (!fromJob) return;
+    setSite(s => (String(s.address || '').trim() ? s : { ...s, address: fromJob }));
+  }, [link.jobAddress]);
+
+  const addressDiffers = Boolean(
+    link.jobAddress
+    && String(site.address || '').trim()
+    && String(site.address).trim().toLowerCase() !== String(link.jobAddress).trim().toLowerCase(),
+  );
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
   // A snapshot of what was last saved or opened. Comparing against it is how
@@ -714,8 +759,42 @@ function DesignerSession({ session, onSession }: {
           </div>
         </div>
 
+        {/*
+          The stages of the work, in the order it happens.
+
+          One stage on screen at a time. That is what makes this usable on a
+          phone during a site visit — which is where capture actually happens —
+          and a rail beside eleven stacked panels never could be.
+        */}
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {([
+            ['capture', 'Capture', 'Photos, video and what is already there'],
+            ['design', 'Design', 'Size, framing and finishes'],
+            ['price', 'Price', 'What it costs, from the framing'],
+            ['documents', 'Documents', 'Permit packet, spec and details'],
+          ] as const).map(([id, label, hint]) => (
+            <button key={id} onClick={() => setStage(id)} title={hint}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold transition ${
+                stage === id
+                  ? 'bg-[#ea580c] text-white shadow-lg shadow-orange-500/20'
+                  : 'border border-[#2A2A2A] bg-[#111] text-gray-400 hover:border-[#ea580c]/40 hover:text-white'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
-          {/* Controls */}
+          {/*
+            The rail stays put through every stage.
+
+            It holds the things you need whatever you are doing: which project
+            is open, the site address — which decides snow load, frost depth and
+            which code applies, so it is not administrative detail — and the
+            deck's size. Hiding it outside the design stage was tried and was
+            wrong: "Saved decks" lives here, so opening a project would have
+            been impossible from three of the four stages.
+          */}
           <div className="space-y-4">
             <DesignWorkspaceNav current="deck-designer" />
             <div className={card}>
@@ -727,6 +806,24 @@ function DesignerSession({ session, onSession }: {
                   onChange={e => setSite(s => ({ ...s, projectName: e.target.value }))} />
                 <input className={input} placeholder="Street address" value={site.address}
                   onChange={e => setSite(s => ({ ...s, address: e.target.value }))} />
+                {/*
+                  Surfaced rather than resolved. Two addresses for one job is
+                  usually a design attached to the wrong work request, and it is
+                  worth a second of attention because this field decides the
+                  snow load the deck is framed for.
+                */}
+                {addressDiffers && (
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2">
+                    <p className="text-[11px] text-amber-500/90">
+                      The job says <span className="font-semibold">{link.jobAddress}</span>.
+                    </p>
+                    <button
+                      onClick={() => setSite(s => ({ ...s, address: String(link.jobAddress || '') }))}
+                      className="mt-1 text-[11px] font-bold text-[#ea580c] hover:underline">
+                      Use the job's address
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <input className={input} placeholder="Town" value={site.town}
                     onChange={e => setSite(s => ({ ...s, town: e.target.value }))} />
@@ -866,7 +963,8 @@ function DesignerSession({ session, onSession }: {
 
           {/* Views + takeoff */}
           <div className="space-y-4">
-            <div className={card}>
+            {/* The drawing is what you design against, so it belongs to Design. */}
+            <div className={`${card} ${stage === 'design' ? '' : 'hidden'}`}>
               {sized
                 ? <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
                 : (
@@ -882,6 +980,8 @@ function DesignerSession({ session, onSession }: {
                 )}
             </div>
 
+            {/* The assistant and the customer both apply whatever you are
+                doing, so they stay put rather than belonging to a stage. */}
             <PanelErrorBoundary name="Assistant">
               <DeckAssistant model={model} site={site} loads={loads} takeoff={bom}
                 structural={struct} advisories={advisories} findings={findings}
@@ -889,33 +989,57 @@ function DesignerSession({ session, onSession }: {
             </PanelErrorBoundary>
 
             <PanelErrorBoundary name="Customer and job">
-              <ProjectLinkPanel designId={savedId} link={link} onLink={setLink} />
+              {/* The filer was exposed by this panel and never picked up, so
+                  everything the design centre produced had to be downloaded and
+                  re-uploaded by hand to reach the customer it belonged to. */}
+              <ProjectLinkPanel designId={savedId} link={link} onLink={setLink}
+                onFilerReady={f => { filer.current = f; }} />
             </PanelErrorBoundary>
 
-            {/* One folder for the job, split between the two readers below it.
+            {/* ── Capture ────────────────────────────────────────────────
+                Everything that reads what is already there. This is the stage
+                that happens on a phone in somebody's yard, which is why it is
+                one column and nothing else is on screen beside it.
+
+                One folder for the job, split between the two readers below it.
                 It sits above them because that is the order the work happens in:
                 open the folder, then look at what each reader made of its half. */}
-            <PanelErrorBoundary name="The job folder">
-              <JobFolder onSend={sendFolder} />
-            </PanelErrorBoundary>
+            <div className={`space-y-4 ${stage === 'capture' ? '' : 'hidden'}`}>
+              <PanelErrorBoundary name="The job folder">
+                <JobFolder onSend={sendFolder} />
+              </PanelErrorBoundary>
 
-            <PanelErrorBoundary name="Read a sketch">
-              <SketchImport model={model} incoming={sketchDrop} onRead={setSketchRead}
-                onApply={patch => setModel(m => ({ ...m, ...patch }))} />
-            </PanelErrorBoundary>
+              <PanelErrorBoundary name="The existing house">
+                <HouseCapture model={model} site={site} incoming={photoDrop} onRead={setHouseRead}
+                  onApply={patch => setModel(m => ({ ...m, ...patch }))}
+                  customerName={link.customerName}
+                  onSendToCustomer={(label, dataUri) => filer.current
+                    ? filer.current(label, 'render', dataUri, true)
+                    : Promise.resolve(false)} />
+              </PanelErrorBoundary>
 
-            <PanelErrorBoundary name="Finishes">
-              <DeckFinishPicker model={model} onChange={patch => setModel(m => ({ ...m, ...patch }))} />
-            </PanelErrorBoundary>
+              <PanelErrorBoundary name="Read a sketch">
+                <SketchImport model={model} incoming={sketchDrop} onRead={setSketchRead}
+                  onApply={patch => setModel(m => ({ ...m, ...patch }))} />
+              </PanelErrorBoundary>
+            </div>
 
-            {/* Sits directly under the drawings: the measured views and the
-                photo of the real house are the two ways of looking at the same
-                deck, and keeping them adjacent makes the difference between
-                them obvious rather than something stated in fine print. */}
-            <PanelErrorBoundary name="The existing house">
-              <HouseCapture model={model} site={site} incoming={photoDrop} onRead={setHouseRead}
-                onApply={patch => setModel(m => ({ ...m, ...patch }))} />
-            </PanelErrorBoundary>
+            {/* Finishes are a design decision, so they sit with the drawing
+                rather than with the photographs. */}
+            <div className={stage === 'design' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Finishes">
+                <DeckFinishPicker model={model} onChange={patch => setModel(m => ({ ...m, ...patch }))} />
+              </PanelErrorBoundary>
+            </div>
+
+            {/* ── Price ──────────────────────────────────────────────────
+                Quantities come straight out of the framing, so the quote and
+                the drawing cannot disagree. */}
+            <div className={stage === 'price' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Quote">
+                <DeckQuotePanel model={model} />
+              </PanelErrorBoundary>
+            </div>
 
             {advisories.length > 0 && (
               <div className={card}>
@@ -965,17 +1089,30 @@ function DesignerSession({ session, onSession }: {
                 nobody has described — which is what made a cleared desk look
                 like the previous job still sitting there. */}
             {sized && <>
-            <PanelErrorBoundary name="Loads and footings"><DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} /></PanelErrorBoundary>
+            {/* A span that fails should be visible while you are changing it,
+                not discovered later in the paperwork — so the structural check
+                lives with Design. */}
+            <div className={stage === 'design' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Loads and footings"><DeckStructuralPanel model={model} site={site} loads={loads} onLoadsChange={setLoads} /></PanelErrorBoundary>
+            </div>
 
-            <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
+            {/* ── Documents ─────────────────────────────────────────────
+                What goes to the building department and to the crew. Nothing
+                here is adjusted; it is all produced from the design. */}
+            <div className={`space-y-4 ${stage === 'documents' ? '' : 'hidden'}`}>
+              <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
 
-            <PanelErrorBoundary name="Connection details">
-              <ConnectionDetails model={model} />
-            </PanelErrorBoundary>
+              <PanelErrorBoundary name="Connection details">
+                <ConnectionDetails model={model} />
+              </PanelErrorBoundary>
 
-            <PanelErrorBoundary name="Build specification"><DeckBuildSpecPanel model={model} site={site} /></PanelErrorBoundary>
+              <PanelErrorBoundary name="Build specification"><DeckBuildSpecPanel model={model} site={site} /></PanelErrorBoundary>
+            </div>
 
-            <div className={card}>
+            {/* The at-a-glance counts. Shown alongside the quote, where the
+                same quantities are being priced, rather than as a twelfth panel
+                on a page that already had eleven. */}
+            <div className={`${card} ${stage === 'price' ? '' : 'hidden'}`}>
               <h2 className="text-sm font-bold text-white mb-3">Materials</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                 {[
@@ -1012,15 +1149,77 @@ function DesignerSession({ session, onSession }: {
  * Owns which session is being edited. Changing the key is the only way a deck
  * is swapped, so a stale value cannot outlive the swap.
  */
+/**
+ * A job handed over from the pipeline.
+ *
+ * Read from the URL rather than from a stash, because a link is something that
+ * can be sent, bookmarked and reloaded — all of which somebody will do — and a
+ * value parked in session storage survives none of that.
+ *
+ * Only ids travel. The wording and the address are filled in by the customer
+ * panel once it loads that customer's records, so there is one place that knows
+ * what a job is called rather than two that can disagree.
+ */
+function jobFromUrl(): { email: string; jobId: string } | null {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const email = String(q.get('email') || '').trim().toLowerCase();
+    const jobId = String(q.get('wr') || '').trim();
+    if (!email && !jobId) return null;
+    return { email, jobId };
+  } catch {
+    return null;
+  }
+}
+
 export default function DeckDesigner() {
-  const [session, setSession] = useState<Session>({
+  const [session, setSession] = useState<Session>(() => ({
     key: 0,
     model: { ...BLANK_DECK },
     site: { ...EMPTY_SITE },
     loads: { ...DEFAULT_SITE_LOADS },
     link: { ...NO_LINK },
     id: null,
-  });
+  }));
+
+  /**
+   * A job handed over from the pipeline, resolved once.
+   *
+   * The email is turned into a customer id here, against the same customer list
+   * the panel uses, rather than the pipeline being made to carry an id it does
+   * not have. Done once and then forgotten: re-applying it would fight anybody
+   * who changed the customer afterwards.
+   */
+  const handedOver = useRef(false);
+  useEffect(() => {
+    if (handedOver.current) return;
+    const from = jobFromUrl();
+    if (!from) return;
+    handedOver.current = true;
+    (async () => {
+      try {
+        const { data: { session: s } } = await supabase.auth.getSession();
+        const res = await fetch(`${SERVER}/customers`, {
+          headers: { Authorization: `Bearer ${s?.access_token || publicAnonKey}`, apikey: publicAnonKey },
+        });
+        const json = await res.json().catch(() => ({}));
+        const match = (json?.customers || []).find(
+          (c: any) => String(c?.email || '').trim().toLowerCase() === from.email,
+        );
+        if (!match) {
+          toast.error('That customer is not in the customer list yet, so the job could not be attached.');
+          return;
+        }
+        setSession(prev => ({
+          ...prev,
+          key: prev.key + 1,
+          link: { ...NO_LINK, customerId: String(match.id), customerName: match.name || match.email || '', jobId: from.jobId },
+        }));
+      } catch {
+        toast.error('Could not attach that job. Pick the customer by hand.');
+      }
+    })();
+  }, []);
 
   return (
     <DesignerSession

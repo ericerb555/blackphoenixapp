@@ -49,6 +49,16 @@ export interface DesignLink {
    * looking one up from a bare id.
    */
   jobTitle?: string;
+  /**
+   * The address on the job, carried across so it need not be retyped.
+   *
+   * It travels with the link rather than being looked up later because the
+   * address is not administrative detail here — it decides snow load, frost
+   * depth and which code edition applies, so a design attached to a job and a
+   * design carrying that job's address are the same claim and should not be
+   * able to drift apart.
+   */
+  jobAddress?: string;
 }
 
 interface Props {
@@ -61,7 +71,7 @@ interface Props {
    * sent to the customer's folder from wherever it is generated rather than
    * only from here.
    */
-  onFilerReady?: (file: (label: string, category: string, dataUri: string) => Promise<boolean>) => void;
+  onFilerReady?: (file: (label: string, category: string, dataUri: string, shared?: boolean) => Promise<boolean>) => void;
 }
 
 export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady }: Props) {
@@ -110,6 +120,27 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
 
   useEffect(() => { loadContext(link.customerId); }, [link.customerId, loadContext]);
 
+  /**
+   * Fill in a job we only know the id of.
+   *
+   * Two ways that happens: a design saved before the address was carried on the
+   * link, and a design opened straight from the pipeline, which knows the ids
+   * and not the wording. Rather than making either caller look the details up,
+   * they are completed here once the customer's records arrive.
+   *
+   * Guarded on an actual difference — calling `onLink` unconditionally after
+   * every context load would re-render the designer forever.
+   */
+  useEffect(() => {
+    if (!link.jobId || !context?.requests) return;
+    const job = context.requests.find((r: any) => String(r.id) === String(link.jobId));
+    if (!job) return;
+    const title = String(job.title || '');
+    const address = String(job.address || '').trim();
+    if (link.jobTitle === title && (link.jobAddress || '') === address) return;
+    onLink({ ...link, jobTitle: title, jobAddress: address });
+  }, [context, link, onLink]);
+
   const attach = useCallback(async (customerId: string, jobId: string) => {
     const c = customers.find(x => String(x.id) === customerId);
     const job = (context?.requests || []).find((r: any) => String(r.id) === jobId);
@@ -118,6 +149,11 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
       customerName: c?.name || c?.email || '',
       jobId,
       jobTitle: job?.title || '',
+      // The job's address if it has one, otherwise the customer's. A work
+      // request is raised against a property and the customer's record is where
+      // they live, and for a landlord or a property manager those are routinely
+      // different places — so the job wins whenever it says anything.
+      jobAddress: String(job?.address || c?.address || '').trim(),
     });
 
     // Only persist once the design exists — a link on an unsaved design has
@@ -137,7 +173,20 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
     }
   }, [customers, designId, onLink]);
 
-  const fileDocument = useCallback(async (label: string, category: string, dataUri: string) => {
+  /**
+   * File a document into a customer's folder, and optionally show it to them.
+   *
+   * Filing and sharing are separate on purpose. A cost breakdown or a
+   * half-finished drawing belongs in the folder without belonging in front of
+   * the customer, so `shared` is asked for rather than assumed — the server
+   * defaults it to false and only returns shared documents to the portal.
+   */
+  const fileDocument = useCallback(async (
+    label: string,
+    category: string,
+    dataUri: string,
+    shared = false,
+  ) => {
     if (!link.customerId) { toast.error('Pick a customer before filing a document.'); return false; }
     setBusy(true);
     try {
@@ -146,12 +195,12 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
         headers: await headers(),
         body: JSON.stringify({
           customerId: link.customerId, jobId: link.jobId, designId: designId || '',
-          label, category, dataUri,
+          label, category, dataUri, sharedWithCustomer: shared,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Could not file that document.');
-      toast.success(`Filed “${label}”.`);
+      toast.success(shared ? `Sent “${label}” to the customer.` : `Filed “${label}”.`);
       loadContext(link.customerId);
       return true;
     } catch (err: any) {

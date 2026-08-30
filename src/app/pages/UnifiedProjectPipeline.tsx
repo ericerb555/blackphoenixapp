@@ -26,7 +26,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  FileText, DollarSign, CheckCircle, Clock, Play, Eye, Edit2, Home,
+  FileText, DollarSign, CheckCircle, Clock, Play, Eye, Edit2, Home, Hammer,
   Send, FileSignature, Package, TrendingUp, Filter, Search,
   Plus, ArrowRight, User, MapPin, Calendar, AlertCircle, Sparkles,
   Building2, Phone, Mail, Wrench, ChevronRight, Star, CircleDot,
@@ -1512,6 +1512,37 @@ export default function UnifiedProjectPipeline() {
                               View Full Request + Media
                             </button>
                           )}
+                          {/*
+                            Design this job.
+
+                            The other direction into the design centre. It used
+                            to open standalone and be attached to a customer
+                            afterwards, which meant retyping an address that was
+                            already on the work request — and it could not be
+                            attached to a job at all, because the route that
+                            listed a customer's jobs was reading a key nothing
+                            is stored under.
+
+                            Only ids travel in the link. The design centre fills
+                            in the job's wording and address from the customer's
+                            records, so there is one place that knows what a job
+                            is called.
+                          */}
+                          <button
+                            onClick={() => navigate(
+                              // The email rather than a customer id, because a
+                              // pipeline item carries the address it can reply
+                              // to and not the CRM's id for the person. The
+                              // design centre resolves one to the other against
+                              // the customer list it already loads.
+                              `/deck-designer?email=${encodeURIComponent(item.customerEmail || '')}&wr=${encodeURIComponent(item.id || '')}`,
+                            )}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-[#ea580c]/20 to-orange-600/20 hover:from-[#ea580c]/30 hover:to-orange-600/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg text-xs font-semibold transition"
+                          >
+                            <Hammer className="w-3.5 h-3.5" />
+                            Design this job
+                          </button>
+
                           {/* Secondary Action - View Details */}
                           <button
                             onClick={() => handleViewProjectDetails(item)}
