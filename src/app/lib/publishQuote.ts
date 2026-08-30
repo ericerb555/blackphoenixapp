@@ -129,6 +129,12 @@ export async function publishDeckQuote(input: PublishInput): Promise<PublishResu
     // when the design moves past it.
     designId: designId || '',
     designVersion: designVersion ?? null,
+    // Cleared here rather than anywhere else: the quote is being rewritten from
+    // the design as it stands, so by definition it is no longer behind it. The
+    // server sets this flag on save; bringing the quote up to date is the only
+    // thing that clears it.
+    designStale: false,
+    designStaleAt: null,
     designKind: 'decks',
     title: input.projectName || link.jobTitle || 'Deck',
     address: link.jobAddress || '',
@@ -180,6 +186,9 @@ export async function publishDeckQuote(input: PublishInput): Promise<PublishResu
           id, quoteNumber: quote.number, materials, labor,
           materialsSubtotal: totals.materials, laborSubtotal: totals.labour,
           taxAmount: totals.tax, totalCost: totals.total,
+          // Cleared on the board as well as on the quote — this copy is the one
+          // the pipeline card reads.
+          designStale: false, designVersion: designVersion ?? null,
         },
         estimatedValue: totals.total,
         lastModified: now,

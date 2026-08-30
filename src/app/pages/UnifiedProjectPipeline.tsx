@@ -1345,6 +1345,19 @@ export default function UnifiedProjectPipeline() {
                                 <Wrench className="w-3 h-3" />
                                 {item.quote.labor?.length || 0} Labor Items
                               </div>
+                              {/*
+                                The design has moved on since this quote was
+                                priced. Surfaced here as well as in the design
+                                centre, because this is the board somebody scans
+                                before ringing a customer — and the figure they
+                                would quote from is the one that is behind.
+                              */}
+                              {item.quote.designStale && (
+                                <div className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400">
+                                  <AlertCircle className="w-3 h-3" />
+                                  Design changed since quoting
+                                </div>
+                              )}
                             </div>
                           )}
 

@@ -59,6 +59,8 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
 }) {
   const [publishing, setPublishing] = useState(false);
   const [quoteId, setQuoteId] = useState<string | null>(null);
+  /** The quote already made from this design, if there is one. */
+  const [existing, setExisting] = useState<any>(null);
   const [prices, setPrices] = useState<PriceBook>({});
   const [opts, setOpts] = useState<QuoteOptions>(DEFAULT_QUOTE_OPTIONS);
   const [loading, setLoading] = useState(true);
@@ -124,6 +126,57 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
    * width slider changes every quantity and no SKU, and re-pricing on every
    * frame of that would be a request per pixel.
    */
+  /**
+   * Find the quote already made from this design.
+   *
+   * Without this, reopening a design and pressing the button would write a
+   * second quote for the same job — two live quotes for one deck, and no way
+   * for anyone downstream to tell which one counts. It is also what makes the
+   * out-of-date warning possible, since the quote carries the design version it
+   * was made from.
+   */
+  useEffect(() => {
+    if (!designId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/quotes`, { headers: await headers() });
+        const json = await res.json().catch(() => []);
+        const all = Array.isArray(json) ? json : (json?.quotes || []);
+        const mine = all
+          .filter((q: any) => String(q?.designId || '') === String(designId))
+          .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+        if (cancelled || !mine.length) return;
+        setExisting(mine[0]);
+        setQuoteId(String(mine[0].id));
+      } catch {
+        // Not knowing about an existing quote is recoverable; it only means the
+        // button offers to create rather than update.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [designId]);
+
+  /**
+   * Is the quote behind the design?
+   *
+   * The server sets `designStale` at the moment a save moves the design past
+   * the version a quote was made from, so this is read rather than recomputed.
+   * The version comparison is a second check for the case where a design has
+   * been saved in this session since the quote was loaded.
+   */
+  // Both versions are tested as numbers rather than coerced. `Number(null)` is
+  // 0 — finite and smaller than every real version — so coercion would show
+  // this warning permanently on any quote made before its design was saved.
+  const quoteIsStale = Boolean(
+    existing && (
+      existing.designStale === true
+      || (typeof existing.designVersion === 'number'
+        && typeof designVersion === 'number'
+        && existing.designVersion < designVersion)
+    ),
+  );
+
   const skuKey = useMemo(() => lines.map(l => l.sku).sort().join('|'), [lines]);
   useEffect(() => {
     if (!skuKey) return;
@@ -187,6 +240,10 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
       });
       if (!result.ok) { toast.error(result.error || 'Could not create the quote.'); return; }
       setQuoteId(result.quoteId || null);
+      // The warning has to clear on screen too, not only in the store.
+      setExisting((prev: any) => ({
+        ...(prev || {}), id: result.quoteId, designStale: false, designVersion,
+      }));
       if (result.error) toast.warning(result.error);
       else toast.success(link.jobId
         ? 'Quote created — it is on the pipeline and in their portal.'
@@ -344,10 +401,28 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
           somewhere else — which is where a drawing and a quote start to
           disagree.
         */}
+        {/*
+          The design has moved since this quote was made. Said plainly and left
+          for a person to act on — the figure is not touched, because somebody
+          may already have been shown it, and whether a change is worth
+          re-quoting is a judgement rather than arithmetic.
+        */}
+        {quoteIsStale && (
+          <p className="mt-3 flex gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5 text-[11px] text-amber-500/90">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Quote {existing?.number || ''} was made from an earlier version of this design
+            {Number.isFinite(Number(existing?.designVersion)) ? ` (v${existing.designVersion})` : ''}
+            {Number.isFinite(Number(designVersion)) ? `, and the design is now v${designVersion}` : ''}.
+            It still says what it said when it was sent. Update it if the change is worth re-quoting.
+          </p>
+        )}
+
         <button onClick={publish} disabled={publishing}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#ea580c] px-4 py-3 font-bold text-white transition hover:bg-orange-500 disabled:opacity-50">
+          className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 font-bold text-white transition disabled:opacity-50 ${
+            quoteIsStale ? 'bg-amber-600 hover:bg-amber-500' : 'bg-[#ea580c] hover:bg-orange-500'
+          }`}>
           {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          {quoteId ? 'Update the quote' : 'Create the quote'}
+          {quoteIsStale ? 'Bring the quote up to date' : quoteId ? 'Update the quote' : 'Create the quote'}
         </button>
 
         <p className="mt-2 text-[11px] text-gray-600">

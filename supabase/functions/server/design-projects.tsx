@@ -93,6 +93,69 @@ function summarize(p: any) {
   };
 }
 
+/**
+ * Mark any quote made from an earlier version of this design as behind it.
+ *
+ * WHY HERE, AND WHY AT THIS MOMENT
+ *
+ * Staleness is computed once, by the thing that causes it, at the instant it
+ * becomes true. The alternative is every screen that shows a quote loading the
+ * design as well and comparing — which is the same question asked in four
+ * places, answered four ways, and wrong wherever somebody forgot to ask.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO
+ *
+ * It does not touch the money. A quote that is behind its design still says
+ * exactly what it said when it was sent, because somebody may already have been
+ * shown that figure. Re-pricing is a decision, not a consequence of nudging a
+ * joist spacing — Eric's words: the quote will need adjusting after adjustments
+ * if necessary. This only makes "if necessary" visible.
+ */
+async function markQuotesStale(designId: string, version: number): Promise<number> {
+  if (!designId) return 0;
+  try {
+    const quotes: any[] = (await kv.getByPrefix('quote:')) || [];
+    let marked = 0;
+    for (const q of quotes) {
+      if (!q || String(q.designId || '') !== String(designId)) continue;
+      // A quote with no recorded version predates this being tracked, or was
+      // made from a design that had never been saved. Leaving it alone is
+      // right: claiming it is out of date would be a guess, and a false alarm
+      // on a quote already in front of a customer is worse than saying nothing.
+      //
+      // Tested as a number rather than coerced, because `Number(null)` is 0 —
+      // finite, smaller than every real version, and therefore a quote with no
+      // version would be flagged stale by every save forever.
+      const from = q.designVersion;
+      if (typeof from !== 'number' || !Number.isFinite(from) || from >= version) continue;
+      if (q.designStale === true) continue;
+      const at = new Date().toISOString();
+      await kv.set(`quote:${q.id}`, { ...q, designStale: true, designStaleAt: at });
+      marked++;
+
+      // The board keeps its own copy of the quote, and the board is what
+      // somebody scans before ringing a customer. Flagging the quote record
+      // alone would leave the warning in the one place nobody was looking.
+      const jobId = String(q.workRequestId || '');
+      if (!jobId) continue;
+      try {
+        const item: any = await kv.get(`pipeline_${jobId}`);
+        if (item?.quote && String(item.quote.id || '') === String(q.id)) {
+          await kv.set(`pipeline_${jobId}`, {
+            ...item,
+            quote: { ...item.quote, designStale: true, designStaleAt: at },
+          });
+        }
+      } catch { /* the quote record still carries the flag */ }
+    }
+    return marked;
+  } catch (error) {
+    // A quote that fails to be flagged is a missing warning, not a broken save.
+    console.log(`[DesignProjects] Could not flag quotes for ${designId}: ${error}`);
+    return 0;
+  }
+}
+
 /** Persist a snapshot and prune old ones beyond MAX_VERSIONS. */
 async function snapshot(id: string, project: any, note: string) {
   const versionId = genId('V');
@@ -166,8 +229,10 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects', async (c) => 
     await kv.set(PROJECT_KEY(ownerKey, id), project);
     const versionId = await snapshot(id, project, body.note || (existing ? 'Auto-saved' : 'Created'));
 
-    console.log(`[DesignProjects] Saved ${id} (v${version}) for ${ownerKey}`);
-    return c.json({ success: true, project, versionId });
+    const staleQuotes = await markQuotesStale(id, version);
+
+    console.log(`[DesignProjects] Saved ${id} (v${version}) for ${ownerKey}${staleQuotes ? ` — ${staleQuotes} quote(s) now behind the design` : ''}`);
+    return c.json({ success: true, project, versionId, staleQuotes });
   } catch (error: any) {
     console.error('[DesignProjects] Save error:', error);
     return c.json({ success: false, error: error?.message || 'Failed to save project' }, 500);
