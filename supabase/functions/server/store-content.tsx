@@ -50,7 +50,7 @@ async function requireAdmin(c: any): Promise<{ ok: boolean; error?: string }> {
     );
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
     if (error || !user) return { ok: false, error: 'Invalid or expired session' };
-    const role = (user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase();
+    const role = (user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase();
     const email = (user.email || '').toLowerCase();
     const isOwner =
       ['admin', 'owner', 'master_admin', 'super_admin', 'management'].includes(role) ||

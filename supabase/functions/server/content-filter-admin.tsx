@@ -20,6 +20,7 @@ import {
   allowProductId,
 } from "./content-filter.tsx";
 import { invalidateProductsCache } from "./ecommerce-products.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 const contentFilterRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -30,7 +31,9 @@ async function requireAdmin(c: any) {
   const { data: { user }, error } = await supabase.auth.getUser(accessToken ?? "");
   if (error || !user?.id) return { ok: false, error: `Authorization error in content filter admin: ${error?.message || "no user"}`, status: 401 };
   const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-  const role = perms?.role || user.user_metadata?.role;
+  // Server-owned permission record, or app_metadata. Never user_metadata: the
+  // browser can write that bag, so it would be the caller naming their own role.
+  const role = perms?.role || trustedRole(user);
   if (role !== "admin" && role !== "owner" && role !== "super_admin") {
     return { ok: false, error: "Administrator access is required to manage the content filter.", status: 403 };
   }

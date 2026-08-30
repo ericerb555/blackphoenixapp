@@ -86,7 +86,7 @@ invoiceLinkingRouter.post("/make-server-3eae23a6/invoices/link-by-email", async 
       return c.json({ success: false, error: `Authorization error while linking invoices: ${authErr?.message || "no user"}` }, 401);
     }
     const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-    const role = perms?.role || user.user_metadata?.role;
+    const role = perms?.role || user.app_metadata?.role;
     if (role !== "admin" && role !== "owner" && role !== "super_admin") {
       return c.json({ success: false, error: "Administrator access is required to link invoices." }, 403);
     }

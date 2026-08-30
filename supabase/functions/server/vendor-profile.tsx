@@ -40,7 +40,7 @@ async function vendorActor(c: any): Promise<{ user: any; vendorId: string | null
   if (error || !user) return { user: null, vendorId: null, vendor: null, reason: 'Not signed in.' };
 
   const email = String(user.email || '').toLowerCase();
-  const stamped = String(user.user_metadata?.vendorId || user.user_metadata?.vendor_id || '').trim();
+  const stamped = String(user.app_metadata?.vendorId || user.app_metadata?.vendor_id || '').trim();
 
   if (stamped) {
     const vendor = (await kv.get(`vendor:${stamped}`)) || (await kv.get(`vendor_${stamped}`));

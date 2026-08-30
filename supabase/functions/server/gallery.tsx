@@ -25,6 +25,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 const PREFIX = "/make-server-3eae23a6";
 const BUCKET = "make-3eae23a6-gallery";
@@ -49,9 +50,8 @@ async function requireStaff(c: any): Promise<boolean> {
   const owners = (Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   owners.push("ericerb555@proton.me");
-  const role = String(
-    user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "",
-  ).toLowerCase().replace(/[\s-]+/g, "_");
+  // Authority comes from app_metadata only — user_metadata is browser-writable.
+  const role = trustedRole(user);
   return owners.includes(String(user.email).toLowerCase())
     || ["owner", "platform_owner", "business_owner", "admin", "master_admin", "management"].includes(role);
 }

@@ -82,7 +82,7 @@ promotionsEngineRouter.post("/make-server-3eae23a6/promotions-engine", async (c)
       return c.json({ success: false, error: `Authorization error while saving promotions engine config: ${authErr?.message || "no user"}` }, 401);
     }
     const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-    const role = perms?.role || user.user_metadata?.role;
+    const role = perms?.role || user.app_metadata?.role;
     if (role !== "admin" && role !== "owner" && role !== "super_admin") {
       return c.json({ success: false, error: "Administrator access is required to change promotions." }, 403);
     }

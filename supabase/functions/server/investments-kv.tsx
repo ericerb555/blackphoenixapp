@@ -876,7 +876,7 @@ async function resolveRole(authHeader?: string): Promise<{ role: string | null; 
     const { data: { user } } = await supabase.auth.getUser(token);
     if (!user?.id) return { role: null, email: null };
     const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-    const role = perms?.role || user.user_metadata?.role || null;
+    const role = perms?.role || user.app_metadata?.role || null;
     return { role, email: (user.email || '').toLowerCase() };
   } catch {
     return { role: null, email: null };

@@ -35,7 +35,7 @@ async function authenticatedActor(c: any) {
   return error || !user ? null : user;
 }
 async function hasAdminAccess(user: any) {
-  const role = String(user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase();
+  const role = String(user?.app_metadata?.role || user?.app_metadata?.accountType || '').toLowerCase();
   if (ADMIN_ROLES.has(role)) return true;
   if (!user?.id) return false;
   try { const { data } = await auth.from('user_permissions').select('role_name').eq('user_id', user.id); return (data || []).some((row: any) => ADMIN_ROLES.has(String(row.role_name || '').toLowerCase())); } catch { return false; }

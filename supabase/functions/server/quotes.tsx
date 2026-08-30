@@ -47,7 +47,7 @@ async function quoteActor(c: any): Promise<{ email: string; staff: boolean }> {
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   const email = String(user.email).toLowerCase();
   const role = String(
-    user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "",
+    user.app_metadata?.role || user.app_metadata?.accountType || "",
   ).toLowerCase().replace(/[\s-]+/g, "_");
 
   return { email, staff: owners.includes(email) || STAFF_ROLES.has(role) };

@@ -25,6 +25,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import * as kv from "./kv_store.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 const app = new Hono();
 
@@ -82,8 +83,9 @@ const STAFF_ROLES = new Set([
 ]);
 
 function isStaff(user: any): boolean {
-  const role = String(user?.user_metadata?.role || user?.app_metadata?.role || "").toLowerCase();
-  return STAFF_ROLES.has(role);
+  // app_metadata only. This gate waives the AI render spend ceiling, so a
+  // self-assigned role here was somebody else spending our money without limit.
+  return STAFF_ROLES.has(trustedRole(user));
 }
 
 /**

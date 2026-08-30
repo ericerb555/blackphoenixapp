@@ -23,7 +23,7 @@ async function authenticatedActor(c: any) {
 }
 
 async function hasAdminAccess(user: any) {
-  const metadataRole = String(user?.user_metadata?.role || user?.user_metadata?.accountType || "").toLowerCase();
+  const metadataRole = String(user?.app_metadata?.role || user?.app_metadata?.accountType || "").toLowerCase();
   if (ADMIN_ROLES.has(metadataRole)) return true;
   if (!user?.id) return false;
   try {

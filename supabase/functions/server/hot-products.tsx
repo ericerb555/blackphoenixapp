@@ -42,6 +42,7 @@ import {
   type ProductFilters,
 } from "./product-scoring.tsx";
 import { toExportRows, toCSV } from "./product-exporter.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 const hotProductsRouter = new Hono();
 
@@ -104,7 +105,9 @@ async function requireAdmin(c: any) {
   const { data: { user }, error } = await supabase.auth.getUser(accessToken ?? "");
   if (error || !user?.id) return { ok: false, error: `Authorization error: ${error?.message || "no user"}`, status: 401 };
   const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-  const role = perms?.role || user.user_metadata?.role;
+  // Server-owned permission record, or app_metadata. Never user_metadata: the
+  // browser can write that bag, so it would be the caller naming their own role.
+  const role = perms?.role || trustedRole(user);
   if (role !== "admin" && role !== "owner" && role !== "super_admin") return { ok: false, error: "Administrator access is required.", status: 403 };
   return { ok: true };
 }

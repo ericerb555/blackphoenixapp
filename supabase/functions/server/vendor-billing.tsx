@@ -80,14 +80,14 @@ async function billingActor(
   if (error || !user) return { signedIn: false, isCompany: false, vendorId: "", email: "" };
 
   const email = String(user.email || "").toLowerCase();
-  const role = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "")
+  const role = String(user.app_metadata?.role || user.app_metadata?.accountType || "")
     .toLowerCase().replace(/[\s-]+/g, "_");
 
   // Anyone who is not a vendor is on the company side. Black Phoenix raises
   // these orders and settles these invoices, so it sees all of them.
   if (role !== "vendor") return { signedIn: true, isCompany: true, vendorId: "", email };
 
-  const stamped = String(user.user_metadata?.vendorId || user.user_metadata?.vendor_id || "").trim();
+  const stamped = String(user.app_metadata?.vendorId || user.app_metadata?.vendor_id || "").trim();
   if (stamped) return { signedIn: true, isCompany: false, vendorId: stamped, email };
 
   const vendors = ((await kv.getByPrefix("vendor:")) as any[] || []).filter(Boolean);

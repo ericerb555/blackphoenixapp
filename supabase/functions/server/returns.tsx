@@ -119,7 +119,7 @@ async function actor(c: any): Promise<{ email: string | null; admin: boolean }> 
   if (!header.startsWith('Bearer ')) return { email: null, admin: false };
   const { data, error } = await auth.auth.getUser(header.substring(7));
   if (error || !data?.user) return { email: null, admin: false };
-  const role = String((data.user.user_metadata as any)?.role || '').toLowerCase();
+  const role = String((data.user.app_metadata as any)?.role || '').toLowerCase();
   return {
     email: data.user.email || null,
     admin: role === 'admin' || role === 'owner' || role === 'super_admin',

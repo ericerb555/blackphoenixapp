@@ -30,7 +30,7 @@ async function requireAdmin(c: any) {
   const { data: { user }, error } = await supabase.auth.getUser(accessToken ?? "");
   if (error || !user?.id) return { ok: false, error: `Authorization error while verifying admin for tier features: ${error?.message || "no user"}`, status: 401 };
   const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-  const role = perms?.role || user.user_metadata?.role;
+  const role = perms?.role || user.app_metadata?.role;
   if (role !== "admin" && role !== "owner" && role !== "super_admin") {
     return { ok: false, error: "Administrator access is required to edit tier feature entitlements.", status: 403 };
   }

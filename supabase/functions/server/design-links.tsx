@@ -33,6 +33,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { readWorkRequests, workRequestBelongsTo } from "./workRequestStore.ts";
+import { trustedRole } from "./trustedRole.ts";
 
 const app = new Hono();
 
@@ -66,9 +67,8 @@ async function isStaff(user: any): Promise<boolean> {
     .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
   if (owners.includes(String(user.email || "").toLowerCase())) return true;
 
-  const role = String(
-    user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "",
-  ).toLowerCase().replace(/[\s-]+/g, "_");
+  // Authority comes from app_metadata only — user_metadata is browser-writable.
+  const role = trustedRole(user);
   if (STAFF_ROLES.has(role)) return true;
 
   try {
@@ -406,8 +406,7 @@ app.get("/choice/:ownerKey/:designId", async (c) => {
       const contacts = ((await kv.get(CRM_CONTACTS_KEY)) as any[]) || [];
       const me = contacts.find((x: any) => String(x.email || "").toLowerCase() === String(user.email || "").toLowerCase());
       if (me && String((choice as any).customerId) === String(me.id)) return true;
-      const role = String(user.user_metadata?.role || user.app_metadata?.role || "").toLowerCase();
-      return STAFF_ROLES.has(role);
+      return STAFF_ROLES.has(trustedRole(user));
     })();
 
     if (!roleOk) return c.json({ choice: null });

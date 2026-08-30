@@ -161,6 +161,7 @@ import { storeContentRouter } from "./store-content.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "./dropshipper-config.tsx";
 import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
+import { trustedRole } from "./trustedRole.ts";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
   loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
@@ -1182,6 +1183,15 @@ const PLATFORM_OWNER_EMAILS = new Set<string>([
     .filter(Boolean),
 ]);
 
+/**
+ * Company-side roles that are not admins but still work here — an estimator or
+ * a project manager raises purchase orders without administering the platform.
+ */
+const STAFF_VIEW_ROLES = new Set<string>([
+  'staff', 'employee', 'project_manager', 'estimator', 'office',
+  'purchasing', 'operations',
+]);
+
 async function intakeActor(c: any) {
   const raw = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!raw) return null;
@@ -1192,8 +1202,7 @@ async function intakeActor(c: any) {
 async function intakeIsAdmin(user: any) {
   if (!user?.id) return false;
   if (PLATFORM_OWNER_EMAILS.has(String(user.email || '').toLowerCase())) return true;
-  const metadataRole = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  if (INTAKE_ADMIN_ROLES.has(metadataRole)) return true;
+  if (INTAKE_ADMIN_ROLES.has(trustedRole(user))) return true;
   try {
     const [permissions, memberships] = await Promise.all([
       supabase.from('user_permissions').select('role_name').eq('user_id', user.id),
@@ -1241,7 +1250,7 @@ app.get('/make-server-3eae23a6/me/permissions', async (c) => {
       email,
       isPlatformOwner,
       isAdmin: admin,
-      role: String(user.app_metadata?.role || user.user_metadata?.role || '').toLowerCase() || null,
+      role: trustedRole(user) || null,
     });
   } catch (error: any) {
     // Answering "not an admin" on failure is the safe direction: it withholds
@@ -3751,29 +3760,40 @@ app.post('/make-server-3eae23a6/change-orders', async (c) => {
  * Which vendor is asking, if any?
  *
  * `vendor:` is the real company registry — `supplier:` records duplicate the
- * same idea. A vendor is matched by an id stamped on their account, or by an
- * email match against a vendor record.
+ * same idea. A vendor is matched by email against a vendor record.
  *
- * Anyone who is not a vendor is on the company side: Black Phoenix raises these
- * orders and has to see all of them. It is only a vendor's view that narrows.
+ * WHO GETS THE COMPANY-WIDE VIEW
+ *
+ * Staff, and only staff. This used to read "anyone who is not a vendor is on
+ * the company side", which sounds reasonable and is not: a signed-in customer
+ * is not a vendor, so a customer was on the company side, and so was every
+ * landlord and every tenant. The whole purchase-order book — every supplier,
+ * every price we pay — was one portal login away. Widening on "not a vendor"
+ * fails open, because the set of people who are not vendors is everybody.
+ *
+ * So the test is now positive: prove staff to see everything. Anyone else is
+ * scoped to the vendor record their address matches, and an address matching
+ * none of them resolves to `__unresolved__`, which matches no order.
+ *
+ * The vendor id is deliberately NOT read off the account's `user_metadata`
+ * either. That bag is writable from the browser, so a vendor could have typed
+ * a competitor's id into their own account and read that competitor's orders.
+ * The email match against our own `vendor:` records cannot be forged that way.
  */
 async function purchaseOrderActor(c: any): Promise<{ vendorId: string | null; isCompany: boolean; signedIn: boolean }> {
   const user = await intakeActor(c);
   if (!user) return { vendorId: null, isCompany: false, signedIn: false };
 
-  const role = String(user.user_metadata?.role || user.user_metadata?.accountType || '')
-    .toLowerCase().replace(/[\s-]+/g, '_');
-  if (role !== 'vendor') return { vendorId: null, isCompany: true, signedIn: true };
-
-  const stamped = String(user.user_metadata?.vendorId || user.user_metadata?.vendor_id || '').trim();
-  if (stamped) return { vendorId: stamped, isCompany: false, signedIn: true };
+  if (await intakeIsAdmin(user) || STAFF_VIEW_ROLES.has(trustedRole(user))) {
+    return { vendorId: null, isCompany: true, signedIn: true };
+  }
 
   const email = String(user.email || '').toLowerCase();
   const vendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
-  const match = vendors.find((v: any) =>
-    [v?.email, v?.contactEmail, v?.ownerEmail].some((e) => String(e || '').toLowerCase() === email && email),
+  const match = email && vendors.find((v: any) =>
+    [v?.email, v?.contactEmail, v?.ownerEmail].some((e) => String(e || '').toLowerCase() === email),
   );
-  // A vendor we cannot identify sees nothing, never everything.
+  // Somebody we cannot identify sees nothing, never everything.
   return { vendorId: match ? String(match.id || '') : '__unresolved__', isCompany: false, signedIn: true };
 }
 
@@ -5319,7 +5339,10 @@ app.post('/make-server-3eae23a6/pipeline/clear-all', async (c) => {
 // survive browser changes and are visible to the authorized operations team.
 function internalWorkAccess(record: any, user: any, admin: boolean) {
   if (admin) return true;
-  const role = String(user?.app_metadata?.role || user?.user_metadata?.role || user?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  // app_metadata only. Reading the browser-writable bag here meant any portal
+  // guest could call themselves an employee and read the internal notes and
+  // schedule on every job in the system.
+  const role = trustedRole(user);
   if (['employee', 'technician', 'field_technician', 'maintenance_tech', 'subcontractor', 'service_provider'].includes(role)) return true;
   const email = String(user?.email || '').toLowerCase();
   return Boolean(email && [record.assignedToEmail, record.assigned_to_email, record.assignedTechnicianEmail, record.assigned_technician_email, record.employeeEmail, record.employee_email]
@@ -5408,7 +5431,7 @@ async function propertyManagerActor(c: any) {
   if (admin) return { user, admin: true, manager: true };
   const email = String(user.email).toLowerCase();
   const access = await kv.get(`portal_access:${email}:property_manager`) as any;
-  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   const manager = ['property_manager', 'condo_manager'].includes(metadataRole) || access?.status === 'active';
   return { user, admin: false, manager };
 }
@@ -5493,7 +5516,7 @@ async function landlordActor(c: any) {
   const admin = await intakeIsAdmin(user);
   if (admin) return { user, admin: true, landlord: true };
   const email = String(user.email).toLowerCase();
-  const metadataRole = String(user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   // Earlier landlord applications used the property_manager intake type. Keep
   // those approved accounts working while allowing the explicit landlord role.
   const access = await kv.get(`portal_access:${email}:property_manager`) as any || await kv.get(`portal_access:${email}:landlord`) as any;
@@ -5633,6 +5656,10 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/invite', async (c) => {
       const { error } = await supabase.auth.admin.createUser({
         email: tenantEmail,
         password: tempPassword,
+        // The role goes in app_metadata because that is the bag the browser
+        // cannot write and therefore the only one authority is read from.
+        // user_metadata keeps the display copy for anything cosmetic.
+        app_metadata: { role: 'tenant' },
         user_metadata: { name: tenant.name, full_name: tenant.name, role: 'tenant', accountType: 'tenant', unit: tenant.unit, landlordEmail: String(actor.user.email).toLowerCase() },
         // Confirm immediately since no email server is configured for this project.
         email_confirm: true,
@@ -6983,6 +7010,7 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
             const tempPassword = `Tenant-${crypto.randomUUID().slice(0, 8)}`;
             const { error: cErr } = await supabase.auth.admin.createUser({
               email: tenantEmail, password: tempPassword,
+              app_metadata: { role: 'tenant' },
               user_metadata: { name: a.name, full_name: a.name, role: 'tenant', accountType: 'tenant', unit: tenant.unit, landlordEmail: email },
               email_confirm: true, // no mail server configured — confirm immediately
             });
@@ -9686,7 +9714,7 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
     const user = await intakeActor(c);
     if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
     const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
-    const metadataRole = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
     if (!role) {
       try {
@@ -9772,6 +9800,11 @@ async function ensureAuthUser(supabase: any, email: string, metadata: Record<str
       email,
       password: tempPassword,
       user_metadata: metadata,
+      // Authority is read from app_metadata only, because the browser can write
+      // user_metadata and an account that names its own role is not a check.
+      // Both callers pass a `role`; anything else lands with no role at all,
+      // which is the safe direction.
+      app_metadata: metadata.role ? { role: metadata.role } : {},
       // Confirm immediately — no email server round-trip needed; they set their
       // real password via our invite-token flow.
       email_confirm: true,
@@ -9782,7 +9815,18 @@ async function ensureAuthUser(supabase: any, email: string, metadata: Record<str
   // record without sending an email).
   try {
     const { data } = await supabase.auth.admin.generateLink({ type: 'recovery', email });
-    if (data?.user?.id) return data.user.id;
+    if (data?.user?.id) {
+      // Re-invite of an account that already existed. If it has no role in the
+      // trustworthy bag it would come back from this with no authority at all,
+      // so stamp the one this invitation grants. Only ever fills a blank —
+      // never overwrites a role somebody was already given.
+      if (metadata.role && !data.user.app_metadata?.role) {
+        try {
+          await supabase.auth.admin.updateUserById(data.user.id, { app_metadata: { role: metadata.role } });
+        } catch (_) { /* the invite still stands; the role can be set by hand */ }
+      }
+      return data.user.id;
+    }
   } catch (_) { /* ignore */ }
   return null;
 }
@@ -10340,6 +10384,7 @@ app.post('/make-server-3eae23a6/intake/set-password', async (c) => {
     if (!setOk) {
       const { data: created, error: createErr } = await supabase.auth.admin.createUser({
         email, password, email_confirm: true,
+        app_metadata: { role: record.portalType },
         user_metadata: { role: record.portalType, accountType: record.portalType },
       });
       if (createErr || !created?.user?.id) {
@@ -12432,7 +12477,7 @@ app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
     const email = String(user.email).toLowerCase();
 
     const role = String(
-      user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || '',
+      user.app_metadata?.role || user.app_metadata?.accountType || '',
     ).toLowerCase().replace(/[\s-]+/g, '_');
 
     // The maintenance-plan rows are a separate product sold alongside the portal

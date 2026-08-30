@@ -28,6 +28,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -74,8 +75,8 @@ async function actor(c: any): Promise<{ email: string; isAdmin: boolean } | null
   if (!token) return null;
   const { data: { user }, error } = await admin.auth.getUser(token);
   if (error || !user) return null;
-  const role = String(user.app_metadata?.role || user.user_metadata?.role || user.user_metadata?.accountType || "")
-    .toLowerCase().replace(/[\s-]+/g, "_");
+  // Authority comes from app_metadata only — user_metadata is browser-writable.
+  const role = trustedRole(user);
   return {
     email: String(user.email || "").toLowerCase(),
     isAdmin: ["owner", "admin", "master_admin", "management"].includes(role),
