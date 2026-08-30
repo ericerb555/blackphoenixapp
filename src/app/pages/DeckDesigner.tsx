@@ -32,6 +32,7 @@ import DeckQuotePanel from '../components/DeckQuotePanel';
 import SketchImport from '../components/SketchImport';
 import SidingTakeoff from '../components/SidingTakeoff';
 import OpeningsTakeoff from '../components/OpeningsTakeoff';
+import FlooringTakeoff from '../components/FlooringTakeoff';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -223,7 +224,7 @@ function DesignerSession({ session, onSession }: {
    * navigation act and not an edit: nothing about the deck is discarded by
    * looking at the siding.
    */
-  const [trade, setTrade] = useState<'deck' | 'siding' | 'openings'>('deck');
+  const [trade, setTrade] = useState<'deck' | 'siding' | 'openings' | 'flooring'>('deck');
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -794,7 +795,7 @@ function DesignerSession({ session, onSession }: {
         */}
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Trade</span>
-          {([['deck', 'Deck'], ['siding', 'Siding'], ['openings', 'Doors & windows']] as const).map(([id, label]) => (
+          {([['deck', 'Deck'], ['siding', 'Siding'], ['openings', 'Doors & windows'], ['flooring', 'Flooring']] as const).map(([id, label]) => (
             <button key={id} onClick={() => setTrade(id)}
               className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
                 trade === id
@@ -805,7 +806,7 @@ function DesignerSession({ session, onSession }: {
             </button>
           ))}
           <span className="ml-2 text-[11px] text-gray-600">
-            Kitchens, bathrooms, doors and windows come next.
+            Kitchens and bathrooms come next.
           </span>
         </div>
 
@@ -1024,6 +1025,12 @@ function DesignerSession({ session, onSession }: {
               </PanelErrorBoundary>
             )}
 
+            {trade === 'flooring' && (
+              <PanelErrorBoundary name="Flooring">
+                <FlooringTakeoff stage={stage} link={link} onLink={setLink} />
+              </PanelErrorBoundary>
+            )}
+
             {/* Said plainly rather than shown as an empty stage. A deck produces
                 a permit packet and a build specification; the equivalents for
                 the other trades are not written. */}
@@ -1037,11 +1044,12 @@ function DesignerSession({ session, onSession }: {
               </div>
             )}
 
-            {trade === 'openings' && stage === 'capture' && (
+            {(trade === 'openings' || trade === 'flooring') && stage === 'capture' && (
               <div className={card}>
                 <p className="text-sm text-gray-400">
-                  Openings are scheduled by hand for now. The siding capture already reads windows
-                  and doors off a photograph, so seeding this from it is the obvious next step.
+                  {trade === 'openings'
+                    ? 'Openings are scheduled by hand for now. The siding capture already reads windows and doors off a photograph, so seeding this from it is the obvious next step.'
+                    : 'Rooms are measured by hand for now. A photograph of the room is the next step here, and it is what showing a customer different floors in their own space would need anyway.'}
                 </p>
               </div>
             )}
