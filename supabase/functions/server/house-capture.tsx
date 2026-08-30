@@ -819,6 +819,82 @@ const MAX_LOOKS = 3;
  * three renders. That is why this is a separate endpoint and a separate button
  * rather than something the ordinary render quietly does.
  */
+/**
+ * The customer's own room, with different floors in it.
+ *
+ * WHY IT SHARES THE MACHINERY AND NOT THE PROMPT
+ *
+ * The image call, the storage, the signed URLs and — most importantly — the
+ * spend ceiling are all the same as the deck looks, so they are reused. What is
+ * different is what the model is asked for, and that difference is the whole
+ * job: a deck is added to a scene, whereas a floor replaces the one surface the
+ * camera is looking across at a shallow angle. Sharing a prompt between the two
+ * would produce a worse version of each.
+ *
+ * WHY THE CEILING MATTERS MORE HERE THAN ANYWHERE
+ *
+ * This is meant to be reached by customers from their own portal, which makes
+ * it the first render button in this app that somebody outside the company can
+ * press. `reserveImages` counts against their account and refuses past their
+ * allowance, exactly as it does for staff — and a set is reserved as a block,
+ * because half a set of options is not worth showing anyone.
+ */
+app.post("/floor-looks", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const photo: string = typeof body?.photo === "string" ? body.photo : "";
+    const note: string = typeof body?.note === "string" ? body.note.slice(0, 300) : "";
+
+    // Each look arrives already described. The wording is built on the client
+    // from the finish catalogue the takeoff prices from, so a floor can never
+    // be rendered that the estimate cannot then produce.
+    const looks: any[] = Array.isArray(body?.looks) ? body.looks.slice(0, MAX_LOOKS) : [];
+    if (!looks.length) return c.json({ error: "No floors were asked for." }, 400);
+
+    const parts = splitDataUri(photo);
+    if (!parts) return c.json({ error: "Take a photo of the room first." }, 400);
+
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
+
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, looks.length);
+    if (refused) return c.json(refused, 429);
+
+    const settled = await Promise.all(looks.map(async (look: any) => {
+      const prompt = String(look?.prompt || "").slice(0, 4000);
+      if (!prompt) return { id: look?.id, name: look?.name, error: "That floor had no description." };
+
+      // No reference images: a second photograph of a different room would pull
+      // the render towards that room rather than this one.
+      const shot = await paintDeck({ parts, references: [], prompt, key });
+      if (!shot.ok) return { id: look?.id, name: look?.name, error: shot.error };
+
+      const url = await putAsset(base64ToBytes(shot.b64), "png", "image/png");
+      if (!url) return { id: look?.id, name: look?.name, error: "Rendered but could not be stored." };
+
+      return { id: look?.id, name: look?.name, pitch: look?.pitch, material: look?.material, url };
+    }));
+
+    const ok = settled.filter((r: any) => r.url);
+    if (ok.length < looks.length) await refundImages(actor, looks.length - ok.length);
+    if (!ok.length) {
+      return c.json({ error: settled[0]?.error || "None of the floors could be rendered." }, 502);
+    }
+
+    return c.json({
+      looks: settled,
+      rendered: ok.length,
+      failed: settled.length - ok.length,
+      // Said in the payload so it travels with the image wherever it is shown.
+      disclaimer: "A visualisation of your own room, not a photograph of the finished floor. Colour and grain vary between batches — ask for a sample before deciding.",
+    });
+  } catch (err: any) {
+    console.log(`[house] floor-looks error: ${err?.message || err}`);
+    return c.json({ error: `Could not render those floors: ${err?.message || err}` }, 500);
+  }
+});
+
 app.post("/looks", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
