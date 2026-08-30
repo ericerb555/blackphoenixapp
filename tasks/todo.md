@@ -114,6 +114,53 @@ Three things compound it:
 Not started — waiting on confirmation, and on one detail of what "cannot add
 any" looks like on screen.
 
+## The house, drawn from the photos and then editable
+
+### What is actually wrong
+
+The two ends both exist and nothing joins them.
+
+`/analyze` already returns the house: `sillHeightInches`, `sidingType`,
+`storeys`, and each wall with `widthFt`, `heightFt` and its openings, every
+field carrying its own confidence. That result reaches the designer as
+`houseRead` and is handed to the chat assistant. **No geometry reads any of
+it.**
+
+The house in the 3D view is invented from the deck:
+
+    const wallW = model.widthFt + 16;
+    const wallH = Math.max(12, model.heightFt + 11);
+    const doorW = 6; const doorH = 6.7;
+    const doorSill = model.heightFt + 0.1;
+
+The wall is the deck plus sixteen feet. The door is a hardcoded six by six-eight.
+And the sill is derived from the deck height, which is backwards from how the
+job is actually done — the sill is what decides how high the deck sits.
+
+### The approach, which is not a scanning problem
+
+Scale comes from the sheet of paper in each photograph, and Eric corrects the
+numbers by hand afterwards with a tape measure. Approximate-from-photos plus
+operator correction is the design. So this is a wiring and editing job, not a
+reconstruction one.
+
+- [ ] 1. A `house` record on the design project, saved beside `model` and
+      `site`: wall width and height, storeys, siding type, sill height, and the
+      openings with their positions and sizes.
+- [ ] 2. Seed it from the photo analysis, and keep the provenance per field —
+      `from photos` against a typed `measured`, so it is always visible which
+      numbers are a guess and which he stood in the yard and measured.
+- [ ] 3. An editable panel: every number a field he can type over. Typing a
+      real measurement marks that field measured and it stops being overwritten
+      by a later photo read.
+- [ ] 4. `DeckViewer3D`'s `House` draws from that record instead of inventing
+      it — real wall length, real storey height, the door where the door is.
+- [ ] 5. Turn the sill relationship the right way round: deck height follows
+      sill height, with an explicit override for when it should not.
+
+Not started — needs sign-off, because it changes what every deck in the design
+centre is drawn against.
+
 ## Review
 
 (to be completed)
