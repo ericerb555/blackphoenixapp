@@ -141,6 +141,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  /**
+   * Ask the server who this person is.
+   *
+   * The queries below look up `user_permissions`, `company_members` and
+   * `user_profiles`. Two of those tables do not exist in this project, so the
+   * whole block throws, the catch runs, and everybody comes out as no-one —
+   * which is why every administrator-only control in the app was hidden from
+   * everybody, the platform owner included.
+   *
+   * The server has always known better: it checks an owner allowlist and the
+   * token's metadata before it goes near a table, and it is what actually
+   * refuses or permits every write. So this asks it rather than deriving a
+   * second answer from a different set of facts.
+   *
+   * It only ever grants. A failure leaves the flags as the queries left them,
+   * so a server that cannot be reached cannot lock somebody out of a screen
+   * they could otherwise use.
+   */
+  const askServerForAuthority = async () => {
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s?.access_token) return;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/me/permissions`,
+        { headers: { Authorization: `Bearer ${s.access_token}` } },
+      );
+      const json = await res.json().catch(() => null);
+      if (!json?.signedIn) return;
+      if (json.isPlatformOwner || json.isAdmin) setIsOwner(true);
+      if (json.role) {
+        setUserRole(prev => prev || ({ role_name: json.role } as UserRole));
+      }
+    } catch {
+      // Leaves whatever the table queries produced. Withholding a control is
+      // recoverable; wrongly granting one is not.
+    }
+  };
+
   const loadUserRole = async (userId: string) => {
     try {
       const [roleResult, ownerResult, profileResult] = await Promise.all([
@@ -188,6 +226,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserRole(null);
       setIsOwner(false);
       setCompanyContext(DEFAULT_COMPANY_CONTEXT);
+    } finally {
+      // In `finally`, and that placement is the whole fix. Two of the tables
+      // queried above do not exist in this project, so the block throws every
+      // time and the catch above is the path that actually runs. Asking the
+      // server from inside the `try` would therefore never have happened at
+      // all — which is exactly how this went unnoticed.
+      await askServerForAuthority();
     }
   };
 

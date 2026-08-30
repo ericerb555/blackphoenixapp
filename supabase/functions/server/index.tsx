@@ -1205,6 +1205,51 @@ async function intakeIsAdmin(user: any) {
   } catch { return false; }
 }
 
+/**
+ * Who the signed-in person is, as far as authority goes.
+ *
+ * WHY THIS EXISTS
+ *
+ * The browser was working this out for itself, by querying `user_permissions`,
+ * `company_members` and `user_profiles` directly. Two of those tables do not
+ * exist in this project, so the query threw, the catch ran, and every user came
+ * out as no-one: not an owner, not an admin, no role. Every administrator-only
+ * control in the app was therefore hidden from everybody, including the person
+ * whose email is hardcoded here as the platform owner.
+ *
+ * Meanwhile the server has always known the answer — `intakeIsAdmin` checks the
+ * owner allowlist and the token's metadata before it goes near a table, so it
+ * was granting writes to somebody the interface was treating as a stranger.
+ *
+ * So the rule lives in one place and the browser asks. A client deriving
+ * authority from a different set of facts than the server enforces it from is
+ * two rules, and the gap between them is invisible until somebody cannot press
+ * a button that would have worked.
+ */
+app.get('/make-server-3eae23a6/me/permissions', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) {
+      return c.json({ success: true, signedIn: false, isAdmin: false, isPlatformOwner: false });
+    }
+    const email = String(user.email).toLowerCase();
+    const isPlatformOwner = PLATFORM_OWNER_EMAILS.has(email);
+    const admin = await intakeIsAdmin(user);
+    return c.json({
+      success: true,
+      signedIn: true,
+      email,
+      isPlatformOwner,
+      isAdmin: admin,
+      role: String(user.app_metadata?.role || user.user_metadata?.role || '').toLowerCase() || null,
+    });
+  } catch (error: any) {
+    // Answering "not an admin" on failure is the safe direction: it withholds
+    // controls rather than offering ones the server would refuse anyway.
+    return c.json({ success: false, signedIn: false, isAdmin: false, isPlatformOwner: false, error: error?.message }, 200);
+  }
+});
+
 function intakePortalType(application: any) {
   const source = String(application.applicationType || application.type || '').toLowerCase().replace(/[\s-]+/g, '_');
   if (source.includes('vendor')) return 'vendor';
