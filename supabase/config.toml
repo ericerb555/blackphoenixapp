@@ -36,3 +36,29 @@ verify_jwt = false
 # thing that stops a repeat, which is why the full server is not the default.
 entrypoint = "./functions/make-server-57095a78-stub/index.ts"
 verify_jwt = true
+
+# RETIRED 2026-08-30. Two more older servers that were still ACTIVE, each with
+# its own copy of live business data and its own authorisation holes:
+#
+#   824f083c  44 files, kv_store_824f083c. payments-transactions.ts,
+#             payments-methods.ts and payments-refunds.ts had NO authorisation
+#             check at all, and /invoices answered an unprivileged caller with a
+#             500 that leaked an internal table name — it queried the database
+#             before asking who was calling.
+#
+#   12c91054  67 routes, kv_store_12c91054. /customers answered an unprivileged
+#             caller HTTP 200, and four places still read authority from the
+#             browser-writable user_metadata bag.
+#
+# The same warning as above applies to both: these entrypoints deploy the STUBS.
+# Pointing either back at its archived directory in _retired/ re-exposes every
+# route it had, with service-role privileges. The archives are the record of
+# what was retired, not something to deploy.
+
+[functions.make-server-824f083c]
+entrypoint = "./functions/make-server-824f083c-stub/index.ts"
+verify_jwt = true
+
+[functions.make-server-12c91054]
+entrypoint = "./functions/make-server-12c91054-stub/index.ts"
+verify_jwt = true

@@ -76,7 +76,7 @@ top of one we hope works.
 
 ## Todo
 
-- [ ] 1. Stub and archive `make-server-824f083c` and `make-server-12c91054`
+- [x] 1. Stub and archive `make-server-824f083c` and `make-server-12c91054`
 - [ ] 2. Build the render smoke harness over every page and portal
 - [ ] 3. Report the findings, ranked, and agree what to fix
 - [ ] 4. Add `tsconfig.json` and a `typecheck` script; triage the real errors
