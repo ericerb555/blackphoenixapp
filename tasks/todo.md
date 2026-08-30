@@ -1241,6 +1241,75 @@ transitions), underlayment, subfloor preparation, and per-room transitions and
 trim. `laborTasks.ts` already carries flooring at 0.045 hr/sq ft and tile at
 0.100, so the labour spine exists.
 
+---
+
+# Who has a portal — a register in the CRM
+
+Eric: *"how do i know when someone creates a portal can we create a page inside
+the crm that keeps track of who has what portal and i can search and group them
+together if needed?"*
+
+## The good news
+
+The records already exist and nobody reads them. `syncPortalAccess` writes
+`portal_access:{email}:{portalType}` every time a portal is granted, carrying
+the email, the portal type, the applicant's name, the status, the onboarding
+status and both dates. Twelve portal types across the app all funnel through it.
+
+Nothing lists them. There is no route that returns them and no screen that shows
+them, so the answer to "how do I know when someone creates a portal" is
+currently that you do not — not because it was not recorded, but because nothing
+was ever built to look.
+
+So this is a read, not a rebuild.
+
+## What it has to do
+
+**Answer the question at a glance.** Who has a portal, which one, what state
+they are in, and when it happened. Newest first, because "what changed since I
+last looked" is the actual question behind "how do I know".
+
+**Search across the things you would actually search by** — a name, an email, a
+company. One box, not a form.
+
+**Group, because the groupings are the interesting bit.** By portal type, to see
+every vendor at once. By status, to find everybody stuck in onboarding. By when,
+to see this week's.
+
+**Say what needs doing.** A portal at `onboarding` or
+`active_pending_requirements` is somebody waiting on us, and that is worth more
+than a count — it is a to-do list.
+
+## Plan
+
+### 1. A route that lists them
+- [ ] `GET /portal-access` — staff only, since it reads across every customer,
+      vendor and subcontractor in the business
+- [ ] Returns the record plus whatever the CRM knows about that email, so the
+      register can show a person rather than an address
+- [ ] Grouped counts computed server-side, so the screen does not fetch
+      everything to display a number
+
+### 2. The register itself, in the CRM
+- [ ] A row per portal: person, portal type, status, granted date, last activity
+- [ ] One search box over name, email and company
+- [ ] Group by portal type, by status, or by nothing
+- [ ] Filter to "needs attention" — onboarding and pending requirements
+
+### 3. Knowing when it happens, without going to look
+- [ ] A count of portals granted since you last opened the register
+- [ ] Reuse the existing notification path rather than inventing a second one
+
+### 4. Acting on it
+- [ ] Open the person in the CRM from their row
+- [ ] Resend an invitation, and see when the last one went
+
+## Worth deciding
+
+Whether the register is a tab inside the CRM hub or its own page. A tab keeps it
+beside the people it describes; a page makes it linkable and bookmarkable. A tab
+is the smaller change and probably right.
+
 ## Review
 
 ### Pricing standards (F)
