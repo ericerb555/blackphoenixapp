@@ -12,6 +12,7 @@ import { generateDemoQuote } from '../lib/demoQuoteGenerator';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { DEFAULT_TECH_TIERS } from '../components/TierPicker';
+import RecordPaymentDialog from '../components/invoices/RecordPaymentDialog';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -52,6 +53,12 @@ interface Invoice {
   taxRate: number;
   status: 'draft' | 'sent' | 'viewed' | 'paid';
   createdAt: string;
+}
+
+/** Line items plus tax — the one place the document's value is worked out. */
+function docTotal(inv: Invoice): number {
+  const sub = (inv.items || []).reduce((s, i) => s + Number(i.qty || 0) * Number(i.rate || 0), 0);
+  return Math.round((sub + sub * (Number(inv.taxRate || 0) / 100)) * 100) / 100;
 }
 
 const BLANK_ITEM = (): LineItem => ({ id: crypto.randomUUID(), description: '', qty: 1, rate: 0 });
@@ -116,6 +123,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
   const [view, setView] = useState<View>('list');
   const [current, setCurrent] = useState<Invoice | null>(null);
   const [sending, setSending] = useState(false);
+  const [paying, setPaying] = useState<Invoice | null>(null);
   const [showPresets, setShowPresets] = useState(false);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -610,12 +618,27 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     toast.success(`${current.type === 'invoice' ? 'Invoice' : 'Estimate'} sent to ${current.clientEmail}!`);
   }
 
+  /**
+   * Ask what came in, rather than asserting that something did.
+   *
+   * This used to flip a status flag in local state and show a celebratory
+   * toast. It never reached the server, so the paid status did not survive a
+   * reload, and it recorded no amount, method, date or reference — a deposit
+   * was indistinguishable from settlement and a cheque could not be matched to
+   * a bank statement afterwards.
+   */
   function markPaid() {
     if (!current) return;
-    const updated = { ...current, status: 'paid' as const };
+    setPaying(current);
+  }
+
+  /** The server has done the arithmetic; take its numbers, not ours. */
+  function paymentRecorded(invoice: any) {
+    if (!current) return;
+    const settled = Number(invoice?.balance_due ?? 0) <= 0;
+    const updated = { ...current, status: settled ? ('paid' as const) : current.status };
     setCurrent(updated);
-    setInvoices(prev => prev.map(i => i.id === current.id ? updated : i));
-    toast.success('Marked as paid! 🎉');
+    setInvoices(prev => prev.map(i => (i.id === current.id ? updated : i)));
   }
 
   function openEdit(inv: Invoice) { setCurrent({ ...inv }); setView('edit'); loadDeliverables(inv.id); }
@@ -1286,7 +1309,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
                 <button onClick={markPaid}
                   className="flex-1 py-3 rounded-2xl font-black text-sm text-white transition hover:brightness-110"
                   style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)' }}>
-                  ✅ Mark as Paid
+                  Record a payment
                 </button>
               )}
               {current.status === 'paid' && (
@@ -1643,6 +1666,31 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
             </div>
           </div>
         </div>
+      )}
+
+      {/* What actually came in. Raised from this quote if no invoice exists
+          yet, so the payment has a document to land against. */}
+      {paying && (
+        <RecordPaymentDialog
+          doc={{
+            id: paying.id,
+            number: paying.number,
+            clientName: paying.clientName,
+            clientEmail: paying.clientEmail,
+            customerId: paying.customerId,
+            total: docTotal(paying),
+            paidAmount: Number((paying as any).paid_amount || 0),
+            taxRate: paying.taxRate,
+            dueDate: paying.dueDate,
+            lineItems: (paying.items || []).map(l => ({
+              description: l.description,
+              quantity: Number(l.qty || 0),
+              unit_price: Number(l.rate || 0),
+            })),
+          }}
+          onClose={() => setPaying(null)}
+          onRecorded={paymentRecorded}
+        />
       )}
     </div>
   );
