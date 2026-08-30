@@ -1,141 +1,87 @@
-# Close the self-assigned-role privilege escalation
+# Making the platform actually work — proposed plan
 
-## The hole
+## The honest position
 
-Supabase has two metadata bags on every account:
+A great deal has been built here very fast, across many surfaces. Almost none of
+it has been watched working. That is the gap between where we are and "the
+platform functions correctly", and it is not a gap that more building closes.
 
-- `app_metadata` — writable only with the service-role key, i.e. only by our server.
-- `user_metadata` — writable by the signed-in user, from the browser, via
-  `supabase.auth.updateUser({ data: { ... } })`.
+The evidence for saying so is our own history. The design centre was blank for
+hours because a variable was read eleven lines before it was declared. The
+siding takeoff threw on first render because `useEffect` was never imported.
+Both passed `vite build` cleanly, because esbuild strips types and never checks
+them — it will happily ship a reference to a name that does not exist. Both were
+found by you, using the app, rather than by me before shipping.
 
-Eleven authority checks on the server read `user_metadata` when deciding what a
-person may do. So any signed-in customer, vendor, tenant or subcontractor can
-open the browser console and run
+So the honest answer to "what do you suggest" is: stop guessing which parts
+work, and build the thing that tells us.
 
-    supabase.auth.updateUser({ data: { role: 'admin' } })
+## What I checked before proposing this
 
-and the server will treat them as an administrator on the next request. The app
-already calls `updateUser` from `LandlordPortalView.tsx:168`, so this is a
-capability the client demonstrably has, not a theoretical one.
+- **Your data is fine.** The live server writes to `kv_store_57095a78` — 1225
+  rows, 436 pipeline items, 6 vendors, 4 quotes, 5 design projects. The
+  similarly named `kv_store_3eae23a6` is an unused empty table; the naming is
+  inherited from the function that was retired in August, which is why it looked
+  alarming at first glance.
+- **The crash-causing class of type error is currently absent.** A type check
+  reports zero `Cannot find name` errors across `src/`. The specific bug that
+  has bitten twice is not sitting in the tree right now. Nothing prevents it
+  from coming back, though: there is no `tsconfig.json` and no typecheck script,
+  so TypeScript has never actually run on this codebase.
+- Of the 4789 errors that check did report, roughly 4400 are React's types
+  failing to resolve in a throwaway config I wrote in five minutes. That number
+  is my probe's fault and should not be read as 4789 defects.
 
-## What each site currently grants to a self-declared role
+## The plan, in the order I would do it
 
-| Site | Self-assign | Gets you |
-| --- | --- | --- |
-| `index.tsx:1195` `intakeIsAdmin` | `admin` | Everything gated on admin: invoices, payments, portal register, price book, work requests |
-| `index.tsx:3764` `purchaseOrderActor` | *anything but* `vendor` | Every purchase order, all vendors — a vendor widens by DELETING their role |
-| `index.tsx:5322` `internalWorkAccess` | `employee` | Internal schedules and field notes on any job |
-| `advertising.tsx:77` | `admin` | Every advertiser's campaigns |
-| `content-filter-admin.tsx:33` | `admin` | Content filter configuration |
-| `design-links.tsx:70` | staff role | Share any file, read any design |
-| `design-links.tsx:409` | staff role | Any customer's saved selections |
-| `fulfillment.tsx:109` | `admin` | Every order |
-| `gallery.tsx:53` | `admin` | Gallery writes |
-| `hot-products.tsx:107` | `admin` | Hot-product administration |
-| `house-capture.tsx:85` `isStaff` | `employee` | Unlimited AI renders — bypasses the spend ceiling, costs real money |
+### 1. Retire the two orphaned backends  (~30 min, security)
 
-## Why it is safe to fix
+`make-server-824f083c` and `make-server-12c91054` are still ACTIVE with live
+customer data and no source in this repository. Both answered an unprivileged
+test account: one returned `HTTP 200` on `/customers`, the other returned a 500
+from `/invoices` that leaked an internal table name, meaning it queried the
+database before checking who was asking. Retire them behind the same 410 stub
+that `make-server-57095a78` already uses, archiving each under
+`supabase/functions/_retired/` so either can be restored.
 
-Checked against the live account table before touching anything. Ten accounts
-exist. Exactly one holds an admin-grade role in `user_metadata` —
-`ericerb555@proton.me` — and that address is hardcoded on the platform-owner
-allowlist, so it keeps admin from a source the user cannot write. The other nine
-hold `landlord`, `vendor`, `employee`, `customer` or nothing. Nobody is locked
-out by refusing to trust that bag for elevation.
+### 2. A smoke harness that renders every screen  (the main event)
+
+One command that mounts every page and portal in headless Edge and reports which
+ones throw, which render empty, and which log console errors. This is precisely
+the check that would have caught the blank design centre before you did.
+
+It is worth being clear about why this matters more than it sounds: right now
+"does the platform work" is answered by you opening screens until one is broken.
+This replaces that with a list, produced in a couple of minutes, before anything
+ships.
+
+### 3. Fix whatever step 2 finds
+
+Unknown size — that is the point of running it. Ranked worst-first, and I would
+bring you the list before starting rather than disappearing into it.
+
+### 4. A real `tsconfig.json` and a `typecheck` script  (~1 hour + triage)
+
+So the `useEffect is not defined` class cannot come back silently. Configured
+properly this time, with React's types resolving, so the output is a short list
+of real problems rather than four thousand phantoms.
+
+### 5. Then kitchens and bathrooms
+
+Detailed measurements, 3D CAD, photorealistic render and a cabinet schedule.
+The largest thing asked for so far, and it deserves a proper plan of its own
+rather than being started at the end of a long day. Doing it on top of a
+platform we have actually verified is a much better position than doing it on
+top of one we hope works.
 
 ## Todo
 
-- [ ] 1. Back-fill `app_metadata.role` from `user_metadata.role` for the existing
-      accounts, merging rather than overwriting so the `provider` keys survive.
-      Behaviour-neutral: most sites already read `app_metadata.role` FIRST, so
-      writing the same value there changes no decision. It exists so the real
-      vendor and the real employee keep working once step 2 lands.
-- [ ] 2. Stop reading `user_metadata` for authority at all eleven sites.
-- [ ] 3. Fix `purchaseOrderActor` to fail CLOSED. Today an unrecognised role
-      widens to "company, sees everything". It must narrow instead.
-- [ ] 4. Write the role into `app_metadata` at every account-creation site so
-      new vendors, tenants and employees land correct without a back-fill.
-- [ ] 5. Test: prove a self-assigned admin role is refused and a real vendor
-      still sees their own orders.
-- [ ] 6. Deploy and report.
+- [ ] 1. Stub and archive `make-server-824f083c` and `make-server-12c91054`
+- [ ] 2. Build the render smoke harness over every page and portal
+- [ ] 3. Report the findings, ranked, and agree what to fix
+- [ ] 4. Add `tsconfig.json` and a `typecheck` script; triage the real errors
+- [ ] 5. Plan kitchens and bathrooms properly
 
 ## Review
 
 (to be completed)
-
----
-
-## Review
-
-All six items done. The escalation is closed and proven closed against the live
-deployment, not merely reasoned about.
-
-**Scope was bigger than first reported.** The opening count of eleven sites came
-from too narrow a search. The real figure is **thirty-four** authority checks
-across twenty-five server modules, every one of them reading the bag a browser
-can write.
-
-**What changed.** Thirty-four reads moved from `user_metadata` to
-`app_metadata`. In most files that is a single line and nothing else moved. The
-seven hand-edited gates call a new `trustedRole()` helper in
-`trustedRole.ts`, which exists so there is one answer to "what role does this
-account hold" rather than twenty-five slightly different ones. `trustedRole`
-deliberately has no `user_metadata` fallback: a fallback is what made this
-exploitable, because the moment an unwritable source may defer to a writable
-one, the writable one is the security boundary.
-
-**Two findings that were not about metadata at all**, both found while reading
-the surrounding code:
-
-- `purchaseOrderActor` decided the company-wide view with "anyone who is not a
-  vendor". A signed-in customer is not a vendor, and neither is a landlord or a
-  tenant, so the entire purchase-order book — every supplier and every price we
-  pay — was one portal login away. It now proves staff positively; everyone else
-  is scoped to the vendor record their address matches, and an unmatched address
-  resolves to `__unresolved__`, which matches nothing.
-- The vendor id was read from `user_metadata.vendorId` in three modules, so a
-  vendor could have typed a competitor's id into their own account and read that
-  competitor's catalogue and billing. It is now resolved by email against our
-  own `vendor:` records, which cannot be forged from the browser.
-
-**Nobody was locked out.** Checked before touching anything: of ten accounts,
-only `ericerb555@proton.me` held an admin-grade role in the writable bag, and
-that address is hardcoded on the platform-owner allowlist. The remaining roles
-were back-filled into `app_metadata` first, so the change was behaviour-neutral
-on the way in. Every account-creation path now writes both bags, and a re-invite
-fills a blank role rather than leaving one.
-
-**The proof.** A throwaway account was created holding `customer` in the trusted
-bag and `admin` in the writable one — exactly the attack. Signed in against
-production:
-
-    role claimed in the writable bag   403 on every admin route, isAdmin false
-    same account, role in trusted bag  200 on every admin route, isAdmin true
-
-Same account, same password, same routes; only the bag differed. The account was
-deleted afterwards. Note that `purchase-orders` and `advertising/campaigns`
-returned empty lists, but `kv_store_3eae23a6` holds no rows under those
-prefixes, so those two results are vacuous and prove nothing about scoping. The
-403s are real denials and do not depend on stored data.
-
-## Still open — needs your decision
-
-Two old backends are still ACTIVE with live data of their own, and their source
-is not in this repository, so nothing here can fix them:
-
-- `make-server-824f083c` — 54 rows including invoices, subscriptions, customers,
-  gift cards and ad campaigns. `/invoices` answered an unprivileged attacker
-  with a 500 and leaked an internal table name, meaning it ran a database query
-  before checking authorisation.
-- `make-server-12c91054` — 47 rows including work requests, permits and deck
-  renders. `/customers` answered the same attacker `HTTP 200 {"customers":[]}`.
-  Empty because the data sits under other keys, not because access was refused.
-
-The shipping app calls neither: all 598 apparent references are editor backup
-files, `deploy.sh`/`deploy.bat` and a diagnostic HTML page. There is already a
-precedent for retiring one of these — `make-server-57095a78` was stubbed on
-2026-08-15 for this exact reason, with its source archived under
-`supabase/functions/_retired/`, and it correctly answers 410 today.
-
-Recommend retiring both the same way. Not done unasked: they are live services,
-and taking two of them down is your call rather than mine.
