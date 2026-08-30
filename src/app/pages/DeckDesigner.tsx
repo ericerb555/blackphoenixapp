@@ -34,6 +34,7 @@ import SketchImport from '../components/SketchImport';
 import SidingTakeoff from '../components/SidingTakeoff';
 import OpeningsTakeoff from '../components/OpeningsTakeoff';
 import FlooringTakeoff from '../components/FlooringTakeoff';
+import RoomDesigner from '../components/RoomDesigner';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -144,8 +145,8 @@ const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> =
   { id: 'deck', label: 'Decks', icon: Hammer, built: true },
   { id: 'siding', label: 'Siding', icon: Home, built: true },
   { id: 'openings', label: 'Doors & windows', icon: DoorOpen, built: true },
-  { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: false },
-  { id: 'bathroom', label: 'Bathrooms', icon: Bath, built: false },
+  { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: true },
+  { id: 'bathroom', label: 'Bathrooms', icon: Bath, built: true },
   { id: 'flooring', label: 'Flooring', icon: Layers, built: true },
   { id: 'roofing', label: 'Roofing', icon: Triangle, built: false },
 ];
@@ -1186,6 +1187,12 @@ function DesignerSession({ session, onSession }: {
             {trade === 'openings' && (
               <PanelErrorBoundary name="Doors and windows">
                 <OpeningsTakeoff stage={stage} link={link} onLink={setLink} house={house} />
+              </PanelErrorBoundary>
+            )}
+
+            {(trade === 'kitchen' || trade === 'bathroom') && (
+              <PanelErrorBoundary name={trade === 'kitchen' ? 'Kitchen' : 'Bathroom'}>
+                <RoomDesigner kind={trade} house={house} stage={stage} link={link} onLink={setLink} />
               </PanelErrorBoundary>
             )}
 
