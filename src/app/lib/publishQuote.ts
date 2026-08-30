@@ -53,6 +53,17 @@ export interface PublishInput {
   projectName?: string;
   /** An existing quote to revise rather than duplicate. */
   existingQuoteId?: string | null;
+  /**
+   * Which trade this is.
+   *
+   * Carried onto the quote so the pipeline and the customer's portal can say
+   * what the quote is for, and so a customer having a deck and their siding
+   * done sees two quotes that identify themselves rather than two called
+   * "Quote". It matches the `ownerKey` a design is stored under.
+   */
+  kind?: string;
+  /** What to call it when the job has no title of its own. */
+  fallbackTitle?: string;
 }
 
 export interface PublishResult {
@@ -135,8 +146,8 @@ export async function publishDeckQuote(input: PublishInput): Promise<PublishResu
     // thing that clears it.
     designStale: false,
     designStaleAt: null,
-    designKind: 'decks',
-    title: input.projectName || link.jobTitle || 'Deck',
+    designKind: input.kind || 'decks',
+    title: input.projectName || link.jobTitle || input.fallbackTitle || 'Deck',
     address: link.jobAddress || '',
     items: [...materials, ...labor],
     materials,

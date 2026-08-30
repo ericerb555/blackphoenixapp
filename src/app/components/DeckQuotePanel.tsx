@@ -183,7 +183,7 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/deck-quote/price`, {
+        const res = await fetch(`${SERVER}/quote/price-lines`, {
           method: 'POST', headers: await headers(),
           body: JSON.stringify({
             lines: lines.filter(l => l.category !== 'Labour').map(l => ({ sku: l.sku, description: l.description })),

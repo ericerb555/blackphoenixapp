@@ -14,19 +14,31 @@
  * from, and the takeoff is only ever as good as its weakest one.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Home, Info, Camera, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Elevation, ExteriorModel, SidingMaterial, DimensionSource } from '../lib/exteriorModel';
 import { DEFAULT_EXTERIOR } from '../lib/exteriorModel';
 import { buildSidingQuote, DEFAULT_SIDING_OPTIONS } from '../lib/sidingQuote';
 import { exteriorFromCapture, captureSummary } from '../lib/sidingFromCapture';
+import { priceSiding, tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
+import { DEFAULT_QUOTE_OPTIONS, type QuoteOptions } from '../lib/deckQuote';
+import { publishDeckQuote } from '../lib/publishQuote';
+import ProjectLinkPanel, { type DesignLink } from './ProjectLinkPanel';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
 import { isVideoFile } from '../lib/localFolder';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+async function headers() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+  };
+}
 /** Comfortably inside the edge request limit, same budget the house capture uses. */
 const MAX_PAYLOAD_BYTES = 4_000_000;
 const MAX_IMAGES = 12;
@@ -147,6 +159,93 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
     () => buildSidingQuote(model, { ...DEFAULT_SIDING_OPTIONS, includeTearOff }),
     [model, includeTearOff],
   );
+
+  /* ── money ──────────────────────────────────────────────────────────────
+     Prices and rates from the same places every other quote in this business
+     uses. Nothing about siding is priced by arithmetic of its own. */
+  const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({});
+  const [rates, setRates] = useState<TradeRates>({});
+  const [opts, setOpts] = useState<QuoteOptions>(DEFAULT_QUOTE_OPTIONS);
+  const [link, setLink] = useState<DesignLink>({ customerId: '', customerName: '', jobId: '', jobTitle: '' });
+  const [publishing, setPublishing] = useState(false);
+  const [quoteId, setQuoteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const h = await headers();
+        const [rateRes, cfgRes] = await Promise.all([
+          fetch(`${SERVER}/labor-rates/get`, { headers: h }),
+          fetch(`${SERVER}/pricing-config/get`, { headers: h }),
+        ]);
+        const r = await rateRes.json().catch(() => ({}));
+        const cfg = await cfgRes.json().catch(() => ({}));
+        setRates(tradeRatesFrom(r?.laborRates || []));
+        const config = cfg?.config || {};
+        setOpts(o => ({
+          ...o,
+          marginPct: Number(config.profitMargin ?? 0) || 0,
+          taxRatePct: Number(config.taxRate ?? 0) || 0,
+        }));
+      } catch { /* quantities are still worth showing */ }
+    })();
+  }, []);
+
+  // Keyed on the SKUs, not the quantities — changing a wall length changes
+  // every quantity and no SKU, and pricing on each keystroke would be a request
+  // per character.
+  const skuKey = useMemo(() => quote.lines.map(l => l.sku).sort().join('|'), [quote.lines]);
+  useEffect(() => {
+    if (!skuKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/quote/price-lines`, {
+          method: 'POST', headers: await headers(),
+          body: JSON.stringify({
+            lines: quote.lines.filter(l => l.category !== 'Labour')
+              .map(l => ({ sku: l.sku, description: l.description })),
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.success) return;
+        const next: Record<string, number> = {};
+        for (const p of json.priced || []) if (Number(p.unitPrice) > 0) next[p.sku] = Number(p.unitPrice);
+        setMaterialPrices(next);
+      } catch { /* leaves lines unpriced, which is said out loud below */ }
+    })();
+    return () => { cancelled = true; };
+  }, [skuKey]);
+
+  const priced = useMemo(
+    () => priceSiding(quote.lines, materialPrices, rates, opts),
+    [quote.lines, materialPrices, rates, opts],
+  );
+
+  /**
+   * Send it down the same path a deck quote takes.
+   *
+   * Same publisher, same two writes, same refusals. A siding quote that reached
+   * the pipeline by some other route would be the island all over again.
+   */
+  const publish = useCallback(async () => {
+    setPublishing(true);
+    try {
+      const result = await publishDeckQuote({
+        link, lines: priced.lines, totals: priced.totals,
+        unpricedCount: priced.unpricedCount,
+        designId: null, designVersion: null,
+        kind: 'siding', fallbackTitle: 'Siding',
+        existingQuoteId: quoteId,
+      });
+      if (!result.ok) { toast.error(result.error || 'Could not create the quote.'); return; }
+      setQuoteId(result.quoteId || null);
+      if (result.error) toast.warning(result.error);
+      else toast.success('Siding quote created — on the pipeline and in their portal.');
+    } finally {
+      setPublishing(false);
+    }
+  }, [link, priced, quoteId]);
 
   // Nothing is worth showing until at least one wall has a size.
   const ready = model.elevations.some(e => Number(e.widthFt) > 0 && Number(e.heightFt) > 0);
@@ -377,10 +476,53 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
                     ))}
                   </div>
                   <p className="mt-3 text-[11px] text-gray-600">
-                    Quantities and hours only. Prices come from the vendor catalogue and your trade
-                    rates, the same as every other quote.
+                    Priced from the vendor catalogue and your trade rates, the same as every other
+                    quote. Each trade is charged at its own rate — hanging at the siding rate, a
+                    tear-out at the labouring rate.
                   </p>
                 </div>
+
+                {/* ── the quote ─────────────────────────────────────────── */}
+                <div className={card}>
+                  <h2 className="mb-3 text-sm font-bold text-white">Quote</h2>
+                  <div className="space-y-1.5 text-sm">
+                    <Stat label="Materials" value={`$${priced.totals.materials.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <Stat label="Labour" value={`$${priced.totals.labour.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <Stat label={`Margin ${opts.marginPct}%`} value={`$${priced.totals.margin.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                    <div className="mt-2 flex items-baseline justify-between border-t border-white/10 pt-2">
+                      <span className="text-sm font-bold text-white">Total</span>
+                      <span className="text-xl font-bold text-[#ea580c]">
+                        ${priced.totals.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {priced.unpricedCount > 0 && (
+                    <p className="mt-3 flex gap-2 text-[11px] text-amber-500/90">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {priced.unpricedCount} {priced.unpricedCount === 1 ? 'line has' : 'lines have'} no
+                      price, so this total is short by whatever they cost.
+                    </p>
+                  )}
+
+                  <button onClick={publish} disabled={publishing}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#ea580c] px-4 py-3 font-bold text-white transition hover:bg-orange-500 disabled:opacity-50">
+                    {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {quoteId ? 'Update the quote' : 'Create the quote'}
+                  </button>
+                  <p className="mt-2 text-[11px] text-gray-600">
+                    {link.customerEmail
+                      ? <>Goes to the pipeline{link.jobId ? ' against this job' : ''} and to {link.customerName || 'the customer'}&apos;s portal.</>
+                      : <span className="text-amber-500/90">Pick a customer below — without their email a quote never reaches their portal.</span>}
+                  </p>
+                </div>
+
+                {/* Who it is for. The same panel the deck designer uses, so a
+                    siding job attaches to a customer and a work request exactly
+                    as a deck does. */}
+                <PanelWrap>
+                  <ProjectLinkPanel designId={null} link={link} onLink={setLink} />
+                </PanelWrap>
               </>
             )}
           </div>
@@ -388,6 +530,11 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
       </div>
     </div>
   );
+}
+
+/** Keeps a borrowed panel from inheriting this page's card padding twice. */
+function PanelWrap({ children }: { children: any }) {
+  return <div className="[&>div]:!bg-[#111]">{children}</div>;
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {

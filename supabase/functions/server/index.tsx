@@ -3190,7 +3190,7 @@ app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
  * which made it a drawing tool rather than something you can quote from.
  */
 /**
- * Price a deck takeoff the way every other quote in this business is priced.
+ * Price takeoff lines the way every quote in this business is priced.
  *
  * WHY ON THE SERVER
  *
@@ -3215,7 +3215,7 @@ app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
  * comes back saying which of the three it was, so a quote can never present a
  * typed figure and a vendor's published price as the same kind of number.
  */
-app.post('/make-server-3eae23a6/deck-quote/price', async (c) => {
+app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
   try {
     const actor = await intakeActor(c);
     if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
