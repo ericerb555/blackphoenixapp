@@ -75,7 +75,25 @@ const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
  * type what has already been read off a photograph. Nothing passes it yet; it
  * is the seam the interior and exterior captures plug into.
  */
-export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorModel> } = {}) {
+/**
+ * Siding, either as its own page or as a trade inside the design centre.
+ *
+ * `stage` is what lets one component be both. Given a stage, it renders only
+ * that part of the work and drops its own page chrome, so the design centre can
+ * put capture, design and price behind the same rail a deck uses. Given none,
+ * it renders everything in order, which is the standalone page.
+ *
+ * Sharing the component rather than copying its innards into the design centre
+ * is the point: two siding editors would be two takeoffs, and a customer would
+ * eventually be quoted from whichever one somebody happened to open.
+ */
+export default function SidingTakeoff({ initial, stage, link: linkProp, onLink }: {
+  initial?: Partial<ExteriorModel>;
+  stage?: 'capture' | 'design' | 'price' | 'documents';
+  /** Supplied when the design centre owns the customer; otherwise held here. */
+  link?: DesignLink;
+  onLink?: (next: DesignLink) => void;
+} = {}) {
   const [model, setModel] = useState<ExteriorModel>({
     ...DEFAULT_EXTERIOR,
     elevations: [blankWall(1), blankWall(2), blankWall(3), blankWall(4)],
@@ -166,7 +184,11 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
   const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({});
   const [rates, setRates] = useState<TradeRates>({});
   const [opts, setOpts] = useState<QuoteOptions>(DEFAULT_QUOTE_OPTIONS);
-  const [link, setLink] = useState<DesignLink>({ customerId: '', customerName: '', jobId: '', jobTitle: '' });
+  // The customer belongs to the design centre when it is driving, and to this
+  // page when it is standing alone. One of the two owns it; never both.
+  const [ownLink, setOwnLink] = useState<DesignLink>({ customerId: '', customerName: '', jobId: '', jobTitle: '' });
+  const link = linkProp ?? ownLink;
+  const setLink = onLink ?? setOwnLink;
   const [publishing, setPublishing] = useState(false);
   const [quoteId, setQuoteId] = useState<string | null>(null);
 
@@ -250,20 +272,34 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
   // Nothing is worth showing until at least one wall has a size.
   const ready = model.elevations.some(e => Number(e.widthFt) > 0 && Number(e.heightFt) > 0);
 
-  return (
-    <div className="min-h-screen bg-[#0A0A0A] p-4 md:p-8">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
-            <Home className="h-6 w-6 text-[#ea580c]" /> Siding takeoff
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Measure each wall once. Quantities and hours come out the other side.
-          </p>
-        </div>
+  /** Embedded in the design centre, or standing on its own. */
+  const embedded = Boolean(stage);
+  /** Show a section when no stage is driving, or when it is this one. */
+  const at = (s: string) => !stage || stage === s;
 
-        {/* ── read the walls off photos ───────────────────────────────── */}
-        <div className={card}>
+  const Shell = embedded
+    ? ({ children }: { children: any }) => <div className="space-y-4">{children}</div>
+    : ({ children }: { children: any }) => (
+        <div className="min-h-screen bg-[#0A0A0A] p-4 md:p-8">
+          <div className="mx-auto max-w-6xl space-y-4">{children}</div>
+        </div>
+      );
+
+  return (
+    <Shell>
+        {!embedded && (
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+              <Home className="h-6 w-6 text-[#ea580c]" /> Siding takeoff
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Measure each wall once. Quantities and hours come out the other side.
+            </p>
+          </div>
+        )}
+
+        {/* ── read the walls off photos — Capture ─────────────────────── */}
+        <div className={`${card} ${at('capture') ? '' : 'hidden'}`}>
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => photoInput.current?.click()} disabled={!!reading}
               className="flex items-center gap-2 rounded-xl border border-[#ea580c]/40 bg-[#ea580c]/10 px-4 py-2.5 text-sm font-bold text-[#ea580c] transition hover:bg-[#ea580c]/20 disabled:opacity-40">
@@ -299,9 +335,14 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
           )}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
-          {/* ── the walls ─────────────────────────────────────────────── */}
-          <div className={card}>
+        {/*
+          The walls and the job on the left, the numbers on the right. Under the
+          design centre's rail these split by stage instead: the walls are the
+          design, and the totals belong with the price.
+        */}
+        <div className={`grid gap-4 ${stage ? 'grid-cols-1' : 'lg:grid-cols-[1.15fr_1fr]'}`}>
+          {/* ── the walls — Design ────────────────────────────────────── */}
+          <div className={`${card} ${at('design') ? '' : 'hidden'}`}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white">The walls</h2>
               <button
@@ -388,9 +429,11 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
             </div>
           </div>
 
-          {/* ── the job ───────────────────────────────────────────────── */}
+          {/* ── the job, then the numbers ──────────────────────────────
+              Material, corners and waste are design decisions and belong with
+              the walls. Everything under `ready` below is the price. */}
           <div className="space-y-4">
-            <div className={card}>
+            <div className={`${card} ${at('design') ? '' : 'hidden'}`}>
               <h2 className="mb-3 text-sm font-bold text-white">The job</h2>
 
               <div className="mb-3 grid grid-cols-4 gap-1.5">
@@ -437,7 +480,7 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
               </div>
             </div>
 
-            {ready && (
+            {ready && at('price') && (
               <>
                 <div className={card}>
                   <div className="grid grid-cols-2 gap-3 text-sm">
@@ -517,18 +560,20 @@ export default function SidingTakeoff({ initial }: { initial?: Partial<ExteriorM
                   </p>
                 </div>
 
-                {/* Who it is for. The same panel the deck designer uses, so a
-                    siding job attaches to a customer and a work request exactly
-                    as a deck does. */}
-                <PanelWrap>
-                  <ProjectLinkPanel designId={null} link={link} onLink={setLink} />
-                </PanelWrap>
+                {/* Who it is for. Only when standing alone — inside the design
+                    centre the customer is chosen once for the job, not once per
+                    trade, so showing this here would be a second place to set
+                    the same thing. */}
+                {!embedded && (
+                  <PanelWrap>
+                    <ProjectLinkPanel designId={null} link={link} onLink={setLink} />
+                  </PanelWrap>
+                )}
               </>
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Shell>
   );
 }
 

@@ -30,6 +30,7 @@ import DeckFinishPicker from '../components/DeckFinishPicker';
 import ConnectionDetails from '../components/ConnectionDetails';
 import DeckQuotePanel from '../components/DeckQuotePanel';
 import SketchImport from '../components/SketchImport';
+import SidingTakeoff from '../components/SidingTakeoff';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -207,6 +208,21 @@ function DesignerSession({ session, onSession }: {
    * headed, and because it is closest to what the page used to show.
    */
   const [stage, setStage] = useState<'capture' | 'design' | 'price' | 'documents'>('design');
+
+  /**
+   * Which trade is being designed.
+   *
+   * The design centre is one place for every trade this company sells, and the
+   * five things around the middle — the customer, the capture, the pricing, the
+   * presentation, the documents — are the same whichever it is. Only the model
+   * in the middle differs, which is what makes a second trade an addition here
+   * rather than a second product.
+   *
+   * Held on the page rather than on the design, because switching trade is a
+   * navigation act and not an edit: nothing about the deck is discarded by
+   * looking at the siding.
+   */
+  const [trade, setTrade] = useState<'deck' | 'siding'>('deck');
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -770,6 +786,28 @@ function DesignerSession({ session, onSession }: {
           phone during a site visit — which is where capture actually happens —
           and a rail beside eleven stacked panels never could be.
         */}
+        {/*
+          Which trade. Sits above the stages because it decides what the stages
+          contain — the customer, the capture, the pricing and the documents are
+          the same work whichever trade this is.
+        */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Trade</span>
+          {([['deck', 'Deck'], ['siding', 'Siding']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setTrade(id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                trade === id
+                  ? 'bg-white/10 text-white ring-1 ring-[#ea580c]/50'
+                  : 'border border-[#2A2A2A] text-gray-500 hover:text-white'
+              }`}>
+              {label}
+            </button>
+          ))}
+          <span className="ml-2 text-[11px] text-gray-600">
+            Kitchens, bathrooms, doors and windows come next.
+          </span>
+        </div>
+
         <div className="mb-4 flex flex-wrap gap-1.5">
           {([
             ['capture', 'Capture', 'Photos, video and what is already there'],
@@ -967,6 +1005,29 @@ function DesignerSession({ session, onSession }: {
 
           {/* Views + takeoff */}
           <div className="space-y-4">
+            {/*
+              Siding, as a trade inside this centre rather than a page beside
+              it. The same component the standalone page uses, driven by this
+              rail — two siding editors would be two takeoffs, and a customer
+              would eventually be quoted from whichever one got opened.
+            */}
+            {trade === 'siding' && (
+              <PanelErrorBoundary name="Siding">
+                <SidingTakeoff stage={stage} link={link} onLink={setLink} />
+              </PanelErrorBoundary>
+            )}
+
+            {trade === 'siding' && stage === 'documents' && (
+              <div className={card}>
+                <p className="text-sm text-gray-400">
+                  No siding documents yet. A deck produces a permit packet and a build
+                  specification; the siding equivalents are not written.
+                </p>
+              </div>
+            )}
+
+            {/* Everything below is the deck. */}
+            {trade === 'deck' && <>
             {/* The drawing is what you design against, so it belongs to Design. */}
             <div className={`${card} ${stage === 'design' ? '' : 'hidden'}`}>
               {sized
@@ -983,14 +1044,19 @@ function DesignerSession({ session, onSession }: {
                   </div>
                 )}
             </div>
+            </>}
 
-            {/* The assistant and the customer both apply whatever you are
-                doing, so they stay put rather than belonging to a stage. */}
+            {/* The assistant and the customer apply whatever you are doing and
+                whichever trade it is, so they belong to neither a stage nor a
+                trade. The customer especially: a job has one, not one per
+                trade. */}
+            {trade === 'deck' && (
             <PanelErrorBoundary name="Assistant">
               <DeckAssistant model={model} site={site} loads={loads} takeoff={bom}
                 structural={struct} advisories={advisories} findings={findings}
                 onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
+            )}
 
             <PanelErrorBoundary name="Customer and job">
               {/* The filer was exposed by this panel and never picked up, so
@@ -999,6 +1065,8 @@ function DesignerSession({ session, onSession }: {
               <ProjectLinkPanel designId={savedId} link={link} onLink={setLink}
                 onFilerReady={f => { filer.current = f; }} />
             </PanelErrorBoundary>
+
+            {trade === 'deck' && <>
 
             {/* ── Capture ────────────────────────────────────────────────
                 Everything that reads what is already there. This is the stage
@@ -1141,6 +1209,7 @@ function DesignerSession({ session, onSession }: {
                 Counted from the same members that are drawn, so this cannot drift from the plan.
               </p>
             </div>
+            </>}
             </>}
           </div>
         </div>
