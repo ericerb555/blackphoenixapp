@@ -145,7 +145,7 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
-import { repriceEstimate } from "./repriceEstimate.ts";
+import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
@@ -3189,6 +3189,100 @@ app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
  * design centre could produce an exact bill of materials and no price at all,
  * which made it a drawing tool rather than something you can quote from.
  */
+/**
+ * Price a deck takeoff the way every other quote in this business is priced.
+ *
+ * WHY ON THE SERVER
+ *
+ * The matcher that decides whether a line corresponds to something a vendor
+ * sells already lives here, in `repriceEstimate`, and is what work-request
+ * quotes use. Doing this in the browser would mean a second copy of it, and two
+ * matchers is how the same material comes to be priced two ways depending on
+ * which screen asked.
+ *
+ * THE ORDER, AND WHY IT IS THAT ORDER
+ *
+ *   1. the vendor catalogue, matched on SKU and then on name — a real price,
+ *      attributable to a vendor and carrying the date it was published
+ *   2. the deck price book — figures typed by hand for the recurring lumber and
+ *      hardware lines that no vendor catalogue happens to cover
+ *   3. nothing, marked unpriced
+ *
+ * The price book is deliberately second and deliberately marked. It is not a
+ * substitute for the catalogue; it exists because a deck takeoff produces two
+ * dozen recurring lines keyed by what they are, and waiting for a vendor
+ * catalogue to cover all of them means no deck can be quoted at all. Every line
+ * comes back saying which of the three it was, so a quote can never present a
+ * typed figure and a vendor's published price as the same kind of number.
+ */
+app.post('/make-server-3eae23a6/deck-quote/price', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const lines = Array.isArray(body?.lines) ? body.lines.slice(0, 200) : [];
+    if (!lines.length) return c.json({ success: true, priced: [] });
+
+    const [catalogRaw, bookRaw, vendorsRaw] = await Promise.all([
+      kv.getByPrefix('vendor_catalog:').catch(() => []),
+      kv.get('deck_price_book:global').catch(() => null),
+      kv.getByPrefix('vendor:').catch(() => []),
+    ]);
+
+    const vendorNames = new Map(
+      ((vendorsRaw as any[]) || []).filter(Boolean).map((v: any) => [String(v?.id || ''), String(v?.name || '')]),
+    );
+    const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
+      vendorId: i?.vendorId,
+      vendorName: vendorNames.get(String(i?.vendorId)) || '',
+      name: i?.name, sku: i?.sku, unit: i?.unit,
+      price: Number(i?.price) || 0,
+      updatedAt: i?.updatedAt, isActive: i?.isActive,
+    }));
+    const book: Record<string, number> = (bookRaw as any)?.prices || {};
+
+    const priced = lines.map((line: any) => {
+      const sku = String(line?.sku || '');
+      const description = String(line?.description || '');
+
+      // An exact SKU match is worth trying first and separately: a deck line's
+      // key is stable, so a vendor who publishes against it is an unambiguous
+      // match in a way a name never is.
+      const bySku = catalog.find(
+        (i) => i.isActive !== false && Number(i.price) > 0
+          && String(i.sku || '').trim().toLowerCase() === sku.trim().toLowerCase(),
+      );
+      const hit = bySku || matchCatalogItem({ name: description, sku }, catalog);
+
+      if (hit) {
+        return {
+          sku,
+          unitPrice: Math.round((Number(hit.price) || 0) * 100) / 100,
+          source: 'catalogue',
+          vendor: hit.vendorName || '',
+          priceAsOf: hit.updatedAt || null,
+        };
+      }
+
+      const typed = Number(book[sku]);
+      if (Number.isFinite(typed) && typed > 0) {
+        return { sku, unitPrice: Math.round(typed * 100) / 100, source: 'your-price', vendor: '', priceAsOf: null };
+      }
+
+      return { sku, unitPrice: 0, source: 'unpriced', vendor: '', priceAsOf: null };
+    });
+
+    return c.json({
+      success: true,
+      priced,
+      catalogueSize: catalog.length,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to price those lines.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/deck-price-book', async (c) => {
   try {
     const actor = await intakeActor(c);

@@ -17,9 +17,13 @@
  *
  * Money comes from the same places as every other quote in this business —
  * labour from the trade rates, margin and tax from the pricing settings, and
- * material from the deck price book. Anything with no price is shown as
- * unpriced rather than assumed, because a total that quietly excludes the
- * decking boards is worse than a total that says it is missing them.
+ * material from the vendor catalogue, falling back to figures typed here for
+ * the recurring lumber and hardware lines no vendor happens to publish.
+ *
+ * Which of those a line came from is shown, never blurred. A vendor's published
+ * price and a number somebody typed are both real and are not the same claim,
+ * and anything with neither is shown as unpriced rather than quietly left out
+ * of the total.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -62,6 +66,9 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
   const [dirty, setDirty] = useState(false);
   /** Which figures are the company's own and which are the standard table. */
   const [usingStandards, setUsingStandards] = useState(false);
+  /** Where each material price came from, so the two kinds are never blurred. */
+  const [sources, setSources] = useState<Record<string, { source: string; vendor: string; priceAsOf: string | null }>>({});
+  const [catalogueSize, setCatalogueSize] = useState(0);
 
   /**
    * Everything the money side needs, pulled together in one go.
@@ -73,16 +80,14 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
     (async () => {
       try {
         const h = await headers();
-        const [bookRes, rateRes, cfgRes] = await Promise.all([
-          fetch(`${SERVER}/deck-price-book`, { headers: h }),
+        // Material prices are not fetched here any more — they come from the
+        // pricing route below, which consults the vendor catalogue first.
+        const [rateRes, cfgRes] = await Promise.all([
           fetch(`${SERVER}/labor-rates/get`, { headers: h }),
           fetch(`${SERVER}/pricing-config/get`, { headers: h }),
         ]);
-        const book = await bookRes.json().catch(() => ({}));
         const rates = await rateRes.json().catch(() => ({}));
         const cfg = await cfgRes.json().catch(() => ({}));
-
-        if (book?.prices) setPrices(book.prices);
 
         const carpentry = (rates?.laborRates || []).find((r: any) => String(r.id) === 'carpentry');
         const config = cfg?.config || {};
@@ -106,6 +111,48 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
     [model, prices, opts],
   );
   const totals = useMemo(() => quoteTotals(lines, opts), [lines, opts]);
+
+  /**
+   * Ask the server what these lines cost.
+   *
+   * The catalogue match runs there because that is where the matcher lives and
+   * where work-request quotes already use it. A second matcher in the browser
+   * would be how the same board comes to be priced two ways depending on which
+   * screen asked.
+   *
+   * Keyed on the set of SKUs rather than on the lines themselves: dragging a
+   * width slider changes every quantity and no SKU, and re-pricing on every
+   * frame of that would be a request per pixel.
+   */
+  const skuKey = useMemo(() => lines.map(l => l.sku).sort().join('|'), [lines]);
+  useEffect(() => {
+    if (!skuKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/deck-quote/price`, {
+          method: 'POST', headers: await headers(),
+          body: JSON.stringify({
+            lines: lines.filter(l => l.category !== 'Labour').map(l => ({ sku: l.sku, description: l.description })),
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.success) return;
+        const next: PriceBook = {};
+        const src: Record<string, { source: string; vendor: string; priceAsOf: string | null }> = {};
+        for (const p of json.priced || []) {
+          if (Number(p.unitPrice) > 0) next[p.sku] = Number(p.unitPrice);
+          src[p.sku] = { source: p.source, vendor: p.vendor || '', priceAsOf: p.priceAsOf || null };
+        }
+        setPrices(next);
+        setSources(src);
+        setCatalogueSize(Number(json.catalogueSize) || 0);
+      } catch {
+        // Quantities are still worth showing when pricing is unreachable.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [skuKey]);
 
   const savePrices = useCallback(async () => {
     setSaving(true);
@@ -201,7 +248,10 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
           <p className="mb-3 flex gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5 text-[11px] text-amber-500/90">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {unpricedCount} {unpricedCount === 1 ? 'line has' : 'lines have'} no price yet, so the total below is
-            short by whatever they cost. Type a price against each one — it is saved and every deck after this uses it.
+            short by whatever they cost.{' '}
+            {catalogueSize === 0
+              ? 'No vendor has published a catalogue yet, so type a price against each one — it is saved and every deck after this uses it.'
+              : 'Nothing in the vendor catalogue matches them. Type a price against each one, or publish them to a vendor catalogue where they carry a date.'}
           </p>
         )}
 
@@ -223,6 +273,20 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
                       <p className="truncate text-[10px] text-gray-600">
                         {l.qty} {l.unit}{l.basis ? ` · ${l.basis}` : ''}
                       </p>
+                      {/*
+                        A vendor's published price and a number somebody typed
+                        are both real and are not the same claim. Which one this
+                        is gets said on the line, not in a footnote.
+                      */}
+                      {sources[l.sku]?.source === 'catalogue' && (
+                        <p className="truncate text-[10px] text-emerald-500/80">
+                          {sources[l.sku].vendor || 'Vendor catalogue'}
+                          {sources[l.sku].priceAsOf ? ` · ${String(sources[l.sku].priceAsOf).slice(0, 10)}` : ''}
+                        </p>
+                      )}
+                      {sources[l.sku]?.source === 'your-price' && (
+                        <p className="truncate text-[10px] text-gray-500">Your price</p>
+                      )}
                     </div>
                     {l.category === 'Labour' ? (
                       <span className="shrink-0 text-xs font-semibold text-[#ea580c]">{money(l.total)}</span>
