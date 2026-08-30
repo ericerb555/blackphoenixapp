@@ -24,6 +24,9 @@ import { publishDeckQuote } from '../lib/publishQuote';
 import ProjectLinkPanel, { type DesignLink } from './ProjectLinkPanel';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import HouseImportBanner from './HouseImportBanner';
+import type { House } from '../lib/houseModel';
+import { openingsOffer, specsFromHouse } from '../lib/houseToTrades';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -65,8 +68,10 @@ const blankSpec = (): OpeningSpec => ({
   tempered: false,
 });
 
-export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
+export default function OpeningsTakeoff({ stage, link: linkProp, onLink, house }: {
   stage?: 'capture' | 'design' | 'price' | 'documents';
+  /** The captured building — its openings become this schedule. */
+  house?: House | null;
   link?: DesignLink;
   onLink?: (next: DesignLink) => void;
 } = {}) {
@@ -160,6 +165,16 @@ export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
 
   return (
     <Shell>
+      <HouseImportBanner
+        offer={openingsOffer(house)}
+        noun="openings"
+        replacing={specs.length}
+        onApply={() => {
+          const next = specsFromHouse(house);
+          setSpecs(next);
+          toast.success(`${next.length} opening${next.length === 1 ? '' : 's'} brought in. Check the rough sizes before ordering.`);
+        }}
+      />
       {!embedded && (
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-white">

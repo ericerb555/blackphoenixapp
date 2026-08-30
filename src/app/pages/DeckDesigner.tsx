@@ -1179,19 +1179,19 @@ function DesignerSession({ session, onSession }: {
             */}
             {trade === 'siding' && (
               <PanelErrorBoundary name="Siding">
-                <SidingTakeoff stage={stage} link={link} onLink={setLink} />
+                <SidingTakeoff stage={stage} link={link} onLink={setLink} house={house} />
               </PanelErrorBoundary>
             )}
 
             {trade === 'openings' && (
               <PanelErrorBoundary name="Doors and windows">
-                <OpeningsTakeoff stage={stage} link={link} onLink={setLink} />
+                <OpeningsTakeoff stage={stage} link={link} onLink={setLink} house={house} />
               </PanelErrorBoundary>
             )}
 
             {trade === 'flooring' && (
               <PanelErrorBoundary name="Flooring">
-                <FlooringTakeoff stage={stage} link={link} onLink={setLink} />
+                <FlooringTakeoff stage={stage} link={link} onLink={setLink} house={house} />
               </PanelErrorBoundary>
             )}
 

@@ -29,6 +29,9 @@ import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCaptur
 import { isVideoFile } from '../lib/localFolder';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import HouseImportBanner from './HouseImportBanner';
+import type { House } from '../lib/houseModel';
+import { sidingOffer, elevationsFromHouse } from '../lib/houseToTrades';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -87,8 +90,10 @@ const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
  * is the point: two siding editors would be two takeoffs, and a customer would
  * eventually be quoted from whichever one somebody happened to open.
  */
-export default function SidingTakeoff({ initial, stage, link: linkProp, onLink }: {
+export default function SidingTakeoff({ initial, stage, link: linkProp, onLink, house }: {
   initial?: Partial<ExteriorModel>;
+  /** The captured building, so walls are measured once for every trade. */
+  house?: House | null;
   stage?: 'capture' | 'design' | 'price' | 'documents';
   /** Supplied when the design centre owns the customer; otherwise held here. */
   link?: DesignLink;
@@ -287,6 +292,19 @@ export default function SidingTakeoff({ initial, stage, link: linkProp, onLink }
 
   return (
     <Shell>
+        <HouseImportBanner
+          offer={sidingOffer(house)}
+          noun="walls"
+          replacing={model.elevations.length}
+          onApply={() => {
+            const elevations = elevationsFromHouse(house);
+            // Corners follow from the number of walls captured. Four walls is a
+            // simple rectangle; anything else is the estimator's call, so the
+            // existing count is left alone rather than guessed at.
+            setModel(m => ({ ...m, elevations }));
+            toast.success(`${elevations.length} wall${elevations.length === 1 ? '' : 's'} brought in from the house.`);
+          }}
+        />
         {!embedded && (
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
