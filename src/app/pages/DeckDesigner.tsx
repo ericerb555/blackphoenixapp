@@ -183,6 +183,8 @@ function DesignerSession({ session, onSession }: {
   const [mode, setMode] = useState<ViewMode>('3d');
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(session.id);
+  /** The saved version number, so a quote can record which design it came from. */
+  const [savedVersion, setSavedVersion] = useState<number | null>(null);
   /**
    * How anything produced here reaches the customer's folder.
    *
@@ -433,6 +435,8 @@ function DesignerSession({ session, onSession }: {
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) { toast.error(data?.error || `Save failed (${res.status})`); return; }
       setSavedId(data.project.id);
+      // Kept so a quote can record which version of the design it was made from.
+      setSavedVersion(Number(data.project.version) || null);
       setClean(JSON.stringify({ model, site, loads }));
       toast.success(`Saved — version ${data.project.version}`);
       loadList();
@@ -1037,7 +1041,8 @@ function DesignerSession({ session, onSession }: {
                 the drawing cannot disagree. */}
             <div className={stage === 'price' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Quote">
-                <DeckQuotePanel model={model} />
+                <DeckQuotePanel model={model} link={link} designId={savedId}
+                  designVersion={savedVersion} projectName={site.projectName} />
               </PanelErrorBoundary>
             </div>
 

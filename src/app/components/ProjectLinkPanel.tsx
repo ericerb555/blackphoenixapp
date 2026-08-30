@@ -59,6 +59,16 @@ export interface DesignLink {
    * able to drift apart.
    */
   jobAddress?: string;
+  /**
+   * The customer's email, carried because a quote is invisible without it.
+   *
+   * `ownsQuote` on the server matches a quote to a customer on clientEmail,
+   * customerEmail, customerId, userId or createdBy. A quote written with a
+   * customer id alone would sit in the pipeline looking perfectly fine and
+   * never appear in that customer's portal, with nothing to indicate why. So
+   * the email travels with the link and a quote is refused without it.
+   */
+  customerEmail?: string;
 }
 
 interface Props {
@@ -154,6 +164,7 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
       // they live, and for a landlord or a property manager those are routinely
       // different places — so the job wins whenever it says anything.
       jobAddress: String(job?.address || c?.address || '').trim(),
+      customerEmail: String(c?.email || '').trim(),
     });
 
     // Only persist once the design exists — a link on an unsaved design has
