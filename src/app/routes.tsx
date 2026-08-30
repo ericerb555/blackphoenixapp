@@ -90,6 +90,7 @@ const PricingSettings = lazy(() => import("./pages/PricingSettings"));
 const LaborRatesConfig = lazy(() => import("./components/LaborRatesConfig"));
 const LaborTasksConfig = lazy(() => import("./components/LaborTasksConfig"));
 const SidingTakeoff = lazy(() => import("./components/SidingTakeoff"));
+const OpeningsTakeoff = lazy(() => import("./components/OpeningsTakeoff"));
 const ServiceScheduling = lazy(() => import("./pages/ServiceScheduling"));
 const UnifiedCRMHub = lazy(() => import("./pages/UnifiedCRMHub"));
 const PropertyManagementHub = lazy(() => import("./pages/PropertyManagementHub"));
@@ -471,6 +472,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "labor-rates-config":  LaborRatesConfig,
   "labor-hours-config":  LaborTasksConfig,
   "siding-takeoff":      SidingTakeoff,
+  "openings-takeoff":    OpeningsTakeoff,
   // "bid-room" is defined once, further down, as Phoenix Exchange. A second
   // entry used to sit here pointing at BidRoomV2 — and because a later key in
   // an object literal wins, it never rendered. That page has been removed.
