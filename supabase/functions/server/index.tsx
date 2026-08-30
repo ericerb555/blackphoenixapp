@@ -147,6 +147,7 @@ import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { repriceEstimate } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
+import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
 import { reelResearchRouter } from "./reel-research.tsx";
@@ -3172,6 +3173,71 @@ app.get('/make-server-3eae23a6/labor-rates/get', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load labor rates.' }, 500); }
 });
 
+/**
+ * What the pieces a deck is built from cost.
+ *
+ * WHY A PRICE BOOK RATHER THAN THE VENDOR CATALOGUE
+ *
+ * The catalogue is a list of products a vendor sells. A deck takeoff produces
+ * something narrower and more stable: a couple of dozen recurring lines keyed by
+ * what they are — `lumber:2x10:12`, `hardware:joist-hanger`, `footing:concrete`.
+ * Those keys do not change from job to job, so a price typed once prices every
+ * deck afterwards.
+ *
+ * It is deliberately not a substitute for the catalogue. Where a vendor price
+ * exists it is better, being dated and attributable. This exists because the
+ * design centre could produce an exact bill of materials and no price at all,
+ * which made it a drawing tool rather than something you can quote from.
+ */
+app.get('/make-server-3eae23a6/deck-price-book', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const stored = await kv.get('deck_price_book:global') as any;
+    return c.json({
+      success: true,
+      prices: stored?.prices || {},
+      lastSaved: stored?.lastSaved || null,
+      updatedBy: stored?.updatedBy || null,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load the price book.' }, 500);
+  }
+});
+
+app.put('/make-server-3eae23a6/deck-price-book', async (c) => {
+  try {
+    // Reading is open to anyone signed in because quoting needs it. Writing
+    // decides what every deck costs, so it is an administrator's job — the same
+    // rule the labour rates follow.
+    const actor = await intakeActor(c);
+    if (!actor?.email || !(await intakeIsAdmin(actor))) {
+      return c.json({ success: false, error: 'Administrator access is required to change prices.' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = body?.prices && typeof body.prices === 'object' ? body.prices : {};
+
+    // Kept to sane keys and non-negative numbers. A price book is written to by
+    // hand, and a stray key or a negative number would quietly distort every
+    // quote made afterwards.
+    const prices: Record<string, number> = {};
+    for (const [sku, value] of Object.entries(incoming).slice(0, 400)) {
+      const key = String(sku).slice(0, 80);
+      if (!/^[a-z0-9:._-]+$/i.test(key)) continue;
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) continue;
+      prices[key] = Math.round(n * 100) / 100;
+    }
+
+    const lastSaved = new Date().toISOString();
+    await kv.set('deck_price_book:global', { prices, lastSaved, updatedBy: actor.email });
+    console.log(`[price-book] ${actor.email} saved ${Object.keys(prices).length} prices`);
+    return c.json({ success: true, prices, lastSaved });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to save the price book.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
   try {
     // These rates decide what every quote charges, so writing them is an
@@ -4842,17 +4908,13 @@ function ownsWorkRequest(record: any, user: any) {
   );
 }
 
+/**
+ * Delegates to the shared reader so this is not the second place that knows
+ * where work requests live. It was, and the other place was reading a prefix
+ * nothing is stored under.
+ */
 async function readWorkRequests() {
-  const index: string[] = (await kv.get('wr_index') as string[]) || [];
-  let all: any[] = index.length
-    ? (await Promise.all(index.map(id => kv.get(`wr:${id}`)))).filter(Boolean) as any[]
-    : (await kv.get('all_work_requests') as any[]) || [];
-  try {
-    const { data } = await supabase.from('work_requests').select('data').order('created_at', { ascending: false }).limit(500);
-    const present = new Set(all.map((record: any) => record.id));
-    all = [...all, ...((data || []).map((row: any) => row.data).filter((record: any) => record && !present.has(record.id)))];
-  } catch { /* KV remains the durable fallback when the optional table is absent. */ }
-  return all;
+  return await readWorkRequestsShared(supabase);
 }
 
 async function persistWorkRequest(record: any) {

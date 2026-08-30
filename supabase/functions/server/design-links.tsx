@@ -32,6 +32,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { readWorkRequests, workRequestBelongsTo } from "./workRequestStore.ts";
 
 const app = new Hono();
 
@@ -117,7 +118,11 @@ app.get("/context", requireStaff, async (c) => {
     const [quotesRaw, invoicesRaw, requestsRaw, designsRaw, filesRaw] = await Promise.all([
       kv.getByPrefix("quote:"),
       kv.getByPrefix("invoice:"),
-      kv.getByPrefix("work_request:"),
+      // Through the shared reader. This used to be getByPrefix("work_request:")
+      // — a prefix nothing is written under, so it returned an empty list for
+      // every customer and the design centre could never see that a job
+      // existed. A wrong prefix fails silently, which is why it survived.
+      readWorkRequests(service()),
       kv.getByPrefix("design_project:"),
       kv.getByPrefix(FILE_PREFIX),
     ]);
@@ -140,11 +145,17 @@ app.get("/context", requireStaff, async (c) => {
       total: i.total ?? i.amount ?? null, dueDate: i.dueDate, updatedAt: i.updatedAt,
     }));
 
-    const requests = (requestsRaw || []).filter(mine).map((r: any) => ({
-      id: r.id, title: r.title ?? r.subject ?? r.service ?? "Work request",
-      status: r.status, address: r.address ?? r.propertyAddress ?? "",
-      createdAt: r.createdAt ?? r.created_at,
-    }));
+    // Matched by the shared rule rather than the local one, because work
+    // requests carry the customer's address under more spellings than the other
+    // records do — client_email, client_info.email and plain email all appear,
+    // depending on when the record was raised.
+    const requests = (requestsRaw || [])
+      .filter((r: any) => workRequestBelongsTo(r, customerId, email))
+      .map((r: any) => ({
+        id: r.id, title: r.title ?? r.subject ?? r.service ?? "Work request",
+        status: r.status, address: r.address ?? r.propertyAddress ?? "",
+        createdAt: r.createdAt ?? r.created_at,
+      }));
 
     const designs = (designsRaw || [])
       .filter((d: any) => String(d?.meta?.customerId || "") === customerId)
