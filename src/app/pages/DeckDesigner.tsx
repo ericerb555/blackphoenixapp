@@ -226,6 +226,9 @@ function DesignerSession({ session, onSession }: {
    */
   const [trade, setTrade] = useState<'deck' | 'siding' | 'openings' | 'flooring'>('deck');
 
+  const [loads, setLoads] = useState<SiteLoads>(session.loads);
+  const [link, setLink] = useState<DesignLink>(session.link);
+
   /**
    * Take the address from the job the design is attached to, but never quietly
    * replace one somebody typed.
@@ -235,6 +238,10 @@ function DesignerSession({ session, onSession }: {
    * address sets snow load, frost depth and the code edition, so silently
    * moving it would silently change the structure of the deck. When the two
    * disagree the designer is told and chooses.
+   *
+   * Placed after `link` rather than before it, which is not a formality: `const`
+   * is not hoisted, so reading it above its declaration threw on first render
+   * and took the whole designer down. A build does not catch that.
    */
   useEffect(() => {
     const fromJob = String(link.jobAddress || '').trim();
@@ -247,8 +254,6 @@ function DesignerSession({ session, onSession }: {
     && String(site.address || '').trim()
     && String(site.address).trim().toLowerCase() !== String(link.jobAddress).trim().toLowerCase(),
   );
-  const [loads, setLoads] = useState<SiteLoads>(session.loads);
-  const [link, setLink] = useState<DesignLink>(session.link);
   // A snapshot of what was last saved or opened. Comparing against it is how
   // 'New deck' can tell whether there is genuinely unsaved work, instead of
   // warning every time and training the warning to be ignored.
