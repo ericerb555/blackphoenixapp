@@ -76,6 +76,40 @@ const FIT_HOURS: Record<OpeningKind, { insert: number; full: number; trade: stri
  * same hour as a 48-inch bathroom window, and pricing them alike under-quotes
  * the big ones and over-quotes the small.
  */
+/**
+ * A specification, read as a quote row.
+ *
+ * One schedule, two readings. The specification is the record — it carries
+ * everything a supplier needs — and this is the narrow view of it the pricing
+ * wants. Keeping a separate quote schedule alongside it would be two lists of
+ * the same windows, and a customer would eventually be quoted from one while
+ * the order went off the other.
+ */
+export function specAsRow(spec: {
+  id: string; mark?: string; location?: string; type?: string;
+  unitWidthIn?: number; unitHeightIn?: number; quantity?: number;
+  fit?: 'insert' | 'full-frame'; source?: DimensionSource;
+}): OpeningRow {
+  const kind: OpeningKind =
+    spec.type === 'entry-door' || spec.type === 'patio-door' || spec.type === 'interior-door'
+      ? spec.type
+      // A storefront is priced as a patio door until commercial glazing has
+      // rates of its own. Named here rather than hidden in a default.
+      : spec.type === 'storefront' ? 'patio-door'
+      : 'window';
+
+  return {
+    id: spec.id,
+    label: [spec.mark, spec.location].filter(Boolean).join(' · ') || 'Opening',
+    kind,
+    widthIn: Number(spec.unitWidthIn) || 0,
+    heightIn: Number(spec.unitHeightIn) || 0,
+    count: Math.max(0, Math.round(Number(spec.quantity) || 0)),
+    fit: spec.fit || 'insert',
+    source: (spec.source || 'estimated') as DimensionSource,
+  };
+}
+
 export function unitedInches(o: OpeningRow): number {
   return (Number(o.widthIn) || 0) + (Number(o.heightIn) || 0);
 }

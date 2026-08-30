@@ -14,10 +14,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, DoorOpen, Info, Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  buildOpeningsQuote, OPENING_KINDS, unitedInches,
-  type OpeningRow, type OpeningKind, type FitMethod,
-} from '../lib/openingsModel';
+import { buildOpeningsQuote, OPENING_KINDS, specAsRow } from '../lib/openingsModel';
+import OpeningScheduleForm from './OpeningScheduleForm';
+import { isOrderable, type Market, type OpeningSpec } from '../lib/openingSpec';
 import type { DimensionSource } from '../lib/exteriorModel';
 import { DEFAULT_QUOTE_OPTIONS, type QuoteOptions } from '../lib/deckQuote';
 import { tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
@@ -47,15 +46,23 @@ const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const money = (n: number) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 let nextId = 1;
-const blankRow = (): OpeningRow => ({
+const blankSpec = (): OpeningSpec => ({
   id: `o-${nextId++}`,
-  label: '',
-  kind: 'window',
-  widthIn: 36,
-  heightIn: 60,
-  count: 1,
-  fit: 'insert',
+  mark: 'W1',
+  location: '',
+  quantity: 1,
+  type: 'window',
+  roughWidthIn: 0,
+  roughHeightIn: 0,
+  unitWidthIn: 36,
+  unitHeightIn: 60,
   source: 'measured',
+  style: 'double-hung',
+  frameType: 'nailing-fin',
+  fit: 'insert',
+  grids: 'none',
+  screens: true,
+  tempered: false,
 });
 
 export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
@@ -63,7 +70,17 @@ export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
   link?: DesignLink;
   onLink?: (next: DesignLink) => void;
 } = {}) {
-  const [rows, setRows] = useState<OpeningRow[]>([blankRow()]);
+  /**
+   * One schedule, read two ways.
+   *
+   * The specification is the record — it is what a supplier is sent — and the
+   * quote is a narrow reading of it. Keeping a separate pricing schedule
+   * alongside would be two lists of the same windows, and a customer would
+   * eventually be quoted from one while the order went off the other.
+   */
+  const [specs, setSpecs] = useState<OpeningSpec[]>([blankSpec()]);
+  const [market, setMarket] = useState<Market>('residential');
+  const rows = useMemo(() => specs.map(specAsRow), [specs]);
   const [rates, setRates] = useState<TradeRates>({});
   const [opts, setOpts] = useState<QuoteOptions>(DEFAULT_QUOTE_OPTIONS);
   const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({});
@@ -76,9 +93,6 @@ export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
 
   const embedded = Boolean(stage);
   const at = (s: string) => !stage || stage === s;
-
-  const patch = (i: number, p: Partial<OpeningRow>) =>
-    setRows(rs => rs.map((r, n) => (n === i ? { ...r, ...p } : r)));
 
   useEffect(() => {
     (async () => {
@@ -157,80 +171,11 @@ export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
         </div>
       )}
 
-      {/* ── the schedule — Design ─────────────────────────────────────── */}
-      <div className={`${card} ${at('design') ? '' : 'hidden'}`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-white">The openings</h2>
-          <button onClick={() => setRows(rs => [...rs, blankRow()])}
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-semibold text-gray-300 hover:bg-white/5">
-            <Plus className="h-3.5 w-3.5" /> Add an opening
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {rows.map((r, i) => (
-            <div key={r.id} className="rounded-xl border border-[#242424] bg-[#0d0d0d] p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <input value={r.label} onChange={e => patch(i, { label: e.target.value })}
-                  placeholder="Where is it? e.g. front bedroom"
-                  className="flex-1 bg-transparent text-sm font-semibold text-white placeholder:text-gray-600 focus:outline-none" />
-                <span className="text-[10px] text-gray-600">{unitedInches(r)} united in</span>
-                {rows.length > 1 && (
-                  <button onClick={() => setRows(rs => rs.filter((_, n) => n !== i))}
-                    className="text-gray-600 hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-4 gap-2">
-                <label className="block">
-                  <span className="text-[10px] font-semibold text-gray-500">Type</span>
-                  <select value={r.kind} onChange={e => patch(i, { kind: e.target.value as OpeningKind })}
-                    className={`${field} mt-0.5`}>
-                    {OPENING_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
-                  </select>
-                </label>
-                {([['widthIn', 'Width in'], ['heightIn', 'Height in'], ['count', 'How many']] as const).map(([k, label]) => (
-                  <label key={k} className="block">
-                    <span className="text-[10px] font-semibold text-gray-500">{label}</span>
-                    <input value={String(r[k])} inputMode="numeric"
-                      onChange={e => patch(i, { [k]: Number(e.target.value) || 0 } as any)}
-                      className={`${field} mt-0.5`} />
-                  </label>
-                ))}
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                {/*
-                  The distinction that decides the labour. An insert drops into
-                  the existing frame; full frame means trim off, flashing, and
-                  making good both sides — roughly double, and the thing most
-                  often got wrong when quoting these.
-                */}
-                <div className="flex gap-1.5">
-                  {(['insert', 'full-frame'] as FitMethod[]).map(f => (
-                    <button key={f} onClick={() => patch(i, { fit: f })}
-                      title={f === 'insert' ? 'Drops into the existing frame' : 'Frame out, flashed, made good both sides'}
-                      className={`rounded-md px-2 py-1 text-[10px] font-bold transition ${
-                        r.fit === f ? 'bg-[#ea580c] text-white' : 'border border-white/10 text-gray-400 hover:bg-white/5'
-                      }`}>
-                      {f === 'insert' ? 'Insert' : 'Full frame'}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-1.5">
-                  {SOURCES.map(s => (
-                    <button key={s.id} onClick={() => patch(i, { source: s.id })} title={s.hint}
-                      className={`rounded-md px-2 py-1 text-[10px] font-bold transition ${
-                        r.source === s.id ? 'bg-white/15 text-white' : 'border border-white/10 text-gray-500 hover:bg-white/5'
-                      }`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* ── the schedule — Design ──────────────────────────────────────
+          The full specification, because this is the record a purchase order
+          comes off and not merely a list of sizes to price. */}
+      <div className={at('design') ? '' : 'hidden'}>
+        <OpeningScheduleForm specs={specs} onChange={setSpecs} market={market} onMarket={setMarket} />
       </div>
 
       {/* ── the quote — Price ─────────────────────────────────────────── */}
@@ -276,6 +221,16 @@ export default function OpeningsTakeoff({ stage, link: linkProp, onLink }: {
               <p className="mt-3 text-[11px] text-amber-500/90">
                 {quote.unpricedCount} {quote.unpricedCount === 1 ? 'line has' : 'lines have'} no price, so this
                 total is short by whatever they cost.
+              </p>
+            )}
+
+            {/* A schedule that cannot be ordered from can still be quoted —
+                the two are different documents — but saying so here saves
+                somebody discovering it at the supplier. */}
+            {!isOrderable(specs, market) && (
+              <p className="mt-2 text-[11px] text-amber-500/90">
+                This schedule is not ready to order from yet. The quote is fine; the specification
+                has gaps, listed on the Design stage.
               </p>
             )}
 

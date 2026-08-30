@@ -112,6 +112,15 @@ export interface OpeningSpec {
   closer?: boolean;
   adaThreshold?: boolean;
 
+  /**
+   * Insert into the existing frame, or take the whole thing out.
+   *
+   * Lives on the specification rather than only on the quote because it decides
+   * both: roughly double the labour, and a different unit — a retrofit flange
+   * for an insert, a nailing fin for a full frame.
+   */
+  fit?: 'insert' | 'full-frame';
+
   // ── ordering ───────────────────────────────────────────────────────────
   supplier?: string;
   productLine?: string;
