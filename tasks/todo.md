@@ -144,22 +144,61 @@ numbers by hand afterwards with a tape measure. Approximate-from-photos plus
 operator correction is the design. So this is a wiring and editing job, not a
 reconstruction one.
 
-- [ ] 1. A `house` record on the design project, saved beside `model` and
+- [x] 1. A `house` record on the design project, saved beside `model` and
       `site`: wall width and height, storeys, siding type, sill height, and the
       openings with their positions and sizes.
-- [ ] 2. Seed it from the photo analysis, and keep the provenance per field —
+- [x] 2. Seed it from the photo analysis, and keep the provenance per field —
       `from photos` against a typed `measured`, so it is always visible which
       numbers are a guess and which he stood in the yard and measured.
-- [ ] 3. An editable panel: every number a field he can type over. Typing a
+- [x] 3. An editable panel: every number a field he can type over. Typing a
       real measurement marks that field measured and it stops being overwritten
       by a later photo read.
-- [ ] 4. `DeckViewer3D`'s `House` draws from that record instead of inventing
+- [x] 4. `DeckViewer3D`'s `House` draws from that record instead of inventing
       it — real wall length, real storey height, the door where the door is.
-- [ ] 5. Turn the sill relationship the right way round: deck height follows
+- [x] 5. Turn the sill relationship the right way round: deck height follows
       sill height, with an explicit override for when it should not.
 
+### Revised: the house belongs to the project, not to the deck
+
+Eric: "I should have the ability to add a partial or a full house view, which I
+should be able to bring into the other sections in the design center."
+
+That rules out hanging the house off the deck, which is what the plan above
+quietly assumed. The house is the thing every trade works on — siding needs
+every elevation and its openings, doors and windows need the opening schedule,
+roofing needs the roof planes, kitchens and bathrooms need a room. Capturing it
+once per trade would mean four descriptions of one building, free to disagree.
+
+So the house is captured once, stored on the project, and read by whichever
+trade tab is open.
+
+**A house is a set of views, and it accumulates.** A view is one named piece —
+"back elevation", "kitchen", "north gable". A partial capture is one view; a
+full house is several. This matters because it matches how the work actually
+arrives: a deck job needs one wall and nothing else, and being forced to
+photograph an entire house to design a deck would be an obstacle rather than a
+feature. Later, when the same customer wants siding, the remaining elevations
+are added to the house that is already there rather than starting again.
+
+What each trade takes from it:
+
+| Trade | Reads |
+| --- | --- |
+| Decks | the one wall it attaches to, and its sill height |
+| Siding | every elevation, with areas and opening deductions |
+| Doors and windows | the openings, as the schedule |
+| Roofing | the roof planes |
+| Kitchens, bathrooms | one interior room view |
+| Flooring | the room, for its floor area |
+
+- [x] 6. Store the house on the project as a set of named views rather than a
+      single elevation, so a partial capture is the normal case and a full house
+      is what several partials add up to.
+- [~] 7. Let every trade tab read it — the house is stored per project and the panel shows on every trade; the individual trades do not yet CONSUME it (siding areas, window schedule). Decks do., and let a trade say which view it is
+      working on.
+
 Not started — needs sign-off, because it changes what every deck in the design
-centre is drawn against.
+centre is drawn against, and it is the foundation the other trades sit on.
 
 ## Review
 

@@ -41,6 +41,8 @@ import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/de
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
 import { DESIGN_OWNER_KEY } from '../lib/designProjectService';
 import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
+import HousePanel from '../components/HousePanel';
+import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
 import {
   DEFAULT_DECK, takeoff,
@@ -188,6 +190,14 @@ interface Session {
   site: SiteInfo;
   loads: SiteLoads;
   link: DesignLink;
+  /**
+   * The building being worked on, shared by every trade.
+   *
+   * On the session rather than inside the deck model because siding, openings,
+   * roofing and the interior trades all work on the same house. Four trades
+   * each holding their own copy would be four descriptions free to disagree.
+   */
+  house: House;
   id: string | null;
 }
 
@@ -251,6 +261,7 @@ function DesignerSession({ session, onSession }: {
 
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
+  const [house, setHouse] = useState<House>(session.house);
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -325,6 +336,27 @@ function DesignerSession({ session, onSession }: {
     () => ({ house: houseRead, sketch: sketchRead }),
     [houseRead, sketchRead],
   );
+
+  /**
+   * A photo read becomes the house.
+   *
+   * Seeded automatically when nothing has been captured yet, because having
+   * just read the photos, being made to press a second button to use the result
+   * is the kind of step that gets missed — and the read landing nowhere is
+   * exactly the bug this whole piece of work exists to fix.
+   *
+   * An existing view is MERGED rather than replaced, so anything already
+   * measured by hand survives. Re-reading the photos must never quietly discard
+   * a number somebody stood at the house with a tape to get.
+   */
+  useEffect(() => {
+    if (!houseRead) return;
+    setHouse(current => {
+      const existing = activeView(current);
+      const fresh = viewFromAnalysis(houseRead, existing?.name || 'Back elevation');
+      return upsertView(current, existing ? mergeRead(existing, fresh) : fresh);
+    });
+  }, [houseRead]);
 
   const sendFolder = useCallback((photos: File[], drawings: File[]) => {
     if (photos.length) setPhotoDrop(d => ({ files: photos, n: d.n + 1 }));
@@ -525,7 +557,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -548,7 +580,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -591,7 +623,7 @@ function DesignerSession({ session, onSession }: {
     setSketchDrop({ files: [], n: 0 });
     setStoredPhotos(0);
     attachedPhotos.current = new Set();
-    onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, id: null });
+    onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] }, id: null });
   }, [onSession]);
 
   const saveAsNew = useCallback(async () => {
@@ -608,7 +640,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -622,7 +654,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -640,7 +672,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -702,7 +734,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, ...link,
+              loads, takeoff: bom, house, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -740,7 +772,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -780,6 +812,13 @@ function DesignerSession({ session, onSession }: {
           jobTitle: full.meta.jobTitle || '',
           jobId: full.meta.jobId || '',
         },
+        // Decks saved before the house existed have no record of one. They open
+        // with an empty house rather than a wrong one — the panel then says
+        // plainly that nothing is captured yet, which is true, instead of
+        // showing invented numbers that look like findings.
+        house: full.meta.house && Array.isArray(full.meta.house.views)
+          ? full.meta.house
+          : { ...BLANK_HOUSE, views: [] },
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1204,7 +1243,7 @@ function DesignerSession({ session, onSession }: {
             {/* The drawing is what you design against, so it belongs to Design. */}
             <div className={`${card} ${stage === 'design' ? '' : 'hidden'}`}>
               {sized
-                ? <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} /></PanelErrorBoundary>
+                ? <PanelErrorBoundary name="Drawings"><DeckViewer3D model={model} mode={mode} onModeChange={setMode} height={520} houseView={activeView(house)} /></PanelErrorBoundary>
                 : (
                   <div className="flex flex-col items-center justify-center text-center rounded-2xl border border-dashed border-[#2A2A2A] bg-[#0D0D0D]"
                     style={{ height: 520 }}>
@@ -1252,6 +1291,23 @@ function DesignerSession({ session, onSession }: {
                 and sends you to the one that already exists, because two
                 pickers writing to the same place is how they end up
                 disagreeing. */}
+            {/* ── The house ─────────────────────────────────────────────────
+                Outside the trade gate as well as the stage gate, because every
+                trade in the design centre works on the same building. A wall
+                measured while designing a deck is measured for the siding quote
+                and the window schedule too. */}
+            <PanelErrorBoundary name="The house">
+              <HousePanel
+                house={house}
+                onChange={setHouse}
+                analysis={houseRead}
+                onUseDeckHeight={h => {
+                  setModel(m => ({ ...m, heightFt: Number(h.toFixed(2)) }));
+                  toast.success(`Deck set to ${h.toFixed(2)}ft — just below the threshold.`);
+                }}
+              />
+            </PanelErrorBoundary>
+
             {trade === 'deck' && (
               <div className={card}>
                 <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
@@ -1464,6 +1520,7 @@ export default function DeckDesigner() {
     site: { ...EMPTY_SITE },
     loads: { ...DEFAULT_SITE_LOADS },
     link: { ...NO_LINK },
+    house: { ...BLANK_HOUSE, views: [] },
     id: null,
   }));
 

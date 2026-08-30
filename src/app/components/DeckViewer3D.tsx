@@ -30,6 +30,7 @@ import {
 import { EffectComposer, N8AO, Bloom, SMAA, Vignette, HueSaturation } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { Box, Layers, Ruler, Hammer, Sparkles, Loader2, Download, X } from 'lucide-react';
+import type { HouseView as HouseElevation } from '../lib/houseModel';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -283,9 +284,16 @@ function MemberMesh({ member, outlined, realistic, deckFin, railFin }: {
  * read as a diagram. The door also shows the thing that decides deck height —
  * the surface sits just below the threshold.
  */
-function House({ model, realistic }: { model: DeckModel; realistic: boolean }) {
-  const wallW = model.widthFt + 16;
-  const wallH = Math.max(12, model.heightFt + 11);
+function House({ model, realistic, view }: {
+  model: DeckModel; realistic: boolean; view?: HouseElevation | null;
+}) {
+  // The captured elevation when there is one, and the old invented box when
+  // there is not. The box sized the wall as the deck plus sixteen feet and put
+  // a hardcoded six-foot door in the middle of it, which is a backdrop rather
+  // than a house — fine as a fallback for a deck drawn before any photos were
+  // taken, wrong as the only option.
+  const wallW = view?.widthFt && view.widthFt > 0 ? view.widthFt : model.widthFt + 16;
+  const wallH = view?.heightFt && view.heightFt > 0 ? view.heightFt : Math.max(12, model.heightFt + 11);
 
   const siding = useMemo(() => {
     if (!realistic) return null;
@@ -301,9 +309,18 @@ function House({ model, realistic }: { model: DeckModel; realistic: boolean }) {
 
   // Door sill sits just above the deck surface, which is where it belongs and
   // where anyone looking at the picture expects to see it.
-  const doorH = 6.7;
-  const doorW = 6;
-  const doorSill = model.heightFt + 0.1;
+  //
+  // The door used to be a hardcoded six by six-eight whose sill was DERIVED
+  // from the deck height — backwards from how the job is done, because the
+  // threshold is a fact about the house and the deck height follows from it.
+  // When the elevation has been captured, the real opening and the real
+  // threshold are used instead.
+  const captured = view?.openings?.find(o => o.kind === 'door' || o.kind === 'slider');
+  const doorH = captured?.heightFt && captured.heightFt > 0 ? captured.heightFt : 6.7;
+  const doorW = captured?.widthFt && captured.widthFt > 0 ? captured.widthFt : 6;
+  const doorSill = view?.sillHeightInches && view.sillHeightInches > 0
+    ? view.sillHeightInches / 12
+    : model.heightFt + 0.1;
 
   return (
     <group>
@@ -425,7 +442,7 @@ function Dimension({ from, to, label }: {
   );
 }
 
-function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
+function Scene({ model, mode, houseView }: { model: DeckModel; mode: ViewMode; houseView?: HouseElevation | null }) {
   const members = useMemo(() => buildMembers(model), [model]);
   const visible = useMemo(
     () => ((mode === 'framing' || mode === 'framing-detail')
@@ -510,7 +527,7 @@ function Scene({ model, mode }: { model: DeckModel; mode: ViewMode }) {
         </>
       )}
 
-      {mode !== 'plan' && <House model={model} realistic={realistic} />}
+      {mode !== 'plan' && <House model={model} realistic={realistic} view={houseView} />}
 
       {visible.map(m => (
         <MemberMesh key={m.id} member={m} outlined={mode !== '3d'} realistic={realistic}
@@ -615,8 +632,15 @@ export default function DeckViewer3D({
   height = 460,
   hideTabs = false,
   onCaptureReady,
+  houseView,
 }: {
   model: DeckModel;
+  /**
+   * The captured elevation this deck attaches to, when there is one. Without
+   * it the wall falls back to a box sized off the deck, which is a backdrop
+   * rather than the customer's house.
+   */
+  houseView?: HouseElevation | null;
   mode?: ViewMode;
   onModeChange?: (m: ViewMode) => void;
   height?: number;
@@ -757,7 +781,7 @@ export default function DeckViewer3D({
           }}
         >
           <Suspense fallback={null}>
-            <Scene model={model} mode={mode} />
+            <Scene model={model} mode={mode} houseView={houseView} />
             <CameraRig model={model} mode={mode} />
             <OrbitControls
               makeDefault
