@@ -1118,6 +1118,129 @@ path. Doors and windows next. Only then bathrooms and kitchens.
 - Whether a design may be quoted before it is attached to anything, and the
   work request created at that moment.
 
+---
+
+# Windows and doors: a specification form that yields a purchase order
+
+Eric: *"there has to be a form we can create with windows and door both
+residential and commercial to be able to create workable purchase orders can we
+make an advanced form we can create?"*
+
+## Why the current schedule is not enough
+
+What exists holds type, size, count, insert or full frame, and the source of the
+measurement. That is enough to price a job roughly and nowhere near enough to
+order from. A quote needs a number; a purchase order needs a specification, and
+an incomplete specification does not produce a cheap order — it produces the
+wrong unit.
+
+## The fields that decide whether an order is workable
+
+These are the ones that make a purchase order scrap rather than merely
+imprecise, and they are why this cannot be a handful of extra columns:
+
+- **Handing on every door** — left or right, inswing or outswing. The commonest
+  reason a door arrives unusable.
+- **Rough opening against unit size** — the wall is one dimension and the thing
+  ordered is another. A PO carrying one of them is guessing at the other.
+- **Tempered glazing where code demands it** — beside doors, at tubs and
+  stairs, and below a low sill. Missed, it is a failed inspection after the unit
+  is fitted.
+- **Egress on bedroom windows** — a minimum clear opening, which rules out some
+  styles at some sizes outright.
+- **Frame type** — nailing fin, block frame or retrofit flange. Decides whether
+  the unit physically fits the opening that exists.
+
+## Shape
+
+**One form, two modes.** Residential and commercial share the spine — mark,
+location, quantity, sizes, handing, glazing, hardware — and differ in the field
+set. Commercial adds framing series and finish, fire rating, panic and closer
+hardware, and ADA thresholds; residential adds grids, screens, capping and
+extension jambs. A separate form for each would be two forms to keep in step.
+
+**A mark per opening.** W1, W2, D1 — the schedule, the drawing and the order all
+refer to the same label, which is how a delivery gets checked against what was
+ordered.
+
+**Output grouped by supplier.** A purchase order goes to one supplier, so the
+schedule is one thing and the orders it produces are another. A job with windows
+from one house and doors from another produces two orders from one schedule.
+
+## Plan
+
+### 1. The specification model
+- [ ] An opening carries its mark, location, quantity, rough opening, unit size,
+      style, frame material and type, glazing, hardware and finishes
+- [ ] Residential extras: grids and pattern, screens, capping, extension jambs,
+      sill extensions
+- [ ] Commercial extras: framing series and finish, fire rating, panic and
+      closer hardware, threshold
+- [ ] Doors carry handing and swing as required fields, not optional ones
+
+### 2. Checks that catch a bad order before it is placed
+- [ ] A door without handing cannot be ordered
+- [ ] A bedroom window that fails egress is flagged with the clear opening it
+      actually achieves
+- [ ] Glazing beside a door, at a tub or below a low sill prompts for tempered
+- [ ] Unit size larger than the rough opening is refused outright
+
+### 3. The form
+- [ ] A row per opening, expanding to the full specification
+- [ ] Duplicating a row, since a house has six of the same window
+- [ ] A price per row, typed, because a supplier quotes per unit
+
+### 4. Purchase orders out of it
+- [ ] Group by supplier, one order each
+- [ ] Every line carries its mark and its full specification, not a summary
+- [ ] Printable and filable to the customer's folder like every other document
+
+### 5. It still quotes
+- [ ] The same schedule feeds the quote it already feeds, down the same path
+
+### 6. Built to be sent to a vendor, not only printed
+
+Eric: *"if we get vendors in here with an api these to be able to work with
+them."*
+
+That decides the typing, so it is settled now rather than retrofitted. Anything
+a vendor has to act on is a **coded value** rather than free text — "Left",
+"LH" and "left hand" are one fact typed three ways, and a mapping table can
+translate a code where it can do nothing with prose. Style, frame type, handing,
+swing and grid pattern are unions for that reason.
+
+What stays free text is deliberately the part no two vendors agree on anyway —
+colour names, product lines, glass packages — and those get resolved per vendor
+by a lookup rather than by hoping the strings match.
+
+- [x] `toVendorPayload` — one opening flattened into the shape an API wants,
+      carrying its mark so a response can be matched back to the row
+- [ ] A per-vendor mapping from our codes to theirs, so a second vendor is a
+      mapping rather than a second idea of what an opening is
+- [ ] Submit, and record what came back against the mark
+
+The test applied throughout: could this record be POSTed to a supplier and come
+back as the right unit? Where the answer is no, the field blocks rather than
+warns.
+
+---
+
+# Flooring and floor coverings — requested, not yet planned
+
+Eric: *"we need to add flooring and all types of floor coverings as well."*
+
+Noted as the next trade after windows and doors. It is closer to siding than to
+decks — areas, waste and transitions rather than a structure — and it shares the
+same spine: rooms measured, material chosen, priced from the catalogue and the
+trade rates, quoted down the same path.
+
+What it will need that nothing else has: material families with genuinely
+different rules (carpet comes in rolls with a nap direction and seam placement;
+tile has layout and pattern waste; LVP and hardwood have run direction and
+transitions), underlayment, subfloor preparation, and per-room transitions and
+trim. `laborTasks.ts` already carries flooring at 0.045 hr/sq ft and tile at
+0.100, so the labour spine exists.
+
 ## Review
 
 ### Pricing standards (F)
