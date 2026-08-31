@@ -200,6 +200,77 @@ What each trade takes from it:
 Not started — needs sign-off, because it changes what every deck in the design
 centre is drawn against, and it is the foundation the other trades sit on.
 
+## Model first, render once — the photoreal pipeline
+
+### Why this exists
+
+Two facts settle the design between them.
+
+A render costs about twenty cents and a set of looks is three of them, so
+iterating by rendering is the expensive way to work and also the slow one. And
+a render produced by describing a deck in words is a fresh roll of the dice
+every time — it cannot measure sixteen feet, it does not know where the ledger
+lands, and asking again produces a different deck.
+
+The 3D view is free and instant. So the work moves there, and the paid step
+happens once, at the end, on a design that is already settled.
+
+The prize is bigger than the cost saving. If the picture is generated FROM the
+model it cannot get the size or the position wrong, because it is not deciding
+them. The image model stops being an architect and becomes what it is actually
+good at: lighting, materials and shadow.
+
+### The pipeline
+
+1. **Align the 3D camera to the photograph.** The photo sits behind the 3D view
+   at half opacity and the view is orbited until the house edges line up. Done
+   by hand on purpose — recovering a camera automatically from one photo is a
+   research problem, and this is a job for the person already looking at both.
+   Saved with the project, so it happens once per photo and never again.
+
+2. **Render the deck alone, on transparency.** House, ground and sky hidden;
+   only the deck and its shadow catcher. `DeckViewer3D` already runs with
+   `preserveDrawingBuffer`, which is what makes the capture possible at all.
+
+3. **Composite it onto the photograph.** At this point the geometry IS the
+   model — right width, right height, right post spacing, stairs where the stair
+   calculator put them. It will look like a drawing pasted onto a photo, which
+   is exactly what it is.
+
+4. **One paid pass, masked to the deck.** The composite goes to the image model
+   with a mask of the deck's own silhouette, grown slightly so it can blend the
+   edges and lay a contact shadow. The instruction is to change no shape and no
+   position, only to make it photographic. The masking shipped today is the
+   mechanism this relies on.
+
+5. **Keep the aligned camera.** Re-rendering after a design change then costs
+   one image rather than another alignment.
+
+### Todo
+
+- [ ] 1. Deck-only capture on a transparent background
+- [ ] 2. Alignment view — photo behind, opacity slider, orbit to match
+- [ ] 3. Persist the camera on the design project
+- [ ] 4. Composite, and derive the mask from the deck silhouette
+- [ ] 5. The photoreal pass, worded to forbid moving anything
+- [ ] 6. Show the composite beside the finished render, so it is obvious what
+      the paid step actually changed
+
+### What could go wrong, said in advance
+
+**The model may still move things inside the mask.** `input_fidelity: high` and
+a prompt forbidding any change of shape both help, and item 6 exists so it is
+visible when it happens rather than being found by a customer.
+
+**Alignment is fiddly on a phone.** It is a desk job. The site visit captures
+the photo; the alignment happens back at the office, which matches how the work
+actually runs.
+
+**A wrong camera produces a confidently wrong picture.** Worth checking that the
+deck's base line sits on the ground plane in the photo before spending a render
+on it.
+
+
 ## Review
 
 (to be completed)
