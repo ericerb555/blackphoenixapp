@@ -38,6 +38,7 @@ import RoomDesigner from '../components/RoomDesigner';
 import StructureDesigner from '../components/StructureDesigner';
 import HardscapeTakeoff from '../components/HardscapeTakeoff';
 import ScopeOfWork from '../components/ScopeOfWork';
+import ScopeQuotePanel from '../components/ScopeQuotePanel';
 import { type Scope, BLANK_SCOPE } from '../lib/scopeModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
@@ -1436,6 +1437,20 @@ function DesignerSession({ session, onSession }: {
             {/* ── Price ──────────────────────────────────────────────────
                 Quantities come straight out of the framing, so the quote and
                 the drawing cannot disagree. */}
+            {/* The whole job, priced from the scope. Above the per-trade
+                panels because it is the answer and they are its parts. */}
+            <div className={stage === 'price' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Job price">
+                <ScopeQuotePanel
+                  scope={scope}
+                  link={link}
+                  designId={savedId}
+                  designVersion={savedVersion}
+                  projectName={site.projectName}
+                />
+              </PanelErrorBoundary>
+            </div>
+
             <div className={stage === 'price' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Quote">
                 <DeckQuotePanel model={model} link={link} designId={savedId}

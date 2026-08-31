@@ -59,7 +59,7 @@ export default function ScopeOfWork({ scope, onChange }: {
       phase: t.phase, trade: t.trade, description: t.label,
       qty: taskQty, unit: t.unit,
       confidence: scope.walkthroughDone ? 'confirmed' : 'provisional',
-      origin: 'template',
+      origin: 'template', taskId: t.id,
       basis: `${hoursFor(t, taskQty)} hours at ${t.hoursPer}/${t.unit}`,
     });
     for (const c of consumablesFor(t, taskQty)) {
@@ -67,7 +67,11 @@ export default function ScopeOfWork({ scope, onChange }: {
         phase: t.phase, trade: t.trade, description: c.description,
         qty: c.qty, unit: c.unit,
         confidence: scope.walkthroughDone ? 'confirmed' : 'provisional',
+        // A SKU so the vendor catalogues can be asked about it later. Screws
+        // and thinset are bought from somebody, and a consumable with no SKU
+        // is a line nobody can price.
         origin: 'template',
+        sku: `consumable:${c.description.toLowerCase().replace(/\s+/g, '-')}`,
         basis: `comes with ${t.label.toLowerCase()}`,
       });
     }

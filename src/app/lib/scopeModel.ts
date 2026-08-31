@@ -117,6 +117,24 @@ export interface ScopeLine {
   origin: LineOrigin;
   /** Set when this line is going out to a subcontractor rather than self-performed. */
   bidOut?: boolean;
+  /**
+   * The template this came from, when it came from one.
+   *
+   * Kept so the hours can be recomputed if the quantity changes, rather than
+   * frozen at whatever they were when the line was added — a scope that is
+   * edited and then priced off stale hours is worse than one that was never
+   * priced.
+   */
+  taskId?: string;
+  /**
+   * What to look this up as in the vendor catalogues.
+   *
+   * Only material lines have one. A line without a SKU is either labour or
+   * something nobody sells, and both are handled rather than dropped.
+   */
+  sku?: string;
+  /** A subcontractor's returned number, once one has come back. */
+  bidAmount?: number;
   /** Where the number came from, in words. */
   basis?: string;
   /** Free text for the crew. */
