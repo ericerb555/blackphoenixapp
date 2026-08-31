@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { Globe, Lock, CheckCircle, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export default function PublishMyBranding() {
   const [loading, setLoading] = useState(false);

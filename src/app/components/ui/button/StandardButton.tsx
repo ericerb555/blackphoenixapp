@@ -30,10 +30,32 @@ import { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 export interface StandardButtonProps {
+  /**
+   * The button's text, when it is passed as children rather than as `label`.
+   *
+   * WHY BOTH EXIST
+   *
+   * This component only ever rendered `label`, and `label` was required. But
+   * fifty-five call sites across the app write the text between the tags —
+   * <StandardButton>Try Again</StandardButton> — and pass no label at all.
+   * Those buttons have been rendering with no text on them: the shopping
+   * cart's "Try Again" and "Continue Shopping" among them.
+   *
+   * Nothing caught it because the codebase had no type checking, and a blank
+   * button still looks like a button. Accepting children and falling back to
+   * it is the smaller repair; rewriting fifty-five call sites is the larger one
+   * and buys nothing.
+   */
+  children?: ReactNode;
+  /**
+   * Accepted because callers pass it, and mapped onto `color`. Previously it
+   * was silently ignored along with the text.
+   */
+  variant?: 'primary' | 'secondary';
   onClick?: () => void;
   color?: 'blue' | 'purple' | 'green' | 'orange' | 'red' | 'teal' | 'pink' | 'yellow';
   icon?: ReactNode;
-  label: string;
+  label?: string;
   description?: string;
   active?: boolean;
   badge?: string;
@@ -50,6 +72,8 @@ export function StandardButton({
   color = 'blue',
   icon,
   label,
+  children,
+  variant,
   description,
   active = false,
   badge,
@@ -60,7 +84,11 @@ export function StandardButton({
   fullWidth = true,
   type = 'button'
 }: StandardButtonProps) {
-  
+  // A caller writing variant="primary" means the emphasised colour, and
+  // variant="secondary" the quieter one. Mapped rather than ignored.
+  if (variant === 'primary') color = 'orange';
+  else if (variant === 'secondary') color = 'blue';
+
   // Color configurations
   const colorConfigs = {
     blue: {
@@ -154,7 +182,7 @@ export function StandardButton({
       
       <div className="flex-1 text-left">
         <div className={`${sizes.text} font-bold flex items-center gap-2`}>
-          {label}
+          {label ?? children}
           {active && <span className="text-xs">✨</span>}
           {badge && (
             <span className="px-2 py-0.5 bg-green-600 text-white text-xs rounded-full font-bold">
@@ -194,6 +222,8 @@ export function CompactStandardButton({
   color = 'blue',
   icon,
   label,
+  children,
+  variant,
   disabled = false,
   className = '',
   size = 'md',
@@ -234,7 +264,7 @@ export function CompactStandardButton({
       `}
     >
       {icon}
-      {label}
+      {label ?? children}
     </button>
   );
 }

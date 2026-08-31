@@ -3,7 +3,7 @@
  * Fetches company branding from server for public (unauthenticated) visitors
  */
 
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { projectId, publicAnonKey } from './supabase/info';
 
 export interface PublicBranding {
   company_name?: string;

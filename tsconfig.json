@@ -1,0 +1,51 @@
+{
+  // Type checking for a codebase that has never had any.
+  //
+  // Vite builds with esbuild, which strips types without reading them. That is
+  // why two runtime failures shipped through a clean build this year: a
+  // variable read eleven lines before it was declared, and a component using
+  // `useEffect` without importing it. Neither is a subtle mistake and both took
+  // a screen down; nothing in the pipeline was looking.
+  //
+  // `strict` is deliberately off. Turning it on across a codebase this size
+  // produces thousands of findings, and a report nobody can read is a report
+  // nobody reads. What is switched on below is the narrow set that catches the
+  // class of bug that has actually bitten — names that do not exist, imports
+  // that do not resolve, and values used before they are defined.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["react", "react-dom"],
+
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Off for now. Each is a project of its own, and switching one on before
+    // the codebase is ready buries the findings that matter.
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Editor backups. Their filenames carry a commit subject in parentheses,
+    // they are not imported by anything, and they would otherwise dominate the
+    // output with problems in code that does not ship.
+    "**/*~*"
+  ]
+}
