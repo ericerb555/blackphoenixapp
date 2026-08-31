@@ -6,6 +6,7 @@
  */
 
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from './supabase';
 import type { UserContext } from './userStorageManager';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -26,10 +27,22 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
  */
 export const DESIGN_OWNER_KEY = 'decks';
 
-function headers() {
+/**
+ * The signed-in person's token, not the anon key.
+ *
+ * This sent the anon key and nothing else, which was survivable only because
+ * the design routes had no authorisation at all — and they had none, so anyone
+ * holding that key could list, open, overwrite or delete every saved design.
+ * Now that the server checks, a key identifying nobody would fail every call.
+ *
+ * Falls back to the anon key rather than throwing, so a signed-out caller gets
+ * a clean 401 from the server instead of an exception here.
+ */
+async function headers() {
+  const { data: { session } } = await supabase.auth.getSession();
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${publicAnonKey}`,
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
   };
 }
 
@@ -72,7 +85,7 @@ export interface SaveProjectInput {
 export async function saveDesignProject(input: SaveProjectInput): Promise<{ project: any; versionId: string }> {
   const res = await fetch(`${SERVER}/design-projects`, {
     method: 'POST',
-    headers: headers(),
+    headers: await headers(),
     body: JSON.stringify(input),
   });
   const data = await res.json();
@@ -85,7 +98,7 @@ export async function saveDesignProject(input: SaveProjectInput): Promise<{ proj
 /** List a user's projects (summaries only, no heavy element payloads). */
 export async function listDesignProjects(ownerKey: string): Promise<DesignProjectSummary[]> {
   const res = await fetch(`${SERVER}/design-projects?owner=${encodeURIComponent(ownerKey)}`, {
-    headers: headers(),
+    headers: await headers(),
   });
   const data = await res.json();
   if (!res.ok || !data.success) {
@@ -100,7 +113,7 @@ export async function getDesignProject(
   id: string,
 ): Promise<{ project: any; versions: VersionMeta[] }> {
   const res = await fetch(`${SERVER}/design-projects/${encodeURIComponent(id)}?owner=${encodeURIComponent(ownerKey)}`, {
-    headers: headers(),
+    headers: await headers(),
   });
   const data = await res.json();
   if (!res.ok || !data.success) {
@@ -113,7 +126,7 @@ export async function getDesignProject(
 export async function getDesignProjectVersion(id: string, versionId: string): Promise<any> {
   const res = await fetch(
     `${SERVER}/design-projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
-    { headers: headers() },
+    { headers: await headers() },
   );
   const data = await res.json();
   if (!res.ok || !data.success) {
@@ -130,7 +143,7 @@ export async function restoreDesignProjectVersion(
 ): Promise<any> {
   const res = await fetch(`${SERVER}/design-projects/${encodeURIComponent(id)}/restore`, {
     method: 'POST',
-    headers: headers(),
+    headers: await headers(),
     body: JSON.stringify({ ownerKey, versionId }),
   });
   const data = await res.json();
@@ -144,7 +157,7 @@ export async function restoreDesignProjectVersion(
 export async function deleteDesignProject(ownerKey: string, id: string): Promise<void> {
   const res = await fetch(`${SERVER}/design-projects/${encodeURIComponent(id)}?owner=${encodeURIComponent(ownerKey)}`, {
     method: 'DELETE',
-    headers: headers(),
+    headers: await headers(),
   });
   const data = await res.json();
   if (!res.ok || !data.success) {

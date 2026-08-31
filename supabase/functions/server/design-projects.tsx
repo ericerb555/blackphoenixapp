@@ -21,6 +21,7 @@ import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { trustedRole } from './trustedRole.ts';
 
 const designProjectsRouter = new Hono();
 
@@ -79,7 +80,71 @@ function service() {
  * of a customer's house are not public, and "has a token" is not the same
  * question as "is somebody".
  */
-async function photoActor(c: any) {
+/* ── who may touch a design ───────────────────────────────────────────────
+ *
+ * WHAT WAS WRONG
+ *
+ * Nothing guarded these routes at all. The owner of a project was read from a
+ * query parameter — `?owner=decks` — and `decks` is a constant compiled into
+ * the shipped JavaScript. The anon key is in there too. So anyone at all could
+ * list every saved design, open any of them, overwrite one, or delete the lot,
+ * without an account and without being anybody.
+ *
+ * That is every deck, kitchen, bathroom and elevation the company has drawn,
+ * along with the customer each is linked to.
+ *
+ * THE RULE NOW
+ *
+ * Designs are internal. Staff reach any owner key, because `decks` and `shared`
+ * are company-wide pools rather than one person's folder — which is what the
+ * data actually is: five projects across two shared keys and no per-user key in
+ * use anywhere.
+ *
+ * Anyone else signed in reaches only a key that is demonstrably theirs, and the
+ * shared pools are never theirs. Customers do not come through here at all;
+ * their view of a design arrives through `design-links`, which has always had
+ * its own checks.
+ */
+const DESIGN_STAFF_ROLES = new Set([
+  'owner', 'platform_owner', 'business_owner', 'admin', 'master_admin',
+  'super_admin', 'superadmin', 'management', 'staff', 'employee',
+  'project_manager', 'estimator', 'office',
+]);
+
+/** Company-wide pools. Never one person's, so never reachable by a guest. */
+const SHARED_OWNER_KEYS = new Set(['decks', 'shared']);
+
+function platformOwners(): string[] {
+  return [
+    'ericerb555@proton.me',
+    ...(Deno.env.get('PLATFORM_OWNER_EMAILS') || '')
+      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+  ];
+}
+
+function isDesignStaff(user: any): boolean {
+  if (!user?.id) return false;
+  if (platformOwners().includes(String(user.email || '').toLowerCase())) return true;
+  return DESIGN_STAFF_ROLES.has(trustedRole(user));
+}
+
+/**
+ * The owner key this person is allowed to act on.
+ *
+ * Staff get whatever they asked for. Everybody else gets their own key
+ * regardless of what they asked for — not an error, because arguing with a
+ * caller about a key they should not have named is less safe than simply
+ * answering about theirs.
+ */
+function permittedOwnerKey(user: any, requested: string): string | null {
+  const asked = String(requested || '').trim() || 'shared';
+  if (isDesignStaff(user)) return asked;
+  if (SHARED_OWNER_KEYS.has(asked)) return null;
+  const id = String(user.id);
+  return asked.endsWith(id) && asked.length > id.length ? asked : null;
+}
+
+async function designActor(c: any) {
   const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!token) return null;
   try {
@@ -99,9 +164,16 @@ function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 }
 
-function normalizeOwner(c: any): string {
-  const owner = (c.req.query('owner') || '').trim();
-  return owner || 'shared';
+/**
+ * The owner key for this request, narrowed to what the caller may have.
+ *
+ * Returns null when they asked for somebody else's. Callers treat that as
+ * "nothing here" rather than as an error: telling a stranger that a key exists
+ * but is not theirs is still telling them it exists.
+ */
+function normalizeOwner(c: any): string | null {
+  const asked = (c.req.query('owner') || '').trim();
+  return permittedOwnerKey(c.get('designUser'), asked);
 }
 
 /** Strip the heavy `floors`/`elements` payload for list responses. */
@@ -249,6 +321,30 @@ async function snapshot(id: string, project: any, note: string) {
   return versionId;
 }
 
+/**
+ * Everything under /design-projects requires a signed-in person.
+ *
+ * Applied as router middleware rather than per route on purpose: a check that
+ * has to be remembered on each new route is a check that will eventually be
+ * forgotten, and this file had ten routes and none of them had one.
+ *
+ * Nothing is exempt, including /test. It reports only that the service is
+ * running and nothing polls it, so an open route here would be one more thing
+ * to reason about for no benefit.
+ */
+designProjectsRouter.use('/make-server-3eae23a6/design-projects/*', async (c, next) => {
+  const user = await designActor(c);
+  if (!user) return c.json({ success: false, error: 'Sign in to open designs.' }, 401);
+  c.set('designUser', user);
+  await next();
+});
+designProjectsRouter.use('/make-server-3eae23a6/design-projects', async (c, next) => {
+  const user = await designActor(c);
+  if (!user) return c.json({ success: false, error: 'Sign in to open designs.', projects: [] }, 401);
+  c.set('designUser', user);
+  await next();
+});
+
 // ─── routes ───────────────────────────────────────────────────────────────────
 
 designProjectsRouter.get('/make-server-3eae23a6/design-projects/test', (c) =>
@@ -262,7 +358,8 @@ designProjectsRouter.get('/make-server-3eae23a6/design-projects/test', (c) =>
 designProjectsRouter.post('/make-server-3eae23a6/design-projects', async (c) => {
   try {
     const body = await c.req.json();
-    const ownerKey = (body.ownerKey || 'shared').trim();
+    const ownerKey = permittedOwnerKey(c.get('designUser'), body.ownerKey || 'shared');
+    if (!ownerKey) return c.json({ success: false, error: 'That is not yours to save to.' }, 403);
     const now = new Date().toISOString();
     const id = body.id || genId('DPRJ');
 
@@ -307,7 +404,7 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects', async (c) => 
  */
 designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', async (c) => {
   try {
-    const user = await photoActor(c);
+    const user = await designActor(c);
     if (!user) return c.json({ success: false, error: 'Sign in to attach photos.' }, 401);
 
     const id = c.req.param('id');
@@ -383,10 +480,13 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', as
  */
 designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id/photos', async (c) => {
   try {
-    const user = await photoActor(c);
+    const user = await designActor(c);
     if (!user) return c.json({ success: false, error: 'Sign in to view these photos.', photos: [] }, 401);
 
     const ownerKey = normalizeOwner(c);
+    // Not theirs. Answered as absent rather than refused: telling somebody a
+    // key exists but belongs to another is still telling them it exists.
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
     const id = c.req.param('id');
     const records: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
     if (!records.length) return c.json({ success: true, photos: [] });
@@ -411,10 +511,13 @@ designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id/photos', asy
 /** DELETE /design-projects/:id/photos/:photoId — detach one photo. */
 designProjectsRouter.delete('/make-server-3eae23a6/design-projects/:id/photos/:photoId', async (c) => {
   try {
-    const user = await photoActor(c);
+    const user = await designActor(c);
     if (!user) return c.json({ success: false, error: 'Sign in to remove photos.' }, 401);
 
     const ownerKey = normalizeOwner(c);
+    // Not theirs. Answered as absent rather than refused: telling somebody a
+    // key exists but belongs to another is still telling them it exists.
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
     const id = c.req.param('id');
     const photoId = c.req.param('photoId');
 
@@ -437,6 +540,7 @@ designProjectsRouter.delete('/make-server-3eae23a6/design-projects/:id/photos/:p
 designProjectsRouter.get('/make-server-3eae23a6/design-projects', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
+    if (!ownerKey) return c.json({ success: true, count: 0, projects: [] });
     let projects: any[] = (await kv.getByPrefix(PROJECT_PREFIX(ownerKey))) || [];
     projects.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     return c.json({ success: true, count: projects.length, projects: projects.map(summarize) });
@@ -452,6 +556,9 @@ designProjectsRouter.get('/make-server-3eae23a6/design-projects', async (c) => {
 designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
+    // Not theirs. Answered as absent rather than refused: telling somebody a
+    // key exists but belongs to another is still telling them it exists.
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
     const id = c.req.param('id');
     const project = await kv.get(PROJECT_KEY(ownerKey, id));
     if (!project) return c.json({ success: false, error: 'Project not found' }, 404);
@@ -528,6 +635,9 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/restore', a
 designProjectsRouter.delete('/make-server-3eae23a6/design-projects/:id', async (c) => {
   try {
     const ownerKey = normalizeOwner(c);
+    // Not theirs. Answered as absent rather than refused: telling somebody a
+    // key exists but belongs to another is still telling them it exists.
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
     const id = c.req.param('id');
     await kv.del(PROJECT_KEY(ownerKey, id));
     const versions: any[] = (await kv.getByPrefix(VERSION_PREFIX(id))) || [];
