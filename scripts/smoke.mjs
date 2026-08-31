@@ -35,7 +35,16 @@ import { join } from 'node:path';
 
 const PORT = 5177;
 const REPORT_PORT = 9911;
-const BATCH = Number(argFor('--batch') || 15);
+// One page at a time on a targeted run.
+//
+// A batch mounts its pages into a single browser, and the heavy ones - the
+// design centre and the deck designer carry WebGL viewers - starve each other
+// under software rendering. Six together timed out at ninety seconds; the
+// design centre alone renders in seven. A targeted run has few pages, so it can
+// afford one browser each and get an honest answer. The full sweep still
+// batches, because three hundred and thirty browsers is not a trade worth
+// making.
+const BATCH = Number(argFor('--batch') || (process.argv.includes('--all') ? 15 : 1));
 // A targeted run has only a handful of batches, so it can afford to wait.
 // Sixty seconds because the design centre and the deck designer now carry
 // WebGL viewers, and software-rendered 3D in a headless browser is slow —

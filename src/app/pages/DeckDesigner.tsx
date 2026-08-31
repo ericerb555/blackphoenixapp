@@ -37,6 +37,8 @@ import FlooringTakeoff from '../components/FlooringTakeoff';
 import RoomDesigner from '../components/RoomDesigner';
 import StructureDesigner from '../components/StructureDesigner';
 import HardscapeTakeoff from '../components/HardscapeTakeoff';
+import ScopeOfWork from '../components/ScopeOfWork';
+import { type Scope, BLANK_SCOPE } from '../lib/scopeModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -169,6 +171,12 @@ const UNPARKED_KEY = 'deck.unparked.v1';
 
 interface Unparked {
   name: string; model: DeckModel; site: SiteInfo; loads: SiteLoads; link: DesignLink; at: string;
+  /**
+   * Optional because work parked before these existed has neither, and a deck
+   * restored from that is still worth restoring.
+   */
+  house?: House;
+  scope?: Scope;
 }
 
 function readUnparked(): Unparked | null {
@@ -203,6 +211,8 @@ interface Session {
    * each holding their own copy would be four descriptions free to disagree.
    */
   house: House;
+  /** The process this job follows. One per job, not one per trade. */
+  scope: Scope;
   id: string | null;
 }
 
@@ -247,7 +257,7 @@ function DesignerSession({ session, onSession }: {
    * Design is the default because it is where most returns to this page are
    * headed, and because it is closest to what the page used to show.
    */
-  const [stage, setStage] = useState<'capture' | 'design' | 'price' | 'documents'>('design');
+  const [stage, setStage] = useState<'capture' | 'design' | 'scope' | 'price' | 'documents'>('design');
 
   /**
    * Which trade is being designed.
@@ -267,6 +277,7 @@ function DesignerSession({ session, onSession }: {
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
   const [house, setHouse] = useState<House>(session.house);
+  const [scope, setScope] = useState<Scope>(session.scope || { ...BLANK_SCOPE, lines: [] });
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -562,7 +573,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -585,7 +596,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -627,8 +638,10 @@ function DesignerSession({ session, onSession }: {
     setPhotoDrop({ files: [], n: 0 });
     setSketchDrop({ files: [], n: 0 });
     setStoredPhotos(0);
+    setScope({ ...BLANK_SCOPE, lines: [] });
     attachedPhotos.current = new Set();
-    onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] }, id: null });
+    onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
+    scope: { ...BLANK_SCOPE, lines: [] }, id: null });
   }, [onSession]);
 
   const saveAsNew = useCallback(async () => {
@@ -645,7 +658,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -659,7 +672,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -677,7 +690,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -739,7 +752,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, ...link,
+              loads, takeoff: bom, house, scope, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -777,7 +790,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -824,6 +837,11 @@ function DesignerSession({ session, onSession }: {
         house: full.meta.house && Array.isArray(full.meta.house.views)
           ? full.meta.house
           : { ...BLANK_HOUSE, views: [] },
+        // A job saved before the scope existed opens with an empty one rather
+        // than a wrong one.
+        scope: full.meta.scope && Array.isArray(full.meta.scope.lines)
+          ? full.meta.scope
+          : { ...BLANK_SCOPE, lines: [] },
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -983,6 +1001,7 @@ function DesignerSession({ session, onSession }: {
           {([
             ['capture', 'Capture', 'Photos, video and what is already there'],
             ['design', 'Design', 'Size, framing and finishes'],
+            ['scope', 'Scope', 'The process — every task, in build order'],
             ['price', 'Price', 'What it costs, from the framing'],
             ['documents', 'Documents', 'Permit packet, spec and details'],
           ] as const).map(([id, label, hint]) => (
@@ -1324,6 +1343,16 @@ function DesignerSession({ session, onSession }: {
                 and sends you to the one that already exists, because two
                 pickers writing to the same place is how they end up
                 disagreeing. */}
+            {/* ── The scope of work ─────────────────────────────────────────
+                The spine. Outside the trade gate because a job has one scope,
+                not one per trade — a kitchen job has demolition, electrical and
+                tile in it and they are all the same process. */}
+            <div className={stage === 'scope' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Scope of work">
+                <ScopeOfWork scope={scope} onChange={setScope} />
+              </PanelErrorBoundary>
+            </div>
+
             {/* ── The house ─────────────────────────────────────────────────
                 Outside the trade gate as well as the stage gate, because every
                 trade in the design centre works on the same building. A wall
@@ -1554,6 +1583,7 @@ export default function DeckDesigner() {
     loads: { ...DEFAULT_SITE_LOADS },
     link: { ...NO_LINK },
     house: { ...BLANK_HOUSE, views: [] },
+    scope: { ...BLANK_SCOPE, lines: [] },
     id: null,
   }));
 

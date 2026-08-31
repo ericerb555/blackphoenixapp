@@ -1,5 +1,5 @@
 {
-  "total": 334,
+  "total": 333,
   "byFile": {
     "src/app/App.tsx": 2,
     "src/app/components/AIBidAssistant.tsx": 3,
@@ -52,7 +52,6 @@
     "src/app/pages/ChangeOrderCameraApp.tsx": 26,
     "src/app/pages/CustomerQuoteApproval.tsx": 2,
     "src/app/pages/CustomersNew.tsx": 1,
-    "src/app/pages/DeckDesigner.tsx": 1,
     "src/app/pages/EmailLeadGen.tsx": 1,
     "src/app/pages/EnterpriseContentCenter.tsx": 17,
     "src/app/pages/InvoiceBuilder.tsx": 1,

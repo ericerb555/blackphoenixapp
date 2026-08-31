@@ -28,6 +28,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import HouseImportBanner from './HouseImportBanner';
 import type { House } from '../lib/houseModel';
 import { flooringOffer, roomsFromHouse } from '../lib/houseToTrades';
+import type { DesignStage } from '../lib/designStage';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -65,7 +66,7 @@ const blankRoom = (): FloorRoom => ({
 });
 
 export default function FlooringTakeoff({ stage, link: linkProp, onLink, initialRooms, house }: {
-  stage?: 'capture' | 'design' | 'price' | 'documents';
+  stage?: DesignStage;
   /** The captured building — its room views become rooms here. */
   house?: House | null;
   link?: DesignLink;

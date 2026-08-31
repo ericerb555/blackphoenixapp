@@ -32,6 +32,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import HouseImportBanner from './HouseImportBanner';
 import type { House } from '../lib/houseModel';
 import { sidingOffer, elevationsFromHouse } from '../lib/houseToTrades';
+import type { DesignStage } from '../lib/designStage';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -94,7 +95,7 @@ export default function SidingTakeoff({ initial, stage, link: linkProp, onLink, 
   initial?: Partial<ExteriorModel>;
   /** The captured building, so walls are measured once for every trade. */
   house?: House | null;
-  stage?: 'capture' | 'design' | 'price' | 'documents';
+  stage?: DesignStage;
   /** Supplied when the design centre owns the customer; otherwise held here. */
   link?: DesignLink;
   onLink?: (next: DesignLink) => void;

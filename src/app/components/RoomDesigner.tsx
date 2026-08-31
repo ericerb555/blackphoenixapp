@@ -50,6 +50,7 @@ import {
 } from '../lib/cabinetPricing';
 import { tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
 import { DEFAULT_QUOTE_OPTIONS, type QuoteOptions } from '../lib/deckQuote';
+import type { DesignStage } from '../lib/designStage';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -66,7 +67,7 @@ type RoomKind = 'kitchen' | 'bathroom';
 interface Props {
   kind: RoomKind;
   house?: House | null;
-  stage?: 'capture' | 'design' | 'price' | 'documents';
+  stage?: DesignStage;
   link?: DesignLink;
   onLink?: (next: DesignLink) => void;
 }
