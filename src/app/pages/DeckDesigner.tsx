@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
-  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle,
+  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle, Warehouse,
   Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -35,6 +35,7 @@ import SidingTakeoff from '../components/SidingTakeoff';
 import OpeningsTakeoff from '../components/OpeningsTakeoff';
 import FlooringTakeoff from '../components/FlooringTakeoff';
 import RoomDesigner from '../components/RoomDesigner';
+import StructureDesigner from '../components/StructureDesigner';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -139,10 +140,11 @@ const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '', jobTi
  * discovered by pressing them — a button that looks like the working ones and
  * then does nothing is worse than one that admits what it is.
  */
-type TradeId = 'deck' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
+type TradeId = 'deck' | 'structures' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
 
 const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> = [
   { id: 'deck', label: 'Decks', icon: Hammer, built: true },
+  { id: 'structures', label: 'Structures', icon: Warehouse, built: true },
   { id: 'siding', label: 'Siding', icon: Home, built: true },
   { id: 'openings', label: 'Doors & windows', icon: DoorOpen, built: true },
   { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: true },
@@ -1187,6 +1189,18 @@ function DesignerSession({ session, onSession }: {
             {trade === 'openings' && (
               <PanelErrorBoundary name="Doors and windows">
                 <OpeningsTakeoff stage={stage} link={link} onLink={setLink} house={house} />
+              </PanelErrorBoundary>
+            )}
+
+            {/* Roofs over things — lean-tos, pavilions, carports, pergolas.
+                Given the site's ground snow, because snow is the load that
+                sizes a roof and it comes from where the job is. */}
+            {trade === 'structures' && (
+              <PanelErrorBoundary name="Structures">
+                <StructureDesigner
+                  groundSnowPsf={loads.groundSnowPsf > 0 ? loads.groundSnowPsf : (townCase?.groundSnowPsf || 60)}
+                  townName={site.town || undefined}
+                />
               </PanelErrorBoundary>
             )}
 
