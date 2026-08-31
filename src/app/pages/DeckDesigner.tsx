@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
-  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle, Warehouse,
+  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle, Warehouse, Layers3,
   Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -36,6 +36,7 @@ import OpeningsTakeoff from '../components/OpeningsTakeoff';
 import FlooringTakeoff from '../components/FlooringTakeoff';
 import RoomDesigner from '../components/RoomDesigner';
 import StructureDesigner from '../components/StructureDesigner';
+import HardscapeTakeoff from '../components/HardscapeTakeoff';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -140,11 +141,12 @@ const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '', jobTi
  * discovered by pressing them — a button that looks like the working ones and
  * then does nothing is worse than one that admits what it is.
  */
-type TradeId = 'deck' | 'structures' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
+type TradeId = 'deck' | 'structures' | 'hardscape' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
 
 const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> = [
   { id: 'deck', label: 'Decks', icon: Hammer, built: true },
   { id: 'structures', label: 'Structures', icon: Warehouse, built: true },
+  { id: 'hardscape', label: 'Hardscape', icon: Layers3, built: true },
   { id: 'siding', label: 'Siding', icon: Home, built: true },
   { id: 'openings', label: 'Doors & windows', icon: DoorOpen, built: true },
   { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: true },
@@ -1195,6 +1197,15 @@ function DesignerSession({ session, onSession }: {
             {/* Roofs over things — lean-tos, pavilions, carports, pergolas.
                 Given the site's ground snow, because snow is the load that
                 sizes a roof and it comes from where the job is. */}
+            {/* Patios, walkways, granite steps and walls. Kept apart from
+                flooring because almost none of the cost is the surface — the
+                base and the digging under it usually cost more. */}
+            {trade === 'hardscape' && (
+              <PanelErrorBoundary name="Hardscape">
+                <HardscapeTakeoff />
+              </PanelErrorBoundary>
+            )}
+
             {trade === 'structures' && (
               <PanelErrorBoundary name="Structures">
                 <StructureDesigner
