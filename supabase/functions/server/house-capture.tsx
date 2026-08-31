@@ -939,6 +939,88 @@ const MAX_LOOKS = 3;
  * allowance, exactly as it does for staff — and a set is reserved as a block,
  * because half a set of options is not worth showing anyone.
  */
+/**
+ * Show a homeowner what they are imagining, on their own house.
+ *
+ * WHY THIS IS DELIBERATELY NOT THE DESIGN CENTRE'S RENDER
+ *
+ * The staff render paints a deck that has been designed — it knows the width,
+ * the height, the railing and the decking, because a model exists. This one has
+ * none of that. A customer types "what would a pergola look like over the
+ * patio" and there is no model, no measurement and no quote behind it.
+ *
+ * So it is honest about being a picture. It changes only what was asked for,
+ * preserves the house exactly, and everything it returns is labelled as an idea
+ * rather than a proposal. A homeowner who believes a render is a promise is a
+ * dispute at handover, and the render is far more persuasive than any small
+ * print underneath it.
+ *
+ * The spend ceiling above applies unchanged: ten images per account, counted on
+ * the server against the verified token. Browsing is unbounded by nature and
+ * each image costs real money.
+ */
+app.post("/imagine", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const photo: string = typeof body?.photo === "string" ? body.photo : "";
+    const wish: string = typeof body?.wish === "string" ? body.wish.slice(0, 500) : "";
+    const mask: string = typeof body?.mask === "string" ? body.mask : "";
+
+    if (!wish.trim()) return c.json({ error: "Tell us what you would like to see." }, 400);
+
+    const parts = splitDataUri(photo);
+    if (!parts) return c.json({ error: "Pick a photo of your home first." }, 400);
+
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return c.json({ error: "This is not switched on yet." }, 503);
+
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, 1);
+    if (refused) return c.json(refused, 429);
+
+    // Preserve everything, change one thing. The instruction is stated twice
+    // because "keep the house the same" is the half people notice missing — a
+    // picture of somebody else's house with your deck on it sells nothing.
+    const prompt = [
+      `Photorealistic. Keep this exact photograph — same camera position, same lens,`,
+      `same daylight and shadows, same house, same trim, same roof, same landscaping`,
+      `and background. Change nothing except what is described below.`,
+      ``,
+      `What to change:`,
+      wish,
+      ``,
+      `Everything else in the photograph must come back exactly as it is now.`,
+      `No people, no text, no watermark. Keep it plausible for this property —`,
+      `nothing that could not actually be built here.`,
+    ].join("\n");
+
+    const shot = await paintDeck({ parts, references: [], prompt, key, mask });
+    if (!shot.ok) {
+      await refundImages(actor, 1);
+      return c.json({ error: shot.error }, shot.status as any);
+    }
+
+    const url = await putAsset(base64ToBytes(shot.b64), "png", "image/png");
+    if (!url) {
+      await refundImages(actor, 1);
+      return c.json({ error: "It was made but could not be saved. Try again." }, 502);
+    }
+
+    return c.json({
+      url,
+      wish,
+      // Carried in the response rather than left to the client, so the caveat
+      // travels with the image wherever it is shown or forwarded.
+      disclaimer:
+        "An idea, not a plan. This is an illustration of what you asked for, not a "
+        + "design, a measurement or a price — what can actually be built here depends "
+        + "on the structure, the site and your town.",
+    });
+  } catch (error: any) {
+    return c.json({ error: error?.message || "That did not work." }, 500);
+  }
+});
+
 app.post("/floor-looks", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
