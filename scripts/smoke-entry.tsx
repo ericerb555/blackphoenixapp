@@ -54,7 +54,18 @@ const to = Number(params.get('to') || 20);
 // Sorted so a batch means the same thing between runs. An unstable order makes
 // "batch 7 failed" impossible to reproduce.
 const names = Object.keys(pageMap).sort();
-const slice = names.slice(from, to);
+
+/**
+ * Either an explicit list of pages, or a slice of all of them.
+ *
+ * The list is how a pre-commit run stays fast: the runner works out which pages
+ * could reach the files that changed and names only those, so a typical change
+ * mounts two or three rather than three hundred and thirty.
+ */
+const only = (params.get('only') || '').split(',').map(s => s.trim()).filter(Boolean);
+const slice = only.length
+  ? only.filter(nm => nm in pageMap)
+  : names.slice(from, to);
 
 const verdicts = new Map<string, Result>();
 

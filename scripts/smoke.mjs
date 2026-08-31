@@ -28,6 +28,7 @@
  * like a broken page and was a broken measurement.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { changedFiles, affectedRoutes } from './affected.mjs';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,7 +36,13 @@ import { join } from 'node:path';
 const PORT = 5177;
 const REPORT_PORT = 9911;
 const BATCH = Number(argFor('--batch') || 15);
-const WAIT_S = Number(argFor('--wait') || 20);
+// A targeted run has only a handful of batches, so it can afford to wait.
+// Sixty seconds because the design centre and the deck designer now carry
+// WebGL viewers, and software-rendered 3D in a headless browser is slow —
+// properly rather than call a heavy page a failure. A full sweep has
+// twenty-two, where the same generosity costs minutes.
+const TARGETED = !process.argv.includes('--all');
+const WAIT_S = Number(argFor('--wait') || (TARGETED ? 60 : 20));
 
 const EDGE = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -115,9 +122,12 @@ async function waitForServer() {
  * deadline — most batches finish in a few seconds and only the ones containing
  * something slow use their full time.
  */
-async function runBatch(from, to) {
+async function runBatch(from, to, only) {
   latest = null;
-  const url = `http://localhost:${PORT}/smoke.html?from=${from}&to=${to}`
+  const range = only
+    ? `only=${encodeURIComponent(only.join(','))}`
+    : `from=${from}&to=${to}`;
+  const url = `http://localhost:${PORT}/smoke.html?${range}`
     + `&report=${encodeURIComponent(`http://localhost:${REPORT_PORT}/report`)}`;
 
   browser = spawn(EDGE, [
@@ -147,25 +157,57 @@ if (!(await waitForServer())) {
   process.exit(2);
 }
 
-const first = await runBatch(0, BATCH);
-if (!first) {
-  console.error('Nothing reported at all. The route map may have failed to load.');
-  process.exit(2);
+const wantAll = process.argv.includes('--all');
+let targets = null;
+
+// By default only the pages a change could have reached. The full sweep takes
+// six minutes, which is too slow to run before every commit — and a check that
+// gets skipped is worse than none, because it gives false comfort.
+if (!wantAll) {
+  const changed = changedFiles();
+  const routes = affectedRoutes(changed);
+  if (routes === null) {
+    console.log('A shared entry point changed - running every page.');
+  } else if (routes.length === 0) {
+    console.log('No source changes reach any page. Nothing to smoke.');
+    stop();
+    process.exit(0);
+  } else {
+    targets = routes;
+    console.log(`${changed.length} changed file(s) reach ${routes.length} page(s):`);
+    console.log('  ' + routes.join(', '));
+    console.log('');
+  }
 }
 
-const total = first.total;
-const all = [...first.results];
-console.log(`${total} pages, ${BATCH} at a time\n`);
-process.stdout.write(`  1..${Math.min(BATCH, total)}`);
+const all = [];
 
-for (let from = BATCH; from < total; from += BATCH) {
-  const to = Math.min(from + BATCH, total);
-  const r = await runBatch(from, to);
-  if (r) all.push(...r.results);
-  else all.push({ name: `pages ${from}-${to}`, status: 'hung', error: 'the batch never reported' });
-  process.stdout.write(`  ${from + 1}..${to}`);
+if (targets) {
+  for (let i = 0; i < targets.length; i += BATCH) {
+    const chunk = targets.slice(i, i + BATCH);
+    const r = await runBatch(0, 0, chunk);
+    if (r) all.push(...r.results);
+    else all.push(...chunk.map((name) => ({ name, status: 'hung', error: 'never reported' })));
+  }
+} else {
+  const first = await runBatch(0, BATCH);
+  if (!first) {
+    console.error('Nothing reported at all. The route map may have failed to load.');
+    process.exit(2);
+  }
+  const total = first.total;
+  all.push(...first.results);
+  console.log(`${total} pages, ${BATCH} at a time`);
+  process.stdout.write(`  1..${Math.min(BATCH, total)}`);
+  for (let from = BATCH; from < total; from += BATCH) {
+    const to = Math.min(from + BATCH, total);
+    const r = await runBatch(from, to);
+    if (r) all.push(...r.results);
+    else all.push({ name: `pages ${from}-${to}`, status: 'hung', error: 'the batch never reported' });
+    process.stdout.write(`  ${from + 1}..${to}`);
+  }
+  console.log('');
 }
-console.log('\n');
 
 const threw = all.filter((r) => r.status === 'threw');
 const hung = all.filter((r) => r.status === 'hung');
