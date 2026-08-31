@@ -195,6 +195,56 @@ export function flooringOffer(house: House | null | undefined): HouseOffer | nul
   return { count: rooms.length, summary: `${rooms.length} room${rooms.length === 1 ? '' : 's'}` };
 }
 
+/* ── structures and hardscape ────────────────────────────────────────────
+ *
+ * Both attach to the building rather than merely standing near it. A lean-to
+ * hangs off a wall, so that wall's length is the structure's width and its door
+ * threshold is the height the roof has to clear. A patio against the house has
+ * one edge that needs no restraint, because the house is the restraint.
+ *
+ * Same shape as the other trades: the house is captured once and each trade
+ * takes the part of it that it needs.
+ */
+
+export function structureOffer(house: House | null | undefined): HouseOffer | null {
+  const walls = elevationViews(house);
+  if (!walls.length) return null;
+  const w = walls[0];
+  return {
+    count: walls.length,
+    summary: `${Math.round(w.widthFt)}ft of ${w.name.toLowerCase()}`
+      + (w.sillHeightInches > 0 ? ` with a ${Math.round(w.sillHeightInches)}in threshold` : ''),
+  };
+}
+
+/**
+ * What a structure takes from a wall.
+ *
+ * The eave has to clear the door it is built over, so the threshold sets a
+ * floor under the height rather than being decoration — a lean-to whose beam
+ * lands below the top of the slider is one nobody can walk through.
+ */
+export function structureFromWall(house: House | null | undefined): {
+  widthFt: number; minEaveFt: number; wallName: string;
+} | null {
+  const w = elevationViews(house)[0];
+  if (!w) return null;
+  // Threshold, plus a door's height above it, plus a little for the header.
+  const minEaveFt = Math.max(7, (w.sillHeightInches + 80 + 6) / 12);
+  return {
+    widthFt: Math.max(0, Math.round(w.widthFt * 10) / 10),
+    minEaveFt: Math.round(minEaveFt * 10) / 10,
+    wallName: w.name,
+  };
+}
+
+export function hardscapeOffer(house: House | null | undefined): HouseOffer | null {
+  const walls = elevationViews(house);
+  if (!walls.length) return null;
+  const w = walls[0];
+  return { count: 1, summary: `${Math.round(w.widthFt)}ft along ${w.name.toLowerCase()}` };
+}
+
 /** The wall a deck attaches to — the active elevation, if there is one. */
 export function deckWall(house: House | null | undefined): HouseView | null {
   const v = activeView(house);

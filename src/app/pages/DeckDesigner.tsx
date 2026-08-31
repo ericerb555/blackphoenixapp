@@ -1202,7 +1202,7 @@ function DesignerSession({ session, onSession }: {
                 base and the digging under it usually cost more. */}
             {trade === 'hardscape' && (
               <PanelErrorBoundary name="Hardscape">
-                <HardscapeTakeoff />
+                <HardscapeTakeoff house={house} />
               </PanelErrorBoundary>
             )}
 
@@ -1211,6 +1211,7 @@ function DesignerSession({ session, onSession }: {
                 <StructureDesigner
                   groundSnowPsf={loads.groundSnowPsf > 0 ? loads.groundSnowPsf : (townCase?.groundSnowPsf || 60)}
                   townName={site.town || undefined}
+                  house={house}
                 />
               </PanelErrorBoundary>
             )}

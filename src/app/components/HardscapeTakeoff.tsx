@@ -22,6 +22,9 @@ import {
   USES, PAVERS, PATTERNS, BEDDING_IN,
   computeHardscape, stepWeightLb, needsMachine,
 } from '../lib/hardscapeModel';
+import HouseImportBanner from './HouseImportBanner';
+import type { House } from '../lib/houseModel';
+import { hardscapeOffer, elevationViews } from '../lib/houseToTrades';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const field = 'w-full px-2 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-sm focus:outline-none focus:border-[#ea580c]';
@@ -44,7 +47,7 @@ const blankWall = (): RetainingWall => ({
   id: nid('RW'), lengthFt: 20, heightFt: 3, blockLengthIn: 12, blockHeightIn: 8, hasCap: true,
 });
 
-export default function HardscapeTakeoff() {
+export default function HardscapeTakeoff({ house }: { house?: House | null } = {}) {
   const [surfaces, setSurfaces] = useState<Surface[]>([blankSurface(1)]);
   const [steps, setSteps] = useState<GraniteStep[]>([]);
   const [walls, setWalls] = useState<RetainingWall[]>([]);
@@ -54,8 +57,28 @@ export default function HardscapeTakeoff() {
   const patchSurface = (id: string, p: Partial<Surface>) =>
     setSurfaces(s => s.map(x => (x.id === id ? { ...x, ...p } : x)));
 
+  const wall = elevationViews(house)[0];
+
   return (
     <div className="space-y-4">
+      {/* A patio against the house takes its length from the wall, and that
+          edge needs no restraint — the house is the restraint. */}
+      <HouseImportBanner
+        offer={hardscapeOffer(house)}
+        noun="areas"
+        replacing={surfaces.length}
+        onApply={() => {
+          if (!wall) return;
+          setSurfaces([{
+            ...blankSurface(1),
+            name: `Patio along ${wall.name.toLowerCase()}`,
+            lengthFt: Math.round(wall.widthFt * 10) / 10,
+            // Three sides need edging; the wall is the fourth.
+            perimeterFt: Math.round((wall.widthFt + 15 * 2) * 10) / 10,
+          }]);
+        }}
+      />
+
       {/* ── the areas ── */}
       <div className={card}>
         <div className="flex items-center justify-between mb-1">

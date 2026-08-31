@@ -25,6 +25,9 @@ import {
   type StructureModel, type StructureForm, type Support, type Covering,
   COVERINGS, DEFAULT_STRUCTURE, computeStructure, pitchDegrees, RAFTER_SIZES,
 } from '../lib/structureModel';
+import HouseImportBanner from './HouseImportBanner';
+import type { House } from '../lib/houseModel';
+import { structureOffer, structureFromWall } from '../lib/houseToTrades';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const field = 'w-full px-2 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-sm focus:outline-none focus:border-[#ea580c]';
@@ -44,10 +47,12 @@ const SUPPORTS: Array<{ id: Support; label: string }> = [
   { id: 'ledger', label: 'Ledger only' },
 ];
 
-export default function StructureDesigner({ groundSnowPsf = 60, townName }: {
+export default function StructureDesigner({ groundSnowPsf = 60, townName, house }: {
   /** From the building department, via the site address. */
   groundSnowPsf?: number;
   townName?: string;
+  /** The captured building. A lean-to hangs off one of its walls. */
+  house?: House | null;
 }) {
   const [m, setM] = useState<StructureModel>({ ...DEFAULT_STRUCTURE });
   const [heated, setHeated] = useState(false);
@@ -65,8 +70,27 @@ export default function StructureDesigner({ groundSnowPsf = 60, townName }: {
   const covering = COVERINGS.find(c => c.id === m.covering)!;
   const sheds = r.snow.cs < 1;
 
+  const fromWall = structureFromWall(house);
+
   return (
     <div className="space-y-4">
+      {/* The wall it leans on. Its length is the structure's width, and its
+          threshold is the height the roof has to clear — a beam landing below
+          the top of the slider is one nobody can walk under. */}
+      <HouseImportBanner
+        offer={structureOffer(house)}
+        noun="dimensions"
+        replacing={0}
+        onApply={() => {
+          if (!fromWall) return;
+          setM(prev => ({
+            ...prev,
+            widthFt: fromWall.widthFt,
+            eaveHeightFt: Math.max(prev.eaveHeightFt, fromWall.minEaveFt),
+          }));
+        }}
+      />
+
       {/* ── what it is ── */}
       <div className={card}>
         <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
