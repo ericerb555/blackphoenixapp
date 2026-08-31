@@ -27,7 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ChefHat, Bath, Plus, Trash2, AlertTriangle, ShieldCheck, Ruler, Wind, BadgeDollarSign,
+  ChefHat, Bath, Plus, Trash2, AlertTriangle, ShieldCheck, Ruler, Wind, BadgeDollarSign, ListPlus,
 } from 'lucide-react';
 import {
   type CabinetRun, type CabinetFamily, fillRun, buildSchedule, cabinetTotals,
@@ -40,6 +40,9 @@ import {
 } from '../lib/roomFixtures';
 import type { House } from '../lib/houseModel';
 import { roomViews } from '../lib/houseToTrades';
+import { linesFromRoom } from '../lib/scopeStarters';
+import type { ScopeLine } from '../lib/scopeModel';
+import { toast } from 'sonner';
 import type { DesignLink } from './ProjectLinkPanel';
 import RoomViewer3D from './RoomViewer3D';
 import { projectId } from '../utils/supabase/info';
@@ -65,6 +68,14 @@ async function headers() {
 type RoomKind = 'kitchen' | 'bathroom';
 
 interface Props {
+  /**
+   * Hand the takeoff to the scope.
+   *
+   * Kitchens and bathrooms were the only trades that could be designed,
+   * scheduled and priced and then not become a job, because nothing carried
+   * their work across to the process.
+   */
+  onAddToScope?: (lines: Array<Omit<ScopeLine, 'id'>>) => void;
   kind: RoomKind;
   house?: House | null;
   stage?: DesignStage;
@@ -80,7 +91,7 @@ const label = 'block text-[11px] font-semibold text-gray-400 mb-1';
 let seq = 0;
 const nid = (p: string) => `${p}-${++seq}-${Math.random().toString(36).slice(2, 6)}`;
 
-export default function RoomDesigner({ kind, house, stage = 'design' }: Props) {
+export default function RoomDesigner({ kind, house, stage = 'design', onAddToScope }: Props) {
   const captured = useMemo(() => roomViews(house), [house]);
   const [viewId, setViewId] = useState<string | null>(captured[0]?.id ?? null);
   const room = captured.find(v => v.id === viewId) || captured[0] || null;
@@ -525,6 +536,28 @@ export default function RoomDesigner({ kind, house, stage = 'design' }: Props) {
               </tbody>
             </table>
           </div>
+        )}
+
+        {schedule.length > 0 && onAddToScope && (
+          <button
+            onClick={() => {
+              const lines = linesFromRoom({
+                cabinetCount: totals.boxes,
+                hardwareCount: totals.hardware,
+                counterSqFt: counter.sqFt,
+                counterLinearFt: counter.linearFt,
+                backsplashSqFt: counter.backsplashSqFt,
+                sinkCutouts: counter.sinkCutouts,
+                fixtures: fixtures.map(f => f.label),
+                kind,
+              });
+              onAddToScope(lines);
+              toast.success(`${lines.length} lines added to the scope. Quantities arrive provisional.`);
+            }}
+            className="mt-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <ListPlus className="w-4 h-4" /> Add this to the scope of work
+          </button>
         )}
 
         {schedule.length > 0 && (

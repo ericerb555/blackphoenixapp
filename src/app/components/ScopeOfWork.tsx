@@ -30,14 +30,19 @@ import {
   addLine, byPhase, findGaps, summarise, confirmAll, confidenceNote,
   consumablesFor, hoursFor, taskById, phaseOf,
 } from '../lib/scopeModel';
+import { STARTERS, linesFromStarter, starterFor } from '../lib/scopeStarters';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
 
-export default function ScopeOfWork({ scope, onChange }: {
+export default function ScopeOfWork({ scope, onChange, jobTitle, serviceType }: {
   scope: Scope;
   onChange: (s: Scope) => void;
+  /** From the linked job, so the right starter can be suggested. */
+  jobTitle?: string;
+  serviceType?: string;
 }) {
+  const suggested = starterFor(serviceType, jobTitle);
   const [taskId, setTaskId] = useState(TASKS[0].id);
   const [taskQty, setTaskQty] = useState(100);
 
@@ -90,6 +95,20 @@ export default function ScopeOfWork({ scope, onChange }: {
   };
 
   const alreadyStandard = (label: string) => scope.lines.some(l => l.description === label);
+
+  /**
+   * Lay a starter down.
+   *
+   * Only offered while the scope is empty. Dropping twenty lines into a scope
+   * somebody has already built is not help, it is a mess to unpick.
+   */
+  const useStarter = (id: string) => {
+    const st = STARTERS.find(x => x.id === id);
+    if (!st) return;
+    let next = scope;
+    for (const l of linesFromStarter(st)) next = addLine(next, l);
+    onChange(next);
+  };
 
   return (
     <div className="space-y-4">
@@ -157,9 +176,33 @@ export default function ScopeOfWork({ scope, onChange }: {
         </p>
 
         {groups.length === 0 ? (
-          <p className="text-[11px] text-gray-600">
-            Nothing scoped yet. Add a task below, or bring a takeoff over from a trade.
-          </p>
+          <div>
+            <p className="text-[11px] text-gray-600 mb-3">
+              Nothing scoped yet. Start from the shape of the job and edit it down — that
+              is quicker than typing twelve phases, and nothing gets forgotten on the way.
+            </p>
+            {suggested && (
+              <button onClick={() => useStarter(suggested.id)}
+                className="w-full mb-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white text-left"
+                style={{ background: '#ea580c' }}>
+                Start from “{suggested.label}”
+                <span className="block text-[11px] font-normal opacity-80">{suggested.blurb}</span>
+              </button>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {STARTERS.filter(st => st.id !== suggested?.id).map(st => (
+                <button key={st.id} onClick={() => useStarter(st.id)}
+                  className="text-left px-2.5 py-2 rounded-lg text-xs border border-dashed border-[#2A2A2A] text-gray-400 hover:text-white">
+                  {st.label}
+                  <span className="block text-[10px] text-gray-600">{st.blurb}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-600 mt-2">
+              Everything arrives provisional with no real quantities — the shape is right,
+              the numbers come from the trade tools and the walkthrough.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
             {groups.map(({ phase, lines }) => (

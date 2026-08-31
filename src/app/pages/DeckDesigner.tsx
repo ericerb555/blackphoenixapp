@@ -39,7 +39,7 @@ import StructureDesigner from '../components/StructureDesigner';
 import HardscapeTakeoff from '../components/HardscapeTakeoff';
 import ScopeOfWork from '../components/ScopeOfWork';
 import ScopeQuotePanel from '../components/ScopeQuotePanel';
-import { type Scope, BLANK_SCOPE } from '../lib/scopeModel';
+import { type Scope, BLANK_SCOPE, addLine as addScopeLine } from '../lib/scopeModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -1238,7 +1238,8 @@ function DesignerSession({ session, onSession }: {
 
             {(trade === 'kitchen' || trade === 'bathroom') && (
               <PanelErrorBoundary name={trade === 'kitchen' ? 'Kitchen' : 'Bathroom'}>
-                <RoomDesigner kind={trade} house={house} stage={stage} link={link} onLink={setLink} />
+                <RoomDesigner kind={trade} house={house} stage={stage} link={link} onLink={setLink}
+                  onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
               </PanelErrorBoundary>
             )}
 
@@ -1350,7 +1351,9 @@ function DesignerSession({ session, onSession }: {
                 tile in it and they are all the same process. */}
             <div className={stage === 'scope' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Scope of work">
-                <ScopeOfWork scope={scope} onChange={setScope} />
+                <ScopeOfWork scope={scope} onChange={setScope}
+                  jobTitle={link.jobTitle || site.projectName}
+                  serviceType={trade} />
               </PanelErrorBoundary>
             </div>
 
