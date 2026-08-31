@@ -41,6 +41,7 @@ import {
 import type { House } from '../lib/houseModel';
 import { roomViews } from '../lib/houseToTrades';
 import type { DesignLink } from './ProjectLinkPanel';
+import RoomViewer3D from './RoomViewer3D';
 import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import {
@@ -469,6 +470,19 @@ export default function RoomDesigner({ kind, house, stage = 'design' }: Props) {
           </p>
         )}
       </div>
+
+      {/* ── the drawing ──────────────────────────────────────────────────
+          Directly above the schedule on purpose: the picture the customer
+          approves and the list that gets ordered are the same cabinets, and
+          putting them next to each other is how a discrepancy gets noticed. */}
+      <RoomViewer3D
+        runs={runs}
+        fixtures={fixtures}
+        lengthFt={lengthFt || 12}
+        widthFt={widthFt || 10}
+        ceilingFt={(ceilingIn || 96) / 12}
+        counterMaterial={counterMaterial}
+      />
 
       {/* ── the schedule ── */}
       <div className={card}>
