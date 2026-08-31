@@ -113,19 +113,28 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
       }, 500);
     }
 
+    /**
+     * Declared out here rather than inside the try below.
+     *
+     * The fallback path in the catch reads this map, and while it was declared
+     * inside the try it was out of scope there — so the moment asset generation
+     * failed, the code meant to recover from that failed too, with a
+     * ReferenceError instead of a fallback image. A bug in error handling only
+     * shows up when something else has already gone wrong, which is why it sat
+     * there unnoticed until the server was type-checked for the first time.
+     */
+    const dimensionsMap: Record<string, string> = {
+      instagram: '1080x1080',
+      facebook: '1200x630',
+      twitter: '1200x675',
+      linkedin: '1200x627',
+      email: '600x400',
+      web: '728x90'
+    };
+
     // Generate assets for each platform
     for (const platform of platforms) {
       try {
-        // Get platform dimensions
-        const dimensionsMap: Record<string, string> = {
-          instagram: '1080x1080',
-          facebook: '1200x630',
-          twitter: '1200x675',
-          linkedin: '1200x627',
-          email: '600x400',
-          web: '728x90'
-        };
-
         const dimensions = dimensionsMap[platform] || '1200x1200';
 
         // Build comprehensive prompt

@@ -7,9 +7,10 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:all": "node scripts/smoke.mjs --all"
+    "smoke:all": "node scripts/smoke.mjs --all",
+    "typecheck:server": "tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

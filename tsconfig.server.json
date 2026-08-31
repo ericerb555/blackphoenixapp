@@ -1,0 +1,48 @@
+{
+  // The edge functions, which nothing was checking.
+  //
+  // Separate from the app's tsconfig because the two run in different places:
+  // the server has no DOM and resolves npm: and https: specifiers that
+  // TypeScript cannot, and the app has neither problem. One config trying to
+  // describe both would have to be loose enough to be useless for either.
+  //
+  // The retired archives are excluded. They are the record of what was taken
+  // out of service, they do not ship, and checking them would bury real
+  // findings under problems in code nobody runs.
+  "compilerOptions": {
+    "target": "ES2022",
+    // Deno implements the web platform - Response, fetch, console, crypto, Blob -
+    // so the DOM lib is how TypeScript learns those exist. Without it the first
+    // run reported 1886 phantom findings for globals the runtime provides.
+    // It also brings document and window, which the server should never touch;
+    // that false negative is worth far less than the noise it removes.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [],
+
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "jsx": "preserve",
+
+    // Same reasoning as the app: the narrow set that catches names which do not
+    // exist and files that do not parse. Strict mode across a server this size
+    // buries those under thousands of type-shape findings.
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false
+  },
+  "include": [
+    "supabase/functions/**/*.ts",
+    "supabase/functions/**/*.tsx"
+  ],
+  "exclude": [
+    "supabase/functions/_retired/**",
+    "supabase/functions/make-server-57095a78/**"
+  ]
+}
