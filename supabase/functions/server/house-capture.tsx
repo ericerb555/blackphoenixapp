@@ -603,6 +603,45 @@ function placementLines(attachment: any, existing: any): string[] {
 }
 
 /** Describe the deck to an image model in the words a photographer would use. */
+/**
+ * Which parts of the deck description the builder has already spoken about.
+ *
+ * WHY REMOVING BEATS OVERRIDING
+ *
+ * Telling an image model that a later line "overrides" an earlier one does not
+ * work, and it fails worst on exactly the instructions people actually type.
+ * Ask for "no stairs" and the prompt still carries a line reading "a set of
+ * stairs down to grade with matching railing" four lines above it. The model
+ * has one concrete visual description and one negation, and negations are the
+ * weakest thing you can hand it — so it draws the stairs.
+ *
+ * So the competing line is deleted rather than contradicted. If the builder has
+ * said anything about the stairs, the generated stairs line does not go in the
+ * prompt at all, and their sentence is the only thing in there on the subject.
+ * That is deterministic: it does not depend on the model choosing correctly
+ * between two instructions, because it only ever sees one.
+ *
+ * Matching is deliberately generous. A false positive drops a generated default
+ * and leaves the builder's own words — which is the safe direction. A false
+ * negative leaves the contradiction in, which is the bug this exists to fix.
+ */
+export function topicsSpokenFor(extra: string): Set<string> {
+  const t = String(extra || '').toLowerCase();
+  const out = new Set<string>();
+  if (!t.trim()) return out;
+
+  const has = (...words: string[]) => words.some(w => t.includes(w));
+
+  if (has('stair', 'step', 'tread', 'riser')) out.add('stairs');
+  if (has('rail', 'baluster', 'spindle', 'picket', 'handrail', 'glass panel', 'cable')) out.add('railing');
+  if (has('board', 'decking', 'composite', 'cedar', 'trex', 'azek', 'pvc', 'mahogany', 'ipe', 'pressure treated deck')) out.add('decking');
+  if (has('wide', 'width', 'deep', 'depth', 'feet', 'foot', 'ft', 'bigger', 'smaller', 'size')) out.add('size');
+  if (has('high', 'height', 'grade level', 'ground level', 'raised', 'lower it', 'higher')) out.add('height');
+  if (has('post', 'footing', 'skirt', 'lattice', 'framing', 'beam', 'joist', 'underneath', 'under the deck')) out.add('understructure');
+
+  return out;
+}
+
 function renderPrompt(deck: any, house: any, attachment: any, existing: any, extra: string): string {
   const w = Number(deck?.widthFt) || 16;
   const d = Number(deck?.depthFt) || 12;
@@ -619,6 +658,8 @@ function renderPrompt(deck: any, house: any, attachment: any, existing: any, ext
     ? `Change nothing about the house itself. The ONLY thing removed from the scene is the old deck.`
     : `Change nothing about the house itself.`;
 
+  const spoken = topicsSpokenFor(extra);
+
   return [
     `Photorealistic architectural visualization. Keep this exact photograph of the house — same camera position,`,
     `same lens, same daylight, same shadows, same ${siding}, same trim, same roof, same landscaping and background.`,
@@ -627,12 +668,15 @@ function renderPrompt(deck: any, house: any, attachment: any, existing: any, ext
     ...placementLines(attachment, existing),
     ``,
     `The new deck:`,
-    `· about ${w} feet wide along the house and ${d} feet out from it`,
-    `· deck surface about ${h} feet above the ground, so you can see the framing and posts underneath`,
-    `· ${decking} deck boards running in neat parallel courses`,
-    `· ${railing} railing at 36 inches with evenly spaced balusters`,
-    `· pressure treated posts on concrete footings, with visible beam and joists under the deck`,
-    `· ${stairs}`,
+    // Each of these is dropped when the builder has already said something on
+    // the subject, so their sentence is the only instruction the model gets
+    // about it. See topicsSpokenFor.
+    spoken.has('size') ? `` : `· about ${w} feet wide along the house and ${d} feet out from it`,
+    spoken.has('height') ? `` : `· deck surface about ${h} feet above the ground, so you can see the framing and posts underneath`,
+    spoken.has('decking') ? `` : `· ${decking} deck boards running in neat parallel courses`,
+    spoken.has('railing') ? `` : `· ${railing} railing at 36 inches with evenly spaced balusters`,
+    spoken.has('understructure') ? `` : `· pressure treated posts on concrete footings, with visible beam and joists under the deck`,
+    spoken.has('stairs') ? `` : `· ${stairs}`,
     ``,
     `The deck must sit correctly in the scene: perspective matching the house, contact shadows on the ground,`,
     `the deck surface just below the door threshold, and the railing occluding what is behind it.`,
@@ -648,9 +692,18 @@ function renderPrompt(deck: any, house: any, attachment: any, existing: any, ext
     // wins.
     ...(extra ? [
       ``,
-      `IMPORTANT — instructions from the builder. These override anything above`,
-      `that contradicts them, including the deck description:`,
+      // Stated twice, and the second time as a rule about the whole image.
+      // Anything the builder has spoken about has already had its competing
+      // line removed above, so this is not resolving a contradiction — it is
+      // the only instruction on the subject, repeated for weight.
+      `The builder, who is standing at this house, has asked specifically for:`,
       extra,
+      ``,
+      `Follow that exactly. It describes what is actually wanted here and takes`,
+      `precedence over any general expectation of what a deck looks like.`,
+      ...(spoken.size
+        ? [`Draw only what is described there regarding the ${[...spoken].join(', ')}.`]
+        : []),
     ] : []),
   ].filter(Boolean).join("\n");
 }
@@ -681,8 +734,26 @@ async function paintDeck(opts: {
   references: string[];
   prompt: string;
   key: string;
+  /**
+   * A PNG the same size as the photograph, transparent exactly where the model
+   * is allowed to paint and opaque everywhere else.
+   *
+   * WHY THIS IS THE ONLY THING THAT ACTUALLY FIXES PLACEMENT
+   *
+   * The prompt has been telling the model "build it on the back wall" and "do
+   * not place the new deck anywhere else on the house" for a while, and decks
+   * kept appearing on the wrong elevation. Words cannot point at pixels. A
+   * photograph of a house has several walls and no labels, so "the back wall"
+   * is a description the model has to resolve against the image, and it
+   * resolves it wrong often enough to be useless.
+   *
+   * A mask is not a request. Pixels outside it are returned untouched, so the
+   * deck cannot appear anywhere else — not because the model agreed, but
+   * because it was never able to.
+   */
+  mask?: string;
 }): Promise<PaintResult> {
-  const { parts, references, prompt, key } = opts;
+  const { parts, references, prompt, key, mask } = opts;
   const ext = parts.mediaType.includes("png") ? "png" : "jpg";
 
   const blobFor = (uri: string) => {
@@ -693,9 +764,20 @@ async function paintDeck(opts: {
 
   const primary = new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType });
 
+  const maskBlob = (() => {
+    if (!mask) return null;
+    const p = splitDataUri(mask);
+    if (!p) return null;
+    return new Blob([base64ToBytes(p.base64)], { type: "image/png" });
+  })();
+
   const buildForm = (multi: boolean) => {
     const form = new FormData();
     form.append("model", "gpt-image-1");
+    // A mask applies to one image. Reference views would make the edit
+    // ambiguous about which image the mask belongs to, so the caller gets
+    // precise placement OR extra reference views, and placement wins.
+    if (maskBlob) form.append("mask", maskBlob, "mask.png");
     if (multi) {
       // First image is the one being rendered onto; the rest are reference.
       form.append("image[]", primary, `house.${ext}`);
@@ -721,12 +803,12 @@ async function paintDeck(opts: {
     body: buildForm(multi),
   });
 
-  let res = await call(references.length > 0);
+  let res = await call(references.length > 0 && !maskBlob);
 
   // If the multi-image form is rejected, fall back to the single-image call
   // rather than failing. A render from one photo is worth far more than an
   // error message, and this path already worked.
-  if (!res.ok && references.length > 0) {
+  if (!res.ok && references.length > 0 && !maskBlob) {
     const detail = await res.text();
     console.log(`[house] multi-image render failed ${res.status}, retrying with one: ${detail.slice(0, 200)}`);
     res = await call(false);
@@ -763,6 +845,8 @@ app.post("/render", async (c) => {
       depthFt: Number(body?.existing?.depthFt) || 0,
     };
     const extra: string = typeof body?.extra === "string" ? body.extra.slice(0, 1500) : "";
+    // Where on the photograph the change is allowed to happen.
+    const mask: string = typeof body?.mask === "string" ? body.mask : "";
 
     const parts = splitDataUri(photo);
     if (!parts) return c.json({ error: "Pick a photo of the house to render onto." }, 400);
@@ -785,7 +869,7 @@ app.post("/render", async (c) => {
     const refused = await reserveImages(actor, 1);
     if (refused) return c.json(refused, 429);
 
-    const shot = await paintDeck({ parts, references, prompt, key });
+    const shot = await paintDeck({ parts, references, prompt, key, mask });
     if (!shot.ok) {
       await refundImages(actor, 1);
       return c.json({ error: shot.error }, shot.status as any);

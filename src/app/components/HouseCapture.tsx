@@ -33,6 +33,7 @@ import { isVideoFile, isImageFile } from '../lib/localFolder';
 import { DEFAULT_LOOKS, applyLook, lookAppearance, lookCaption } from '../lib/deckLooks';
 import type { DeckModel } from '../lib/deckModel';
 import LocalFolderPicker from './LocalFolderPicker';
+import MarkArea, { buildMask, type MarkedArea } from './MarkArea';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -89,6 +90,8 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
   const [render, setRender] = useState<{ url: string; disclaimer: string } | null>(null);
   const [renderOn, setRenderOn] = useState(0);
   const [extra, setExtra] = useState('');
+  /** The part of the photo the render is allowed to touch. */
+  const [area, setArea] = useState<MarkedArea | null>(null);
   // The wall, and whether this is a tear-out. Both start from what the analysis
   // read and can be overruled — the person using this is standing in the yard
   // and the photograph is not.
@@ -264,6 +267,18 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
     const photo = photos[renderOn];
     if (!photo) return;
 
+    // A mask is the only thing that actually pins the deck to one place. Built
+    // from the marked box at the photo's own pixel size, because the API
+    // rejects a mask that is not the same dimensions as the image.
+    let maskUri = '';
+    if (area) {
+      try {
+        maskUri = await buildMask(photo, area);
+      } catch {
+        toast.error('That area could not be prepared — rendering the whole photo instead.');
+      }
+    }
+
     // Extra views make the render match the real house, but the whole set has
     // to fit in one request. Take as many as fit alongside the primary and drop
     // the rest — a render from four good angles beats a request that bounces.
@@ -305,6 +320,10 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
             depthFt: Number(analysis?.existingDeck?.depthFt) || 0,
           },
           extra,
+          // Pixels outside this come back untouched, so the deck physically
+          // cannot land on another wall. Without it the model is free to paint
+          // anywhere, which is what it has been doing.
+          mask: maskUri,
         }),
       });
       const json = await res.json();
@@ -316,7 +335,7 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
     } finally {
       setBusy(null);
     }
-  }, [photos, renderOn, model, analysis, extra, wall, replacing]);
+  }, [photos, renderOn, model, analysis, extra, wall, replacing, area]);
 
   /**
    * The same deck on the same wall in three finishes, to sit in front of a
@@ -647,6 +666,16 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
             renderer reads, and it is told to follow this over anything above it
             that disagrees.
           */}
+          {/* Where the change is allowed to happen. Above the instructions
+              because it is the stronger of the two controls: words ask, a box
+              decides. */}
+          <div className="mb-3">
+            <MarkArea photo={photos[renderOn]} area={area} onChange={setArea}
+              hint={replacing
+                ? 'Draw around the old deck. It is torn out and the new one is built in that footprint — nothing else in the photo can change.'
+                : 'Everything outside the box comes back exactly as it is now.'} />
+          </div>
+
           <label className="block text-[11px] font-semibold text-gray-400 mb-1">
             Tell the render exactly what you want
           </label>
