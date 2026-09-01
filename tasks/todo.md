@@ -271,6 +271,45 @@ deck's base line sits on the ground plane in the photo before spending a render
 on it.
 
 
+## A returned quote, read and put against our scope  (done — 471a11cd)
+
+A subcontractor sends a PDF on his own letterhead, or a photograph of
+something handwritten from the van. A system that demands he fill in our form
+gets routed around by email, and then the numbers live in an inbox while the
+scope quietly goes out of date. So the system reads what they actually send.
+
+- [x] `bidIntakeModel.ts` — the pure logic. 20/20 tests.
+- [x] `bid-intake.tsx` — `POST /read`, staff only, reads text and images.
+- [x] `BidIntakePanel.tsx` — paste, attach pages/photos, or a clip reduced to
+      frames. Review the proposed matches, tick, apply.
+- [x] Mounted on the scope screen, and only once something is out to bid.
+
+### The three rules it is built on
+
+1. **Proposed, never applied.** Every match arrives as a suggestion with a
+   confidence and has to be ticked. An AI writing money into a customer quote
+   on its own produces the worst kind of error — a wrong number nobody typed
+   and nobody checked, in front of a customer with our name on it.
+2. **Shown but unticked when unsure.** Below 0.7 confidence a match is
+   displayed and left off. Hiding it drops work; ticking it prices it wrong.
+3. **Report what did not match, both directions.** Their line fitting nothing
+   of ours may be work we forgot to scope. Ours with nothing against it may be
+   work they have not priced. Both matter more than the total, and both vanish
+   if a reader only reports its successes.
+
+It also checks their own arithmetic and says so when their printed total
+disagrees with their own lines — that is a phone call, not something to absorb.
+
+### Known limits, said plainly
+
+- **Video is read as frames, not watched.** Four stills are pulled from the
+  middle of the clip and those are what the model looks at. If the numbers are
+  only spoken aloud, they will not be read. Numbers held up to the camera will.
+- **A PDF has to be attached as page images**, not as the file itself.
+- Several of their lines landing on one of ours **add** rather than overwrite,
+  which is right for a plumber itemising rough and trim against one line of
+  ours — but it means ticking the same reading twice would double it.
+
 ## Review
 
 (to be completed)
