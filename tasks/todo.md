@@ -310,7 +310,59 @@ disagrees with their own lines — that is a phone call, not something to absorb
   which is right for a plumber itemising rough and trim against one line of
   ours — but it means ticking the same reading twice would double it.
 
-## Phase 4b — the scope goes out to bid  (PLAN, awaiting sign-off)
+## Phase 4b — the scope goes out to bid  (DONE)
+
+Decision taken: **a lines table**. Migration 012 tested on a throwaway branch,
+then applied to production. The branch found a real hole — see below.
+
+- [x] 1. `bidPackageModel.ts` — 48/48 tests.
+- [x] 2. `BidPackagePanel.tsx` on the scope screen.
+- [x] 3. Migration 012: `bid_request_lines`, `bid_line_prices`.
+- [x] 4. Posts into the existing bid room as a draft.
+- [x] 6. The dead `request-bids` stub now says what it actually did.
+- [ ] 5. The subcontractor's side — pricing the package line by line in the
+      portal. The schema is in place for it; the UI is not built yet.
+
+### What the branch test found
+
+The first version of 012 used `my_owned_bid_request_ids()` for the write
+policies on `bid_request_lines` while its own comment claimed the rule was
+owner/admin only. That helper is any active membership. So a **`viewer` of the
+posting organisation could add lines to a package and change a quantity on one
+already out to bid** — the quantity a subcontractor's price is computed from.
+Fixed with a new `my_admin_owned_bid_request_ids()` helper, matching what 004
+already says about who may put work out to bid. Retested: viewer refused all
+three writes, still reads; owner can still do all three.
+
+This is the second time a branch test has caught a real leak in the bid room —
+003's comments record the first. The branch cost about four cents.
+
+### What held under attack
+
+Run as a poster, two rival electricians and an outsider, with RLS on:
+
+- one provider reading a rival's per-line pricing — **0 rows**
+- an *invited* provider reading a **draft** package's lines — **0 rows**
+  (the exact leak class 003 caught on invitations)
+- an outsider reading anything — 0 requests, 0 lines, 0 breakdowns
+- pricing a rival's bid, attaching a price to another job's line, editing the
+  scope you are bidding on, adding a line to it, deleting a rival's breakdown —
+  all refused
+- revising a breakdown after the request closed — refused; reading your own
+  afterwards — still works
+- qty of zero, negative qty, blank unit, invented confidence, duplicate scope
+  line, negative price — all rejected by constraint
+- deleting a line takes its prices and re-syncs the bid total; deleting a
+  request takes everything
+
+### The total is computed, never accepted
+
+A trigger keeps `bids.amount` equal to the sum of the breakdown. Proven: a bid
+submitted with a headline of **9999** and lines of 3000 + 2500 became **5500**
+without anybody asking. A provider cannot submit lines that add to one figure
+and a headline that says another.
+
+### Original plan, for the record
 
 ### What is actually wrong
 

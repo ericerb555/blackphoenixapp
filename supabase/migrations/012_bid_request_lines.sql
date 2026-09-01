@@ -139,6 +139,31 @@ as $$
   or b.bid_request_id in (select my_owned_bid_request_ids());
 $$;
 
+-- Requests posted by an org I am an OWNER or ADMIN of.
+--
+-- Distinct from my_owned_bid_request_ids(), which is any active membership and
+-- is the right rule for reading. Writing the scope is putting work out to bid,
+-- and 004 is explicit that a viewer or an ordinary member does not do that.
+--
+-- A branch test caught this: the first version of this migration used
+-- my_owned_bid_request_ids() for the write policies while its own comment
+-- claimed the rule was admin-only. A `viewer` of the posting organisation could
+-- add lines to a package and change a quantity on one already out to bid — the
+-- quantity a subcontractor's price is computed from.
+create or replace function my_admin_owned_bid_request_ids()
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select r.id
+  from bid_requests r
+  where r.org_id in (
+    select m.org_id from organization_members m
+    where m.user_id = auth.uid()
+      and m.status = 'active'
+      and m.role in ('owner', 'admin')
+  );
+$$;
+
 -- Bids I may still price: mine, on a request that is open and undue. Mirrors
 -- bid_insert / bid_update from 004 — a provider must not be able to revise a
 -- breakdown after the deadline that his competitors were held to.
@@ -174,24 +199,25 @@ create policy bid_request_line_read on bid_request_lines
     or bid_request_id in (select my_invited_bid_request_ids())
   );
 
--- Only an owner/admin of the posting org may write the scope. Deliberately
--- my_admin_org_ids() by way of my_owned_bid_request_ids() — putting work out to
--- bid is not something an ordinary member or a viewer does.
+-- Only an owner or admin of the posting org may write the scope, matching
+-- bid_request_insert / bid_request_update in 004. Reading is membership-wide;
+-- writing is not, because a quantity here is the number a subcontractor's price
+-- is computed from and changing it after he has bid moves his money.
 drop policy if exists bid_request_line_insert on bid_request_lines;
 create policy bid_request_line_insert on bid_request_lines
   for insert to authenticated
-  with check (bid_request_id in (select my_owned_bid_request_ids()));
+  with check (bid_request_id in (select my_admin_owned_bid_request_ids()));
 
 drop policy if exists bid_request_line_update on bid_request_lines;
 create policy bid_request_line_update on bid_request_lines
   for update to authenticated
-  using (bid_request_id in (select my_owned_bid_request_ids()))
-  with check (bid_request_id in (select my_owned_bid_request_ids()));
+  using (bid_request_id in (select my_admin_owned_bid_request_ids()))
+  with check (bid_request_id in (select my_admin_owned_bid_request_ids()));
 
 drop policy if exists bid_request_line_delete on bid_request_lines;
 create policy bid_request_line_delete on bid_request_lines
   for delete to authenticated
-  using (bid_request_id in (select my_owned_bid_request_ids()));
+  using (bid_request_id in (select my_admin_owned_bid_request_ids()));
 
 
 -- THE IMPORTANT ONE. A provider sees only its own breakdown. The org that
@@ -275,3 +301,9 @@ drop trigger if exists bid_line_prices_sync on bid_line_prices;
 create trigger bid_line_prices_sync
   after insert or update or delete on bid_line_prices
   for each row execute function sync_bid_amount_from_lines();
+
+-- A trigger function has no business being reachable at /rest/v1/rpc/. It is
+-- inert if called directly — NEW and OLD are undefined outside a trigger — but
+-- a security-definer function sitting on the public API surface should be there
+-- for a reason, and this one has none.
+revoke execute on function public.sync_bid_amount_from_lines() from anon, authenticated;
