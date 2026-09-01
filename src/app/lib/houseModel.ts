@@ -63,6 +63,15 @@ export interface HouseView {
   widthFt: number;
   /** Grade to eave for an elevation; floor to ceiling for a room. */
   heightFt: number;
+  /**
+   * The second floor dimension of a room.
+   *
+   * A room view recorded one length and a ceiling height and nothing else, so
+   * flooring imported rooms with a zero side and the kitchen tool asked for a
+   * width that had already been given. Meaningless on an elevation, which is
+   * flat by definition, and left undefined there rather than faked.
+   */
+  depthFt?: number;
   storeys: number;
   sidingType: string;
   /**
@@ -108,6 +117,7 @@ export function blankView(name: string, kind: 'elevation' | 'room' = 'elevation'
     kind,
     widthFt: kind === 'room' ? 12 : 28,
     heightFt: kind === 'room' ? 8 : 18,
+    depthFt: kind === 'room' ? 10 : undefined,
     storeys: kind === 'room' ? 1 : 2,
     sidingType: 'unknown',
     sillHeightInches: 24,
@@ -115,6 +125,7 @@ export function blankView(name: string, kind: 'elevation' | 'room' = 'elevation'
     source: {
       widthFt: 'estimated', heightFt: 'estimated', storeys: 'estimated',
       sidingType: 'estimated', sillHeightInches: 'estimated',
+      ...(kind === 'room' ? { depthFt: 'estimated' as Provenance } : {}),
     },
   };
 }
@@ -250,6 +261,19 @@ export function removeView(house: House, id: string): House {
 export function deckHeightFromSill(sillHeightInches: number): number {
   const usable = Math.max(0, Number(sillHeightInches) || 0);
   return Math.max(0, (usable - DECK_BELOW_SILL_INCHES) / 12);
+}
+
+/**
+ * Floor area of a room.
+ *
+ * Zero until the second dimension is given, rather than the square of the one
+ * we have — assuming every room is square is the kind of guess that produces a
+ * confident wrong number.
+ */
+export function roomFloorArea(view: HouseView): number {
+  if (view.kind !== 'room') return 0;
+  const d = Number(view.depthFt) || 0;
+  return d > 0 ? Math.max(0, view.widthFt) * d : 0;
 }
 
 /** Gross wall area, before openings are taken out. */

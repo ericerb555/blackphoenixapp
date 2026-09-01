@@ -39,6 +39,8 @@ import StructureDesigner from '../components/StructureDesigner';
 import HardscapeTakeoff from '../components/HardscapeTakeoff';
 import ScopeOfWork from '../components/ScopeOfWork';
 import ScopeQuotePanel from '../components/ScopeQuotePanel';
+import FloorPlanEditor from '../components/FloorPlanEditor';
+import { type FloorPlan, BLANK_PLAN } from '../lib/floorPlanModel';
 import { type Scope, BLANK_SCOPE, addLine as addScopeLine } from '../lib/scopeModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
@@ -178,6 +180,7 @@ interface Unparked {
    */
   house?: House;
   scope?: Scope;
+  plan?: FloorPlan;
 }
 
 function readUnparked(): Unparked | null {
@@ -214,6 +217,8 @@ interface Session {
   house: House;
   /** The process this job follows. One per job, not one per trade. */
   scope: Scope;
+  /** Rooms as they are, rooms that are not there yet, and the walls between. */
+  plan: FloorPlan;
   id: string | null;
 }
 
@@ -279,6 +284,7 @@ function DesignerSession({ session, onSession }: {
   const [link, setLink] = useState<DesignLink>(session.link);
   const [house, setHouse] = useState<House>(session.house);
   const [scope, setScope] = useState<Scope>(session.scope || { ...BLANK_SCOPE, lines: [] });
+  const [plan, setPlan] = useState<FloorPlan>(session.plan || { ...BLANK_PLAN, rooms: [], walls: [] });
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -574,7 +580,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -597,7 +603,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, scope, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, plan, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -640,9 +646,11 @@ function DesignerSession({ session, onSession }: {
     setSketchDrop({ files: [], n: 0 });
     setStoredPhotos(0);
     setScope({ ...BLANK_SCOPE, lines: [] });
+    setPlan({ ...BLANK_PLAN, rooms: [], walls: [] });
     attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
-    scope: { ...BLANK_SCOPE, lines: [] }, id: null });
+    scope: { ...BLANK_SCOPE, lines: [] },
+    plan: { ...BLANK_PLAN, rooms: [], walls: [] }, id: null });
   }, [onSession]);
 
   const saveAsNew = useCallback(async () => {
@@ -659,7 +667,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -673,7 +681,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, scope, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, plan, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -691,7 +699,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -753,7 +761,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, scope, ...link,
+              loads, takeoff: bom, house, scope, plan, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -791,7 +799,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, scope, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, plan, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -843,6 +851,9 @@ function DesignerSession({ session, onSession }: {
         scope: full.meta.scope && Array.isArray(full.meta.scope.lines)
           ? full.meta.scope
           : { ...BLANK_SCOPE, lines: [] },
+        plan: full.meta.plan && Array.isArray(full.meta.plan.rooms)
+          ? full.meta.plan
+          : { ...BLANK_PLAN, rooms: [], walls: [] },
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1345,6 +1356,17 @@ function DesignerSession({ session, onSession }: {
                 and sends you to the one that already exists, because two
                 pickers writing to the same place is how they end up
                 disagreeing. */}
+            {/* ── The floor plan ────────────────────────────────────────────
+                On Capture, with the photos, because it is the other half of
+                recording what is there — and the half an addition needs, since
+                you cannot photograph a room that does not exist yet. */}
+            <div className={stage === 'capture' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Floor plan">
+                <FloorPlanEditor plan={plan} onChange={setPlan}
+                  onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
+              </PanelErrorBoundary>
+            </div>
+
             {/* ── The scope of work ─────────────────────────────────────────
                 The spine. Outside the trade gate because a job has one scope,
                 not one per trade — a kitchen job has demolition, electrical and
@@ -1602,6 +1624,7 @@ export default function DeckDesigner() {
     link: { ...NO_LINK },
     house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
+    plan: { ...BLANK_PLAN, rooms: [], walls: [] },
     id: null,
   }));
 

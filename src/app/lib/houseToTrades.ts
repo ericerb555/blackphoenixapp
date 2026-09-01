@@ -150,7 +150,10 @@ export function roomsFromHouse(house: House | null | undefined): FloorRoom[] {
     id: v.id,
     name: v.name,
     lengthFt: Math.max(0, v.widthFt),
-    widthFt: 0,
+    // The captured second side when there is one. Zero only when nobody has
+    // measured it yet, which is honest — squaring the one dimension we have
+    // would assume every room is square.
+    widthFt: Math.max(0, Number(v.depthFt) || 0),
     material: 'lvp' as const,
     transitions: Math.max(1, v.openings.filter(o => o.kind !== 'window').length),
     removeExisting: true,

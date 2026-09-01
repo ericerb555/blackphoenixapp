@@ -156,6 +156,13 @@ export default function HousePanel({ house, onChange, analysis, onUseDeckHeight 
             <Num label={view.kind === 'room' ? 'Ceiling height (ft)' : 'Wall height (ft)'}
               value={view.heightFt} src={view.source.heightFt}
               onChange={v => update(setMeasured(view, 'heightFt', v))} />
+            {/* The second floor side. A room recorded one length and a ceiling
+                and nothing else, so flooring imported a zero and the kitchen
+                tool asked again for a width already given. */}
+            {view.kind === 'room' && (
+              <Num label="Room width (ft)" value={view.depthFt ?? 0} src={view.source.depthFt}
+                onChange={v => update(setMeasured(view, 'depthFt', v))} />
+            )}
             <Num label="Storeys" value={view.storeys} src={view.source.storeys} step={1}
               onChange={v => update(setMeasured(view, 'storeys', v))} />
             <div>
