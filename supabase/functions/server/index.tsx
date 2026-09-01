@@ -162,6 +162,7 @@ import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled,
 import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
 import { trustedRole } from "./trustedRole.ts";
+import bidIntakeRouter from "./bid-intake.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
   loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
@@ -491,6 +492,7 @@ app.route("/", designProjectsRouter);
 app.route("/", projectVisionRouter);
 app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
+app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
 app.route("/make-server-3eae23a6/design-links", designLinksRouter);
 app.route("/make-server-3eae23a6/design-assistant", designAssistantRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);

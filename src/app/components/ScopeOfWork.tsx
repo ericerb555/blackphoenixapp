@@ -31,6 +31,7 @@ import {
   consumablesFor, hoursFor, taskById, phaseOf,
 } from '../lib/scopeModel';
 import { STARTERS, linesFromStarter, starterFor } from '../lib/scopeStarters';
+import BidIntakePanel from './BidIntakePanel';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
@@ -334,6 +335,31 @@ export default function ScopeOfWork({ scope, onChange, jobTitle, serviceType }: 
           })}
         </div>
       </div>
+
+      {/* ── a sub's quote comes back ──
+          Only once something is actually out to bid. Before that there is
+          nothing for their lines to land on, and the panel is just noise. */}
+      {s.bidOut > 0 && (
+        <BidIntakePanel
+          scope={scope}
+          onApply={amounts => {
+            onChange({
+              ...scope,
+              lines: scope.lines.map(l =>
+                amounts[l.id] === undefined ? l : {
+                  ...l,
+                  bidAmount: amounts[l.id],
+                  // A returned bid is a real number from the person doing the
+                  // work, so the line stops being provisional — but the basis
+                  // says where it came from, because a bid is a price and not
+                  // a measurement.
+                  confidence: 'confirmed' as Confidence,
+                  basis: 'a subcontractor’s returned quote, accepted by the office',
+                }),
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
