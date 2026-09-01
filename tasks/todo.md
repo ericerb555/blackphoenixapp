@@ -310,6 +310,86 @@ disagrees with their own lines — that is a phone call, not something to absorb
   which is right for a plumber itemising rough and trim against one line of
   ours — but it means ticking the same reading twice would double it.
 
+## Phase 4b — the scope goes out to bid  (PLAN, awaiting sign-off)
+
+### What is actually wrong
+
+The two halves of the bid loop have never been connected.
+
+The **design centre** holds the scope in KV: lines with a phase, a trade, a
+description, a quantity, a unit and a `bidOut` flag. The **bid room** is a real
+Postgres system with row-level security — `bid_requests`, `bid_invitations`,
+sealed `bids`, and `bid_request_media` for photos and video. Both are sound.
+
+Nothing carries the scope from one to the other. A bid request today is a title
+and a free-text paragraph somebody retyped. Three costs follow from that:
+
+1. **The sub prices a paragraph, so he pads it.** A number for the unknown is
+   always larger than the truth, and we pay that difference on every job.
+2. **What comes back has no relationship to our lines.** That is the whole
+   reason the intake reader has to work as hard as it does.
+3. **The award never lands where the money was spent.** A single bid amount
+   against a paragraph cannot be attributed to the lines it paid for, so the
+   scope stays provisional even after it has been priced by the person who is
+   going to do the work.
+
+There is also a dead stub — `POST /quotes/:id/request-bids` writes a row into
+`quote_bid_requests:{id}` in KV that nothing reads and that never reaches the
+bid room. It should be pointed at the real system rather than left to look
+like a working feature.
+
+### What this phase builds
+
+Scope → package per trade → invitation → sealed bid → intake → back onto the
+same lines. Closing that circle is the whole of it.
+
+- [ ] 1. `bidPackageModel.ts` — pure logic. Group the `bidOut` lines by trade
+      into one package each. Decide what a package must contain before it is
+      fit to send: quantities on every line, the site, the phase each line sits
+      in, and the hold points that constrain when the trade can work. Refuse to
+      send an incomplete one and say what is missing.
+- [ ] 2. A panel on the scope screen — the packages as they will be received,
+      reviewed before anything goes out, with what is missing named per package.
+- [ ] 3. Persist the lines onto the bid request (**the decision below**).
+- [ ] 4. Post into the **existing** bid room. One `bid_requests` row per trade,
+      invitations to the provider orgs for that trade. No second bid system.
+- [ ] 5. Show the package on the subcontractor's side as a table rather than a
+      paragraph, and attach the plan captures and site photos via the media
+      table that already exists.
+- [ ] 6. Repoint the dead `request-bids` stub at the real bid room.
+
+### The decision I need before step 3
+
+Where the lines live on a bid request. The bid room is Postgres with RLS and
+the design centre is KV, so this is the join between them and it decides how
+much the rest is worth.
+
+**(a) Rendered into `description`.** No migration. The sub reads a formatted
+list instead of a paragraph. But it is text — nothing structured comes back and
+he still cannot price line by line.
+
+**(b) A `bid_request_lines` table.** Migration 011 states the house rule
+outright: *"A separate table rather than a jsonb column, because these rows
+carry their own access rule and jsonb cannot be policied."* One row per line,
+RLS inherited from the parent request. This is the option where the sub prices
+line by line, what returns already matches our lines, and the award attributes
+itself. Most work, and the only one that actually closes the loop.
+
+**(c) A `scope jsonb` column.** Between the two. Cheaper than (b), and here the
+access rule is genuinely the same as the parent row so jsonb is defensible —
+but line-by-line pricing still needs more work afterwards.
+
+Recommending **(b)**. It is what the codebase's own stated reasoning points at,
+and it is the version that makes the intake reader mostly unnecessary for the
+subs who cooperate while still catching the ones who send a photograph.
+
+### Migration discipline
+
+010 is deliberately unapplied and this must not become a reason to apply it.
+Production currently has 001–006 and 011. Any new migration goes to a branch
+first, RLS gets verified there — including that a provider invited to one
+request cannot read another's lines — and only then to production.
+
 ## Review
 
 (to be completed)

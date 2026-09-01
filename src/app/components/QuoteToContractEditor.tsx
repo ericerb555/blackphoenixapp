@@ -352,23 +352,25 @@ export function QuoteToContractEditor({
       );
 
       if (response.ok) {
-        toast.success('Bid requests sent to subcontractors', {
-          description: 'They will be notified via email. Demo bids will appear in 2-5 seconds.',
+        // This used to claim the subcontractors had been emailed and that bids
+        // would arrive in a few seconds. Neither was true — it wrote a marker
+        // into the kv store that nothing read, and the "bids" were fabricated.
+        // A button that reports work it did not do is worse than no button,
+        // because somebody stops chasing the trade they think they contacted.
+        //
+        // The bid room is where providers are actually invited and where sealed
+        // bids come back, so this says so rather than pretending.
+        toast.success('Noted on the quote', {
+          description: 'Nothing has been sent yet. Build the packages from the scope '
+            + 'and post them in the bid room to reach providers.',
         });
-        
-        // Auto-refresh bids after a delay to catch the demo bids
-        setTimeout(() => {
-          loadSubcontractorBids();
-          toast.info('Bids received!', {
-            description: 'Check the list below for new subcontractor bids'
-          });
-        }, 5000);
+        loadSubcontractorBids();
       } else {
-        throw new Error('Failed to send bid requests');
+        throw new Error('That could not be recorded.');
       }
     } catch (error) {
       console.error('Error requesting bids:', error);
-      toast.error('Failed to send bid requests');
+      toast.error('That could not be recorded.');
     } finally {
       setLoading(false);
     }

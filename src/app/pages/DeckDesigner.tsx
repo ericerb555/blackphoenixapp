@@ -1395,7 +1395,10 @@ function DesignerSession({ session, onSession }: {
               <PanelErrorBoundary name="Scope of work">
                 <ScopeOfWork scope={scope} onChange={setScope}
                   jobTitle={link.jobTitle || site.projectName}
-                  serviceType={trade} />
+                  serviceType={trade}
+                  siteAddress={[site.address, site.town, site.state]
+                    .map(s => String(s || '').trim()).filter(Boolean).join(', ')}
+                  designProjectId={savedId || undefined} />
               </PanelErrorBoundary>
             </div>
 

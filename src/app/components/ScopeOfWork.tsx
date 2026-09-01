@@ -32,16 +32,23 @@ import {
 } from '../lib/scopeModel';
 import { STARTERS, linesFromStarter, starterFor } from '../lib/scopeStarters';
 import BidIntakePanel from './BidIntakePanel';
+import BidPackagePanel from './BidPackagePanel';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
 
-export default function ScopeOfWork({ scope, onChange, jobTitle, serviceType }: {
+export default function ScopeOfWork({
+  scope, onChange, jobTitle, serviceType, siteAddress, designProjectId,
+}: {
   scope: Scope;
   onChange: (s: Scope) => void;
   /** From the linked job, so the right starter can be suggested. */
   jobTitle?: string;
   serviceType?: string;
+  /** Seeds the bid packages. A sub cannot price travel and access blind. */
+  siteAddress?: string;
+  /** Carried onto a bid request so a returned price finds its way home. */
+  designProjectId?: string;
 }) {
   const suggested = starterFor(serviceType, jobTitle);
   const [taskId, setTaskId] = useState(TASKS[0].id);
@@ -335,6 +342,16 @@ export default function ScopeOfWork({ scope, onChange, jobTitle, serviceType }: 
           })}
         </div>
       </div>
+
+      {/* ── the scope goes out ──
+          Sits above the intake, because that is the order the loop runs in:
+          the package goes out, and what comes back lands on the same lines. */}
+      <BidPackagePanel
+        scope={scope}
+        jobTitle={jobTitle}
+        siteAddress={siteAddress}
+        designProjectId={designProjectId}
+      />
 
       {/* ── a sub's quote comes back ──
           Only once something is actually out to bid. Before that there is
