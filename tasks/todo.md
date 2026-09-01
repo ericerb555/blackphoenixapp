@@ -341,16 +341,50 @@ cover the job` against that bid. Two totals are only comparable if they cover
 the same work, and a provider who left three lines blank looks cheapest right
 up until the change order.
 
-### What is verified and what is not
+### 7. The won bid comes home  (done)
 
-Verified: the RLS rules and the trigger, on the branch, as four real roles.
-Typecheck at baseline. The bid room page renders under smoke.
+`AwardedBidsPanel` reads the bids we awarded on this design project and puts
+each returned price back onto the scope line it was quoted against. Nothing is
+matched or guessed — the identity was carried the whole way round, which is the
+entire reason the package went out as rows.
 
-**Not verified in the running app**: the round trip clicked through as a
-signed-in subcontractor — invite, price the lines, submit, see it land. The
-database half was proven on the branch and the composite `onConflict` upsert is
-already the house pattern elsewhere in this codebase, but nobody has driven the
-screen yet.
+It is a button rather than automatic, on purpose. Awarding is a decision about
+*who does the work*; putting his price on our quote is a second decision, and
+doing it silently would mean a customer-facing figure changing because somebody
+clicked Award on another screen.
+
+Both return paths — the bid room's own and the reader that handles a quote
+arriving as a photograph — now share one `priced()` helper, because a price is
+worth the same whichever way it travelled and should not land differently
+depending on the route.
+
+### The whole loop, driven on a branch
+
+Posted a three-line electrical package against design project `dp_kitchen_1`,
+as the real roles under RLS, running the same statements the screens run:
+
+| step | result |
+|---|---|
+| Sub A prices all three lines, headline 11000 | stored as **7400** — the sum |
+| Sub B prices two, skips the panel upgrade, headline 9999 | stored as **4700** |
+| what the poster sees against Sub B | *1 of 3 lines not priced — this total does not cover the job* |
+| award Sub A, then read it back | `sl_rough` 3200, `sl_fix` 1800, `sl_panel` 2400 |
+
+That middle row is the point of the whole feature. Sub B sorts to the top as
+**lowest** and is $2,700 cheaper, and he is not quoting the same job. Before
+this, the two numbers were indistinguishable.
+
+Sealing after the award also holds: the loser cannot read the winner's
+breakdown *or his total*, the winner cannot read the loser's, neither can
+revise a price once the request is awarded, and both can still read their own
+for their records.
+
+### Still not verified
+
+Nobody has clicked these screens in a browser. Every statement the screens issue
+has been run against a real database as the real roles, and the logic is at
+81/81, but the DOM path — the inputs, the buttons, the toasts — has only been
+proven to render, not to be driven.
 
 ### What the branch test found
 

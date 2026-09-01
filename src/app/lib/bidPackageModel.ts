@@ -347,6 +347,59 @@ export function priceEntryWarning(s: PriceEntrySummary): string {
 }
 
 /**
+ * Reading an awarded bid back onto the scope it came from.
+ *
+ * This is the far end of the loop. Our scope line became a package line, the
+ * package line was priced, that bid won — so the money can go back onto the
+ * exact line it was quoted against. Nothing has to be matched or guessed,
+ * because the identity was carried the whole way round. That is the entire
+ * reason the package was sent as rows.
+ *
+ * WHAT IT REPORTS AS WELL AS THE MONEY
+ *
+ * Which of our lines the winner never priced. His total is only a price for
+ * the job if it covers the job, and a line he left blank is one somebody still
+ * has to pay for — us, out of margin, unless it is noticed now.
+ */
+export interface AwardReadback {
+  /** Amounts keyed by OUR scope line id. */
+  amounts: Record<string, number>;
+  /** Our line ids that were in the package and came back with no price. */
+  unpricedSourceLineIds: string[];
+  total: number;
+}
+
+export function readAward(
+  lines: Array<{ id: string; source_line_id: string }>,
+  prices: Array<{ bid_request_line_id: string; amount: number }>,
+  ourLineIds: Set<string>,
+): AwardReadback {
+  const byLineId = new Map(lines.map(l => [l.id, l.source_line_id]));
+
+  const returned: Array<{ sourceLineId: string; amount: number }> = [];
+  for (const p of prices) {
+    const sourceLineId = byLineId.get(p.bid_request_line_id);
+    // A price against a package line that is no longer there — the line was
+    // removed after he bid. Dropped rather than applied to nothing.
+    if (!sourceLineId) continue;
+    returned.push({ sourceLineId, amount: p.amount });
+  }
+
+  const amounts = amountsFromReturnedLines(returned, ourLineIds);
+
+  // In the package, still ours, and nothing came back against it.
+  const unpricedSourceLineIds = lines
+    .map(l => l.source_line_id)
+    .filter(id => ourLineIds.has(id) && amounts[id] === undefined);
+
+  const total = Math.round(
+    Object.values(amounts).reduce((n, v) => n + v, 0) * 100,
+  ) / 100;
+
+  return { amounts, unpricedSourceLineIds, total };
+}
+
+/**
  * Put a returned per-line price back onto our scope.
  *
  * The bid room's own return path, as distinct from the reader that handles a

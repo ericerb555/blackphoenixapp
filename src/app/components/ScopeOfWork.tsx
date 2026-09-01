@@ -33,6 +33,7 @@ import {
 import { STARTERS, linesFromStarter, starterFor } from '../lib/scopeStarters';
 import BidIntakePanel from './BidIntakePanel';
 import BidPackagePanel from './BidPackagePanel';
+import AwardedBidsPanel from './AwardedBidsPanel';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
@@ -353,32 +354,52 @@ export default function ScopeOfWork({
         designProjectId={designProjectId}
       />
 
-      {/* ── a sub's quote comes back ──
-          Only once something is actually out to bid. Before that there is
+      {/* ── a bid we awarded, coming home ──
+          The clean half of the loop. His prices came from these lines, so they
+          go straight back onto them with nothing to match. */}
+      <AwardedBidsPanel
+        scope={scope}
+        designProjectId={designProjectId}
+        onApply={amounts => onChange(priced(scope, amounts, 'a winning bid in the bid room, priced against this line'))}
+      />
+
+      {/* ── a sub's quote comes back on paper ──
+          The other half, for the ones who send a PDF on their own letterhead.
+          Only once something is actually out to bid: before that there is
           nothing for their lines to land on, and the panel is just noise. */}
       {s.bidOut > 0 && (
         <BidIntakePanel
           scope={scope}
-          onApply={amounts => {
-            onChange({
-              ...scope,
-              lines: scope.lines.map(l =>
-                amounts[l.id] === undefined ? l : {
-                  ...l,
-                  bidAmount: amounts[l.id],
-                  // A returned bid is a real number from the person doing the
-                  // work, so the line stops being provisional — but the basis
-                  // says where it came from, because a bid is a price and not
-                  // a measurement.
-                  confidence: 'confirmed' as Confidence,
-                  basis: 'a subcontractor’s returned quote, accepted by the office',
-                }),
-            });
-          }}
+          onApply={amounts => onChange(priced(scope, amounts, 'a subcontractor’s returned quote, accepted by the office'))}
         />
       )}
     </div>
   );
+}
+
+/**
+ * Put returned prices onto the lines they belong to.
+ *
+ * Shared by both return paths — the bid room's own, and the reader that handles
+ * a quote arriving as a photograph — because a price is worth the same whichever
+ * way it travelled and should not land differently depending on the route.
+ *
+ * A returned bid is a real number from the person who will do the work, so the
+ * line stops being provisional. The basis records where it came from, because a
+ * bid is a price and not a measurement, and six weeks later nobody remembers
+ * which of those a figure was.
+ */
+function priced(scope: Scope, amounts: Record<string, number>, basis: string): Scope {
+  return {
+    ...scope,
+    lines: scope.lines.map(l =>
+      amounts[l.id] === undefined ? l : {
+        ...l,
+        bidAmount: amounts[l.id],
+        confidence: 'confirmed' as Confidence,
+        basis,
+      }),
+  };
 }
 
 function Stat({ l, v, sub }: { l: string; v: string; sub?: string }) {
