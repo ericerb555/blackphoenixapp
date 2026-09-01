@@ -43,6 +43,7 @@ import {
   activeFilterCount, countdown, firstRefusal, bidSpread, requestDistance,
   type ExchangeFilters, type SortKey, type Coords,
 } from '../lib/exchangeFilters';
+import { summarisePriceEntry, priceEntryWarning } from '../lib/bidPackageModel';
 
 // Only used for the invitation email. Every other call on this page goes
 // straight to Postgres — sending mail is the one thing that needs a secret the
@@ -86,6 +87,28 @@ interface Bid {
   amount: number | null;
   notes: string | null;
   submitted_at: string;
+}
+
+// migration 012 — a package sent as rows rather than as a paragraph.
+// Optional everywhere, like the 011 columns: a database without the migration
+// still shows every job, it just shows them the old way.
+interface RequestLine {
+  id: string;
+  bid_request_id: string;
+  source_line_id: string;
+  phase: string;
+  description: string;
+  qty: number;
+  unit: string;
+  confidence: 'provisional' | 'confirmed';
+  sort_order: number;
+}
+
+interface LinePrice {
+  id: string;
+  bid_id: string;
+  bid_request_line_id: string;
+  amount: number;
 }
 
 interface Invitation { id: string; bid_request_id: string; org_id: string; created_at: string }
@@ -147,6 +170,8 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [orgNames, setOrgNames] = useState<Record<string, string>>({});
   const [media, setMedia] = useState<Media[]>([]);
+  const [requestLines, setRequestLines] = useState<RequestLine[]>([]);
+  const [linePrices, setLinePrices] = useState<LinePrice[]>([]);
 
   const [tab, setTab] = useState<'posted' | 'invited'>('posted');
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
@@ -216,6 +241,30 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
         setMedia(mediaErr ? [] : ((mediaRows || []) as Media[]));
       } catch {
         setMedia([]);
+      }
+
+      // The scope lines and the breakdowns against them. Best-effort for the
+      // same reason as the media above — until 012 is applied these tables do
+      // not exist, and a bid room that lists every job the old way beats one
+      // that shows an error because a package could not be itemised.
+      //
+      // No filtering by request or by org here on purpose. RLS returns exactly
+      // what this person may see: their own breakdown if they are a provider,
+      // every breakdown if they posted the work. Adding a filter would imply
+      // the client is what enforces the sealing.
+      try {
+        const [lineRes, priceRes] = await Promise.all([
+          supabase.from('bid_request_lines')
+            .select('id, bid_request_id, source_line_id, phase, description, qty, unit, confidence, sort_order')
+            .order('sort_order'),
+          supabase.from('bid_line_prices')
+            .select('id, bid_id, bid_request_line_id, amount'),
+        ]);
+        setRequestLines(lineRes.error ? [] : ((lineRes.data || []) as RequestLine[]));
+        setLinePrices(priceRes.error ? [] : ((priceRes.data || []) as LinePrice[]));
+      } catch {
+        setRequestLines([]);
+        setLinePrices([]);
       }
 
       // Resolve names for every org referenced by a bid or invitation. RLS on
@@ -300,9 +349,22 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
 
   // ── actions (unchanged — the rules they rely on live in RLS) ───────────────
 
-  const submitBid = async (request: BidRequest, orgId: string, amount: number, notes: string) => {
+  /**
+   * `breakdown` is the per-line pricing, keyed by bid_request_line id.
+   *
+   * When it is present the headline `amount` is not what gets stored: the
+   * trigger from 012 recomputes bids.amount as the sum of the rows written
+   * below. That is deliberate — a provider must not be able to submit lines
+   * adding to one figure and a headline saying another, by mistake or on
+   * purpose, and the database is the only place that rule cannot be bypassed.
+   */
+  const submitBid = async (
+    request: BidRequest, orgId: string, amount: number, notes: string,
+    breakdown?: Record<string, number>,
+  ) => {
     const existing = myBidFor(request.id);
     try {
+      let bidId = existing?.id || '';
       if (existing) {
         const { error, data } = await supabase.from('bids')
           .update({ amount, notes, updated_at: new Date().toISOString() })
@@ -311,15 +373,54 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
         // RLS rejects by matching zero rows, not by erroring — an empty result
         // means the policy refused, which must not read as success.
         if (!data?.length) throw new Error('That bid can no longer be changed. The request may have closed.');
-        toast.success('Bid updated.');
       } else {
         const { error, data } = await supabase.from('bids')
           .insert({ bid_request_id: request.id, org_id: orgId, amount, notes, status: 'submitted' })
           .select();
         if (error) throw error;
         if (!data?.length) throw new Error('That bid was not accepted. The request may have closed.');
-        toast.success('Bid submitted.');
+        bidId = data[0].id;
       }
+
+      if (breakdown) {
+        const keep = Object.keys(breakdown);
+
+        // Written BEFORE the stale rows are cleared, deliberately. If this
+        // fails he still has whatever he had; the other order would leave him
+        // with a bid and no breakdown at all, which reads to the poster as a
+        // price covering nothing.
+        if (keep.length) {
+          const { error: priceErr, data: priceRows } = await supabase.from('bid_line_prices')
+            .upsert(
+              keep.map(lineId => ({
+                bid_id: bidId,
+                bid_request_line_id: lineId,
+                amount: breakdown[lineId],
+                updated_at: new Date().toISOString(),
+              })),
+              { onConflict: 'bid_id,bid_request_line_id' },
+            ).select();
+          if (priceErr) throw priceErr;
+          if (!priceRows?.length) {
+            throw new Error('Your prices were not accepted. The request may have closed.');
+          }
+        }
+
+        // A line he cleared must lose its price, not keep the old figure — a
+        // stale number on a line he has since blanked is money he never agreed
+        // to. Removed by id from what was already loaded rather than by an
+        // exclusion filter, so an empty `keep` clears them all correctly.
+        const stale = linePrices
+          .filter(p => p.bid_id === bidId && !keep.includes(p.bid_request_line_id))
+          .map(p => p.id);
+        if (stale.length) {
+          const { error: delErr } = await supabase.from('bid_line_prices')
+            .delete().in('id', stale);
+          if (delErr) throw delErr;
+        }
+      }
+
+      toast.success(existing ? 'Bid updated.' : 'Bid submitted.');
       await load();
     } catch (err: any) {
       console.error('[Exchange] submitBid:', err);
@@ -709,7 +810,10 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
                 onStatus={s => setRequestStatus(request, s)}
                 onInvite={ids => inviteProviders(request, ids)}
                 onUninvite={uninviteProvider}
-                onSubmitBid={(orgId, amount, notes) => submitBid(request, orgId, amount, notes)}
+                lines={requestLines.filter(l => l.bid_request_id === request.id)}
+                linePrices={linePrices}
+                onSubmitBid={(orgId, amount, notes, breakdown) =>
+                  submitBid(request, orgId, amount, notes, breakdown)}
               />
             ))}
           </div>
@@ -857,16 +961,17 @@ function FilterPanel({ filters, trades, origin, onChange, onNeedOrigin }: {
 
 function RequestCard(props: {
   request: BidRequest; bids: Bid[]; invitations: Invitation[]; media: Media[];
+  lines: RequestLine[]; linePrices: LinePrice[];
   myBid: Bid | null; isOwner: boolean; origin: Coords | null; expanded: boolean;
   onToggle: () => void; orgNames: Record<string, string>; directory: Org[];
   myOrgs: Org[]; myOrgIds: Set<string>;
   onAward: (b: Bid) => void; onStatus: (s: RequestStatus) => void;
   onInvite: (ids: string[]) => void; onUninvite: (i: Invitation) => void;
-  onSubmitBid: (orgId: string, amount: number, notes: string) => void;
+  onSubmitBid: (orgId: string, amount: number, notes: string, breakdown?: Record<string, number>) => void;
 }) {
   const {
-    request, bids, invitations, media, myBid, isOwner, origin, expanded, onToggle,
-    orgNames, directory, myOrgs, myOrgIds,
+    request, bids, invitations, media, lines, linePrices, myBid, isOwner,
+    origin, expanded, onToggle, orgNames, directory, myOrgs, myOrgIds,
   } = props;
 
   const due = countdown(request.due_at);
@@ -942,9 +1047,15 @@ function RequestCard(props: {
             <p style={{ fontSize: 12.5, color: '#9ca3af' }}>{refusal.text}</p>
           )}
 
+          {/* The scope as rows. A provider pricing a paragraph prices the
+              vagueness too, and the number he picks for what he cannot
+              determine is always bigger than the truth. */}
+          {lines.length > 0 && <ScopeTable lines={lines} />}
+
           {isOwner ? (
             <OwnerPanel
               request={request} bids={bids} invitations={invitations}
+              lines={lines} linePrices={linePrices}
               orgNames={orgNames} directory={directory}
               onAward={props.onAward} onStatus={props.onStatus}
               onInvite={props.onInvite} onUninvite={props.onUninvite}
@@ -952,6 +1063,8 @@ function RequestCard(props: {
           ) : (
             <ProviderPanel
               request={request} myBid={myBid}
+              lines={lines}
+              myPrices={linePrices.filter(p => p.bid_id === myBid?.id)}
               myOrgId={
                 // The org that was invited — not simply my first org, which
                 // would submit under the wrong entity for a person who belongs
@@ -1201,8 +1314,9 @@ function RadarMap({ requests, origin, orgNames, onPick, onNeedOrigin }: {
 
 // ── owner panel ──────────────────────────────────────────────────────────────
 
-function OwnerPanel({ request, bids, invitations, orgNames, directory, onAward, onStatus, onInvite, onUninvite }: {
+function OwnerPanel({ request, bids, invitations, lines, linePrices, orgNames, directory, onAward, onStatus, onInvite, onUninvite }: {
   request: BidRequest; bids: Bid[]; invitations: Invitation[];
+  lines: RequestLine[]; linePrices: LinePrice[];
   orgNames: Record<string, string>; directory: Org[];
   onAward: (b: Bid) => void; onStatus: (s: RequestStatus) => void;
   onInvite: (orgIds: string[]) => void; onUninvite: (i: Invitation) => void;
@@ -1247,6 +1361,31 @@ function OwnerPanel({ request, bids, invitations, orgNames, directory, onAward, 
                     {i === 0 && b.status !== 'lost' && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#34d399' }}>lowest</span>}
                   </div>
                   {b.notes && <div style={{ fontSize: 11.5, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes}</div>}
+                  {/* What he did NOT price. Two totals are only comparable if
+                      they cover the same work, and a provider who left three
+                      lines blank looks cheapest right up until the change
+                      order. This is the same rule the quote reader follows. */}
+                  {lines.length > 0 && (() => {
+                    const priced = linePrices.filter(p => p.bid_id === b.id).length;
+                    const missing = lines.length - priced;
+                    if (priced === 0) {
+                      return (
+                        <div style={{ fontSize: 11.5, color: '#6b7280' }}>
+                          One figure, not itemised
+                        </div>
+                      );
+                    }
+                    return missing > 0 ? (
+                      <div style={{ fontSize: 11.5, color: '#fcd34d' }}>
+                        {missing} of {lines.length} line{lines.length === 1 ? '' : 's'} not priced —
+                        this total does not cover the job
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: '#34d399' }}>
+                        every line priced
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="bpx-row" style={{ flexWrap: 'nowrap', flexShrink: 0 }}>
@@ -1420,13 +1559,29 @@ function InvitePanel({ request, invitations, bids, orgNames, directory, onInvite
 
 // ── provider panel ───────────────────────────────────────────────────────────
 
-function ProviderPanel({ request, myBid, myOrgId, onSubmit }: {
+function ProviderPanel({ request, myBid, myOrgId, lines, myPrices, onSubmit }: {
   request: BidRequest; myBid: Bid | null; myOrgId: string;
-  onSubmit: (orgId: string, amount: number, notes: string) => void;
+  lines: RequestLine[]; myPrices: LinePrice[];
+  onSubmit: (orgId: string, amount: number, notes: string, breakdown?: Record<string, number>) => void;
 }) {
   const [amount, setAmount] = useState(myBid?.amount ? String(myBid.amount) : '');
   const [notes, setNotes] = useState(myBid?.notes || '');
   const [busy, setBusy] = useState(false);
+
+  // Seeded from what he already submitted, so revising means editing his own
+  // figures rather than typing them again from a printout.
+  const [entries, setEntries] = useState<Record<string, string>>(() => {
+    const seed: Record<string, string> = {};
+    for (const p of myPrices) seed[p.bid_request_line_id] = String(p.amount);
+    return seed;
+  });
+
+  const itemised = lines.length > 0;
+  const summary = useMemo(
+    () => summarisePriceEntry(lines.map(l => l.id), entries),
+    [lines, entries],
+  );
+  const warning = priceEntryWarning(summary);
 
   const closed = request.status !== 'open';
   const decided = myBid?.status === 'won' || myBid?.status === 'lost';
@@ -1451,32 +1606,146 @@ function ProviderPanel({ request, myBid, myOrgId, onSubmit }: {
   }
 
   const submit = async () => {
-    const n = parseFloat(amount);
-    if (!Number.isFinite(n) || n <= 0) { toast.error('Enter a bid amount.'); return; }
     setBusy(true);
-    try { await onSubmit(myOrgId, n, notes.trim()); } finally { setBusy(false); }
+    try {
+      if (itemised) {
+        if (!summary.ready) { toast.error(warning || 'Price at least one line.'); return; }
+        const breakdown: Record<string, number> = {};
+        for (const l of lines) {
+          const raw = (entries[l.id] ?? '').trim();
+          if (!raw) continue;
+          breakdown[l.id] = Number(raw.replace(/[$,\s]/g, ''));
+        }
+        // The headline is sent for the insert to satisfy the not-null check on
+        // a new bid; the trigger immediately replaces it with the sum of the
+        // rows. It is never what gets stored.
+        await onSubmit(myOrgId, summary.total, notes.trim(), breakdown);
+      } else {
+        const n = parseFloat(amount);
+        if (!Number.isFinite(n) || n <= 0) { toast.error('Enter a bid amount.'); return; }
+        await onSubmit(myOrgId, n, notes.trim());
+      }
+    } finally { setBusy(false); }
   };
 
   return (
     <div style={{ padding: 16, borderRadius: 14, background: '#1A1A1A', border: '1px solid #2A2A2A', display: 'flex', flexDirection: 'column', gap: 14 }}>
       <h4 className="bpx-flabel">{myBid ? 'Revise your bid' : 'Submit your bid'}</h4>
-      <div className="bpx-row" style={{ alignItems: 'flex-end', gap: 12 }}>
-        <div className="bpx-field" style={{ width: 160 }}>
-          <label>Amount (USD)</label>
-          <input className="bpx-input" value={amount} onChange={e => setAmount(e.target.value)}
-            inputMode="decimal" placeholder="0.00" style={{ fontVariantNumeric: 'tabular-nums' }} />
+
+      {itemised ? (
+        <>
+          {/* Priced line by line. The total is the sum of what he types — there
+              is no separate headline field to disagree with it. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {lines.map(l => (
+              <div key={l.id} className="bpx-row" style={{ gap: 10, alignItems: 'center' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#d1d5db',
+                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {l.description}
+                  {l.confidence === 'provisional' && (
+                    <span style={{ color: '#f59e0b', fontSize: 11 }}> · provisional qty</span>
+                  )}
+                </span>
+                <span style={{ fontSize: 12, color: '#6b7280', width: 80, textAlign: 'right',
+                               fontVariantNumeric: 'tabular-nums' }}>
+                  {l.qty} {l.unit}
+                </span>
+                <input className="bpx-input" value={entries[l.id] ?? ''} inputMode="decimal"
+                  placeholder="—"
+                  onChange={e => setEntries(p => ({ ...p, [l.id]: e.target.value }))}
+                  style={{
+                    width: 110, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    borderColor: summary.invalid.includes(l.id) ? '#ef4444' : undefined,
+                  }} />
+              </div>
+            ))}
+          </div>
+
+          <div className="bpx-row" style={{ justifyContent: 'space-between', alignItems: 'baseline',
+                                            borderTop: '1px solid #2A2A2A', paddingTop: 10 }}>
+            <span style={{ fontSize: 12.5, color: '#9ca3af' }}>
+              {summary.priced} of {lines.length} priced
+            </span>
+            <span style={{ fontSize: 17, fontWeight: 800, color: '#fff',
+                           fontVariantNumeric: 'tabular-nums' }}>
+              {usd(summary.total)}
+            </span>
+          </div>
+
+          {warning && (
+            <p style={{ fontSize: 12, color: summary.invalid.length ? '#fca5a5' : '#fcd34d' }}>
+              {warning}
+            </p>
+          )}
+
+          <div className="bpx-field">
+            <label>Notes (optional)</label>
+            <input className="bpx-input" value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Exclusions, lead time, what your price assumes…" />
+          </div>
+
+          <button onClick={submit} disabled={busy || !summary.ready}
+            className="bpx-btn bpx-btn-primary"
+            style={{ opacity: busy || !summary.ready ? 0.4 : 1, alignSelf: 'flex-start' }}>
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+            {myBid ? 'Update bid' : 'Submit bid'}
+          </button>
+        </>
+      ) : (
+        <div className="bpx-row" style={{ alignItems: 'flex-end', gap: 12 }}>
+          <div className="bpx-field" style={{ width: 160 }}>
+            <label>Amount (USD)</label>
+            <input className="bpx-input" value={amount} onChange={e => setAmount(e.target.value)}
+              inputMode="decimal" placeholder="0.00" style={{ fontVariantNumeric: 'tabular-nums' }} />
+          </div>
+          <div className="bpx-field" style={{ flex: '1 1 220px', minWidth: 0 }}>
+            <label>Notes (optional)</label>
+            <input className="bpx-input" value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Scope, exclusions, lead time…" />
+          </div>
+          <button onClick={submit} disabled={busy} className="bpx-btn bpx-btn-primary" style={{ opacity: busy ? 0.4 : 1 }}>
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+            {myBid ? 'Update bid' : 'Submit bid'}
+          </button>
         </div>
-        <div className="bpx-field" style={{ flex: '1 1 220px', minWidth: 0 }}>
-          <label>Notes (optional)</label>
-          <input className="bpx-input" value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="Scope, exclusions, lead time…" />
-        </div>
-        <button onClick={submit} disabled={busy} className="bpx-btn bpx-btn-primary" style={{ opacity: busy ? 0.4 : 1 }}>
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          {myBid ? 'Update bid' : 'Submit bid'}
-        </button>
-      </div>
+      )}
+
       <p style={{ fontSize: 11.5, color: '#4b5563' }}>Sealed bid — other providers cannot see your price.</p>
+    </div>
+  );
+}
+
+// ── the package, as rows ─────────────────────────────────────────────────────
+
+function ScopeTable({ lines }: { lines: RequestLine[] }) {
+  return (
+    <div style={{ borderRadius: 12, border: '1px solid #2A2A2A', overflow: 'hidden', marginTop: 10 }}>
+      <div style={{ padding: '8px 12px', background: '#141414', fontSize: 12, fontWeight: 700, color: '#9ca3af' }}>
+        Scope — {lines.length} line{lines.length === 1 ? '' : 's'}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <tbody>
+            {lines.map(l => (
+              <tr key={l.id} style={{ borderTop: '1px solid #1F1F1F' }}>
+                <td style={{ padding: '7px 12px', color: '#d1d5db' }}>
+                  {l.description}
+                  {/* Said plainly rather than hidden. A quantity taken off
+                      photographs and one confirmed on site are worth different
+                      things to somebody about to commit to a price. */}
+                  {l.confidence === 'provisional' && (
+                    <span style={{ color: '#f59e0b', fontSize: 11 }}> · provisional</span>
+                  )}
+                </td>
+                <td style={{ padding: '7px 12px', textAlign: 'right', color: '#9ca3af',
+                             whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                  {l.qty} {l.unit}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

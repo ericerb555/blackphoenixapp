@@ -320,8 +320,37 @@ then applied to production. The branch found a real hole — see below.
 - [x] 3. Migration 012: `bid_request_lines`, `bid_line_prices`.
 - [x] 4. Posts into the existing bid room as a draft.
 - [x] 6. The dead `request-bids` stub now says what it actually did.
-- [ ] 5. The subcontractor's side — pricing the package line by line in the
-      portal. The schema is in place for it; the UI is not built yet.
+- [x] 5. The subcontractor's side — pricing the package line by line.
+
+### The sub's side, and why blank is not zero
+
+The existing bid form was repaired rather than duplicated. When a request has
+lines it prices them row by row and the total is the sum of what he types;
+there is no separate headline field for it to disagree with. When it has none —
+every request posted before 012 — it behaves exactly as it did.
+
+The distinction the whole screen turns on: **a blank is not a zero.** A line he
+left empty is a line he has not priced. A line he typed `0` into is one he is
+including at no extra charge, which is a normal thing for a trade to do.
+Collapsing the two would turn every line he skipped into a promise to do it for
+nothing, and he would find that out on site.
+
+So blanks are counted and reported in both directions — he is warned before he
+submits, and the poster sees `3 of 11 lines not priced — this total does not
+cover the job` against that bid. Two totals are only comparable if they cover
+the same work, and a provider who left three lines blank looks cheapest right
+up until the change order.
+
+### What is verified and what is not
+
+Verified: the RLS rules and the trigger, on the branch, as four real roles.
+Typecheck at baseline. The bid room page renders under smoke.
+
+**Not verified in the running app**: the round trip clicked through as a
+signed-in subcontractor — invite, price the lines, submit, see it land. The
+database half was proven on the branch and the composite `onConflict` upsert is
+already the house pattern elsewhere in this codebase, but nobody has driven the
+screen yet.
 
 ### What the branch test found
 

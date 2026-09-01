@@ -280,6 +280,73 @@ export function packageNote(pkg: BidPackage, ctx: { site?: string; walkthroughDo
 }
 
 /**
+ * A subcontractor filling in his prices, line by line.
+ *
+ * THE DISTINCTION THAT MATTERS: BLANK IS NOT ZERO
+ *
+ * A line he left empty is a line he has not priced. A line he typed `0` into is
+ * a line he is deliberately including at no extra charge, which is a normal
+ * thing for a trade to do. Collapsing the two would turn every line he skipped
+ * into a promise to do it for nothing — and he would find that out on site.
+ *
+ * So blanks are counted and reported rather than coerced, in both directions:
+ * he is warned before he submits, and the poster is shown which lines carry
+ * nothing. That is the same rule the quote reader follows, for the same reason.
+ */
+export interface PriceEntrySummary {
+  /** Sum of what he actually typed. Not a projection of the blanks. */
+  total: number;
+  priced: number;
+  unpriced: number;
+  /** Line ids whose entry could not be read as money. */
+  invalid: string[];
+  /** Safe to submit — nothing unreadable, and at least one real price. */
+  ready: boolean;
+}
+
+export function summarisePriceEntry(
+  lineIds: string[],
+  entries: Record<string, string>,
+): PriceEntrySummary {
+  let total = 0, priced = 0, unpriced = 0;
+  const invalid: string[] = [];
+
+  for (const id of lineIds) {
+    const raw = (entries[id] ?? '').trim();
+    if (!raw) { unpriced++; continue; }
+
+    // Typed by somebody on a phone, so a currency symbol and thousands
+    // separators are expected rather than an error.
+    const n = Number(raw.replace(/[$,\s]/g, ''));
+    if (!Number.isFinite(n) || n < 0) { invalid.push(id); continue; }
+
+    priced++;
+    total += n;
+  }
+
+  return {
+    total: Math.round(total * 100) / 100,
+    priced,
+    unpriced,
+    invalid,
+    ready: invalid.length === 0 && priced > 0,
+  };
+}
+
+/** What to warn him about before he submits, or empty if nothing. */
+export function priceEntryWarning(s: PriceEntrySummary): string {
+  if (s.invalid.length) {
+    return `${s.invalid.length} price${s.invalid.length === 1 ? '' : 's'} cannot be read as a number.`;
+  }
+  if (!s.priced) return 'Nothing is priced yet.';
+  if (s.unpriced) {
+    return `${s.unpriced} line${s.unpriced === 1 ? ' has' : 's have'} no price. `
+      + `Leaving one blank reads as an exclusion, not as free — type 0 if you mean it is included.`;
+  }
+  return '';
+}
+
+/**
  * Put a returned per-line price back onto our scope.
  *
  * The bid room's own return path, as distinct from the reader that handles a
