@@ -50,6 +50,8 @@ import FramingSubmittalPanel from '../components/FramingSubmittal';
 import { type FramingSubmittal, submittalFromDeck } from '../lib/framingModel';
 import PermitCompliance from '../components/PermitCompliance';
 import { type Proposal } from '../lib/jurisdictionModel';
+import AlignAndRender from '../components/AlignAndRender';
+import { type AlignedCamera } from '../lib/renderPipeline';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -193,6 +195,7 @@ interface Unparked {
   walkthrough?: Walkthrough;
   submittal?: FramingSubmittal | null;
   proposal?: Proposal;
+  camera?: AlignedCamera | null;
 }
 
 function readUnparked(): Unparked | null {
@@ -239,6 +242,8 @@ interface Session {
   submittal?: FramingSubmittal | null;
   /** How this design sits on the lot, for the zoning check. */
   proposal?: Proposal;
+  /** Where the camera has to stand for the model to line up with the photo. */
+  camera?: AlignedCamera | null;
   id: string | null;
 }
 
@@ -309,6 +314,11 @@ function DesignerSession({ session, onSession }: {
   const [walkthrough, setWalkthrough] = useState<Walkthrough>(readWalkthrough(session.walkthrough));
   const [submittal, setSubmittal] = useState<FramingSubmittal | null>(session.submittal || null);
   const [proposal, setProposal] = useState<Proposal>(session.proposal || {});
+  const [camera, setCamera] = useState<AlignedCamera | null>(session.camera || null);
+  /** The photo the render is aimed at, reported up by HouseCapture. */
+  const [renderPhoto, setRenderPhoto] = useState<string | null>(null);
+  /** Captures the deck alone from the alignment viewer. */
+  const deckCapture = useRef<(() => string | null) | null>(null);
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -604,7 +614,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, camera, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -627,7 +637,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, submittal, proposal, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, submittal, proposal, camera, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -675,6 +685,7 @@ function DesignerSession({ session, onSession }: {
     setWalkthrough({ ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] });
     setSubmittal(null);
     setProposal({});
+    setCamera(null);
     attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
@@ -683,6 +694,7 @@ function DesignerSession({ session, onSession }: {
     walkthrough: { ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] },
     submittal: null,
     proposal: {},
+    camera: null,
     id: null });
   }, [onSession]);
 
@@ -700,7 +712,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, camera, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -714,7 +726,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, camera, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -732,7 +744,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), submittal: u.submittal || null, proposal: u.proposal || {}, id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), submittal: u.submittal || null, proposal: u.proposal || {}, camera: u.camera || null, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -794,7 +806,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link,
+              loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, camera, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -832,7 +844,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, camera, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -894,6 +906,7 @@ function DesignerSession({ session, onSession }: {
           ? full.meta.submittal : null,
         proposal: full.meta.proposal && typeof full.meta.proposal === 'object'
           ? full.meta.proposal : {},
+        camera: full.meta.camera && typeof full.meta.camera === 'object' ? full.meta.camera : null,
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1507,13 +1520,38 @@ function DesignerSession({ session, onSession }: {
               </PanelErrorBoundary>
 
               <PanelErrorBoundary name="The existing house">
-                <HouseCapture model={model} site={site} incoming={photoDrop} onRead={setHouseRead}
+                <HouseCapture model={model} site={site} incoming={photoDrop} onRead={setHouseRead} onRenderPhotoChange={setRenderPhoto}
                   onApply={patch => setModel(m => ({ ...m, ...patch }))}
                   customerName={link.customerName}
                   onSendToCustomer={(label, dataUri) => filer.current
                     ? filer.current(label, 'render', dataUri, true)
                     : Promise.resolve(false)} />
               </PanelErrorBoundary>
+
+              {/* ── Model first, render once ─────────────────────────────────
+                  The old render described the deck in words, which is why it
+                  kept landing on a different wall. Here the geometry comes off
+                  the model and the paid pass only makes it photographic.
+
+                  The viewer is mounted as a child so this panel does not own a
+                  second WebGL context — browsers cap how many exist and drop
+                  the oldest, which renders black. */}
+              {renderPhoto && (
+                <PanelErrorBoundary name="Align and render">
+                  <AlignAndRender
+                    photo={renderPhoto}
+                    capture={() => deckCapture.current?.() || null}
+                    camera={camera}
+                    onCameraChange={setCamera}>
+                    <DeckViewer3D
+                      model={model}
+                      mode="3d"
+                      height={420}
+                      onCaptureReady={fn => { deckCapture.current = fn; }}
+                    />
+                  </AlignAndRender>
+                </PanelErrorBoundary>
+              )}
 
               <PanelErrorBoundary name="Read a sketch">
                 <SketchImport model={model} incoming={sketchDrop} onRead={setSketchRead}

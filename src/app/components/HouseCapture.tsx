@@ -80,9 +80,17 @@ interface Props {
    * to find it would be the second place that decision is made.
    */
   onSendToCustomer?: (label: string, dataUri: string) => Promise<boolean>;
+  /**
+   * The photograph currently chosen to render onto.
+   *
+   * Reported upward so the model-first pipeline can align a camera against it
+   * and persist that alignment with the project. The photos live here; the
+   * alignment belongs to the design.
+   */
+  onRenderPhotoChange?: (dataUrl: string | null) => void;
 }
 
-export default function HouseCapture({ model, site, onApply, incoming, onRead, customerName, onSendToCustomer }: Props) {
+export default function HouseCapture({ model, site, onApply, incoming, onRead, customerName, onSendToCustomer, onRenderPhotoChange }: Props) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -245,6 +253,17 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
     setAutoRead(false);
     analyze();
   }, [autoRead, busy, photos, analyze]);
+
+  /**
+   * Tell the caller which photograph the render is aimed at.
+   *
+   * The model-first pipeline aligns a camera to a specific photo and is right
+   * to refuse to reuse that alignment on a different one — so it has to be told
+   * when the choice changes, including when the photo is removed entirely.
+   */
+  useEffect(() => {
+    onRenderPhotoChange?.(photos[renderOn] || null);
+  }, [photos, renderOn, onRenderPhotoChange]);
 
   const applySuggested = useCallback(() => {
     const s = analysis?.suggested;

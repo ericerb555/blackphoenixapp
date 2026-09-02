@@ -893,6 +893,122 @@ app.post("/render", async (c) => {
   }
 });
 
+/**
+ * The photoreal pass over a composite that already contains the geometry.
+ *
+ * WHY THIS EXISTS BESIDE /render RATHER THAN REPLACING IT
+ *
+ * /render describes a deck in words and asks for a picture of one. That is a
+ * fresh roll of the dice every time — words cannot measure sixteen feet, and
+ * the deck kept landing on a different wall. This route is given the deck
+ * already in the right place, rendered from the model somebody drew, and asked
+ * only to make it photographic.
+ *
+ * The image model stops being an architect. It cannot get the size wrong
+ * because it is not choosing the size.
+ *
+ * THE CONSTRAINTS ARE BUILT HERE, NOT ACCEPTED FROM THE CLIENT
+ *
+ * The client has its own copy of this wording so it can show the operator what
+ * will be sent, and that copy is the tested one. But the sentences that stop
+ * the model moving things are assembled on the server, because a prompt that
+ * arrives over the wire is a prompt somebody can shorten — and a shortened one
+ * produces exactly the wandering deck this route was built to end.
+ */
+function photorealPrompt(opts: {
+  material?: string; railing?: string; timeOfDay?: string; extra?: string;
+}): string {
+  const lines = [
+    "This photograph already contains a 3D render of a deck composited onto it.",
+    "The deck geometry is correct and measured. Your only job is to make it look photographic.",
+    "",
+    "DO NOT change the shape, size, position, angle or proportions of anything.",
+    "DO NOT move, add or remove any post, board, step, railing or structural member.",
+    "DO NOT alter the house, the roof, the siding, the windows, the sky or the ground.",
+    "DO NOT reframe, crop, straighten or recompose the image.",
+    "",
+    "DO give the deck realistic material and surface texture.",
+    "DO match the lighting direction, colour temperature and contrast of the photograph.",
+    "DO add a natural contact shadow where the structure meets the ground.",
+    "DO soften the composited edges so it sits in the scene rather than on top of it.",
+  ];
+  if (opts.material) lines.push(`Decking material: ${opts.material}.`);
+  if (opts.railing) lines.push(`Railing: ${opts.railing}.`);
+  if (opts.timeOfDay) lines.push(`Match the light to: ${opts.timeOfDay}.`);
+  if (opts.extra) lines.push("", `Also: ${opts.extra}`);
+  lines.push("", "If you are unsure whether a change is allowed, do not make it.");
+  return lines.join("\n");
+}
+
+app.post("/photoreal", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const composite: string = typeof body?.composite === "string" ? body.composite : "";
+    const mask: string = typeof body?.mask === "string" ? body.mask : "";
+
+    const parts = splitDataUri(composite);
+    if (!parts) {
+      return c.json({ error: "Nothing to render. Composite the deck onto the photograph first." }, 400);
+    }
+    // Without the mask this becomes an unconstrained edit of the whole
+    // photograph, which is the failure mode the pipeline exists to remove. It
+    // is refused rather than quietly downgraded.
+    if (!mask) {
+      return c.json({
+        error: "No mask. Rendering without one lets the model repaint the house, which is the "
+          + "thing this pipeline exists to prevent.",
+      }, 400);
+    }
+
+    const key = Deno.env.get("OPENAI_API_KEY");
+    if (!key) return c.json({ error: "Rendering is not configured. Set the OPENAI_API_KEY secret." }, 503);
+
+    const prompt = photorealPrompt({
+      material: String(body?.material || "").slice(0, 120) || undefined,
+      railing: String(body?.railing || "").slice(0, 120) || undefined,
+      timeOfDay: String(body?.timeOfDay || "").slice(0, 120) || undefined,
+      extra: String(body?.extra || "").slice(0, 800) || undefined,
+    });
+
+    const actor = c.get("actor");
+    const refused = await reserveImages(actor, 1);
+    if (refused) return c.json(refused, 429);
+
+    // No reference views on purpose: a mask applies to one image, and precise
+    // placement is the entire point of this route.
+    const shot = await paintDeck({ parts, references: [], prompt, key, mask });
+    if (!shot.ok) {
+      await refundImages(actor, 1);
+      // Narrowed by hand. This project's server config runs with
+      // strictNullChecks off, which switches off discriminated-union narrowing
+      // on a boolean, so `shot.error` after `if (!shot.ok)` does not typecheck.
+      // The other callers of paintDeck carry that as a standing finding; this
+      // one is written to avoid adding to it.
+      const failed = shot as Extract<PaintResult, { ok: false }>;
+      return c.json({ error: failed.error }, failed.status as any);
+    }
+
+    const done = shot as Extract<PaintResult, { ok: true }>;
+    const url = await putAsset(base64ToBytes(done.b64), "png", "image/png");
+    if (!url) {
+      await refundImages(actor, 1);
+      return c.json({ error: "The render was made but could not be stored." }, 500);
+    }
+
+    return c.json({
+      url,
+      prompt,
+      disclaimer:
+        "The geometry in this image came from the measured model, not from the image generator. "
+        + "Lighting and materials are an artist's impression; the dimensions are the design. "
+        + "The permit set still uses the drawings.",
+    });
+  } catch (err: any) {
+    console.log(`[house] photoreal error: ${err?.message || err}`);
+    return c.json({ error: `Render failed: ${err?.message || err}` }, 500);
+  }
+});
+
 /** Three images is enough to sell from and cheap enough to run twice. */
 const MAX_LOOKS = 3;
 

@@ -248,13 +248,60 @@ good at: lighting, materials and shadow.
 
 ### Todo
 
-- [ ] 1. Deck-only capture on a transparent background
-- [ ] 2. Alignment view — photo behind, opacity slider, orbit to match
-- [ ] 3. Persist the camera on the design project
-- [ ] 4. Composite, and derive the mask from the deck silhouette
-- [ ] 5. The photoreal pass, worded to forbid moving anything
-- [ ] 6. Show the composite beside the finished render, so it is obvious what
+- [x] 1. Deck-only capture on a transparent background
+- [x] 2. Alignment view — photo behind, opacity slider, orbit to match
+- [x] 3. Persist the camera on the design project
+- [x] 4. Composite, and derive the mask from the deck silhouette
+- [x] 5. The photoreal pass, worded to forbid moving anything
+- [x] 6. Show the composite beside the finished render, so it is obvious what
       the paid step actually changed
+
+### Built — 57/57 tests
+
+**The mask semantics are inverted and it matters.** `images/edits` edits where
+the mask is TRANSPARENT and preserves where it is opaque. So the deck becomes
+alpha 0 and the whole photograph around it becomes alpha 255. Backwards, it
+repaints the house and leaves the deck a drawing — plausible enough a mistake
+that the test asserts both directions explicitly.
+
+The silhouette is grown a few pixels, because a mask cut exactly to the geometry
+leaves no room to blend an edge or lay a contact shadow, and a deck with no
+shadow reads as pasted on however good the materials are. Dilation is separable,
+so it costs pixels rather than pixels × radius.
+
+**A camera is tied to the photograph it was aligned against.** Reusing one on a
+different photo blocks, because it would place the geometry precisely where it
+belonged in a picture nobody is looking at — confidently wrong, which is worse
+than obviously wrong.
+
+**The prompt removes decisions rather than describing a deck.** Four DO NOTs
+before any DO, ending "if you are unsure whether a change is allowed, do not
+make it". A test asserts it never contains a dimension in words — the moment it
+does, it is deciding geometry again.
+
+The constraints are assembled **on the server**. The client has its own tested
+copy so the operator can see what will be sent, but a prompt arriving over the
+wire is one somebody can shorten, and a shortened one brings the wandering deck
+straight back. Rendering with no mask is **refused** rather than quietly
+downgraded — that path is an unconstrained edit of the whole photograph.
+
+### Before it spends the money
+
+Blocks on: no photo, no capture, no camera, a camera from another photo, or an
+empty capture. Warns on a deck under 2% of frame (little to work on) or over
+60% (no house left for context).
+
+### The comparison is the check
+
+The composite and the render sit side by side. If the model moved something
+inside the mask, that is how it gets caught here rather than by a customer.
+Item 6 existed for exactly this and it is the part worth actually using.
+
+### Not verified
+
+Nobody has run a real render through this. The mask maths, the gates and the
+prompt are tested; what the image model does with a correct mask and that
+wording is an empirical question and costs about twenty cents to answer.
 
 ### What could go wrong, said in advance
 
