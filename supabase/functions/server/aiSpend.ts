@@ -38,11 +38,11 @@ export type SpendBucket = "render" | "blueprint";
 
 export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
   render: 10,
-  // Set by Eric. Counted per SHEET rather than per upload, so it is less
-  // generous than the number reads: a four-sheet drawing set costs four, which
-  // puts 30 closer to seven or eight real sets than to thirty. Worth knowing
-  // before anybody decides it is too high.
-  blueprint: 30,
+  // Set by Eric at 120 SHEETS, chosen so it works out at roughly thirty real
+  // drawing sets — a set runs about four sheets. The unit is the sheet because
+  // that is what costs money; the intent was thirty drawings, and this is what
+  // thirty drawings costs. Do not "tidy" it to 30 without changing the unit.
+  blueprint: 120,
 };
 
 /**

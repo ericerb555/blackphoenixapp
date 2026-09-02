@@ -936,11 +936,14 @@ Each sheet is a full-detail vision call, so the cost scales with how many are
 sent. Counted individually and capped at 8 per upload, so dropping a forty-page
 set in cannot empty an account in one go.
 
-The allowance is **30 reads per account**, set by Eric. Because it counts sheets
-rather than uploads it is less generous than it reads — a four-sheet set costs
-four, so 30 is closer to seven or eight real drawings than to thirty. Renders
-stay at 10. Both carry per-account overrides in the kv store, so either can be
-lifted for one customer without moving it for everybody.
+The allowance is **120 sheets per account**, set by Eric. The unit is the sheet
+because that is what costs money, and a drawing set runs about four — so 120 is
+roughly **thirty real drawings**, which was the intent. Anybody later reading
+120 as extravagant and trimming it to 30 would be cutting the allowance to seven
+or eight sets without meaning to; the constant says so in place.
+
+Renders stay at 10. Both carry per-account overrides in the kv store, so either
+can be lifted for one customer without moving it for everybody.
 
 Reserved **before** the call and refunded if it fails. Charging on success lets
 a burst of parallel requests all pass the same check before any has been
