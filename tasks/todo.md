@@ -599,6 +599,98 @@ Typecheck caught five errors while wiring that up: the field added to the wrong
 interface, then three session constructors missing it. Every one of them would
 have compiled fine and thrown at runtime.
 
+## Phase 6 — framing details, and getting them approved
+
+Eric: *"framing details that we can submit to out archetechs for approval or
+changes"* … *"maybe a portal i am not sure how that would work"* … *"yea i think
+link is the best for now"*.
+
+### What makes this a submittal rather than a printout
+
+An architect cannot review a number without knowing what it assumed. So every
+member on the schedule carries the check that justified it — span, load,
+utilisation, deflection ratio — and the assumptions are stated once at the top:
+loads, species and grade, deflection limit, code edition.
+
+The calculation already exists and is real. `structureModel.checkMember` does
+bending as M = wL²/8 against section modulus and deflection as 5wL⁴/384EI
+against L/240, and `deckStructural.computeStructural` does soil bearing and
+frost depth. This phase does not invent engineering — it presents what is
+already computed in a form somebody can stamp or argue with.
+
+It also carries the **open questions**: what we could not determine and want a
+ruling on. A submittal with no questions is a brochure.
+
+### The link, and why it is built more carefully than the one we have
+
+The existing quote share link is `crypto.randomUUID()` with the dashes stripped,
+stored in plaintext, with no expiry and no way to revoke it. That is 122 bits
+and it is fine for a quote the customer already has. It is not the standard for
+a construction document going to an outside firm.
+
+This one:
+
+- **256 bits** of `crypto.getRandomValues`, base64url.
+- **Stored as a SHA-256 hash, never in plaintext.** If the store leaks, the
+  tokens in it do not work.
+- **Expires**, server-enforced, and can be revoked.
+- **Serves a snapshot, not the live project.** Submitting for approval means
+  submitting a specific revision — and it means a project that later gains
+  something sensitive cannot leak it through a link issued today.
+- **Carries no money.** No labour rate, no margin, no customer quote. The
+  payload type has no field for it, the same way `PackageLine` has none.
+- Read-only plus exactly one response. The architect cannot edit the document.
+
+### Todo
+
+- [x] 1. `framingModel.ts` — 68/68 tests.
+- [x] 2. `architect-review.tsx` — issue, read by token, respond, list, revoke.
+- [x] 3. `FramingSubmittal.tsx` — build it, send it, watch the state.
+- [x] 4. `ArchitectReview.tsx` — the page they open, public route.
+
+### The leak test is the one that matters
+
+`architectView()` rebuilds the payload field by field rather than spreading the
+submittal, and the server re-filters it on arrival. The test plants
+`labourRate`, `margin`, `customerQuoteTotal`, `internalNotes` and `bidAmounts`
+on a submittal as though somebody had added them later, and asserts none of
+them reach the view — plus a planted field on a *member*, and that the view is a
+copy rather than a window onto the live document.
+
+A spread would have been shorter and would have leaked every one of them.
+
+### The schedule is derived, never retyped
+
+`submittalFromDeck` takes the sizes from the model somebody drew and the loads,
+post load, soil and frost depth from `computeStructural`. Joists span the depth,
+the beam spans post to post at half the deck depth tributary — stated on the
+sheet, because a reviewer cannot check anything without knowing which way the
+framing runs.
+
+What the calculation could not settle becomes an **open question** carrying what
+we assumed meanwhile and what moves if that is wrong, rather than an absence. A
+member with no calculation is shown as *not calculated*, never given a plausible
+figure.
+
+Eric's standing details ride on every submittal: 4x4 posts are not notched, and
+post bases take a 1/2in drop-in anchor rather than a cast-in J-bolt. Stated as
+what we do, so a reviewer does not return a detail we do not build.
+
+### Note on the smoke run
+
+Touching the router made the affected set all 331 pages. That run reported 1
+page unread; a control run on the **unchanged** tree reported 4, and different
+ones. It is batch-timing flakiness in full-run mode, not a regression — zero
+threw in both. Worth knowing before the next full run is read as a failure.
+
+`smoke.html` is written by the harness on every run and was untracked; now
+ignored rather than committed.
+
+### Reported, not fixed
+
+The quote share link's weaknesses above are a separate feature touching customer
+money flows. Named here rather than widened into this change.
+
 ## Review
 
 (to be completed)

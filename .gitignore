@@ -13,3 +13,6 @@ zendrop-backup-*.json
 
 # Supabase CLI scratch state
 supabase/.temp/
+
+# Written by scripts/smoke.mjs on every run. A build artefact, not source.
+smoke.html

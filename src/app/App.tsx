@@ -375,7 +375,9 @@ function CompanySelector() {
  * Kept as an explicit list rather than a general rule, because turning every
  * route into a prefix match would change how ~185 existing paths resolve.
  */
-const PREFIX_ROUTES = new Set<string>(['work', 'blog']);
+// 'architect-review' is here because the token rides in the path:
+// /architect-review/<token> must resolve to the page, not to a 404.
+const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
@@ -389,6 +391,9 @@ const getPageFromPath = (pathname: string): string => {
 // Full-bleed pages render edge-to-edge (public marketing/landing + auth screens)
 // and must NOT be constrained by the standard app content container.
 const FULL_BLEED_PAGES = new Set<string>([
+  // Opened by an outside architect who has never seen this app. It should not
+  // be wrapped in our chrome.
+  "architect-review",
   "landing",
   "landing-page",
   "directory",
@@ -466,6 +471,10 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'work',
     // Published articles. An article nobody can reach is not published.
     'blog',
+    // An outside architect reviewing one framing submittal. They have no
+    // account here on purpose; the token in the path is the whole credential
+    // and the server checks it against a stored hash.
+    'architect-review',
     'shop',
     'store',
     'order-tracking',

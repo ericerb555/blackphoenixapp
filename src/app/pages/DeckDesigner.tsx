@@ -46,6 +46,8 @@ import type { Placement } from '../lib/systemsModel';
 import { type Scope, BLANK_SCOPE, addLine as addScopeLine } from '../lib/scopeModel';
 import WalkthroughSheet from '../components/WalkthroughSheet';
 import { type Walkthrough, readWalkthrough, BLANK_WALKTHROUGH } from '../lib/walkthroughModel';
+import FramingSubmittalPanel from '../components/FramingSubmittal';
+import { type FramingSubmittal, submittalFromDeck } from '../lib/framingModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -187,6 +189,7 @@ interface Unparked {
   plan?: FloorPlan;
   systems?: Placement[];
   walkthrough?: Walkthrough;
+  submittal?: FramingSubmittal | null;
 }
 
 function readUnparked(): Unparked | null {
@@ -229,6 +232,8 @@ interface Session {
   systems: Placement[];
   /** What standing in the building settled, and what it did not. */
   walkthrough: Walkthrough;
+  /** The framing submittal, once one has been drawn up. */
+  submittal?: FramingSubmittal | null;
   id: string | null;
 }
 
@@ -297,6 +302,7 @@ function DesignerSession({ session, onSession }: {
   const [plan, setPlan] = useState<FloorPlan>(session.plan || { ...BLANK_PLAN, rooms: [], walls: [] });
   const [systems, setSystems] = useState<Placement[]>(session.systems || []);
   const [walkthrough, setWalkthrough] = useState<Walkthrough>(readWalkthrough(session.walkthrough));
+  const [submittal, setSubmittal] = useState<FramingSubmittal | null>(session.submittal || null);
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -592,7 +598,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -615,7 +621,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, submittal, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -661,12 +667,14 @@ function DesignerSession({ session, onSession }: {
     setPlan({ ...BLANK_PLAN, rooms: [], walls: [] });
     setSystems([]);
     setWalkthrough({ ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] });
+    setSubmittal(null);
     attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
     plan: { ...BLANK_PLAN, rooms: [], walls: [] },
     systems: [],
     walkthrough: { ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] },
+    submittal: null,
     id: null });
   }, [onSession]);
 
@@ -684,7 +692,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -698,7 +706,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -716,7 +724,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), submittal: u.submittal || null, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -778,7 +786,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link,
+              loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -816,7 +824,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -874,6 +882,8 @@ function DesignerSession({ session, onSession }: {
         systems: Array.isArray(full.meta.systems) ? full.meta.systems : [],
         // Tolerant, so a project saved before the walkthrough existed still opens.
         walkthrough: readWalkthrough(full.meta.walkthrough),
+        submittal: full.meta.submittal && Array.isArray(full.meta.submittal.members)
+          ? full.meta.submittal : null,
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1599,6 +1609,60 @@ function DesignerSession({ session, onSession }: {
               </PanelErrorBoundary>
 
               <PanelErrorBoundary name="Build specification"><DeckBuildSpecPanel model={model} site={site} /></PanelErrorBoundary>
+
+              {/* ── For the architect ────────────────────────────────────────
+                  Drawn up from the structural calculation rather than retyped,
+                  then edited by hand. It is NOT rebuilt when the deck changes:
+                  the questions somebody typed are the valuable part, and losing
+                  them to a dimension edit would teach people not to type them. */}
+              <PanelErrorBoundary name="Framing submittal">
+                {submittal ? (
+                  <FramingSubmittalPanel
+                    submittal={submittal}
+                    onChange={setSubmittal}
+                    designProjectId={savedId || undefined}
+                  />
+                ) : (
+                  <div className={card}>
+                    <h3 className="text-sm font-bold text-white mb-1">For the architect</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      A framing schedule with the check behind every member, the loads it
+                      assumed, and what we want a ruling on — issued to a reviewer as a link
+                      rather than emailed as a PDF, so the answer comes back into the job.
+                    </p>
+                    <button
+                      onClick={() => setSubmittal(submittalFromDeck({
+                        id: `sub_${Date.now().toString(36)}`,
+                        title: `Framing — ${site.projectName || 'deck'}`,
+                        siteAddress: [site.address, site.town, site.state]
+                          .map(x => String(x || '').trim()).filter(Boolean).join(', '),
+                        deck: {
+                          widthFt: model.widthFt, depthFt: model.depthFt,
+                          joistSize: model.joistSize, joistSpacing: model.joistSpacing,
+                          beamSize: model.beamSize, beamPlies: model.beamPlies,
+                          postSize: model.postSize, postSpacingFt: model.postSpacingFt,
+                        },
+                        structural: {
+                          designLivePsf: struct.designLivePsf,
+                          deadLoadPsf: struct.deadLoadPsf,
+                          totalLoadPsf: struct.totalLoadPsf,
+                          postLoadLbs: struct.postLoadLbs,
+                          soilPsf: struct.soilPsf,
+                          frostDepthIn: struct.frostDepthIn,
+                          roundFootingDiameterIn: struct.roundFootingDiameterIn,
+                          failures: struct.failures,
+                          cautions: struct.cautions,
+                          missing: struct.missing,
+                        },
+                        groundSnowPsf: loads.groundSnowPsf,
+                      }))}
+                      className="px-3 py-2 rounded-xl text-sm font-semibold text-white"
+                      style={{ background: '#ea580c' }}>
+                      Draw up the framing submittal
+                    </button>
+                  </div>
+                )}
+              </PanelErrorBoundary>
             </div>
 
             {/* The at-a-glance counts. Shown alongside the quote, where the

@@ -163,6 +163,7 @@ import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAl
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import bidIntakeRouter from "./bid-intake.tsx";
+import architectReviewRouter from "./architect-review.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
   loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
@@ -241,6 +242,12 @@ const PUBLIC_PREFIXES = [
   '/ecommerce/order/',  // order tracking by opaque order code
   '/webhook',           // provider callbacks, which authenticate by signature
   '/stripe/webhook',
+
+  // An architect reviewing a framing submittal has no account here, by
+  // design — see architect-review.tsx. Only the /review/ half is exempt:
+  // issuing, listing and revoking links sit under /links and stay behind
+  // the wall as well as behind their own staff check.
+  '/architect-review/review/',
 ];
 
 // Public to read, protected to change. The storefront has to render these to a
@@ -493,6 +500,7 @@ app.route("/", projectVisionRouter);
 app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
 app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
+app.route("/make-server-3eae23a6/architect-review", architectReviewRouter);
 app.route("/make-server-3eae23a6/design-links", designLinksRouter);
 app.route("/make-server-3eae23a6/design-assistant", designAssistantRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
