@@ -39,8 +39,29 @@
  * things free to disagree.
  */
 
-/** Where a number came from. Never let these blur together. */
-export type Provenance = 'measured' | 'photos' | 'estimated';
+/**
+ * Where a number came from. Never let these blur together.
+ *
+ * `drawing` is a figure read off an existing blueprint. It sits above `photos`
+ * because a drawing carries a scale and a photograph carries a guess, and below
+ * `measured` because a drawing describes the building as somebody intended it
+ * — which is not always the building that got built, or the one still standing
+ * after forty years of alterations.
+ */
+export type Provenance = 'measured' | 'drawing' | 'photos' | 'estimated';
+
+/** Worst first. Used wherever two sources for the same figure disagree. */
+export const PROVENANCE_RANK: Record<Provenance, number> = {
+  estimated: 0,
+  photos: 1,
+  drawing: 2,
+  measured: 3,
+};
+
+/** True when `a` is a better source than `b`. Ties are not better. */
+export function outranks(a: Provenance, b: Provenance): boolean {
+  return PROVENANCE_RANK[a] > PROVENANCE_RANK[b];
+}
 
 export type OpeningKind = 'door' | 'slider' | 'window' | 'garage';
 

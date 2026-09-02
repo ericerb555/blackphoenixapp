@@ -866,6 +866,55 @@ would have produced four features that each nearly work.
 **Furniture** is staging for a render, not construction, and belongs with the
 render pipeline rather than here.
 
+## The blueprint becomes the building record  (decision settled)
+
+Eric, asked directly: **"the blueprint should become the building record."**
+
+That closes the question left open since Phase 3 and it changes what blueprint
+reading is for. A takeoff tool would read a drawing, hand back square footages
+and be finished with it — while everything else in the design centre carried on
+working from a house estimated off photographs. A drawing carries a scale and a
+photograph carries a guess, so the better source should win.
+
+### What followed
+
+**Reading produces geometry, not a report.** Rooms with positions, in the same
+shapes the floor plan already uses. The analyser is now asked for `x`/`y` as
+fractions of the building envelope, plus the scale and the overall dimensions —
+because the drawing has them and the layout is the point. A room that comes back
+with no dimensions is dropped rather than carried as a nameplate.
+
+**Provenance now ranks.** `Provenance` gains `drawing`, sitting above `photos`
+and below `measured`, with `PROVENANCE_RANK` and `outranks()` in one place.
+
+**And the rule that matters: it does not undo the walkthrough.**
+
+| the plan's room came from | what the drawing does |
+|---|---|
+| nothing recorded, or a guess | replaced |
+| a photograph | replaced, and the change is listed |
+| **measured on site** | **kept** — and the disagreement is shown |
+
+A drawing describes the building somebody intended. That is not always the one
+that got built and very often not the one still standing after forty years of
+alterations, so the person who walked the job decides. Positions are only
+written when the drawing actually supplied them — moving a room somebody placed
+to a spot that came from a packing loop would be worse than leaving it.
+
+44/44 tests, including that a measured room survives a drawing that disagrees.
+
+### A dead route, found on the way
+
+`ai-blueprint-analysis.tsx` was never mounted in `index.tsx`. `ClientWorkRequestForm`
+has been POSTing to `/ai/analyze-blueprints` since it was written and getting a
+404 every time — a customer uploading blueprints with a work request has never
+had them read. Mounted now.
+
+**Said plainly: it is unmetered.** It falls into the default `user` tier, so a
+session is required, but any signed-in user can spend model tokens on it. The
+image routes in `house-capture` reserve against a budget; this does not. Worth
+fixing, and it is a separate change from this one.
+
 ## Review
 
 (to be completed)

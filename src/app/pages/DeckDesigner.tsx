@@ -41,6 +41,7 @@ import ScopeOfWork from '../components/ScopeOfWork';
 import ScopeQuotePanel from '../components/ScopeQuotePanel';
 import FloorPlanEditor from '../components/FloorPlanEditor';
 import SurfaceTakeoffPanel from '../components/SurfaceTakeoff';
+import BlueprintImport from '../components/BlueprintImport';
 import { type FloorPlan, BLANK_PLAN } from '../lib/floorPlanModel';
 import SystemsLayer from '../components/SystemsLayer';
 import type { Placement } from '../lib/systemsModel';
@@ -1419,6 +1420,17 @@ function DesignerSession({ session, onSession }: {
                 <FloorPlanEditor plan={plan} onChange={setPlan}
                   onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
               </PanelErrorBoundary>
+
+              {/* ── An existing drawing ──────────────────────────────────────
+                  The drawing becomes the building record rather than yielding
+                  a takeoff beside it — a scaled drawing beats a dimension
+                  guessed off a photograph. It does not beat a site
+                  measurement, and it says so when the two disagree. */}
+              <div className="mt-4">
+                <PanelErrorBoundary name="Read a drawing">
+                  <BlueprintImport plan={plan} onChange={setPlan} />
+                </PanelErrorBoundary>
+              </div>
 
               {/* ── Walls and ceilings ───────────────────────────────────────
                   The rooms are already drawn and already carry a ceiling

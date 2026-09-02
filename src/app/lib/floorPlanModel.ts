@@ -34,6 +34,7 @@
  * and the areas below are computed rather than assumed so the change will be
  * contained.
  */
+import type { Provenance } from './houseModel';
 
 export type Existence = 'existing' | 'proposed' | 'removed';
 
@@ -61,6 +62,17 @@ export interface PlanRoom {
   depthFt: number;
   ceilingFt: number;
   state: Existence;
+  /**
+   * Where this room's dimensions came from.
+   *
+   * Optional because rooms drawn by hand before this existed have no answer,
+   * and a missing one reads as `estimated` — which is the honest default for
+   * something somebody dragged out with a mouse.
+   *
+   * It exists so importing a blueprint cannot silently overwrite a dimension
+   * that was measured on site. See `blueprintRecord.mergeIntoPlan`.
+   */
+  source?: Provenance;
 }
 
 export interface PlanWall {

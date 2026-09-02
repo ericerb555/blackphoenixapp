@@ -41,7 +41,11 @@ export function worstSource(view: HouseView, fields: string[]): DimensionSource 
   for (const f of fields) {
     const s = view.source[f] || 'estimated';
     if (s === 'estimated') return 'estimated';
-    if (s === 'photos') worst = 'photos';
+    // A blueprint figure and a photo-derived one are both `scaled` to a trade:
+    // taken off something at a known scale rather than off the building. The
+    // finer distinction between them lives in `Provenance`, where deciding
+    // which of two sources wins actually needs it.
+    if (s === 'photos' || s === 'drawing') worst = 'photos';
   }
   return worst === 'photos' ? 'scaled' : 'measured';
 }

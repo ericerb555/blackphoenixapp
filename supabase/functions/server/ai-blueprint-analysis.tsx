@@ -160,12 +160,25 @@ function createAnalysisPrompt(analysisType: string): string {
 3. Count every structural element (walls, doors, windows, outlets, fixtures)
 4. Provide detailed cost estimates based on current market rates
 5. Return your analysis as VALID JSON (no markdown, no extra text)
+6. Give every room a POSITION as well as a size. The drawing has one, and this
+   reading becomes the project's building record rather than only a takeoff —
+   rooms with sizes and no positions are a list of rectangles, not a plan.
+   Use "x" and "y" as fractions of the overall building envelope from its
+   top-left corner, so 0.5 is halfway across. If you genuinely cannot place a
+   room, omit x and y for that room rather than guessing.
+7. Read the scale off the sheet if it is printed, and the overall building
+   width and depth. Say what you actually see; omit anything you do not.
 
 **REQUIRED JSON STRUCTURE:**
 {
   "totalSquareFootage": <number>,
   "totalLinearFootage": <number>,
-  
+
+  "sheetTitle": "<title block text, or null>",
+  "scaleNote": "<scale as printed, e.g. 1/4in = 1ft, or null>",
+  "buildingWidthFt": <overall width in feet, or null>,
+  "buildingDepthFt": <overall depth in feet, or null>,
+
   "rooms": [
     {
       "name": "<room name>",
@@ -178,6 +191,8 @@ function createAnalysisPrompt(analysisType: string): string {
       },
       "perimeterLinearFeet": <number>,
       "ceilingLinearFeet": <number or null>,
+      "x": <0-1 across the building from its left edge, or omit if unknown>,
+      "y": <0-1 down the building from its top edge, or omit if unknown>,
       "features": ["<feature 1>", "<feature 2>", ...]
     }
   ],
@@ -332,6 +347,14 @@ function validateAndEnhanceAnalysis(analysis: any): any {
   const validated = {
     totalSquareFootage: analysis.totalSquareFootage || 0,
     totalLinearFootage: analysis.totalLinearFootage || 0,
+    // Carried through because this reading becomes the project's building
+    // record, not just a takeoff. A validator that dropped the geometry would
+    // leave the caller with totals and no plan, which is the shape of system
+    // that decision moved away from.
+    sheetTitle: analysis.sheetTitle || null,
+    scaleNote: analysis.scaleNote || null,
+    buildingWidthFt: analysis.buildingWidthFt || null,
+    buildingDepthFt: analysis.buildingDepthFt || null,
     rooms: Array.isArray(analysis.rooms) ? analysis.rooms : [],
     materials: Array.isArray(analysis.materials) ? analysis.materials : [],
     constructionDetails: analysis.constructionDetails || {

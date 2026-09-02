@@ -38,6 +38,7 @@ import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
 import projectVisionRouter from "./project-vision.tsx";
 import aiFloorplanRouter from "./ai-floorplan.tsx";
+import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
@@ -499,6 +500,11 @@ app.route("/", deliverablesRouter);
 app.route("/", designProjectsRouter);
 app.route("/", projectVisionRouter);
 app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
+// Never mounted. ClientWorkRequestForm has been POSTing to /ai/analyze-blueprints
+// since it was written and getting a 404 for it, and the blueprint-as-building-record
+// work needs the same route. Mounted now; it falls into the default `user` tier,
+// so a session is required. See the note in the commit about it being unmetered.
+app.route("/make-server-3eae23a6/ai", aiBlueprintRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
 app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
 app.route("/make-server-3eae23a6/architect-review", architectReviewRouter);
