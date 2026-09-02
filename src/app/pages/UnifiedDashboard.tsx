@@ -287,7 +287,19 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         setMetricsError(error?.message || 'The numbers could not be loaded.');
       }
     };
-    fetchMetrics(); const interval = setInterval(fetchMetrics, 60000); return () => clearInterval(interval);
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 60000);
+    // Coming back to the tab is exactly when these are most likely to be stale
+    // — somebody has just been settling an invoice or approving a request in
+    // another window. Polling alone leaves up to a minute of contradiction.
+    const onFocus = () => { if (!document.hidden) fetchMetrics(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
   }, []);
 
   // Restore sidebar preference

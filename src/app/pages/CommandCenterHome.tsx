@@ -36,7 +36,7 @@
  * customers used to render identically, and the zeros were the more believable
  * of the two.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, X, TrendingUp, AlertTriangle, DollarSign, Briefcase,
   Users, HardHat, FileWarning, Pin, PinOff, ArrowRight, Loader2, ChevronRight,
@@ -121,6 +121,8 @@ export default function CommandCenterHome({
   const [invoices, setInvoices] = useState<any[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [invoiceError, setInvoiceError] = useState('');
+  /** Guards against a poll and a focus landing on top of each other. */
+  const loadingRef = useRef(false);
   const [pins, setPins] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(PIN_KEY);
@@ -134,30 +136,66 @@ export default function CommandCenterHome({
     [tabCategories],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) { if (!cancelled) setInvoicesLoading(false); return; }
-        const res = await fetch(`${SERVER}/invoices`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const data = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!res.ok || !data?.success) {
-          setInvoiceError(data?.error || 'Invoices could not be loaded.');
-        } else {
-          setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
-        }
-      } catch (err: any) {
-        if (!cancelled) setInvoiceError(err?.message || 'Invoices could not be loaded.');
-      } finally {
-        if (!cancelled) setInvoicesLoading(false);
+  /**
+   * The invoices behind "still delinquent".
+   *
+   * WHY THIS REFRESHES RATHER THAN LOADING ONCE
+   *
+   * It used to run once on mount and never again. Eric marked an invoice paid
+   * and it stayed in the past-due list — the server had it right the whole
+   * time, and this screen was showing a copy it had taken minutes or hours
+   * earlier. The numbers beside it were polling every sixty seconds, so the
+   * page was contradicting itself as well as the database.
+   *
+   * A dashboard is a screen people leave open. Anything on it that never
+   * refreshes is a screenshot pretending to be a status.
+   */
+  const loadInvoices = useCallback(async (opts: { quiet?: boolean } = {}) => {
+    // A refresh already in flight is not worth stacking another on top of.
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (!opts.quiet) setInvoicesLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch(`${SERVER}/invoices`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        setInvoiceError(data?.error || 'Invoices could not be loaded.');
+      } else {
+        setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+        setInvoiceError('');
       }
-    })();
-    return () => { cancelled = true; };
+    } catch (err: any) {
+      setInvoiceError(err?.message || 'Invoices could not be loaded.');
+    } finally {
+      loadingRef.current = false;
+      setInvoicesLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadInvoices();
+
+    // Same cadence as the numbers, so the two halves of the screen cannot
+    // disagree about how old they are.
+    const interval = setInterval(() => loadInvoices({ quiet: true }), 60000);
+
+    // The moment that actually matters: coming back to the tab after settling
+    // an invoice somewhere else. Cheaper than polling faster and it catches
+    // exactly the case that made this look broken.
+    const onFocus = () => { if (!document.hidden) loadInvoices({ quiet: true }); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [loadInvoices]);
 
   const overdue = useMemo(() => delinquentFrom(invoices), [invoices]);
   const overdueTotal = overdue.reduce((s, o) => s + o.balance, 0);

@@ -216,6 +216,41 @@ export default function InvoicesNew() {
     setShowCreateModal(true);
   };
 
+  /**
+   * What is still owed on this invoice, worked out the way the server does.
+   *
+   * WHY THIS EXISTS RATHER THAN READING balance_due
+   *
+   * The Record payment button used to show only when `invoice.balance_due > 0`,
+   * with a comment claiming it matched what the server enforces. It did not.
+   * The server computes `(total_amount ?? total) - (paid_amount ?? 0)` and never
+   * looks at balance_due at all — so an invoice carrying a total and no
+   * balance_due field, which older records do, was past due everywhere else in
+   * the app and had no way to be settled on this screen. Eric hit exactly that:
+   * he went to mark one paid and there was nothing to press.
+   *
+   * The fallback chain matches the one the command center uses to decide an
+   * invoice is delinquent, so the two screens cannot disagree about whether
+   * money is outstanding.
+   */
+  const outstandingOn = (invoice: any): number => {
+    const total = Number(invoice.total_amount ?? invoice.total ?? 0);
+    const paid = Number(invoice.paid_amount ?? 0);
+    const fromTotals = total - paid;
+    const stated = Number(invoice.balance_due ?? invoice.balanceDue ?? NaN);
+    // Prefer the arithmetic; fall back to a stated balance when there are no
+    // totals to work from at all.
+    return Number.isFinite(fromTotals) && total > 0
+      ? Math.round(fromTotals * 100) / 100
+      : (Number.isFinite(stated) ? stated : 0);
+  };
+
+  /** Settled, void or never issued — nothing to record against either way. */
+  const SETTLED = ['paid', 'completed', 'cancelled', 'void', 'refunded', 'draft'];
+  const canRecordPayment = (invoice: any) =>
+    !SETTLED.includes(String(invoice.status || '').toLowerCase())
+    && outstandingOn(invoice) > 0;
+
   /** Open the record-payment panel, defaulting to settling the whole balance. */
   const openRecordPayment = (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -223,7 +258,7 @@ export default function InvoicesNew() {
     setPayMethod('check');
     // Prefilled because paying the balance in full is the common case, and it
     // is easier to change a number than to look one up.
-    setPayAmount(String(invoice.balance_due ?? ''));
+    setPayAmount(String(outstandingOn(invoice) || ''));
     setPayReference('');
     setPayReceivedAt(new Date().toISOString().slice(0, 10));
     setPayNote('');
@@ -696,12 +731,16 @@ export default function InvoicesNew() {
                   <button onClick={(e) => handleViewInvoice(invoice, e)} className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/10 hover:bg-orange-600/20 rounded-lg text-orange-400 text-sm font-semibold transition border border-orange-500/20"><Eye className="w-4 h-4" /> View</button>
                   {isOwner ? <button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"><Edit2 className="w-4 h-4" /> Edit</button> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="grid grid-cols-2 gap-2"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="flex items-center justify-center gap-1 px-2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold transition"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH bank</button></div> : <span className="flex items-center justify-center rounded-lg border border-white/10 text-sm text-gray-400">{invoice.status === 'paid' ? 'Paid' : 'No payment due'}</span>}
                   {/*
-                    Recording a check or cash. Only for staff, only on an issued
-                    invoice with something still outstanding — the same
-                    conditions the server enforces, so the button and the rule
-                    agree rather than the button being the rule.
+                    Recording a check or cash. Only for staff, only where money
+                    is genuinely still outstanding — worked out the way the
+                    server works it out, so the button and the rule agree.
+
+                    They did not agree before: this read `balance_due > 0` while
+                    the server reads `total_amount - paid_amount`, so an invoice
+                    without a balance_due field was chased everywhere and could
+                    be settled nowhere.
                   */}
-                  {isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && (
+                  {isOwner && canRecordPayment(invoice) && (
                     <button onClick={(e) => openRecordPayment(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 rounded-lg text-emerald-400 text-sm font-semibold transition border border-emerald-500/20">
                       <DollarSign className="w-4 h-4" /> Record check or cash
                     </button>
