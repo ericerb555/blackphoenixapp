@@ -118,6 +118,90 @@ export const DEFAULT_STRUCTURE: StructureModel = {
   postSize: '6x6',
 };
 
+/* ── the things customers actually ask for by name ────────────────────── */
+
+/**
+ * Presets, not new models.
+ *
+ * A gazebo and a pergola are a gable and a flat roof on posts. The engineering
+ * is identical and it is already here — snow, rafter sizing, beam sizing, post
+ * loads all work on any of these forms. Building a GazeboDesigner beside this
+ * would be a second set of span tables to keep in agreement with the first.
+ *
+ * What was genuinely missing is the vocabulary. A customer asks for a pergola,
+ * not for "a flat-form free-standing structure with an open-slat covering", and
+ * a design centre that cannot take the word cannot take the job.
+ */
+export interface StructurePreset {
+  id: string;
+  label: string;
+  /** What makes it that thing rather than another. */
+  why: string;
+  model: Partial<StructureModel>;
+}
+
+export const STRUCTURE_PRESETS: StructurePreset[] = [
+  {
+    id: 'pergola',
+    label: 'Pergola',
+    why: 'Open slats overhead. Shade, not shelter — snow falls straight through, '
+      + 'which is why it carries no snow load and its members can be lighter.',
+    model: { form: 'flat', support: 'free', covering: 'open-slats', pitch: 0.5, rafterSpacingIn: 16, projectionFt: 12, widthFt: 12, postSize: '6x6' },
+  },
+  {
+    id: 'attached-pergola',
+    label: 'Pergola, attached',
+    why: 'The same, hung off the house on a ledger at the back. Two posts instead '
+      + 'of four, and it reads as part of the building.',
+    model: { form: 'flat', support: 'ledger-and-posts', covering: 'open-slats', pitch: 0.5, rafterSpacingIn: 16, projectionFt: 10, widthFt: 14, postSize: '6x6' },
+  },
+  {
+    id: 'gazebo',
+    label: 'Gazebo',
+    why: 'Free-standing with a real roof, so it sheds rain and carries snow. '
+      + 'Sized square rather than long, because it is somewhere to sit rather '
+      + 'than something to park under.',
+    model: { form: 'gable', support: 'free', covering: 'asphalt-shingle', pitch: 6, rafterSpacingIn: 16, projectionFt: 12, widthFt: 12, eaveHeightFt: 8, postSize: '6x6' },
+  },
+  {
+    id: 'pavilion',
+    label: 'Pavilion',
+    why: 'A gazebo built long — for a table and a grill rather than a bench. '
+      + 'Same roof, more span, which is what drives the beam up a size.',
+    model: { form: 'gable', support: 'free', covering: 'metal-panel', pitch: 4, rafterSpacingIn: 24, projectionFt: 16, widthFt: 24, eaveHeightFt: 9, postSize: '6x6' },
+  },
+  {
+    id: 'carport',
+    label: 'Carport',
+    why: 'Headroom is the constraint, not looks. Nine feet clear so a roof box '
+      + 'or a roof rack goes under it.',
+    model: { form: 'shed', support: 'free', covering: 'metal-panel', pitch: 2, rafterSpacingIn: 24, projectionFt: 20, widthFt: 12, eaveHeightFt: 9, postSize: '6x6' },
+  },
+  {
+    id: 'porch-roof',
+    label: 'Porch roof',
+    why: 'Off the house over a door or a deck. A ledger at the wall and posts at '
+      + 'the outer edge — the ordinary lean-to.',
+    model: { form: 'lean-to', support: 'ledger-and-posts', covering: 'asphalt-shingle', pitch: 3, rafterSpacingIn: 16, projectionFt: 8, widthFt: 12, eaveHeightFt: 8, postSize: '6x6' },
+  },
+];
+
+export function presetById(id: string): StructurePreset | undefined {
+  return STRUCTURE_PRESETS.find(p => p.id === id);
+}
+
+/**
+ * Apply a preset over whatever is there.
+ *
+ * Merged rather than replaced, so a dimension somebody already set for this
+ * particular site is not silently thrown away when they change what they are
+ * calling it. Only the fields the preset actually names are touched.
+ */
+export function applyPreset(model: StructureModel, id: string): StructureModel {
+  const preset = presetById(id);
+  return preset ? { ...model, ...preset.model } : model;
+}
+
 /* ── snow ─────────────────────────────────────────────────────────────── */
 
 /** Roof slope in degrees, from rise per 12. */

@@ -40,6 +40,7 @@ import HardscapeTakeoff from '../components/HardscapeTakeoff';
 import ScopeOfWork from '../components/ScopeOfWork';
 import ScopeQuotePanel from '../components/ScopeQuotePanel';
 import FloorPlanEditor from '../components/FloorPlanEditor';
+import SurfaceTakeoffPanel from '../components/SurfaceTakeoff';
 import { type FloorPlan, BLANK_PLAN } from '../lib/floorPlanModel';
 import SystemsLayer from '../components/SystemsLayer';
 import type { Placement } from '../lib/systemsModel';
@@ -1418,6 +1419,32 @@ function DesignerSession({ session, onSession }: {
                 <FloorPlanEditor plan={plan} onChange={setPlan}
                   onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
               </PanelErrorBoundary>
+
+              {/* ── Walls and ceilings ───────────────────────────────────────
+                  The rooms are already drawn and already carry a ceiling
+                  height. Turning that into board, tile and paint is most of a
+                  sheetrock job and nearly all of a bathroom gut, and nothing
+                  was doing it. Sits under the plan because it reads from it. */}
+              <div className="mt-4">
+                <PanelErrorBoundary name="Walls and ceilings">
+                  <SurfaceTakeoffPanel
+                    rooms={plan.rooms
+                      // A room being taken out gets demolished, not boarded.
+                      .filter(r => r.state !== 'removed')
+                      .map(r => ({
+                        id: r.id, name: r.name,
+                        widthFt: r.widthFt, depthFt: r.depthFt, ceilingFt: r.ceilingFt,
+                      }))}
+                    onAddToScope={lines => setScope(prev => lines.reduce(
+                      (acc, l) => addScopeLine(acc, {
+                        phase: l.phase as any, trade: l.trade, description: l.description,
+                        qty: l.qty, unit: l.unit, basis: l.basis, sku: l.sku,
+                        confidence: prev.walkthroughDone ? 'confirmed' : 'provisional',
+                        origin: 'trade-tool',
+                      }), prev))}
+                  />
+                </PanelErrorBoundary>
+              </div>
             </div>
 
             {/* ── Devices and fixtures ──────────────────────────────────────

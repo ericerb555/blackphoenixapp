@@ -802,6 +802,70 @@ Three multi-line edits silently did not apply because the file is CRLF and the
 patterns used `\n`. Typecheck caught all three. Worth remembering: on this
 repo, script-driven multi-line edits need `\r\n` or the Edit tool.
 
+## Phase 9 — the remaining trades
+
+The listed scope was: gazebo, pergola, tile, sheetrock, framing, foundation,
+roofing, additions as composite, furniture. Surveying first changed what was
+worth building.
+
+### What was already there
+
+`flooringModel` takes floors off properly — materials, tile layouts, waste,
+carpet rolls. `structureModel` already does the engineering for any roofed
+outdoor structure: snow, rafter sizing, beam sizing, post loads. `framingModel`
+came in with Phase 6. So three of the nine were already covered and building
+them again would have produced a second set of numbers to keep in agreement
+with the first.
+
+### What was actually missing — walls and ceilings
+
+Nothing took off the other five surfaces in a room. That is most of a sheetrock
+job and nearly all of a bathroom gut, where the wall tile costs more than the
+floor tile and takes longer to set.
+
+`surfaceTakeoff.ts` — one model, three trades, 59/59 tests. Sheetrock, wall
+tile and paint disagree about materials and agree completely about geometry, so
+three models would be three chances to compute the same square footage
+differently and the one that disagreed would be found by a customer.
+
+**The deductions are the part people get wrong, and they are not the same:**
+
+| | opening deducted | why |
+|---|---|---|
+| Sheetrock | **half** | board is cut around it and only some of the offcut comes back — a full deduction reliably under-orders |
+| Paint | **in full** | there is genuinely nothing there to paint |
+| Wall tile | **only below the tile line** | a window sill above a 48in wainscot takes nothing off |
+
+That third one is why a wainscot cannot reuse the floor logic. Waste comes from
+`flooringModel.LAYOUT_WASTE` rather than a second table — herringbone wastes 15%
+on a wall for the same reason it does on a floor.
+
+### And the vocabulary — gazebos and pergolas
+
+A gazebo is a gable on posts and a pergola is a flat roof with open slats. The
+engineering was already here and works on both without special-casing; what was
+missing was the word. A customer asks for a pergola, not for "a flat-form
+free-standing structure with an open-slat covering", and a design centre that
+cannot take the word cannot take the job.
+
+Six presets — pergola, attached pergola, gazebo, pavilion, carport, porch roof —
+each carrying what makes it that thing rather than another. Applied as a merge,
+so a dimension already set for this site is not thrown away when somebody
+changes what they are calling it. 15/15 tests, including that slats carry less
+load than shingles through the existing snow calculation.
+
+### Deferred, and why
+
+**Foundation, roofing, and additions-as-composite** are each their own phase. A
+real foundation is frost walls and slabs, not the footing calculator that already
+exists; roofing needs its own material and flashing model; an addition is
+framing plus foundation plus roofing plus siding plus systems plus finishes —
+an orchestration of things that must exist first. Half-building four of those
+would have produced four features that each nearly work.
+
+**Furniture** is staging for a render, not construction, and belongs with the
+render pipeline rather than here.
+
 ## Review
 
 (to be completed)
