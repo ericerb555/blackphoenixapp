@@ -115,6 +115,12 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   // Both feed the new command center: what is owed, and what is waiting.
   const [openInvoiceTotal, setOpenInvoiceTotal] = useState(0);
   const [pendingWorkRequests, setPendingWorkRequests] = useState(0);
+  // The summary has always returned this and the screen has always dropped it.
+  // It is a queue of people waiting on an answer, which is exactly the kind of
+  // thing the command center is supposed to surface.
+  const [pendingApplications, setPendingApplications] = useState(0);
+  /** Empty when the numbers loaded. Set when they did not, so zeros can say why. */
+  const [metricsError, setMetricsError] = useState('');
 
   /**
    * Escape hatch to the previous layout. `?classic=1` switches to it and is
@@ -270,8 +276,16 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         setRevenueData(summary.chartData || []); setTotalRevenue(Number(summary.totalRevenue || 0));
         setActiveJobsCount(Number(summary.activeJobsCount || 0)); setCustomersCount(Number(summary.customersCount || 0)); setTeamCount(Number(summary.teamCount || 0));
         setOpenInvoiceTotal(Number(summary.openInvoiceTotal || 0)); setPendingWorkRequests(Number(summary.pendingWorkRequests || 0));
+        setPendingApplications(Number(summary.pendingApplications || 0));
+        setMetricsError('');
         setRevenueTrend(0); setJobsTrend(0); setCustomersTrend(0);
-      } catch (error) { console.error('[Dashboard] Error fetching Command Center metrics:', error); }
+      } catch (error: any) {
+        console.error('[Dashboard] Error fetching Command Center metrics:', error);
+        // Said out loud rather than swallowed. Left silent, a timeout and a
+        // business with no revenue, no jobs and no customers render identically
+        // — and the zeros are the more believable of the two.
+        setMetricsError(error?.message || 'The numbers could not be loaded.');
+      }
     };
     fetchMetrics(); const interval = setInterval(fetchMetrics, 60000); return () => clearInterval(interval);
   }, []);
@@ -658,7 +672,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         tabCategories={tabCategories}
         companyName={companyName}
         companyLogo={companyLogo}
-        companyLogo={companyLogo}
         totalRevenue={totalRevenue}
         revenueTrend={revenueTrend}
         activeJobsCount={activeJobsCount}
@@ -693,8 +706,10 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           customersCount,
           teamCount,
           pendingWorkRequests,
+          pendingApplications,
           chartData: revenueData,
         }}
+        metricsError={metricsError}
       />
     );
   }

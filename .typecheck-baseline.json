@@ -1,5 +1,5 @@
 {
-  "total": 333,
+  "total": 332,
   "byFile": {
     "src/app/App.tsx": 2,
     "src/app/components/AIBidAssistant.tsx": 3,
@@ -64,7 +64,6 @@
     "src/app/pages/ServiceScheduling.tsx": 2,
     "src/app/pages/SubscriptionHub.tsx": 4,
     "src/app/pages/TerritoryApplication.tsx": 2,
-    "src/app/pages/UnifiedDashboard.tsx": 1,
     "src/app/pages/UnifiedPaymentCenter.tsx": 1,
     "src/app/pages/UnifiedProjectPipeline.tsx": 7,
     "src/app/pages/VendorsAdminHub.tsx": 2,
@@ -74,5 +73,6 @@
     "src/app/utils/createTestWorkRequest.ts": 1,
     "src/imports/pasted_text/login-page-1.tsx": 1,
     "src/imports/pasted_text/login-page.tsx": 1
-  }
+  },
+  "note": "333 -> 332: UnifiedDashboard passed companyLogo twice to the mobile dashboard. Found while rebuilding the command center and fixed rather than stepped over."
 }
