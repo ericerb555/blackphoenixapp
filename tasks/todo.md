@@ -910,10 +910,52 @@ has been POSTing to `/ai/analyze-blueprints` since it was written and getting a
 404 every time — a customer uploading blueprints with a work request has never
 had them read. Mounted now.
 
-**Said plainly: it is unmetered.** It falls into the default `user` tier, so a
-session is required, but any signed-in user can spend model tokens on it. The
-image routes in `house-capture` reserve against a budget; this does not. Worth
-fixing, and it is a separate change from this one.
+**It was unmetered.** Fixed straight afterwards — see below.
+
+## The unmetered AI route  (fixed)
+
+The blueprint reader required a session and nothing else, so any signed-in
+customer, vendor, tenant or subcontractor could spend model tokens on it without
+limit. The image routes in `house-capture` already had a ceiling; this had none.
+
+### One ceiling, not two
+
+The spend logic moved out of `house-capture.tsx` into `aiSpend.ts` rather than
+being copied. Two ceilings would be two things to keep in agreement, and the one
+that drifted would be the one nobody was watching. The caller names its bucket;
+each bucket has its own counter and its own limit.
+
+**The render keys are byte-identical to what is already in production.**
+Renaming them would silently reset every customer's usage to zero — not a
+migration, a gift of free renders that nobody notices until the bill. There is a
+test asserting `render_budget:u1` specifically, for that reason.
+
+### Counted per sheet, not per request
+
+Each sheet is a full-detail vision call, so the cost scales with how many are
+sent. Counted individually and capped at 8 per upload, so dropping a forty-page
+set in cannot empty an account in one go.
+
+Reserved **before** the call and refunded if it fails. Charging on success lets
+a burst of parallel requests all pass the same check before any has been
+counted.
+
+### Found on the way
+
+The route built its image payload as `data:image/jpeg;base64,${bp.base64}`,
+assuming one caller's shape. The work-request form sends objects whose `base64`
+may already carry the prefix, and the design centre sends plain data URLs — so
+one of the two would have produced a doubled prefix or the literal string
+`undefined`. Never noticed, because the route was never mounted. Both shapes are
+normalised now.
+
+### Baseline
+
+Server typecheck **97 → 96**. The union-narrowing finding that came with the
+moved code was fixed rather than relocated, and the baseline file records why.
+
+32/32 tests, run against the real module through a hook that stubs the database
+rather than against a copy of it.
 
 ## Review
 

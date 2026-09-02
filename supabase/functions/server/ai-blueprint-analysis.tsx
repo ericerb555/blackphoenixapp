@@ -12,6 +12,8 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { reserve, refund } from './aiSpend.ts';
 
 const aiBlueprintRouter = new Hono();
 
@@ -22,10 +24,44 @@ aiBlueprintRouter.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
+/**
+ * Who is asking.
+ *
+ * The global wall already refuses anyone without a session, so this is not the
+ * gate — it is how the identity reaches the spend ceiling below. A ceiling
+ * counted against nobody is not a ceiling, so a request that gets this far
+ * without a resolvable user is refused rather than waved through as anonymous.
+ */
+aiBlueprintRouter.use('*', async (c, next) => {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  c.set('actor', data.user);
+  await next();
+});
+
 // POST /ai/analyze-blueprints - Comprehensive blueprint analysis
+/**
+ * One upload cannot spend a whole allowance.
+ *
+ * Each sheet is a full-detail vision call, so the cost is per sheet rather than
+ * per request. Without a cap, dropping a forty-page set in would empty an
+ * account in one go and look like a bug rather than a bill.
+ */
+const MAX_SHEETS_PER_READ = 8;
+
 aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
   console.log('[AI Blueprint] Analysis request received');
-  
+
+  // Held outside the try so the catch can give it back. Zero until the
+  // reservation actually succeeds, so a failure before that refunds nothing.
+  let reserved = 0;
+
   try {
     const body = await c.req.json();
     const { blueprints, workRequestId, analysisType = 'comprehensive' } = body;
@@ -37,7 +73,20 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
       }, 400);
     }
 
-    console.log(`[AI Blueprint] Analyzing ${blueprints.length} blueprint(s)`);
+    // A sheet is a full-size vision call at high detail, so the cost scales
+    // with how many are sent rather than with how many requests are made.
+    // Counted per sheet for that reason, and capped so one upload cannot spend
+    // an account's whole allowance by accident.
+    const sheets = Math.min(blueprints.length, MAX_SHEETS_PER_READ);
+    if (blueprints.length > MAX_SHEETS_PER_READ) {
+      return c.json({
+        success: false,
+        error: `That is ${blueprints.length} sheets. Send up to ${MAX_SHEETS_PER_READ} at a time — `
+          + 'each one is a full-detail read and they are counted individually.',
+      }, 400);
+    }
+
+    console.log(`[AI Blueprint] Analyzing ${sheets} blueprint(s)`);
 
     // Get OpenAI API key from environment
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -49,14 +98,45 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
       }, 500);
     }
 
-    // Prepare image content for GPT-4 Vision
-    const imageContent = blueprints.map((bp: any) => ({
-      type: 'image_url',
-      image_url: {
-        url: `data:image/jpeg;base64,${bp.base64}`,
-        detail: 'high' // Request high-detail analysis
-      }
-    }));
+    // Reserved BEFORE the call, refunded if it fails. Charging on success lets
+    // a burst of parallel requests all pass the same check before any of them
+    // has been counted.
+    const refused = await reserve(c.get('actor'), 'blueprint', sheets, 'blueprint reads');
+    if (refused) return c.json({ success: false, ...refused }, 429);
+    reserved = sheets;
+
+    // Prepare image content for GPT-4 Vision.
+    //
+    // Callers disagree about the shape. The work-request form sends
+    // { filename, base64 } where base64 may or may not already carry a data
+    // URL prefix, and the design centre sends plain data URLs. The old code
+    // assumed one of those and would have produced `data:image/jpeg;base64,
+    // undefined` or a doubled prefix for the other — neither of which was ever
+    // noticed, because the route was never mounted.
+    const imageContent = blueprints
+      .map((bp: any) => {
+        const raw = typeof bp === 'string' ? bp : String(bp?.base64 || bp?.url || '');
+        if (!raw) return null;
+        return {
+          type: 'image_url',
+          image_url: {
+            url: raw.startsWith('data:') || raw.startsWith('http')
+              ? raw
+              : `data:image/jpeg;base64,${raw}`,
+            detail: 'high', // Request high-detail analysis
+          },
+        };
+      })
+      .filter(Boolean);
+
+    if (imageContent.length === 0) {
+      await refund(c.get('actor'), 'blueprint', reserved);
+      reserved = 0;
+      return c.json({
+        success: false,
+        error: 'None of those could be read as an image.',
+      }, 400);
+    }
 
     // Create comprehensive analysis prompt
     const prompt = createAnalysisPrompt(analysisType);
@@ -142,6 +222,13 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
 
   } catch (error) {
     console.error('[AI Blueprint] Error during analysis:', error);
+    // Give the allowance back. A read that never produced anything must not be
+    // charged for — this catch covers the OpenAI call and everything after it,
+    // which is every failure path that can happen once the reservation is made.
+    try {
+      if (reserved > 0) await refund(c.get('actor'), 'blueprint', reserved);
+    } catch { /* refunding must never mask the original failure */ }
+
     return c.json({
       success: false,
       error: 'Failed to analyze blueprints',

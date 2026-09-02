@@ -26,6 +26,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
+import { reserve, refund } from "./aiSpend.ts";
 
 const app = new Hono();
 
@@ -56,91 +57,15 @@ app.use("*", requireSignedIn);
 /* ───────────────────────── spend ceiling ───────────────────────── */
 
 /**
- * A ceiling on images, per account.
+ * Moved to `aiSpend.ts`.
  *
- * WHY THIS EXISTS
- *
- * The gate above is `requireSignedIn`, not `requireStaff` — every portal
- * customer, vendor, subcontractor and tenant with an account can reach the
- * render routes. Each image is roughly twenty cents of `gpt-image-1` at high
- * quality and a set of looks is three of them, so an unbounded loop against
- * these routes is simply a bill. Nothing stopped that before this.
- *
- * Counted on the server against the user id from the verified token. A limit
- * the browser enforces is not a limit — the client decides nothing here.
- *
- * Reserved before the call and refunded if it fails, rather than charged on
- * success. Charging afterwards lets a burst of parallel requests all pass the
- * same check before any of them has been counted.
+ * It was written here, worked, and then a second expensive route — the
+ * blueprint reader — needed exactly the same thing. Copying it would have left
+ * two ceilings to keep in agreement, and the one that drifted would be the one
+ * nobody was watching. The keys are unchanged, so live counters carry over.
  */
-const RENDER_LIMIT = 10;
-const budgetKey = (userId: string) => `render_budget:${userId}`;
-const limitKey = (userId: string) => `render_budget_limit:${userId}`;
-
-const STAFF_ROLES = new Set([
-  "admin", "owner", "super_admin", "superadmin", "staff", "employee",
-  "project_manager", "estimator", "office",
-]);
-
-function isStaff(user: any): boolean {
-  // app_metadata only. This gate waives the AI render spend ceiling, so a
-  // self-assigned role here was somebody else spending our money without limit.
-  return STAFF_ROLES.has(trustedRole(user));
-}
-
-/**
- * Take `n` images out of this account's allowance.
- *
- * Returns null when allowed. Returns a response body when refused, worded so
- * somebody who has simply been designing gets a way forward rather than a
- * failure they cannot interpret.
- */
-/**
- * The decision itself, kept pure so the boundary can be tested.
- *
- * Getting this off by one either turns paying customers away a render early or
- * lets every account spend more than intended, and neither is visible by
- * reading it.
- */
-export function budgetDecision(used: number, limit: number, n: number):
-  { allowed: true } | { allowed: false; error: string } {
-  if (used + n <= limit) return { allowed: true };
-  const left = Math.max(0, limit - used);
-  return {
-    allowed: false,
-    error: left === 0
-      ? `You have used all ${limit} of your renders. Get in touch and we will open up some more.`
-      : `That would take ${n} renders and you have ${left} left. Try a single render, or get in touch and we will open up some more.`,
-  };
-}
-
-async function reserveImages(user: any, n: number): Promise<{ error: string; used: number; limit: number } | null> {
-  if (isStaff(user)) return null;
-
-  const id = String(user?.id || "");
-  if (!id) return { error: "Sign in required.", used: 0, limit: 0 };
-
-  // A per-account override, so Eric can lift the ceiling for one customer
-  // without changing it for everybody.
-  const override = Number(await kv.get(limitKey(id))) || 0;
-  const limit = override > 0 ? override : RENDER_LIMIT;
-
-  const used = Number(await kv.get(budgetKey(id))) || 0;
-  const verdict = budgetDecision(used, limit, n);
-  if (!verdict.allowed) return { error: verdict.error, used, limit };
-
-  await kv.set(budgetKey(id), used + n);
-  return null;
-}
-
-/** Give back images that were reserved for a render that never happened. */
-async function refundImages(user: any, n: number): Promise<void> {
-  if (isStaff(user)) return;
-  const id = String(user?.id || "");
-  if (!id) return;
-  const used = Number(await kv.get(budgetKey(id))) || 0;
-  await kv.set(budgetKey(id), Math.max(0, used - n));
-}
+const reserveImages = (user: any, n: number) => reserve(user, "render", n);
+const refundImages = (user: any, n: number) => refund(user, "render", n);
 
 /** Split a data URI into the parts the APIs want. Returns null if unusable. */
 function splitDataUri(uri: string): { mediaType: string; base64: string } | null {
