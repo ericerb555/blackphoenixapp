@@ -48,6 +48,8 @@ import WalkthroughSheet from '../components/WalkthroughSheet';
 import { type Walkthrough, readWalkthrough, BLANK_WALKTHROUGH } from '../lib/walkthroughModel';
 import FramingSubmittalPanel from '../components/FramingSubmittal';
 import { type FramingSubmittal, submittalFromDeck } from '../lib/framingModel';
+import PermitCompliance from '../components/PermitCompliance';
+import { type Proposal } from '../lib/jurisdictionModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -190,6 +192,7 @@ interface Unparked {
   systems?: Placement[];
   walkthrough?: Walkthrough;
   submittal?: FramingSubmittal | null;
+  proposal?: Proposal;
 }
 
 function readUnparked(): Unparked | null {
@@ -234,6 +237,8 @@ interface Session {
   walkthrough: Walkthrough;
   /** The framing submittal, once one has been drawn up. */
   submittal?: FramingSubmittal | null;
+  /** How this design sits on the lot, for the zoning check. */
+  proposal?: Proposal;
   id: string | null;
 }
 
@@ -303,6 +308,7 @@ function DesignerSession({ session, onSession }: {
   const [systems, setSystems] = useState<Placement[]>(session.systems || []);
   const [walkthrough, setWalkthrough] = useState<Walkthrough>(readWalkthrough(session.walkthrough));
   const [submittal, setSubmittal] = useState<FramingSubmittal | null>(session.submittal || null);
+  const [proposal, setProposal] = useState<Proposal>(session.proposal || {});
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -598,7 +604,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -621,7 +627,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, submittal, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, submittal, proposal, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -668,6 +674,7 @@ function DesignerSession({ session, onSession }: {
     setSystems([]);
     setWalkthrough({ ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] });
     setSubmittal(null);
+    setProposal({});
     attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
@@ -675,6 +682,7 @@ function DesignerSession({ session, onSession }: {
     systems: [],
     walkthrough: { ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] },
     submittal: null,
+    proposal: {},
     id: null });
   }, [onSession]);
 
@@ -692,7 +700,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -706,7 +714,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -724,7 +732,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), submittal: u.submittal || null, id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), submittal: u.submittal || null, proposal: u.proposal || {}, id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -786,7 +794,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, ...link,
+              loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -824,7 +832,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, submittal, proposal, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -884,6 +892,8 @@ function DesignerSession({ session, onSession }: {
         walkthrough: readWalkthrough(full.meta.walkthrough),
         submittal: full.meta.submittal && Array.isArray(full.meta.submittal.members)
           ? full.meta.submittal : null,
+        proposal: full.meta.proposal && typeof full.meta.proposal === 'object'
+          ? full.meta.proposal : {},
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1603,6 +1613,17 @@ function DesignerSession({ session, onSession }: {
                 here is adjusted; it is all produced from the design. */}
             <div className={`space-y-4 ${stage === 'documents' ? '' : 'hidden'}`}>
               <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
+
+              {/* ── Against the town ─────────────────────────────────────────
+                  Beside the packet, because a set that is perfect and breaks
+                  the rear setback is a set that comes back. The rules are
+                  Eric's, entered once per town — this never guesses one. */}
+              <PanelErrorBoundary name="Town rules">
+                <PermitCompliance
+                  town={site.town} state={site.state}
+                  proposal={proposal} onProposalChange={setProposal}
+                />
+              </PanelErrorBoundary>
 
               <PanelErrorBoundary name="Connection details">
                 <ConnectionDetails model={model} />

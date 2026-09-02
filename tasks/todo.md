@@ -691,6 +691,70 @@ ignored rather than committed.
 The quote share link's weaknesses above are a separate feature touching customer
 money flows. Named here rather than widened into this change.
 
+## Phase 7 — permits and variances
+
+The open decision is settled: **it asks, never guesses.** A town record Eric
+fills in once, reused on every job there afterwards.
+
+The option not taken was shipping every local ordinance pre-loaded. It works on
+day one and rots in silence — towns amend, a figure right when written is wrong
+after the next town meeting, and nothing announces it. A wrong setback in a
+filed drawing costs a reputation with a building department, and it would be
+his rather than the software's.
+
+### The rule the whole thing turns on
+
+**Unknown is not compliant.** A setback nobody entered reads as *not known*,
+never as a pass — in the type, in the check, and on the screen. That is the
+entire integrity of the choice: the system knows only what somebody told it, so
+its silence has to mean silence rather than approval.
+
+`complianceNote` refuses to read as approval while anything is unchecked:
+*"Nothing broken among the 4 rules that could be checked, but 3 could not be —
+that is not the same as passing."*
+
+And an unknown says **which kind** it is, because the two are fixed by different
+people: *"the rear setback for Salem has not been entered"* against *"nobody has
+measured how far this sits from the rear lot line."*
+
+### Honest about its own age
+
+Every record carries where the figure came from — read off the ordinance,
+confirmed at the counter, told over the phone, or assumed — and when. Past two
+years it says so and suggests a call. A record marked *assumed* says plainly:
+do not file on it.
+
+### Variances
+
+The five statutory tests a New Hampshire board applies, from RSA 674:33 I(b),
+carried verbatim because the board reads them out and takes each in turn. Each
+one also carries what the board is actually weighing, and the hardship test
+carries the trap applications fail on: *a hardship about the owner rather than
+the land does not qualify.*
+
+Relief sought is derived from what actually broke — *"20 ft required, 18 ft
+proposed — 2 ft of relief"* — rather than typed. A one-word answer to a
+criterion is called a fragment, because boards continue applications for that.
+
+`criteriaFor()` returns **null** for any state but NH rather than offering the
+wrong five. That is the same discipline as the rest: better to say we do not
+carry it than to be confidently wrong.
+
+- [x] `jurisdictionModel.ts` — 55/55 tests.
+- [x] `jurisdictions.tsx` — the record, staff-only, stored per company so the
+      twenty minutes on Salem repays itself on every Salem job.
+- [x] `PermitCompliance.tsx` — beside the permit packet in the documents stage.
+
+### Note
+
+`formsUrl` is restricted to http and https on the server. It is a link the whole
+company clicks, and a `javascript:` scheme stored in a shared field executes for
+other people.
+
+Three multi-line edits silently did not apply because the file is CRLF and the
+patterns used `\n`. Typecheck caught all three. Worth remembering: on this
+repo, script-driven multi-line edits need `\r\n` or the Edit tool.
+
 ## Review
 
 (to be completed)

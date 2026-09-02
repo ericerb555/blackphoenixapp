@@ -164,6 +164,7 @@ import { getAllStagedProducts, getStagingStats, getStagedCategories, importProdu
 import { trustedRole } from "./trustedRole.ts";
 import bidIntakeRouter from "./bid-intake.tsx";
 import architectReviewRouter from "./architect-review.tsx";
+import jurisdictionsRouter from "./jurisdictions.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
   loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
@@ -501,6 +502,7 @@ app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
 app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
 app.route("/make-server-3eae23a6/architect-review", architectReviewRouter);
+app.route("/make-server-3eae23a6/jurisdictions", jurisdictionsRouter);
 app.route("/make-server-3eae23a6/design-links", designLinksRouter);
 app.route("/make-server-3eae23a6/design-assistant", designAssistantRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
