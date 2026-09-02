@@ -419,11 +419,22 @@ export function summarise(scope: Scope): ScopeSummary {
 }
 
 /**
- * Confirm everything a walkthrough settled.
+ * Confirm every line at once.
  *
- * All at once rather than line by line, because the walk is one event: somebody
- * stood in the room and looked. Lines added afterwards start provisional again,
- * which is correct — they were not there when anyone looked.
+ * SUPERSEDED — see `walkthroughModel.applyWalkthrough`.
+ *
+ * The reasoning here used to be that the walk is one event: somebody stood in
+ * the room and looked. That is true about the visit and false about the
+ * measuring. Nobody puts a tape on forty lines, and standing in a kitchen
+ * teaches you nothing about the joist spacing under the floor — so this
+ * promoted estimates to measurements wholesale, which is the exact failure the
+ * confidence field at the top of this file exists to prevent.
+ *
+ * The walkthrough sheet now settles lines individually and records whether each
+ * figure came off a tape or off a photograph. This is kept because it is a
+ * legitimate bulk operation on a scope somebody has genuinely been through, and
+ * removing it would break any caller that has not moved yet — but it should not
+ * be reached for by new code.
  */
 export function confirmAll(scope: Scope): Scope {
   return {

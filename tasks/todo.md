@@ -505,6 +505,100 @@ Production currently has 001–006 and 011. Any new migration goes to a branch
 first, RLS gets verified there — including that a provider invited to one
 request cannot read another's lines — and only then to production.
 
+## Phase 5 — the walkthrough
+
+### Why this matters more than it looks
+
+`scopeModel`'s own header says it: *"A figure worked out at the desk and one
+confirmed on site are both useful, and letting them look the same is how an
+indicative number becomes a fixed price."* The confidence field exists to keep
+them apart.
+
+Then `confirmAll()` marks every line confirmed with one click, defending itself
+on the grounds that *"the walk is one event: somebody stood in the room and
+looked."* That is true about the visit and false about the measuring. Nobody
+measures forty lines. Standing in a kitchen tells you the cabinet run and
+teaches you nothing about the joist spacing under the floor, and a button that
+promotes both is the exact failure the field was added to prevent.
+
+So the walk stops being a checkbox and becomes a sheet.
+
+### What a walkthrough is actually for
+
+Three things happen on site, and only the first is about numbers:
+
+1. **Confirming or correcting quantities** that could only be estimated from
+   photographs.
+2. **Finding what was not there to see** — the surprise behind the wall. This is
+   the real reason to go, and a screen that can only tick off things already
+   listed cannot capture it.
+3. **Recording conditions that cost money and are not quantities** — access,
+   parking, stairs with no lift, an occupied house, working hours, pets, where
+   the panel is. These are what a subcontractor pads for when nobody tells him.
+
+### What it feeds
+
+- **The scope** — per line, provisional becomes confirmed, carrying what was
+  actually measured rather than a flag.
+- **The bid packages** — a package sent before the walk is marked provisional on
+  the sub's copy; after it, confirmed, and he can price tight instead of
+  guessing. Already wired: 012 carries `confidence` per line.
+- **A bid already returned** — if a quantity changes *after* a subcontractor has
+  priced it, his number was for a different job. That has to be said out loud,
+  not absorbed.
+- **The quote** — built on confirmed quantities it is a price; on provisional
+  ones it is an estimate. `confidenceNote` already draws that line.
+
+### Todo
+
+- [x] 1. `walkthroughModel.ts` — 40/40 tests.
+- [x] 2. Per-line confirmation carrying the measured figure.
+- [x] 3. Discoveries — a line added on site, arriving already confirmed.
+- [x] 4. Warn when a correction moves a quantity a sub already bid against.
+- [x] 5. Site conditions, carried onto the bid packages.
+
+### Three verdicts, not two
+
+The distinction that keeps this honest:
+
+| | what it claims | what happens to the line |
+|---|---|---|
+| **Measured** | a tape went on it | quantity can change, confirmed, basis says *measured on site* |
+| **Looked, agreed** | content with the desk figure without measuring | confirmed, number unchanged, basis says *accepted without measuring* |
+| **Not looked at** | nobody was there | untouched — still provisional, because it still is |
+
+The middle one is the point. It is a real confirmation and a different claim
+from a measurement, and six weeks later the basis on the line says which. The
+old single button collapsed all three.
+
+`confirmAll()` is kept and marked superseded rather than deleted, so nothing
+that has not moved over breaks. The "mark the rest as looked at and agreed"
+link does what the old button did, honestly labelled.
+
+### What a correction does downstream
+
+If a measured quantity moves on a line that already carries a returned bid, the
+sheet says so in red and names the difference per line: *"Frame wall 100 → 130
+(+30)"*, with *his price was for a different job — settle it with him rather
+than absorbing it.* Lines nobody has priced can change freely and raise nothing.
+
+### Conditions travel
+
+Twelve of them, each carrying why it costs money. They are appended to the bid
+request description, so a subcontractor is told about the missing parking and
+the full panel instead of discovering them on the first morning and padding
+every job afterwards.
+
+### Persistence
+
+`walkthrough` is threaded through all three save paths, all three dependency
+arrays, the reset, the unpark-restore and the project open — read tolerantly,
+so a project saved before this existed still opens.
+
+Typecheck caught five errors while wiring that up: the field added to the wrong
+interface, then three session constructors missing it. Every one of them would
+have compiled fine and thrown at runtime.
+
 ## Review
 
 (to be completed)

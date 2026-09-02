@@ -36,6 +36,7 @@ import {
   tradeLabel, isSendable,
 } from '../lib/bidPackageModel';
 import { phaseOf } from '../lib/scopeModel';
+import { conditionsNote } from '../lib/walkthroughModel';
 import type { Scope } from '../lib/scopeModel';
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
@@ -43,10 +44,12 @@ const input = 'px-2.5 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg tex
 
 interface AdminOrg { id: string; name: string }
 
-export default function BidPackagePanel({ scope, jobTitle, siteAddress, designProjectId }: {
+export default function BidPackagePanel({ scope, jobTitle, siteAddress, designProjectId, conditionIds }: {
   scope: Scope;
   jobTitle?: string;
   siteAddress?: string;
+  /** From the walkthrough. Costs he would otherwise price as risk. */
+  conditionIds?: string[];
   /** Carried onto the request so a returned price can find its way home. */
   designProjectId?: string;
 }) {
@@ -99,7 +102,10 @@ export default function BidPackagePanel({ scope, jobTitle, siteAddress, designPr
         title: packageTitle(pkg, jobTitle),
         trade: pkg.trade,
         // The prose, not the lines. The lines are rows, so he can price them.
-        description: sequencingNote(pkg),
+        // The conditions ride along because every one of them is a cost he
+        // would otherwise meet on the first morning and pad for ever after.
+        description: [sequencingNote(pkg), conditionsNote(conditionIds || [])]
+          .filter(Boolean).join('\n\n'),
         site_address: site.trim() || null,
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
         // Draft on purpose. Nothing reaches a provider until somebody opens it
@@ -143,7 +149,7 @@ export default function BidPackagePanel({ scope, jobTitle, siteAddress, designPr
     } finally {
       setBusy(null);
     }
-  }, [orgId, ctx, jobTitle, site, dueAt, designProjectId]);
+  }, [orgId, ctx, jobTitle, site, dueAt, designProjectId, conditionIds]);
 
   if (!packages.length) return null;
 

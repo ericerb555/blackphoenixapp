@@ -44,6 +44,8 @@ import { type FloorPlan, BLANK_PLAN } from '../lib/floorPlanModel';
 import SystemsLayer from '../components/SystemsLayer';
 import type { Placement } from '../lib/systemsModel';
 import { type Scope, BLANK_SCOPE, addLine as addScopeLine } from '../lib/scopeModel';
+import WalkthroughSheet from '../components/WalkthroughSheet';
+import { type Walkthrough, readWalkthrough, BLANK_WALKTHROUGH } from '../lib/walkthroughModel';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
 import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
@@ -184,6 +186,7 @@ interface Unparked {
   scope?: Scope;
   plan?: FloorPlan;
   systems?: Placement[];
+  walkthrough?: Walkthrough;
 }
 
 function readUnparked(): Unparked | null {
@@ -224,6 +227,8 @@ interface Session {
   plan: FloorPlan;
   /** Devices and fixtures over that plan, existing and proposed. */
   systems: Placement[];
+  /** What standing in the building settled, and what it did not. */
+  walkthrough: Walkthrough;
   id: string | null;
 }
 
@@ -291,6 +296,7 @@ function DesignerSession({ session, onSession }: {
   const [scope, setScope] = useState<Scope>(session.scope || { ...BLANK_SCOPE, lines: [] });
   const [plan, setPlan] = useState<FloorPlan>(session.plan || { ...BLANK_PLAN, rooms: [], walls: [] });
   const [systems, setSystems] = useState<Placement[]>(session.systems || []);
+  const [walkthrough, setWalkthrough] = useState<Walkthrough>(readWalkthrough(session.walkthrough));
 
   /**
    * Take the address from the job the design is attached to, but never quietly
@@ -586,7 +592,7 @@ function DesignerSession({ session, onSession }: {
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
           // depend on where it is.
-          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, ...link },
+          meta: { kind: 'deck', model, site, loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link },
           note: savedId ? 'Updated' : 'Created',
         }),
       });
@@ -609,7 +615,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, bom, loads, link, house, scope, plan, systems, savedId, loadList, attachPendingPhotos]);
+  }, [site, model, bom, loads, link, house, scope, plan, systems, walkthrough, savedId, loadList, attachPendingPhotos]);
 
   /**
    * File the current work as its own project, then clear the desk.
@@ -654,11 +660,14 @@ function DesignerSession({ session, onSession }: {
     setScope({ ...BLANK_SCOPE, lines: [] });
     setPlan({ ...BLANK_PLAN, rooms: [], walls: [] });
     setSystems([]);
+    setWalkthrough({ ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] });
     attachedPhotos.current = new Set();
     onSession({ model: { ...BLANK_DECK }, site: { ...EMPTY_SITE }, loads: { ...DEFAULT_SITE_LOADS }, link: { ...NO_LINK }, house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
     plan: { ...BLANK_PLAN, rooms: [], walls: [] },
-    systems: [], id: null });
+    systems: [],
+    walkthrough: { ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] },
+    id: null });
   }, [onSession]);
 
   const saveAsNew = useCallback(async () => {
@@ -675,7 +684,7 @@ function DesignerSession({ session, onSession }: {
           // one currently open.
           ownerKey: DESIGN_OWNER_KEY,
           name: name.trim(),
-          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, ...link },
+          meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link },
           note: 'Saved as a new project',
         }),
       });
@@ -689,7 +698,7 @@ function DesignerSession({ session, onSession }: {
     } finally {
       setSaving(false);
     }
-  }, [site, model, loads, bom, link, house, scope, plan, systems, loadList, hardReset]);
+  }, [site, model, loads, bom, link, house, scope, plan, systems, walkthrough, loadList, hardReset]);
 
   const snapshot = useCallback(
     () => JSON.stringify({ model, site, loads }),
@@ -707,7 +716,7 @@ function DesignerSession({ session, onSession }: {
     const u = readUnparked();
     if (!u) { setUnparked(null); return; }
     clearUnparked();
-    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], id: null });
+    onSession({ model: u.model, site: u.site, loads: u.loads, link: u.link, house: u.house || { ...BLANK_HOUSE, views: [] }, scope: u.scope || { ...BLANK_SCOPE, lines: [] }, plan: u.plan || { ...BLANK_PLAN, rooms: [], walls: [] }, systems: u.systems || [], walkthrough: readWalkthrough(u.walkthrough), id: null });
     toast.success(`Restored “${u.name}”. It is unsaved — save it to file it.`);
   }, [onSession]);
 
@@ -769,7 +778,7 @@ function DesignerSession({ session, onSession }: {
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
-              loads, takeoff: bom, house, scope, plan, systems, ...link,
+              loads, takeoff: bom, house, scope, plan, systems, walkthrough, ...link,
             },
             note: savedId ? 'Saved on starting a new deck' : 'Parked on starting a new deck',
           }),
@@ -807,7 +816,7 @@ function DesignerSession({ session, onSession }: {
 
     hardReset();
     toast.success('New deck started.');
-  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, savedId, hardReset, loadList]);
+  }, [snapshot, site, model, loads, bom, link, house, scope, plan, systems, walkthrough, savedId, hardReset, loadList]);
 
   /**
    * Open a saved deck.
@@ -863,6 +872,8 @@ function DesignerSession({ session, onSession }: {
           ? full.meta.plan
           : { ...BLANK_PLAN, rooms: [], walls: [] },
         systems: Array.isArray(full.meta.systems) ? full.meta.systems : [],
+        // Tolerant, so a project saved before the walkthrough existed still opens.
+        walkthrough: readWalkthrough(full.meta.walkthrough),
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -1398,8 +1409,24 @@ function DesignerSession({ session, onSession }: {
                   serviceType={trade}
                   siteAddress={[site.address, site.town, site.state]
                     .map(s => String(s || '').trim()).filter(Boolean).join(', ')}
-                  designProjectId={savedId || undefined} />
+                  designProjectId={savedId || undefined}
+                  conditionIds={walkthrough.conditionIds} />
               </PanelErrorBoundary>
+
+              {/* ── The walkthrough ──────────────────────────────────────────
+                  Sits under the scope because it is what the scope is checked
+                  against: the sheet is derived from the lines, and writing it
+                  back is what turns an estimate into a price. */}
+              <div className="mt-4">
+                <PanelErrorBoundary name="Walkthrough">
+                  <WalkthroughSheet
+                    scope={scope}
+                    walkthrough={walkthrough}
+                    onChange={setWalkthrough}
+                    onApply={setScope}
+                  />
+                </PanelErrorBoundary>
+              </div>
             </div>
 
             {/* ── The house ─────────────────────────────────────────────────
@@ -1645,6 +1672,7 @@ export default function DeckDesigner() {
     site: { ...EMPTY_SITE },
     loads: { ...DEFAULT_SITE_LOADS },
     link: { ...NO_LINK },
+    walkthrough: { ...BLANK_WALKTHROUGH, checks: [], conditionIds: [] },
     house: { ...BLANK_HOUSE, views: [] },
     scope: { ...BLANK_SCOPE, lines: [] },
     plan: { ...BLANK_PLAN, rooms: [], walls: [] },

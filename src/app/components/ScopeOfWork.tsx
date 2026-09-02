@@ -27,7 +27,7 @@ import {
 import {
   type Scope, type ScopeLine, type PhaseId, type Confidence,
   PHASES, TASKS, JOB_STANDARDS, BLANK_SCOPE,
-  addLine, byPhase, findGaps, summarise, confirmAll, confidenceNote,
+  addLine, byPhase, findGaps, summarise, confidenceNote,
   consumablesFor, hoursFor, taskById, phaseOf,
 } from '../lib/scopeModel';
 import { STARTERS, linesFromStarter, starterFor } from '../lib/scopeStarters';
@@ -39,7 +39,7 @@ const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
 
 export default function ScopeOfWork({
-  scope, onChange, jobTitle, serviceType, siteAddress, designProjectId,
+  scope, onChange, jobTitle, serviceType, siteAddress, designProjectId, conditionIds,
 }: {
   scope: Scope;
   onChange: (s: Scope) => void;
@@ -50,6 +50,8 @@ export default function ScopeOfWork({
   siteAddress?: string;
   /** Carried onto a bid request so a returned price finds its way home. */
   designProjectId?: string;
+  /** Site conditions from the walkthrough, sent with every bid package. */
+  conditionIds?: string[];
 }) {
   const suggested = starterFor(serviceType, jobTitle);
   const [taskId, setTaskId] = useState(TASKS[0].id);
@@ -136,12 +138,17 @@ export default function ScopeOfWork({
           <Stat l="Trades" v={String(s.trades.length)} sub={s.trades.slice(0, 2).join(', ')} />
         </div>
 
+        {/* This used to be a button that confirmed every line at once. It was
+            wrong in the way this file's own header warns about: nobody measures
+            forty lines, and promoting them all made an estimate look like a
+            measurement. The walkthrough sheet below does it per line, and
+            records whether a figure came off a tape or off a photograph. */}
         {s.lines > 0 && !scope.walkthroughDone && (
-          <button onClick={() => onChange(confirmAll(scope))}
-            className="mt-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
-            style={{ background: '#ea580c' }}>
-            <MapPin className="w-4 h-4" /> I have walked the job — confirm these quantities
-          </button>
+          <p className="mt-3 text-[11px] text-amber-200/80 flex items-start gap-1.5">
+            <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            Not walked. Every quantity here came off photographs — use the walkthrough
+            sheet below to settle them line by line.
+          </p>
         )}
         {scope.walkthroughDone && (
           <p className="mt-3 text-[11px] text-emerald-300/90 flex items-center gap-1.5">
@@ -352,6 +359,7 @@ export default function ScopeOfWork({
         jobTitle={jobTitle}
         siteAddress={siteAddress}
         designProjectId={designProjectId}
+        conditionIds={conditionIds}
       />
 
       {/* ── a bid we awarded, coming home ──
