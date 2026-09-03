@@ -191,12 +191,37 @@ if (!wantAll) {
 
 const all = [];
 
+/**
+ * Run a batch, and give a silent one a second chance before condemning it.
+ *
+ * WHY THE RETRY IS NOT LAZINESS
+ *
+ * A page that renders on the second attempt was never broken — it lost a race.
+ * Browser start-up, software-rendered WebGL and a page that polls on a timer
+ * all land differently run to run, and a single missed deadline is not evidence
+ * of a defect.
+ *
+ * This has now produced two false alarms in one sitting. The clearest was
+ * `admin-dashboard` reported as hung while `owners-dashboard` passed in the
+ * same run — they are the same component behind two route names, so the page
+ * plainly rendered. A check that cries wolf gets ignored, and an ignored check
+ * is worse than no check, because it still costs the time to run.
+ *
+ * A genuinely broken page fails twice and is still reported.
+ */
+async function runBatchWithRetry(from, to, only) {
+  const first = await runBatch(from, to, only);
+  if (first) return first;
+  process.stdout.write(' (retrying)');
+  return runBatch(from, to, only);
+}
+
 if (targets) {
   for (let i = 0; i < targets.length; i += BATCH) {
     const chunk = targets.slice(i, i + BATCH);
-    const r = await runBatch(0, 0, chunk);
+    const r = await runBatchWithRetry(0, 0, chunk);
     if (r) all.push(...r.results);
-    else all.push(...chunk.map((name) => ({ name, status: 'hung', error: 'never reported' })));
+    else all.push(...chunk.map((name) => ({ name, status: 'hung', error: 'never reported, twice' })));
   }
 } else {
   const first = await runBatch(0, BATCH);
@@ -210,12 +235,45 @@ if (targets) {
   process.stdout.write(`  1..${Math.min(BATCH, total)}`);
   for (let from = BATCH; from < total; from += BATCH) {
     const to = Math.min(from + BATCH, total);
-    const r = await runBatch(from, to);
+    const r = await runBatchWithRetry(from, to);
     if (r) all.push(...r.results);
-    else all.push({ name: `pages ${from}-${to}`, status: 'hung', error: 'the batch never reported' });
+    else all.push({ name: `pages ${from}-${to}`, status: 'hung', error: 'the batch never reported, twice' });
     process.stdout.write(`  ${from + 1}..${to}`);
   }
   console.log('');
+}
+
+/**
+ * Retry the pages that went quiet, one browser each.
+ *
+ * A batch can come back having heard from most of its pages and not from one or
+ * two. Those are usually the heavy ones — WebGL under software rendering — or
+ * ones that poll on a timer, and they were starved by whatever else was
+ * mounted alongside them rather than being broken.
+ *
+ * Alone, with the whole browser to themselves, they render. `admin-dashboard`
+ * was reported hung in the same run that `owners-dashboard` passed, and those
+ * are the same component behind two route names — so the page plainly worked
+ * and the harness was the thing at fault.
+ *
+ * Anything still silent after a run of its own is reported, and is worth
+ * looking at.
+ */
+const quiet = all.filter((r) => r.status === 'hung' && !/^pages /.test(r.name));
+if (quiet.length) {
+  console.log(`\nRetrying ${quiet.length} quiet page(s), one at a time…`);
+  for (const row of quiet) {
+    const r = await runBatch(0, 0, [row.name]);
+    const fresh = r?.results?.find((x) => x.name === row.name);
+    if (fresh && fresh.status !== 'hung') {
+      row.status = fresh.status;
+      row.error = fresh.error;
+      console.log(`  ${row.name} → ${fresh.status} on its own`);
+    } else {
+      row.error = 'never reported, even alone';
+      console.log(`  ${row.name} → still silent`);
+    }
+  }
 }
 
 const threw = all.filter((r) => r.status === 'threw');
