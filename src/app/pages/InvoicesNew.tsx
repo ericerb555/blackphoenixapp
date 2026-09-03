@@ -247,7 +247,7 @@ export default function InvoicesNew() {
 
   /** Settled, void or never issued — nothing to record against either way. */
   const SETTLED = ['paid', 'completed', 'cancelled', 'void', 'refunded', 'draft'];
-  const canRecordPayment = (invoice: any) =>
+  const hasOutstanding = (invoice: any) =>
     !SETTLED.includes(String(invoice.status || '').toLowerCase())
     && outstandingOn(invoice) > 0;
 
@@ -729,7 +729,7 @@ export default function InvoicesNew() {
                 {/* Actions */}
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={(e) => handleViewInvoice(invoice, e)} className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-600/10 hover:bg-orange-600/20 rounded-lg text-orange-400 text-sm font-semibold transition border border-orange-500/20"><Eye className="w-4 h-4" /> View</button>
-                  {isOwner ? <button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"><Edit2 className="w-4 h-4" /> Edit</button> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="grid grid-cols-2 gap-2"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="flex items-center justify-center gap-1 px-2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold transition"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH bank</button></div> : <span className="flex items-center justify-center rounded-lg border border-white/10 text-sm text-gray-400">{invoice.status === 'paid' ? 'Paid' : 'No payment due'}</span>}
+                  {isOwner ? <button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"><Edit2 className="w-4 h-4" /> Edit</button> : hasOutstanding(invoice) ? <div className="grid grid-cols-2 gap-2"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="flex items-center justify-center gap-1 px-2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white text-xs font-bold transition"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH bank</button></div> : <span className="flex items-center justify-center rounded-lg border border-white/10 text-sm text-gray-400">{invoice.status === 'paid' ? 'Paid' : 'No payment due'}</span>}
                   {/*
                     Recording a check or cash. Only for staff, only where money
                     is genuinely still outstanding — worked out the way the
@@ -740,13 +740,13 @@ export default function InvoicesNew() {
                     without a balance_due field was chased everywhere and could
                     be settled nowhere.
                   */}
-                  {isOwner && canRecordPayment(invoice) && (
+                  {isOwner && hasOutstanding(invoice) && (
                     <button onClick={(e) => openRecordPayment(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 rounded-lg text-emerald-400 text-sm font-semibold transition border border-emerald-500/20">
                       <DollarSign className="w-4 h-4" /> Record check or cash
                     </button>
                   )}
                   {isOwner && <button onClick={(e) => handleDeleteClick(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 px-3 py-2 bg-red-600/10 hover:bg-red-600/20 rounded-lg text-red-400 text-sm font-semibold transition border border-red-500/20"><Trash2 className="w-4 h-4" /> Delete</button>}
-                  {!isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && <button onClick={(e) => openStellarInstructions(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/35 px-3 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/10"><Wallet className="w-4 h-4" /> Pay with Stellar</button>}
+                  {!isOwner && hasOutstanding(invoice) && <button onClick={(e) => openStellarInstructions(invoice, e)} className="col-span-2 flex items-center justify-center gap-2 rounded-lg border border-cyan-500/35 px-3 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/10"><Wallet className="w-4 h-4" /> Pay with Stellar</button>}
                 </div>
               </div>
             );
@@ -861,8 +861,8 @@ export default function InvoicesNew() {
                   >
                     <Eye className="w-4 h-4 text-orange-400" />
                   </button>
-                  {isOwner ? <><button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="p-2 hover:bg-blue-600/10 rounded-lg transition border border-transparent hover:border-blue-500/20" title="Edit invoice"><Edit2 className="w-4 h-4 text-blue-400" /></button><button onClick={(e) => { e.stopPropagation(); handleDeleteClick(invoice, e); }} className="p-2 hover:bg-red-600/10 rounded-lg transition border border-transparent hover:border-red-500/20" title="Delete invoice"><Trash2 className="w-4 h-4 text-red-400" /></button></> : ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 ? <div className="flex gap-1"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH</button></div> : null}
-                  {!isOwner && ['pending', 'overdue', 'partial', 'sent'].includes(invoice.status) && invoice.balance_due > 0 && <button onClick={(e) => openStellarInstructions(invoice, e)} className="rounded-lg border border-cyan-500/35 px-2 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/10" title="Pay with Stellar"><Wallet className="w-4 h-4" /></button>}
+                  {isOwner ? <><button onClick={(e) => { e.stopPropagation(); setInvoiceToEdit(invoice); setShowCreateModal(true); }} className="p-2 hover:bg-blue-600/10 rounded-lg transition border border-transparent hover:border-blue-500/20" title="Edit invoice"><Edit2 className="w-4 h-4 text-blue-400" /></button><button onClick={(e) => { e.stopPropagation(); handleDeleteClick(invoice, e); }} className="p-2 hover:bg-red-600/10 rounded-lg transition border border-transparent hover:border-red-500/20" title="Delete invoice"><Trash2 className="w-4 h-4 text-red-400" /></button></> : hasOutstanding(invoice) ? <div className="flex gap-1"><button onClick={(e) => handlePayInvoice(invoice, e, 'card')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500"><CreditCard className="w-4 h-4" /> Card</button><button onClick={(e) => handlePayInvoice(invoice, e, 'us_bank_account')} className="rounded-lg border border-emerald-500/40 px-2 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/10">ACH</button></div> : null}
+                  {!isOwner && hasOutstanding(invoice) && <button onClick={(e) => openStellarInstructions(invoice, e)} className="rounded-lg border border-cyan-500/35 px-2 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/10" title="Pay with Stellar"><Wallet className="w-4 h-4" /></button>}
                 </div>
               ),
               align: 'right',
@@ -889,7 +889,7 @@ export default function InvoicesNew() {
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">Record a payment</p>
                 <h2 className="mt-1 text-xl font-bold">Invoice {payingInvoice.invoice_number}</h2>
                 <p className="mt-1 text-sm text-gray-400">
-                  ${Number(payingInvoice.balance_due || 0).toFixed(2)} outstanding
+                  ${outstandingOn(payingInvoice).toFixed(2)} outstanding
                 </p>
               </div>
               <button onClick={() => setPayingInvoice(null)} className="text-gray-400 hover:text-white">
