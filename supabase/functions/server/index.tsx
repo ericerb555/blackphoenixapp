@@ -123,10 +123,25 @@ function computeShipping(subtotal: number, cfg: { enabled: boolean; threshold: n
   if (cfg.enabled && subtotal >= cfg.threshold) return 0;
   return cfg.flatRate;
 }
+/**
+ * What one unit of a product actually costs, according to us.
+ *
+ * The first two keys are the live catalogue: `ecommerce-products.tsx` serves
+ * the storefront from `product_` and `live_product_`, and this has always
+ * matched it. `store_product:` is included for completeness — a shadowed pair
+ * of routes further down this file reads and writes that prefix, and nothing in
+ * production has ever used it. Cheap insurance if that path is ever revived,
+ * and not a gap that was ever open.
+ */
 async function authoritativeUnitPrice(id: string): Promise<number | null> {
-  const product = (await kv.get(`product_${id}`)) || (await kv.get(`live_product_${id}`));
+  const product = (await kv.get(`store_product:${id}`))
+    || (await kv.get(`product_${id}`))
+    || (await kv.get(`live_product_${id}`));
   if (!product) return null;
-  const price = pricingMoney((product as any).price ?? (product as any).retailPrice);
+  const p = product as any;
+  const price = pricingMoney(
+    p.price ?? p.retailPrice ?? p.salePrice ?? p.unitPrice ?? p.amount,
+  );
   return price > 0 ? price : null;
 }
 import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
@@ -10860,6 +10875,41 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
 });
 
 
+/**
+ * What a quote actually comes to, read off the quote itself.
+ *
+ * Quotes are stored as whatever the screen that built them sent, and different
+ * screens have used different names for the same figure over time. So the
+ * spellings are tried in order, and when none of them is there the parts are
+ * added up instead — materials plus labour plus tax is the same arithmetic the
+ * quote screen does, so a quote with subtotals and no stored total still yields
+ * a number rather than a null.
+ *
+ * Returns null when there is genuinely nothing to work from. A caller that gets
+ * null must refuse rather than substitute zero: a contract for nothing and a
+ * contract nobody priced are different, and only one of them is safe to send.
+ */
+export function quoteTotal(quote: any): number | null {
+  const named = [
+    quote?.totalCost, quote?.total_amount, quote?.totalAmount,
+    quote?.grandTotal, quote?.total, quote?.quoteTotal,
+  ];
+  for (const v of named) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return Math.round(n * 100) / 100;
+  }
+
+  const parts = [quote?.materialsSubtotal, quote?.laborSubtotal, quote?.taxAmount]
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n));
+  if (parts.length) {
+    const summed = parts.reduce((a, b) => a + b, 0);
+    if (summed > 0) return Math.round(summed * 100) / 100;
+  }
+
+  return null;
+}
+
 app.post('/make-server-3eae23a6/quotes/:id/convert-to-contract', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
@@ -10868,7 +10918,26 @@ app.post('/make-server-3eae23a6/quotes/:id/convert-to-contract', async (c) => {
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
     const body = await c.req.json().catch(() => ({}));
     const id = crypto.randomUUID();
-    const contract = { id, quoteId: quote.id, planId: body.planId || quote.planId || null, customerId: quote.customerId || null, customerEmail: quote.clientEmail || body.customerEmail || null, clientEmail: quote.clientEmail || body.customerEmail || null, clientName: quote.clientName || body.clientName || null, title: body.title || quote.number || 'Service Contract', amount: body.amount ?? quote.total ?? quote.grandTotal ?? null, terms: body.terms || quote.notes || '', status: 'pending_signature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: user.email };
+
+    // The contract amount comes from the quote this server holds, never from
+    // the request.
+    //
+    // It used to read `body.amount ?? quote.total ?? quote.grandTotal ?? null`,
+    // which was wrong twice over. It preferred a figure the caller supplied —
+    // the one thing a money field must never do — and both of its own fallbacks
+    // name fields a quote does not have. A quote's total is `totalCost`. So
+    // when the caller sent nothing the contract was written with a null amount,
+    // silently, and it only ever looked correct because the browser happened to
+    // send the right number.
+    const amount = quoteTotal(quote);
+    if (amount === null) {
+      return c.json({
+        success: false,
+        error: 'That quote has no total, so there is nothing to put on a contract. Price it first.',
+      }, 400);
+    }
+
+    const contract = { id, quoteId: quote.id, planId: body.planId || quote.planId || null, customerId: quote.customerId || null, customerEmail: quote.clientEmail || body.customerEmail || null, clientEmail: quote.clientEmail || body.customerEmail || null, clientName: quote.clientName || body.clientName || null, title: body.title || quote.number || 'Service Contract', amount, terms: body.terms || quote.notes || '', status: 'pending_signature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: user.email };
     await kv.set(`contract:${id}`, contract);
     await kv.set(`quote:${quote.id}`, { ...quote, contractId: id, status: 'sent', updatedAt: new Date().toISOString() });
     return c.json({ success: true, contract }, 201);
@@ -11352,14 +11421,40 @@ app.post('/make-server-3eae23a6/store/checkout', async (c) => {
     const customer = body.customer || {}; const email = String(customer.email || '').trim().toLowerCase();
     if (!email || !String(customer.name || '').trim() || !String(customer.address || '').trim()) return c.json({ error: 'Name, email, and shipping address are required.' }, 400);
     // SERVER-AUTHORITATIVE PRICING — never trust client-supplied prices, shipping, or tax.
-    // Unit prices are looked up from the product record in KV; we only fall back to the
-    // posted price when the product can't be found (e.g. legacy/removed item).
-    const items = await Promise.all(body.items.map(async (item: any) => {
+    //
+    // An item we cannot price is REFUSED, not priced by the buyer.
+    //
+    // The lookup has always covered the live catalogue, so this was not an open
+    // hole. But the previous version fell back to the posted price "for legacy
+    // or removed items", and that fallback is reachable by anyone who sends an
+    // id we do not recognise — which makes the price a field the shopper can
+    // fill in. It only stayed harmless because every real id resolved.
+    //
+    // Refusing is also the honest answer. If we cannot say what something
+    // costs, we are not ready to sell it.
+    const priced = await Promise.all(body.items.map(async (item: any) => {
       const id = String(item.id);
-      const authoritative = await authoritativeUnitPrice(id);
-      const price = authoritative !== null ? authoritative : Math.max(0, pricingMoney(item.price));
-      return { id, name: String(item.name), price, qty: Math.max(1, Number(item.qty || item.quantity || 1)), image: isUrl(item.image) ? item.image : '' };
+      const price = await authoritativeUnitPrice(id);
+      return {
+        id,
+        name: String(item.name),
+        price,
+        qty: Math.max(1, Number(item.qty || item.quantity || 1)),
+        image: isUrl(item.image) ? item.image : '',
+      };
     }));
+
+    const unpriceable = priced.filter((i) => i.price === null);
+    if (unpriceable.length) {
+      return c.json({
+        error: unpriceable.length === 1
+          ? `“${unpriceable[0].name}” is no longer available. Remove it and try again.`
+          : `${unpriceable.length} items in your cart are no longer available. Remove them and try again.`,
+        unavailable: unpriceable.map((i) => i.id),
+      }, 409);
+    }
+
+    const items = priced as Array<{ id: string; name: string; price: number; qty: number; image: string }>;
     const subtotal = money(items.reduce((sum: number, item: any) => sum + item.price * item.qty, 0));
     // Shipping recomputed from the admin store-boosters config (flat rate, free over threshold).
     const shippingCfg = await loadShippingConfig();
