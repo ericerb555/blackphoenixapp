@@ -1238,3 +1238,53 @@ reading the same pile, now better labelled. Not raising the per-project photo
 count. Not adding capture to the portal visualiser, which has its own.
 
 ## Awaiting approval.
+
+## Review — capture in every section
+
+All five items done, plus two defects found on the way that had to be fixed for
+any of it to work.
+
+**One component, five placements.** `SectionCapture.tsx` takes the stage and
+trade it is sitting in as props, tags every upload with them, and shows back
+only what belongs to that section. Five capture panels kept in step would have
+drifted; this is one.
+
+**Video now works, by a different road.** Signed upload URL → the browser PUTs
+straight into storage → the server is told and reads the object back to check
+what actually landed. The size is taken from storage, not from the request, so
+the ceiling is enforced against the file rather than against a number the
+uploader chose; anything over 200MB is deleted rather than left costing money.
+XHR instead of fetch purely for the progress bar — a 200MB upload with no
+visible progress reads as a hung page.
+
+`photosAsFiles` now filters videos out. Everything downstream — the house
+reader, the sketch reader, the render — takes stills, and a 200MB MOV arriving
+where a JPEG was expected would download in full before failing.
+
+### Two defects found on the way
+
+**1. The photo upload route took its owner from the request body.** The read and
+delete routes beside it both narrow the asked-for owner against the signed-in
+user; this one did not, so any signed-in account that knew another owner's key
+could attach files to their project. It uses the same helper as its neighbours
+now.
+
+**2. The customer portal tab shipped earlier could not save.** The design centre
+sends `ownerKey=decks`, which is a shared namespace the server only admits staff
+to — a customer got 403 *"That is not yours to save to."* on every save and an
+empty list on every read. So a customer could open the design centre, draw for
+an hour and lose it. `ownerKeyForCurrentUser()` now resolves staff to `decks`,
+which is where every existing design already lives and where the pipeline looks
+for them, and everybody else to a key of their own. Staff role is read from
+`app_metadata` only — `user_metadata` is writable by its own account, so
+trusting it would let anyone put themselves in the staff namespace.
+
+### Checks
+
+App typecheck 331, unchanged. Server 84, unchanged. Smoke: 18 pages, 0 threw.
+
+### Not verified in a browser
+
+None of it — the capture panels, a real video upload, or the customer save path
+now that its owner key is fixed. The video route in particular has never had a
+file put through it.

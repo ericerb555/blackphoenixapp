@@ -164,6 +164,52 @@ function genId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 }
 
+// ── Video ─────────────────────────────────────────────────────────────────────
+//
+// Video does not travel the road photographs travel. A photo is base64-encoded
+// into the JSON body, which is fine at twelve megabytes and would simply fail
+// at two hundred — the encoding alone adds a third, and the body has to be held
+// in memory twice on the way through. So a video is uploaded straight to
+// storage by the browser against a short-lived signed URL, and the server is
+// told about it afterwards.
+//
+// That split is why there are two routes rather than one, and why the second
+// one verifies rather than believes: the confirm step reads the object back out
+// of storage and records the size it actually found, so a client claiming a
+// four-megabyte upload of a four-hundred-megabyte file does not get to write
+// the number down.
+
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024; // Eric's ceiling: ~2 minutes of phone video
+const MAX_VIDEOS_PER_PROJECT = 12;
+
+const VIDEO_TYPES: Record<string, string> = {
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
+  // What phones actually produce. An iPhone sends video/quicktime; Android
+  // sends mp4 and occasionally 3gpp.
+  'video/3gpp': '3gp', 'video/x-m4v': 'm4v',
+};
+
+/**
+ * Where in the design centre a file was captured.
+ *
+ * Free text is not accepted for either: they become filters and folder names,
+ * and a typo would quietly create a section nothing else can see.
+ */
+const KNOWN_STAGES = new Set(['capture', 'design', 'scope', 'price', 'documents']);
+const KNOWN_TRADES = new Set([
+  'deck', 'structures', 'hardscape', 'siding', 'openings',
+  'kitchen', 'bathroom', 'flooring', 'roofing', 'general',
+]);
+
+function sectionTags(body: any): { stage: string; trade: string } {
+  const stage = String(body?.stage || '').trim().toLowerCase();
+  const trade = String(body?.trade || '').trim().toLowerCase();
+  return {
+    stage: KNOWN_STAGES.has(stage) ? stage : 'capture',
+    trade: KNOWN_TRADES.has(trade) ? trade : 'general',
+  };
+}
+
 /**
  * The owner key for this request, narrowed to what the caller may have.
  *
@@ -409,7 +455,18 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', as
 
     const id = c.req.param('id');
     const body = await c.req.json().catch(() => ({}));
-    const ownerKey = String(body?.ownerKey || 'shared').trim() || 'shared';
+
+    /**
+     * The owner is checked, not taken.
+     *
+     * This route used to read `ownerKey` straight from the body and write to
+     * whatever it named. The read and delete routes beside it both narrow the
+     * asked-for owner against the signed-in user; this one did not, so any
+     * signed-in account that knew another owner's key could attach photographs
+     * to their project. Same helper, same answer as its neighbours now.
+     */
+    const ownerKey = permittedOwnerKey(user, String(body?.ownerKey || 'shared'));
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
 
     const project = await kv.get(PROJECT_KEY(ownerKey, id));
     if (!project) return c.json({ success: false, error: 'That project could not be found.' }, 404);
@@ -457,6 +514,12 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', as
       added.push({
         photoId, name, path, contentType,
         bytes: bytes.byteLength,
+        kind: 'photo',
+        // Which part of the design centre this was taken in. Without it every
+        // picture on a job lands in one heap and cannot be shown back beside
+        // the work it is about — the kitchen photographs on the kitchen, the
+        // elevation walk on siding.
+        ...sectionTags(body),
         addedAt: new Date().toISOString(),
         addedBy: String(user.email || '').toLowerCase(),
       });
@@ -469,6 +532,148 @@ designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/photos', as
   } catch (error: any) {
     console.error('[DesignProjects] Photo upload error:', error);
     return c.json({ success: false, error: error?.message || 'Could not attach those photos.' }, 500);
+  }
+});
+
+/**
+ * POST /design-projects/:id/video-url — a signed slot to upload one video into.
+ *
+ * Hands back a URL the browser can PUT the file straight to, so two hundred
+ * megabytes never passes through this function. Nothing is recorded against the
+ * project here: an upload that is started and abandoned should leave no trace,
+ * and the confirm step below is what makes a video real.
+ */
+designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/video-url', async (c) => {
+  try {
+    const user = await designActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to add video.' }, 401);
+
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const ownerKey = permittedOwnerKey(user, String(body?.ownerKey || 'shared'));
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
+
+    const project = await kv.get(PROJECT_KEY(ownerKey, id));
+    if (!project) return c.json({ success: false, error: 'That project could not be found.' }, 404);
+
+    const contentType = String(body?.contentType || '').toLowerCase();
+    const ext = VIDEO_TYPES[contentType];
+    if (!ext) {
+      return c.json({
+        success: false,
+        error: `${contentType || 'That file'} is not a video we can store. Send an MP4, a MOV or a WebM.`,
+      }, 400);
+    }
+
+    // The claimed size, checked here so somebody is told before they spend ten
+    // minutes uploading. It is checked again on confirm against what actually
+    // landed, because this number comes from the browser.
+    const claimed = Number(body?.bytes) || 0;
+    if (claimed > MAX_VIDEO_BYTES) {
+      return c.json({
+        success: false,
+        error: `That video is ${Math.round(claimed / 1024 / 1024)}MB and the limit is `
+          + `${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)}MB. A shorter clip of the part that matters works better anyway.`,
+      }, 400);
+    }
+
+    const existing: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
+    const videos = existing.filter((r: any) => r?.kind === 'video').length;
+    if (videos >= MAX_VIDEOS_PER_PROJECT) {
+      return c.json({
+        success: false,
+        error: `This project already holds ${MAX_VIDEOS_PER_PROJECT} videos. Remove one to add another.`,
+      }, 409);
+    }
+
+    const sb = service();
+    await ensurePhotoBucket(sb);
+
+    const mediaId = crypto.randomUUID();
+    const path = `${ownerKey}/${id}/${mediaId}.${ext}`;
+    const { data, error } = await sb.storage.from(PHOTO_BUCKET).createSignedUploadUrl(path);
+    if (error || !data?.signedUrl) {
+      return c.json({ success: false, error: error?.message || 'Could not open an upload slot.' }, 500);
+    }
+
+    return c.json({ success: true, mediaId, path, uploadUrl: data.signedUrl, token: data.token });
+  } catch (error: any) {
+    console.error('[DesignProjects] Video URL error:', error);
+    return c.json({ success: false, error: error?.message || 'Could not open an upload slot.' }, 500);
+  }
+});
+
+/**
+ * POST /design-projects/:id/video-confirm — record a video that finished uploading.
+ *
+ * Reads the object back out of storage rather than taking the client's word for
+ * what landed. A video that is not there, or is over the ceiling, is removed
+ * and refused — otherwise the limit would be enforced against a number the
+ * uploader chose.
+ */
+designProjectsRouter.post('/make-server-3eae23a6/design-projects/:id/video-confirm', async (c) => {
+  try {
+    const user = await designActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in to add video.' }, 401);
+
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const ownerKey = permittedOwnerKey(user, String(body?.ownerKey || 'shared'));
+    if (!ownerKey) return c.json({ success: false, error: 'That design could not be found.' }, 404);
+
+    const mediaId = String(body?.mediaId || '').trim();
+    const path = String(body?.path || '').trim();
+    // The path must be inside this owner's folder for this project. It comes
+    // back from the browser, and a path pointing somewhere else would file a
+    // video against somebody else's design.
+    if (!mediaId || !path.startsWith(`${ownerKey}/${id}/`)) {
+      return c.json({ success: false, error: 'That upload does not belong to this design.' }, 400);
+    }
+
+    const sb = service();
+    const folder = `${ownerKey}/${id}`;
+    const { data: listed } = await sb.storage.from(PHOTO_BUCKET).list(folder, {
+      search: path.slice(folder.length + 1),
+    });
+    const found = (listed || []).find((o: any) => `${folder}/${o.name}` === path);
+    if (!found) {
+      return c.json({ success: false, error: 'That video did not finish uploading. Try again.' }, 404);
+    }
+
+    const bytes = Number(found?.metadata?.size) || 0;
+    if (bytes > MAX_VIDEO_BYTES) {
+      // Over the ceiling, so it does not stay in storage costing money.
+      await sb.storage.from(PHOTO_BUCKET).remove([path]).catch(() => {});
+      return c.json({
+        success: false,
+        error: `That video is ${Math.round(bytes / 1024 / 1024)}MB and the limit is `
+          + `${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)}MB.`,
+      }, 400);
+    }
+
+    const existing: any[] = (await kv.get(PHOTOS_KEY(ownerKey, id))) || [];
+    if (existing.some((r: any) => r?.photoId === mediaId)) {
+      return c.json({ success: true, alreadyRecorded: true, total: existing.length });
+    }
+
+    const record = {
+      photoId: mediaId,
+      name: String(body?.name || 'video').slice(0, 200),
+      path,
+      contentType: String(found?.metadata?.mimetype || body?.contentType || 'video/mp4').toLowerCase(),
+      bytes,
+      kind: 'video',
+      ...sectionTags(body),
+      addedAt: new Date().toISOString(),
+      addedBy: String(user.email || '').toLowerCase(),
+    };
+    await kv.set(PHOTOS_KEY(ownerKey, id), [...existing, record]);
+
+    console.log(`[DesignProjects] video ${mediaId} (${Math.round(bytes / 1024 / 1024)}MB) attached to ${id}`);
+    return c.json({ success: true, total: existing.length + 1 });
+  } catch (error: any) {
+    console.error('[DesignProjects] Video confirm error:', error);
+    return c.json({ success: false, error: error?.message || 'Could not record that video.' }, 500);
   }
 });
 
@@ -498,7 +703,17 @@ designProjectsRouter.get('/make-server-3eae23a6/design-projects/:id/photos', asy
         const { data } = await sb.storage.from(PHOTO_BUCKET).createSignedUrl(r.path, 60 * 60);
         url = data?.signedUrl || null;
       } catch { /* a photo that will not sign is reported without a link */ }
-      return { photoId: r.photoId, name: r.name, contentType: r.contentType, addedAt: r.addedAt, url };
+      return {
+        photoId: r.photoId, name: r.name, contentType: r.contentType, addedAt: r.addedAt, url,
+        // Records written before capture was tagged carry neither field. They
+        // are reported as the Capture stage and no particular trade, which is
+        // where they were in fact taken — that was the only stage that took a
+        // file at the time.
+        kind: r.kind || 'photo',
+        stage: r.stage || 'capture',
+        trade: r.trade || 'general',
+        bytes: r.bytes || 0,
+      };
     }));
 
     return c.json({ success: true, photos });

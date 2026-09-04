@@ -59,7 +59,8 @@ import DeckAssistant from '../components/DeckAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
-import { DESIGN_OWNER_KEY } from '../lib/designProjectService';
+import { DESIGN_OWNER_KEY, ownerKeyForCurrentUser } from '../lib/designProjectService';
+import SectionCapture from '../components/design/SectionCapture';
 import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
 import HousePanel from '../components/HousePanel';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
@@ -354,6 +355,21 @@ function DesignerSession({ session, onSession }: {
   /** Read once on mount: the URL does not change under the designer. */
   const [fromPortal] = useState(cameFromPortal);
 
+  /**
+   * Which namespace this person's media lives in.
+   *
+   * Everywhere else resolves it inside an async call; the capture panels are
+   * rendered, so they need a plain value. It starts on the shared staff key and
+   * is corrected as soon as the answer arrives — a render or two later, before
+   * anybody has clicked anything.
+   */
+  const [mediaOwnerKey, setMediaOwnerKey] = useState<string>(DESIGN_OWNER_KEY);
+  useEffect(() => {
+    let live = true;
+    void ownerKeyForCurrentUser().then(k => { if (live) setMediaOwnerKey(k); });
+    return () => { live = false; };
+  }, []);
+
   const portalAddressSeeded = useRef(false);
   useEffect(() => {
     if (portalAddressSeeded.current) return;
@@ -568,7 +584,7 @@ function DesignerSession({ session, onSession }: {
       // `owner`, not `ownerKey` — the server reads the query as `owner` and
       // falls back to the 'shared' namespace, so decks written under DECKS
       // were being listed from somewhere they had never been saved.
-      const res = await fetch(`${SERVER}/design-projects?owner=${DESIGN_OWNER_KEY}`, { headers: await headers() });
+      const res = await fetch(`${SERVER}/design-projects?owner=${await ownerKeyForCurrentUser()}`, { headers: await headers() });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.projects) {
         setProjects(data.projects.filter((p: any) => p?.meta?.kind === 'deck'));
@@ -606,7 +622,7 @@ function DesignerSession({ session, onSession }: {
 
     try {
       const { added, skipped } = await uploadDesignPhotos(
-        designId, DESIGN_OWNER_KEY, pending, await headers(),
+        designId, await ownerKeyForCurrentUser(), pending, await headers(),
       );
       pending.forEach((f) => attachedPhotos.current.add(f));
       if (added > 0) {
@@ -632,7 +648,7 @@ function DesignerSession({ session, onSession }: {
         headers: await headers(),
         body: JSON.stringify({
           id: savedId || undefined,
-          ownerKey: DESIGN_OWNER_KEY,
+          ownerKey: await ownerKeyForCurrentUser(),
           name: site.projectName,
           // The model and the site live together: a deck design without the
           // address it is being built at cannot be permitted, and the loads
@@ -733,7 +749,7 @@ function DesignerSession({ session, onSession }: {
         body: JSON.stringify({
           // No id, so the server mints a new project rather than versioning the
           // one currently open.
-          ownerKey: DESIGN_OWNER_KEY,
+          ownerKey: await ownerKeyForCurrentUser(),
           name: name.trim(),
           meta: { kind: 'deck', model, site: { ...site, projectName: name.trim() }, loads, takeoff: bom, house, scope, plan, systems, walkthrough, submittal, proposal, camera, ...link },
           note: 'Saved as a new project',
@@ -825,7 +841,7 @@ function DesignerSession({ session, onSession }: {
             // Update in place when it is already a saved project; otherwise
             // this becomes its own record rather than overwriting anything.
             id: savedId || undefined,
-            ownerKey: DESIGN_OWNER_KEY,
+            ownerKey: await ownerKeyForCurrentUser(),
             name,
             meta: {
               kind: 'deck', model, site: { ...site, projectName: name },
@@ -881,7 +897,7 @@ function DesignerSession({ session, onSession }: {
   const open = useCallback(async (p: any) => {
     setOpening(p.id);
     try {
-      const res = await fetch(`${SERVER}/design-projects/${p.id}?owner=${DESIGN_OWNER_KEY}`, {
+      const res = await fetch(`${SERVER}/design-projects/${p.id}?owner=${await ownerKeyForCurrentUser()}`, {
         headers: await headers(),
       });
       const data = await res.json().catch(() => null);
@@ -943,7 +959,7 @@ function DesignerSession({ session, onSession }: {
       // should not make opening a project feel slow.
       (async () => {
         try {
-          const stored = await listDesignPhotos(full.id, DESIGN_OWNER_KEY, await headers());
+          const stored = await listDesignPhotos(full.id, await ownerKeyForCurrentUser(), await headers());
           setStoredPhotos(stored.length);
           if (!stored.length) return;
 
@@ -1495,6 +1511,19 @@ function DesignerSession({ session, onSession }: {
                 The spine. Outside the trade gate because a job has one scope,
                 not one per trade — a kitchen job has demolition, electrical and
                 tile in it and they are all the same process. */}
+
+            {/* Photos and video for this section. One component in five
+                places rather than five capture panels to keep in step; what it
+                stores is tagged with the stage and trade it sits in, so the
+                kitchen pictures come back on the kitchen. */}
+            <div className={stage === 'scope' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Photos and video">
+                <SectionCapture designId={savedId} ownerKey={mediaOwnerKey}
+                  stage="scope" trade={trade}
+                  title="Photos behind the scope"
+                  hint="Rot, damage, an awkward corner — the evidence for why a line is on the list." />
+              </PanelErrorBoundary>
+            </div>
             <div className={stage === 'scope' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Scope of work">
                 <ScopeOfWork scope={scope} onChange={setScope}
@@ -1574,6 +1603,19 @@ function DesignerSession({ session, onSession }: {
                 One folder for the job, split between the two readers below it.
                 It sits above them because that is the order the work happens in:
                 open the folder, then look at what each reader made of its half. */}
+
+            {/* Photos and video for this section. One component in five
+                places rather than five capture panels to keep in step; what it
+                stores is tagged with the stage and trade it sits in, so the
+                kitchen pictures come back on the kitchen. */}
+            <div className={stage === 'capture' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Photos and video">
+                <SectionCapture designId={savedId} ownerKey={mediaOwnerKey}
+                  stage="capture" trade={trade}
+                  title="Site photos and video"
+                  hint="What is there now. A walk along the wall on video carries what a set of stills loses." />
+              </PanelErrorBoundary>
+            </div>
             <div className={`space-y-4 ${stage === 'capture' ? '' : 'hidden'}`}>
               <PanelErrorBoundary name="The job folder">
                 <JobFolder onSend={sendFolder} />
@@ -1621,6 +1663,19 @@ function DesignerSession({ session, onSession }: {
 
             {/* Finishes are a design decision, so they sit with the drawing
                 rather than with the photographs. */}
+
+            {/* Photos and video for this section. One component in five
+                places rather than five capture panels to keep in step; what it
+                stores is tagged with the stage and trade it sits in, so the
+                kitchen pictures come back on the kitchen. */}
+            <div className={stage === 'design' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Photos and video">
+                <SectionCapture designId={savedId} ownerKey={mediaOwnerKey}
+                  stage="design" trade={trade}
+                  title="What it looks like now"
+                  hint="The existing finish, the boards being matched, the colour being replaced." />
+              </PanelErrorBoundary>
+            </div>
             <div className={stage === 'design' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Finishes">
                 <DeckFinishPicker model={model} onChange={patch => setModel(m => ({ ...m, ...patch }))} />
@@ -1632,6 +1687,19 @@ function DesignerSession({ session, onSession }: {
                 the drawing cannot disagree. */}
             {/* The whole job, priced from the scope. Above the per-trade
                 panels because it is the answer and they are its parts. */}
+
+            {/* Photos and video for this section. One component in five
+                places rather than five capture panels to keep in step; what it
+                stores is tagged with the stage and trade it sits in, so the
+                kitchen pictures come back on the kitchen. */}
+            <div className={stage === 'price' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Photos and video">
+                <SectionCapture designId={savedId} ownerKey={mediaOwnerKey}
+                  stage="price" trade={trade}
+                  title="Photos behind the price"
+                  hint="What makes this job cost what it does — access, height, what has to come out first." />
+              </PanelErrorBoundary>
+            </div>
             <div className={stage === 'price' ? '' : 'hidden'}>
               <PanelErrorBoundary name="Job price">
                 <ScopeQuotePanel
@@ -1709,6 +1777,19 @@ function DesignerSession({ session, onSession }: {
             {/* ── Documents ─────────────────────────────────────────────
                 What goes to the building department and to the crew. Nothing
                 here is adjusted; it is all produced from the design. */}
+
+            {/* Photos and video for this section. One component in five
+                places rather than five capture panels to keep in step; what it
+                stores is tagged with the stage and trade it sits in, so the
+                kitchen pictures come back on the kitchen. */}
+            <div className={stage === 'documents' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Photos and video">
+                <SectionCapture designId={savedId} ownerKey={mediaOwnerKey}
+                  stage="documents" trade={trade}
+                  title="Photos for the file"
+                  hint="Existing conditions for the town, and the record of what was there before." />
+              </PanelErrorBoundary>
+            </div>
             <div className={`space-y-4 ${stage === 'documents' ? '' : 'hidden'}`}>
               <PanelErrorBoundary name="Permit packet"><DeckPermitPacket model={model} site={site} loads={loads} /></PanelErrorBoundary>
 

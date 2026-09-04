@@ -28,6 +28,47 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 export const DESIGN_OWNER_KEY = 'decks';
 
 /**
+ * The namespace *this* person's designs live in.
+ *
+ * 'decks' is a shared namespace, and the server only lets staff into it — a
+ * customer sending it is refused on save with "That is not yours to save to."
+ * and gets an empty list on read. That was missed when the customer portal tab
+ * was built: a customer could open the design centre, draw, and then discover
+ * nothing would save.
+ *
+ * So staff keep 'decks', which is where every existing design already lives and
+ * where the pipeline expects to find them, and everybody else gets a key of
+ * their own. The shape is not free: the server accepts a non-staff key only if
+ * it ends with that user's id and is longer than it, which is what stops one
+ * customer naming another's namespace.
+ *
+ * Resolved per call rather than held in a constant, because it depends on who
+ * is signed in and that is not known when the module loads.
+ */
+let ownerKeyCache: string | null = null;
+// Cleared when the signed-in person changes, so signing out of a staff account
+// and into a customer one does not leave the customer writing to 'decks'.
+supabase.auth.onAuthStateChange(() => { ownerKeyCache = null; });
+
+export async function ownerKeyForCurrentUser(): Promise<string> {
+  if (ownerKeyCache) return ownerKeyCache;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.id) return DESIGN_OWNER_KEY;
+  const role = String(
+    user.app_metadata?.role || user.app_metadata?.accountType || '',
+  ).toLowerCase().replace(/-/g, '_');
+  // Read from app_metadata only. user_metadata is writable by the account it
+  // belongs to, so trusting it would let anybody put themselves in the shared
+  // staff namespace by editing their own profile.
+  const staff = new Set([
+    'owner', 'admin', 'master_admin', 'super_admin', 'superadmin',
+    'staff', 'employee', 'project_manager', 'estimator', 'office', 'management',
+  ]);
+  ownerKeyCache = staff.has(role) ? DESIGN_OWNER_KEY : `cust-${user.id}`;
+  return ownerKeyCache;
+}
+
+/**
  * The signed-in person's token, not the anon key.
  *
  * This sent the anon key and nothing else, which was survivable only because
