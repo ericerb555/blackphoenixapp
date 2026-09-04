@@ -23,6 +23,7 @@ import {
   Search, CreditCard, Crown, SlidersHorizontal,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
@@ -125,14 +126,39 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
   const [subBusyTier, setSubBusyTier] = useState<string>('');
   const [showPlans, setShowPlans] = useState(false);
 
-  const headers = {
-    Authorization: `Bearer ${publicAnonKey}`,
-    'Content-Type': 'application/json',
-  };
+  /**
+   * The signed-in person's token, not the publishable key.
+   *
+   * WHY THIS IS THE WHOLE BUG
+   *
+   * This tab is mounted in eleven portals and every one of them showed an empty
+   * investments screen, because it sent `publicAnonKey` — which identifies the
+   * project and nobody in particular. The server's auth wall defaults unlisted
+   * routes to "signed in", and `/investments/opportunities` is on neither the
+   * public nor the admin list, so every call came back 401. The tab caught the
+   * status, logged it to the console and rendered its friendly empty state, so
+   * it looked like nobody had published any opportunities rather than like a
+   * request that was refused.
+   *
+   * The commitment POST used the same headers, so pledging money failed the
+   * same way — and that route reads the investor's identity from the token, so
+   * it could never have worked with an anonymous one.
+   */
+  const authedHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    return {
+      // Falls back rather than throwing: a signed-out visitor should get a
+      // clean 401 from the server, not an exception inside a portal tab.
+      Authorization: `Bearer ${token || publicAnonKey}`,
+      'Content-Type': 'application/json',
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const headers = await authedHeaders();
       const oppRes = await fetch(`${API}/opportunities`, { headers });
       if (oppRes.ok) {
         const data = await oppRes.json().catch(() => ({}));
@@ -190,7 +216,7 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
     try {
       const res = await fetch(`${API}/commitments`, {
         method: 'POST',
-        headers,
+        headers: await authedHeaders(),
         body: JSON.stringify({
           investor_email: email,
           investor_name: ownerName || '',
@@ -225,7 +251,7 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
     try {
       const res = await fetch(`${API}/ai-subscription/checkout`, {
         method: 'POST',
-        headers,
+        headers: await authedHeaders(),
         body: JSON.stringify({ email, tier, audience: portalType, origin: window.location.origin }),
       });
       const payload = await res.json().catch(() => ({}));

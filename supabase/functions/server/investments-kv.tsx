@@ -673,9 +673,37 @@ investmentsRouter.delete(`${PREFIX}/investments/opportunities/:id`, async (c) =>
 });
 
 // ── Commitments ──────────────────────────────────────────────────────────
+/**
+ * Your own investment records, or anybody's if you are staff.
+ *
+ * WHY THIS IS ITS OWN HELPER
+ *
+ * Two routes take an email out of the URL and answer with that person's
+ * financial position — what they have committed, what they have been paid. Both
+ * took it on trust. Everything past the auth wall is merely "signed in", so any
+ * portal account — a tenant, an advertiser, a subcontractor — could read another
+ * investor's portfolio by putting their address in the path.
+ *
+ * That went unnoticed because the tab calling these routes sent the publishable
+ * key and was refused at the wall, so nothing ever reached them. Fixing the tab
+ * to send a real token is what would have opened the door.
+ *
+ * Answers null when the caller may not have it. The routes report that as an
+ * empty portfolio rather than a refusal: confirming that an address belongs to
+ * an investor is itself worth something to somebody fishing.
+ */
+async function permittedInvestorEmail(c: any, asked: string): Promise<string | null> {
+  const actor = await investmentActor(c);
+  if (!actor) return null;
+  const wanted = String(asked || '').trim().toLowerCase();
+  if (actor.staff) return wanted;
+  return wanted === actor.email ? wanted : null;
+}
+
 investmentsRouter.get(`${PREFIX}/investments/commitments/investor/:email`, async (c) => {
   try {
-    const email = c.req.param('email');
+    const email = await permittedInvestorEmail(c, c.req.param('email'));
+    if (!email) return c.json({ commitments: [] });
     const all = ((await kv.getByPrefix(COMMIT_PREFIX)) || []) as any[];
     const commitments = all.filter((x) => x.investor_email === email);
     // Nest the opportunity so the frontend can render its title/category.
@@ -828,7 +856,18 @@ investmentsRouter.post(`${PREFIX}/investments/documents/:id/sign`, async (c) => 
 // ── Portfolio analytics ──────────────────────────────────────────────────
 investmentsRouter.get(`${PREFIX}/investments/analytics/portfolio/:email`, async (c) => {
   try {
-    const email = c.req.param('email');
+    const email = await permittedInvestorEmail(c, c.req.param('email'));
+    // An empty portfolio rather than a refusal — see permittedInvestorEmail.
+    if (!email) {
+      return c.json({
+        summary: {
+          totalInvested: 0, totalReceived: 0, currentValue: 0, totalROI: '0',
+          activeInvestments: 0, completedInvestments: 0, totalPayouts: 0,
+        },
+        commitments: [],
+        recentPayouts: [],
+      });
+    }
     const allCommitments = ((await kv.getByPrefix(COMMIT_PREFIX)) || []) as any[];
     const commitments = allCommitments.filter(
       (x) => x.investor_email === email && ['approved', 'active', 'completed'].includes(x.status),
@@ -984,7 +1023,15 @@ function isPrivileged(role: string | null): boolean {
 // Subscription status for the AI studio (used by the frontend to show the gate).
 investmentsRouter.get(`${PREFIX}/investments/ai-subscription/:email`, async (c) => {
   try {
-    const email = (c.req.param('email') || '').toLowerCase();
+    // Somebody else's subscription state is somebody else's business, and this
+    // took the address from the URL like the two routes above it did.
+    const email = await permittedInvestorEmail(c, c.req.param('email') || '');
+    if (!email) {
+      return c.json({
+        success: true, active: false, privileged: false, subscription: null,
+        usage: 0, freeLimit: AI_FREE_LIMIT, freeRemaining: AI_FREE_LIMIT,
+      });
+    }
     const { role } = await resolveRole(c.req.header('Authorization'));
     const sub = (await kv.get(AI_SUB(email))) as any;
     const usage = ((await kv.get(AI_USAGE(email))) as any)?.count || 0;

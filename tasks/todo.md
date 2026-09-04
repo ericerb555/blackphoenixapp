@@ -1451,3 +1451,70 @@ App typecheck 324, server 84, both unchanged. Smoke: 27 pages, 0 threw.
 The hub has not been opened against a real imported catalogue — there is not one
 yet. The path that matters is: a vendor imports a CSV, then this screen shows
 those lines with the green banner rather than the yellow one.
+
+---
+
+# Investment options in the portals
+
+Eric: *"we need to allow the investment options to show up in the portals. we
+are going to be peer funded so this will help returns stay high."*
+
+## It was already in every portal. It was sending the wrong key.
+
+`InvestmentTab` is mounted in eleven portals — customer, employee, vendor,
+landlord, advertiser, condo association, condo manager, property manager,
+territory, admin and mobile owner. Every one of them showed an empty investments
+screen.
+
+The tab sent `publicAnonKey`, which identifies the project and nobody in
+particular. The auth wall defaults unlisted routes to "signed in", and
+`/investments/opportunities` is on neither the public nor the admin list, so
+every request came back **401**. The tab caught the status, logged it to the
+console, and rendered its friendly empty state — so it read as "nobody has
+published any opportunities" rather than "that request was refused". The demo
+opportunities the server seeds on first read were there the whole time and
+nobody could see them.
+
+The commitment POST used the same headers, so pledging money failed the same
+way. That route deliberately reads the investor's identity from the token, so it
+could never have worked with an anonymous one — the feature has never
+functioned.
+
+Fixed by sending the signed-in person's token on all five calls.
+
+## Three holes that fix would have opened
+
+With a real token flowing, three routes that take an email out of the URL become
+reachable. All of them took it on trust, and everything past the wall is merely
+"signed in" — so any portal account at all, a tenant or an advertiser, could
+have read another investor's financial position by putting their address in the
+path:
+
+- `/investments/analytics/portfolio/:email` — what they have committed and been
+  paid
+- `/investments/commitments/investor/:email` — every commitment they hold
+- `/investments/ai-subscription/:email` — their subscription state
+
+One helper now answers all three: your own records, or anybody's if you are
+staff. It returns an **empty portfolio rather than a refusal**, because
+confirming that an address belongs to an investor is itself worth something to
+somebody fishing.
+
+These were unreachable only because the tab was being refused at the wall. The
+fix for the visible bug is what would have exposed them, which is the reason
+they are in the same change.
+
+## Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 27 pages, 0 threw.
+
+## Not verified in a browser, and one thing to decide
+
+Nobody has opened a portal and seen an opportunity yet — that is the thing to
+try, and it should now show the seeded demo cards.
+
+Worth a decision before this is used in earnest: the opportunities currently
+show to **every** signed-in portal user, and the seeded demo cards are visible
+alongside anything real. Offering an investment is a regulated activity, and who
+may see an offer usually needs gating — by accreditation, by portal type, or by
+invitation. Naming it rather than deciding it.
