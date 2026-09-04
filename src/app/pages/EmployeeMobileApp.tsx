@@ -4,7 +4,7 @@ import {
   MessageSquare, FileText, Image, Paperclip, CheckCircle,
   AlertCircle, MapPin, Calendar, User, Menu, Bell,
   Home, ClipboardList, Send, X, ChevronRight, Zap,
-  BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft, Loader2
+  BarChart3, Wifi, WifiOff, Battery, Smartphone, ArrowLeft, Loader2, AlertTriangle
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -102,6 +102,15 @@ export default function EmployeeMobileApp() {
     }
     setElapsedTime('00:00:00');
   }, [isClockedIn, clockInTime]);
+
+  // Whether to ask about punching out. The authoritative rules live on the
+  // server in `shiftLimits.ts` — this only decides when a reminder appears, and
+  // it is derived from the ticking clock so it shows up as the eighth hour
+  // passes rather than at the next page load.
+  const hoursOnClock = isClockedIn && clockInTime
+    ? Math.floor((currentTime.getTime() - clockInTime.getTime()) / 3600000)
+    : 0;
+  const overdue = hoursOnClock >= 8;
 
   // Real network status
   useEffect(() => {
@@ -414,6 +423,19 @@ export default function EmployeeMobileApp() {
                     <p className="text-2xl font-bold">{elapsedTime}</p>
                     <p className="text-sm text-white/60 mt-1">
                       Clocked in at {clockInTime?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                )}
+
+                {/* The nudge, on the screen the crew actually carries. It asks
+                    and does not act — a ten-hour day is an ordinary day, and the
+                    clock keeps running whichever way this is answered. */}
+                {overdue && (
+                  <div className="mb-4 flex items-start gap-2 rounded-xl bg-amber-400/20 p-3 backdrop-blur-sm ring-1 ring-amber-300/40">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" />
+                    <p className="text-sm text-white">
+                      <span className="font-semibold">You have been on the clock {hoursOnClock} hours.</span>{' '}
+                      Clock out if you are done. Still working? Carry on — nothing is cut short.
                     </p>
                   </div>
                 )}

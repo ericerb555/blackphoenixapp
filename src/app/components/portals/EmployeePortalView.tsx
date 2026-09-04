@@ -13,7 +13,7 @@ import {
   Briefcase, Bell, MessageSquare, Settings, Clock, Star,
   ArrowUpRight, ClipboardList, CheckCircle, Calendar,
   Target, FileText, Download, ChevronRight, Search, Filter,
-  Home, BarChart3, Award, Sparkles, DollarSign
+  Home, BarChart3, Award, Sparkles, DollarSign, AlertTriangle
 } from 'lucide-react';
 import { ChartContainer } from '../ChartContainer';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
@@ -78,6 +78,18 @@ export default function EmployeePortalView() {
     const s = Math.floor((ms % 60000) / 1000);
     return { h, m, s, hours: Math.round((ms / 3600000) * 100) / 100 };
   })();
+
+  /**
+   * When to put the punch-out prompt up.
+   *
+   * The server decides everything that counts — what gets auto-closed and what
+   * payroll will accept — in `shiftLimits.ts`. This number only decides when a
+   * reminder appears, and it lives here so the reminder appears the moment the
+   * running clock crosses eight rather than waiting for the next page load.
+   * Being generous with it is harmless; nothing here shortens anybody's day.
+   */
+  const NUDGE_AFTER_HOURS = 8;
+  const overdue = Boolean(activeEntry && elapsed && elapsed.hours >= NUDGE_AFTER_HOURS);
 
   const authHeaders = () => ({ Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' });
   const employeeId = String(employee?.id || user?.id || '');
@@ -474,7 +486,29 @@ export default function EmployeePortalView() {
                 opens this portal to do. It was previously a small button tucked
                 into the welcome banner, which is a poor home for the one control
                 that gets used twice a day, every day. */}
-            <div className={`rounded-xl border p-6 transition ${activeEntry ? 'border-green-500/30 bg-green-500/5' : 'border-gray-800 bg-[#1a1a1a]'}`}>
+            <div className={`rounded-xl border p-6 transition ${
+              overdue ? 'border-amber-500/40 bg-amber-500/5'
+                : activeEntry ? 'border-green-500/30 bg-green-500/5'
+                : 'border-gray-800 bg-[#1a1a1a]'
+            }`}>
+              {/* Eight hours in, ask — do not act. A ten-hour day is an ordinary
+                  day here, so the prompt says "if you are done" and the punch
+                  card carries on running either way. */}
+              {overdue && (
+                <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-amber-200">
+                      You have been on the clock {Math.floor(elapsed!.hours)} hours.
+                    </p>
+                    <p className="mt-1 text-sm text-amber-200/70">
+                      Punch out if you are done for the day. If you are still working, carry on —
+                      nothing is cut short, and this will ask again later.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-between gap-6">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -889,7 +923,20 @@ export default function EmployeePortalView() {
                     const gap = Math.round((Number(entry.totalHours || 0) - allocated) * 100) / 100;
                     const isEditing = editingEntryId === entry.id;
                     return (
-                      <div key={entry.id} className="rounded-lg border border-gray-800 bg-[#0f0f0f] p-4">
+                      <div key={entry.id} className={`rounded-lg border bg-[#0f0f0f] p-4 ${entry.needsReview ? 'border-amber-500/40' : 'border-gray-800'}`}>
+                        {/* A shift that ran past sixteen hours was closed for us
+                            and the finish time on it is a guess. Say so plainly
+                            rather than showing hours that look like a record. */}
+                        {entry.needsReview && (
+                          <div className="mb-3 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                            <p className="text-amber-200/90">
+                              You did not punch out of this shift, so it was closed automatically after 16 hours.
+                              The finish time shown is a placeholder — tell your supervisor when you actually
+                              finished and they will set it. It cannot go to payroll until they do.
+                            </p>
+                          </div>
+                        )}
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <p className="font-semibold text-white">
@@ -921,7 +968,11 @@ export default function EmployeePortalView() {
                             {/* Payroll is the gate. It only opens when the split
                                 reconciles to the clock — which is why the figure
                                 is named on the button when it does not. */}
-                            {!entry.approved && !entry.submittedToPayroll && !isEditing && (
+                            {entry.needsReview ? (
+                              <span className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                                Waiting on a real finish time
+                              </span>
+                            ) : !entry.approved && !entry.submittedToPayroll && !isEditing && (
                               gap === 0 && Array.isArray(entry.allocations) && entry.allocations.length > 0 ? (
                                 <PrimaryButton onClick={() => submitToPayroll(entry.id)} disabled={savingRows}>
                                   Send to payroll

@@ -6,6 +6,7 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
+import { shiftStatus, autoClosePunchOut, blockedFromPayroll, reviewReason, AUTO_CLOSE_AFTER_HOURS } from "./shiftLimits.ts";
 
 type TimeTrackingVariables = { actor: any; admin: boolean };
 const timeTrackingRouter = new Hono<{ Variables: TimeTrackingVariables }>();
@@ -36,6 +37,59 @@ async function hasAdminAccess(user: any) {
 
 function ownsEmployee(c: any, employeeId: string) {
   return Boolean(c.get("admin") || String(c.get("actor")?.id || "") === String(employeeId || ""));
+}
+
+/**
+ * Close a shift that has plainly been forgotten, whenever we next look at it.
+ *
+ * There is no scheduler here, so this runs lazily: any route that reads an
+ * employee's active entry calls it first. That is enough, because the only
+ * things that care about a stale entry — the timeclock screen, punching in
+ * again, payroll — all read it on the way past.
+ *
+ * It never shortens a real day. Nothing happens before sixteen hours, and what
+ * happens then is a closure marked `needsReview` with a placeholder finish time
+ * that payroll refuses to accept. Somebody has to say when the person actually
+ * stopped. See shiftLimits.ts for why eight hours only nudges.
+ */
+async function closeIfAbandoned(employeeId: string, activeEntry: any): Promise<any | null> {
+  if (!activeEntry?.punchIn) return activeEntry ?? null;
+  const status = shiftStatus(activeEntry.punchIn, Date.now(), Number(activeEntry.breakMinutes || 0));
+  if (status.state !== "auto-close") return activeEntry;
+
+  const punchOut = autoClosePunchOut(activeEntry.punchIn);
+  const totalHours = Math.round(
+    ((Date.parse(punchOut) - Date.parse(activeEntry.punchIn)) / 3_600_000
+      - Number(activeEntry.breakMinutes || 0) / 60) * 100,
+  ) / 100;
+
+  const closed = {
+    ...activeEntry,
+    punchOut,
+    totalHours,
+    status: "completed",
+    autoClosed: true,
+    needsReview: true,
+    autoClosedAt: new Date().toISOString(),
+    notes: [activeEntry.notes, "Auto-closed: this shift ran past 16 hours. The finish time is a placeholder."]
+      .filter(Boolean).join(" — "),
+  };
+
+  const dateKey = String(activeEntry.punchIn).split("T")[0];
+  await kv.set(`time_entry_history:${employeeId}:${dateKey}:${activeEntry.id}`, closed);
+  await kv.del(`time_entry_active:${employeeId}`);
+
+  const employee = await kv.get(`time_employee:${employeeId}`) as any;
+  if (employee) {
+    employee.status = "clocked-out";
+    employee.currentShiftStart = null;
+    // Deliberately NOT added to hoursToday/hoursWeek. The number is a
+    // placeholder and those totals are read as fact.
+    await kv.set(`time_employee:${employeeId}`, employee);
+  }
+
+  console.log(`[time] auto-closed abandoned shift ${activeEntry.id} for ${employeeId} after 16h`);
+  return null;
 }
 
 function requireEmployeeAccess(c: any, employeeId: string) {
@@ -214,26 +268,37 @@ timeTrackingRouter.get("/employees/:id", async (c) => {
   const denial = requireEmployeeAccess(c, employeeId);
   if (denial) return denial;
   try {
+    // The active entry is settled first, because closing an abandoned shift
+    // also flips the employee's status — reading the employee before that would
+    // hand the timeclock a record still saying "clocked in".
+    const activeEntry = await closeIfAbandoned(employeeId, await kv.get(`time_entry_active:${employeeId}`));
+
     const employee = await kv.get(`time_employee:${employeeId}`);
-    
     if (!employee) {
       return c.json({ success: false, error: "Employee not found" }, 404);
     }
-    
-    // Get active entry
-    const activeEntry = await kv.get(`time_entry_active:${employeeId}`);
-    
+
     // Get recent entries (last 30 days)
     const allEntries = await kv.getByPrefix(`time_entry_history:${employeeId}:`);
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const recentEntries = allEntries.filter((entry: any) => 
+    const recentEntries = allEntries.filter((entry: any) =>
       new Date(entry.punchIn).getTime() > thirtyDaysAgo
     );
-    
+
     return c.json({
       success: true,
       employee,
       activeEntry: activeEntry || null,
+      // How long they have been on the clock, and whether to put the punch-out
+      // prompt in front of them. Computed here rather than in the browser so
+      // every screen showing a running shift agrees about it.
+      shift: activeEntry
+        ? shiftStatus(activeEntry.punchIn, Date.now(), Number(activeEntry.breakMinutes || 0))
+        : null,
+      // Entries payroll will refuse until somebody sets a real finish time.
+      needsReview: recentEntries
+        .filter((e: any) => blockedFromPayroll(e))
+        .map((e: any) => ({ id: e.id, punchIn: e.punchIn, reason: reviewReason(e) })),
       recentEntries
     });
   } catch (error) {
@@ -304,7 +369,7 @@ timeTrackingRouter.post("/punch-in", async (c) => {
     }
     
     // Check if already clocked in
-    const activeEntry = await kv.get(`time_entry_active:${employeeId}`);
+    const activeEntry = await closeIfAbandoned(employeeId, await kv.get(`time_entry_active:${employeeId}`));
     if (activeEntry) {
       return c.json({ 
         success: false, 
@@ -379,7 +444,7 @@ timeTrackingRouter.post("/punch-out", async (c) => {
     }
     
     // Get active entry
-    const activeEntry = await kv.get(`time_entry_active:${employeeId}`);
+    const activeEntry = await closeIfAbandoned(employeeId, await kv.get(`time_entry_active:${employeeId}`));
     if (!activeEntry) {
       return c.json({ 
         success: false, 
@@ -501,7 +566,7 @@ timeTrackingRouter.post("/break", async (c) => {
       const breakDuration = (now.getTime() - breakStart.getTime()) / (1000 * 60); // minutes
       
       // Update active time entry with break minutes
-      const activeEntry = await kv.get(`time_entry_active:${employeeId}`);
+      const activeEntry = await closeIfAbandoned(employeeId, await kv.get(`time_entry_active:${employeeId}`));
       if (activeEntry) {
         activeEntry.breakMinutes = (activeEntry.breakMinutes || 0) + breakDuration;
         await kv.set(`time_entry_active:${employeeId}`, activeEntry);
@@ -747,6 +812,12 @@ timeTrackingRouter.post("/entries/:id/submit", async (c) => {
     if (entry.approved) {
       return c.json({ success: false, error: "Payroll has already approved this shift." }, 409);
     }
+    // An auto-closed shift carries a placeholder finish time, not a measured
+    // one. Paying it would pay a guess, so it is refused until somebody has
+    // replaced the end time with what actually happened.
+    if (blockedFromPayroll(entry)) {
+      return c.json({ success: false, error: reviewReason(entry), needsReview: true }, 400);
+    }
 
     const total = Math.round(Number(entry.totalHours || 0) * 100) / 100;
     const allocations = Array.isArray(entry.allocations) ? entry.allocations : [];
@@ -778,6 +849,99 @@ timeTrackingRouter.post("/entries/:id/submit", async (c) => {
   }
 });
 
+/**
+ * Set the real finish time on a shift that was closed automatically.
+ *
+ * This is the only way out of `needsReview`, and it has to exist — without it
+ * an auto-closed shift is unpayable forever, which would make the backstop a
+ * worse outcome for the employee than the forgotten punch-out it was catching.
+ *
+ * Admin only. The person whose hours these are cannot be the one who decides
+ * what they were, because the number decides their own pay and what a customer
+ * is invoiced. They can say what happened; a supervisor records it.
+ *
+ * The corrected time is checked against the shift rather than accepted: it must
+ * be after the punch-in and no more than the auto-close threshold after it. A
+ * mistyped date would otherwise put a three-day shift on the payroll report,
+ * which is the exact failure this whole mechanism exists to prevent.
+ */
+timeTrackingRouter.post("/entries/:id/finish-time", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
+  try {
+    const entryId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const punchOut = String(body?.punchOut || "");
+
+    const allEntries = ((await kv.getByPrefix("time_entry_history:")) as any[]) || [];
+    const entry = allEntries.find((e: any) => e?.id === entryId);
+    if (!entry) return c.json({ success: false, error: "Time entry not found" }, 404);
+    if (entry.approved) {
+      return c.json({ success: false, error: "Payroll has already approved this shift." }, 409);
+    }
+
+    const finish = Date.parse(punchOut);
+    const start = Date.parse(entry.punchIn);
+    if (!Number.isFinite(finish)) {
+      return c.json({ success: false, error: "A finish time is required." }, 400);
+    }
+    if (!Number.isFinite(start)) {
+      return c.json({ success: false, error: "This shift has no usable start time." }, 400);
+    }
+    if (finish <= start) {
+      return c.json({ success: false, error: "The finish time has to be after the start of the shift." }, 400);
+    }
+    const hoursOnClock = (finish - start) / 3_600_000;
+    if (hoursOnClock > AUTO_CLOSE_AFTER_HOURS) {
+      return c.json({
+        success: false,
+        error: `That is ${Math.round(hoursOnClock)} hours on the clock. A single shift cannot run longer than `
+          + `${AUTO_CLOSE_AFTER_HOURS} hours — check the date.`,
+      }, 400);
+    }
+
+    const totalHours = Math.round(
+      (hoursOnClock - Math.max(0, Number(entry.breakMinutes || 0)) / 60) * 100,
+    ) / 100;
+    if (totalHours <= 0) {
+      return c.json({ success: false, error: "The break recorded is longer than the shift." }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...entry,
+      punchOut: new Date(finish).toISOString(),
+      totalHours,
+      needsReview: false,
+      reviewedAt: now,
+      reviewedBy: String(c.get("actor")?.id || ""),
+      // The allocation split was made against the placeholder hours, so it no
+      // longer reconciles. Submit will refuse until it is redone against the
+      // real number, which is the correct outcome — the split has to be
+      // reconsidered, not rescaled by us on somebody's behalf.
+      ...(entry.submittedToPayroll ? { submittedToPayroll: false, payrollStatus: "withdrawn", withdrawnAt: now } : {}),
+    };
+    const dateKey = new Date(entry.punchIn).toISOString().split("T")[0];
+    await kv.set(`time_entry_history:${entry.employeeId}:${dateKey}:${entry.id}`, updated);
+
+    const allocated = Math.round(
+      (Array.isArray(updated.allocations) ? updated.allocations : [])
+        .reduce((s: number, a: any) => s + Number(a.hours || 0), 0) * 100,
+    ) / 100;
+
+    return c.json({
+      success: true,
+      entry: updated,
+      totalHours,
+      allocatedHours: allocated,
+      unallocatedHours: Math.round((totalHours - allocated) * 100) / 100,
+    });
+  } catch (error) {
+    console.error("Error setting finish time:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 timeTrackingRouter.post("/entries/:id/approve", async (c) => {
   const denial = requireAdmin(c);
   if (denial) return denial;
@@ -791,7 +955,13 @@ timeTrackingRouter.post("/entries/:id/approve", async (c) => {
     if (!entry) {
       return c.json({ success: false, error: "Time entry not found" }, 404);
     }
-    
+    // The same refusal as submit, repeated here rather than assumed. Approval
+    // is reachable directly from the payroll screen, so a flagged entry that
+    // never went through submit could otherwise be approved straight past it.
+    if (blockedFromPayroll(entry)) {
+      return c.json({ success: false, error: reviewReason(entry), needsReview: true }, 400);
+    }
+
     // Update entry approval status
     entry.approved = true;
     entry.approvedAt = new Date().toISOString();
@@ -844,16 +1014,22 @@ timeTrackingRouter.get("/payroll-report", async (c) => {
     
     // Calculate payroll by employee
     const payrollByEmployee = employees.map((emp: any) => {
-      const employeeEntries = entriesInRange.filter((e: any) => 
+      const employeeEntries = entriesInRange.filter((e: any) =>
         e.employeeId === emp.id
       );
-      
-      const totalHours = employeeEntries.reduce((sum: number, e: any) => 
+
+      // An auto-closed shift carries a placeholder finish time. Its hours are
+      // held out of the totals rather than paid, and counted separately so the
+      // shift is visibly waiting on somebody instead of quietly missing.
+      const held = employeeEntries.filter((e: any) => blockedFromPayroll(e));
+      const payable = employeeEntries.filter((e: any) => !blockedFromPayroll(e));
+
+      const totalHours = payable.reduce((sum: number, e: any) =>
         sum + (e.totalHours || 0), 0
       );
-      
+
       const grossPay = totalHours * (emp.payRate || 0);
-      
+
       return {
         employeeId: emp.id,
         employeeName: emp.name,
@@ -862,8 +1038,10 @@ timeTrackingRouter.get("/payroll-report", async (c) => {
         payRate: emp.payRate,
         totalHours: Math.round(totalHours * 100) / 100,
         grossPay: Math.round(grossPay * 100) / 100,
-        entries: employeeEntries.length,
-        approvedEntries: employeeEntries.filter((e: any) => e.approved).length
+        entries: payable.length,
+        approvedEntries: payable.filter((e: any) => e.approved).length,
+        heldForReview: held.length,
+        heldEntries: held.map((e: any) => ({ id: e.id, punchIn: e.punchIn, reason: reviewReason(e) })),
       };
     });
     
@@ -872,7 +1050,10 @@ timeTrackingRouter.get("/payroll-report", async (c) => {
       totalHours: payrollByEmployee.reduce((sum, e) => sum + e.totalHours, 0),
       totalGrossPay: payrollByEmployee.reduce((sum, e) => sum + e.grossPay, 0),
       totalEmployees: payrollByEmployee.length,
-      totalEntries: entriesInRange.length
+      totalEntries: entriesInRange.length,
+      // Named at the top of the report, so a run that is short by a day's
+      // labour says why rather than just being short.
+      heldForReview: payrollByEmployee.reduce((sum, e) => sum + e.heldForReview, 0),
     };
     
     return c.json({

@@ -969,3 +969,74 @@ rather than against a copy of it.
 ## Review
 
 (to be completed)
+
+---
+
+# Long shifts: prompt at eight, close at sixteen
+
+- [x] `shiftLimits.ts` — the two thresholds and the decisions they drive
+- [x] Auto-close abandoned shifts lazily, on every read of an active entry
+- [x] Refuse an auto-closed shift at submit and at approve
+- [x] A way for a supervisor to set the real finish time
+- [x] Hold flagged hours out of the payroll report totals
+- [x] The prompt itself, in the portal and in the mobile app
+
+## Why it is not "punch them out at eight"
+
+A ten-hour day is a normal day in construction, and a clock that stops itself at
+eight records eight. The two hours do not become overtime for somebody to
+approve — they stop existing, and the person who loses them is the one who
+worked them. Silently shortening a wage is a worse failure than a forgotten
+punch-out, so nothing built here does it.
+
+So eight hours **asks**, hourly, and the clock carries on either way. Sixteen
+hours is the backstop, and sixteen is not a long day — it is a punch-out
+somebody forgot on the way home.
+
+## What an auto-closed shift is
+
+Closed so the person can start their next shift, and marked `needsReview` with a
+finish time that is explicitly a placeholder. It is recorded at punch-in plus
+sixteen hours rather than at "now", so a Friday shift found on Monday reads as
+sixteen hours and not seventy-two. It is not added to `hoursToday` or
+`hoursWeek`, because those are read as fact.
+
+Then three gates: **submit** refuses it, **approve** refuses it separately (the
+payroll screen can reach approve directly, so assuming submit had run would have
+left a way past), and the **payroll report** holds its hours out of the totals
+while counting them under `heldForReview`, so a short run says why rather than
+just being short.
+
+`POST /entries/:id/finish-time` is the only way out, and it is admin only — the
+person whose hours these are cannot be the one who decides what they were. It
+checks the corrected time against the shift rather than accepting it: after the
+punch-in, and no more than sixteen hours after it, because a mistyped date is
+exactly what the rest of this exists to keep off the payroll report. Correcting
+the hours withdraws any existing payroll submission, since the allocation split
+was made against the placeholder and no longer reconciles.
+
+## No cron, so it runs on the way past
+
+There is no scheduler in this project. `closeIfAbandoned` runs on every read of
+an active entry — the timeclock screen, punching in again, the portal — which
+covers it, because everything that cares about a stale entry reads it anyway. In
+`GET /employees/:id` the active entry is now settled **before** the employee
+record is read, or the timeclock would be handed a record still saying "clocked
+in".
+
+## Already true, and left alone
+
+"All time must be matched with a work request" was already enforced and needed
+no change: `POST /entries/:id/submit` refuses unless the allocations sum exactly
+to the hours worked, and `PATCH /entries/:id/allocations` refuses any work order
+not assigned to that employee. The work was the long-shift half.
+
+## Checks
+
+Server typecheck 84, unchanged. App typecheck 332, unchanged — the one finding
+in `EmployeePortalView` is a pre-existing prop-type error on line 1219. Smoke:
+12 affected pages, 0 threw. 31/31 on `shiftLimits`.
+
+Not yet verified in a browser: the eight-hour prompt, and the supervisor's
+finish-time correction has no screen yet — the route exists and is reachable,
+but nothing in the UI calls it.
