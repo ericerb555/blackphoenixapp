@@ -34,9 +34,19 @@ import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 
 /** What is being spent. Each bucket has its own counter and its own ceiling. */
-export type SpendBucket = "render" | "blueprint";
+export type SpendBucket = "render" | "blueprint" | "ai";
 
 export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
+  /**
+   * Everything else that calls a model: writing copy, analysing a photo,
+   * drafting a quote, scripting a reel.
+   *
+   * One call is cents rather than the twenty a render costs, so the ceiling is
+   * far higher — this is a runaway loop backstop, not a quota anybody should
+   * meet in normal use. If a real customer hits 300 model calls, that is worth
+   * a conversation rather than a silent bill.
+   */
+  ai: 300,
   render: 10,
   // Set by Eric at 120 SHEETS, chosen so it works out at roughly thirty real
   // drawing sets — a set runs about four sheets. The unit is the sheet because

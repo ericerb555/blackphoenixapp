@@ -182,6 +182,7 @@ import { trustedRole } from "./trustedRole.ts";
 import bidIntakeRouter from "./bid-intake.tsx";
 import architectReviewRouter from "./architect-review.tsx";
 import jurisdictionsRouter from "./jurisdictions.tsx";
+import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import stripeConnectRouter from "./stripe-connect.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
@@ -397,6 +398,46 @@ const startsWithAny = (path: string, list: string[]) =>
   list.some((entry) => path === entry || path.startsWith(entry));
 
 /**
+ * Routes that cost money to answer because they call a model.
+ *
+ * WHY A MIDDLEWARE RATHER THAN A CHECK IN EACH ROUTE
+ *
+ * There are roughly twenty files that call OpenAI or Anthropic and only two of
+ * them — the renders and the blueprint reader — ever counted what they spent.
+ * Adding a guard to each of the rest is forty edits that drift, and the next AI
+ * route somebody writes starts unmetered again. One list, checked once, covers
+ * them all and covers what comes next.
+ *
+ * Deliberately NOT listed: /house-capture/ and /ai/analyze-blueprints, which
+ * meter themselves in their own buckets. Counting them here as well would
+ * charge twice for one call.
+ */
+const AI_METERED_PREFIXES = [
+  '/ai-guide-chat',
+  '/ai-floorplan/',
+  '/auto-generate-quote',
+  '/generate-quote',
+  '/bid-intake/',
+  '/bid-router/',
+  '/content-studio/',
+  '/creative-studio/generate',
+  '/design-assistant/',
+  '/marketing-assets/generate',
+  '/marketplace/generate-image',
+  '/page-pilot/generate',
+  '/permit-ai/',
+  '/plan-builder/',
+  '/project-vision/analyze',
+  '/seo-engine/articles/generate',
+  '/seo-engine/keywords/discover',
+  '/social/ai-repurpose',
+  '/store-ai-pricing/suggest',
+  '/variances/scan-fill',
+  '/video-studio/',
+  '/video/ai-edit',
+];
+
+/**
  * Which tier a request falls into.
  *
  * Public is checked before admin so that a path appearing in both lists — as
@@ -438,6 +479,36 @@ app.use('*', async (c, next) => {
     }
   }
   await next();
+});
+
+/**
+ * Count what a model call costs, before it is made.
+ *
+ * Runs after the auth gate, so the caller is already known to be signed in and
+ * `intakeActor` can put a name to the spend. Staff are waived inside `reserve`.
+ *
+ * Reserved before the handler and refunded if the handler fails, which is the
+ * same order the render and blueprint routes use: charging afterwards lets a
+ * burst of parallel requests all pass the same check before any has been
+ * counted.
+ */
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const p = path.startsWith(API_PREFIX) ? (path.slice(API_PREFIX.length) || '/') : path;
+  if (c.req.method === 'OPTIONS' || !startsWithAny(p, AI_METERED_PREFIXES)) return next();
+
+  const user = await intakeActor(c);
+  if (!user?.email) return next();   // the auth gate above already had its say
+
+  const refused = await reserveAiSpend(user, 'ai', 1, 'AI requests');
+  if (refused) return c.json({ success: false, ...refused }, 429);
+
+  await next();
+
+  // A call that failed produced nothing worth paying for.
+  if (c.res && c.res.status >= 400) {
+    await refundAiSpend(user, 'ai', 1).catch(() => {});
+  }
 });
 
 app.use('/make-server-3eae23a6/pipeline/*', async (c, next) => {
