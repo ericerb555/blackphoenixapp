@@ -10876,9 +10876,29 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
     const body = await c.req.json(); const recipient = invoiceRecipient(body); const requestedDraft = body.is_draft ?? body.status === 'draft';
     if (!requestedDraft && !recipient.customerEmail) return c.json({ success: false, error: 'A recipient email is required before an invoice can be issued.' }, 400);
     const id = String(body.id || crypto.randomUUID()); const lineItems = Array.isArray(body.line_items) ? body.line_items.map((item: any, index: number) => ({ ...item, line_number: item.line_number || index + 1, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), amount: Number(item.amount ?? Number(item.quantity || 0) * Number(item.unit_price || 0)) })) : [];
-    const subtotal = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0); const taxRate = Number(body.tax_rate || 0); const taxAmount = Number(body.tax_amount ?? subtotal * (taxRate / 100)); const discount = Number(body.discount_amount || 0); const total = Number(body.total_amount ?? subtotal + taxAmount - discount); const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
+    // An invoice adds up, or it is not an invoice.
+    //
+    // The subtotal was already derived from the line items, and then tax and
+    // total each preferred a figure from the request — so an invoice could be
+    // stored saying $50 while showing $500 of lines. Nobody has to be malicious
+    // for that to happen: a screen that sends a stale total after an edit is
+    // enough, and the customer is the one who spots it.
+    //
+    // Rate and discount are inputs and still come from the caller. The
+    // arithmetic they feed is ours. This computes exactly what the invoice
+    // screen computes, so it changes nothing for a caller that was already
+    // consistent — and quietly corrects one that was not.
+    const subtotal = money(lineItems.reduce((sum: number, item: any) => sum + item.amount, 0));
+    const taxRate = Number(body.tax_rate || 0);
+    const taxAmount = money(subtotal * (taxRate / 100));
+    const discount = money(body.discount_amount || 0);
+    const total = money(subtotal + taxAmount - discount);
+    const postedTotal = body.total_amount === undefined ? null : money(body.total_amount);
+    if (postedTotal !== null && Math.abs(postedTotal - total) > 0.01) {
+      console.log(`[invoices] posted total ${postedTotal} does not match the line items (${total}); using the line items`);
+    } const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
     const isDraft = Boolean(requestedDraft) || !recipient.customerEmail; const status = isDraft ? 'draft' : (body.status && body.status !== 'draft' ? body.status : 'pending');
-    const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: Number(body.paid_amount || 0), balance_due: Number(body.balance_due ?? total), status, is_draft: isDraft, issuedAt: isDraft ? null : now, createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email };
+    const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: money(body.paid_amount || 0), balance_due: money(total - money(body.paid_amount || 0)), status, is_draft: isDraft, issuedAt: isDraft ? null : now, createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email };
     await kv.set(`invoice:${id}`, record); return c.json({ success: true, invoice: record }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });

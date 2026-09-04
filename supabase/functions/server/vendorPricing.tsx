@@ -18,7 +18,9 @@
 
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { trustedRole } from "./trustedRole.ts";
 
 const vendorPricingRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -141,7 +143,52 @@ vendorPricingRouter.post(`${PREFIX}/vendor-pricing/compare`, async (c) => {
 });
 
 // Override a vendor price with the contractor's real negotiated price.
+/**
+ * Only staff may change what a material costs.
+ *
+ * This route had no check of its own, and `/vendor-pricing` is on neither the
+ * public list nor the admin list in index.tsx — so it fell to the default tier,
+ * which is "anybody with a session". Any customer, tenant or applicant with an
+ * account could rewrite the price of a material.
+ *
+ * These figures are an input to what we charge: they feed the estimate and the
+ * quote. Somebody who can move them can move the price of a job, quietly, from
+ * a portal that has nothing to do with pricing.
+ *
+ * Reads are left alone — the compare endpoint is how a quote gets built.
+ */
+const PRICING_STAFF = new Set([
+  "owner", "platform_owner", "business_owner", "admin", "master_admin",
+  "super_admin", "superadmin", "management", "staff", "employee",
+  "project_manager", "estimator", "office",
+]);
+
+async function requirePricingStaff(c: any): Promise<Response | null> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return c.json({ success: false, error: "Sign in required." }, 401);
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const owners = [
+    "ericerb555@proton.me",
+    ...(Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
+      .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+  ];
+  const email = String(data.user.email || "").toLowerCase();
+  // app_metadata only. A role the browser can set is not a role, and this one
+  // decides the cost basis of every quote.
+  if (owners.includes(email) || PRICING_STAFF.has(trustedRole(data.user))) return null;
+
+  return c.json({ success: false, error: "Internal access is required to change pricing." }, 403);
+}
+
 vendorPricingRouter.put(`${PREFIX}/vendor-pricing/:materialKey/:vendorKey`, async (c) => {
+  const refused = await requirePricingStaff(c);
+  if (refused) return refused;
   try {
     const materialKey = c.req.param("materialKey");
     const vendorKey = c.req.param("vendorKey");
