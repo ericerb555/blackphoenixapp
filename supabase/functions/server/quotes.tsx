@@ -182,6 +182,26 @@ function normalizeDoc(input: any) {
   };
 }
 
+
+/**
+ * Only the company writes a quote.
+ *
+ * `quoteActor` already existed here and the list route uses it properly —
+ * staff see every quote, a customer sees only their own. The four write
+ * handlers used it nowhere, so any signed-in account could create, edit,
+ * reassign or delete any quote by id. A quote becomes a contract and then an
+ * invoice, so that is the price of a job editable by whoever asks.
+ *
+ * The customer portal only ever lists quotes; nothing outside the company
+ * writes one.
+ */
+async function requireQuoteStaff(c: any): Promise<Response | null> {
+  const { email, staff } = await quoteActor(c);
+  if (!email) return c.json({ success: false, error: "Sign in required." }, 401);
+  if (!staff) return c.json({ success: false, error: "Administrator access is required." }, 403);
+  return null;
+}
+
 // ── List all quotes/invoices ──────────────────────────────────────────────────
 quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
   try {
@@ -197,6 +217,9 @@ quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
 
 // ── Create or update a quote/invoice ──────────────────────────────────────────
 quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
+  const refused = await requireQuoteStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const input = body?.quote || body;
@@ -226,6 +249,9 @@ quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
 // Design Studio sends { floorPlanData, materials, lastModified } — we merge those
 // onto the existing quote without clobbering the customer-facing line items.
 quotesRouter.put("/make-server-3eae23a6/quotes/:id", async (c) => {
+  const refused = await requireQuoteStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -253,6 +279,9 @@ quotesRouter.put("/make-server-3eae23a6/quotes/:id", async (c) => {
 
 // ── Assign / reassign a customer to an existing quote ─────────────────────────
 quotesRouter.post("/make-server-3eae23a6/quotes/:id/assign", async (c) => {
+  const refused = await requireQuoteStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -279,6 +308,9 @@ quotesRouter.post("/make-server-3eae23a6/quotes/:id/assign", async (c) => {
 
 // ── Delete a quote ────────────────────────────────────────────────────────────
 quotesRouter.delete("/make-server-3eae23a6/quotes/:id", async (c) => {
+  const refused = await requireQuoteStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param("id");
     await kv.del(`quote:${id}`);

@@ -1,7 +1,9 @@
 // eCommerce Orders API Routes
 // Phase 1: Foundation & Backend Infrastructure
 import { Hono } from 'npm:hono';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { trustedRole, STAFF_ROLE_SET } from './trustedRole.ts';
 
 // Type definitions
 interface Address {
@@ -77,6 +79,44 @@ interface Product {
 
 export const ordersRouter = new Hono();
 
+/**
+ * Only the company changes an order.
+ *
+ * This file carried no authorisation of any kind, and it is mounted — so
+ * marking an order shipped, cancelling one, or creating one outright was
+ * available to anybody with a session, by id. Order state is what tells a
+ * customer whether their money bought anything.
+ *
+ * Nothing in the app calls these routes: fulfilment happens through the
+ * purchase-order screens, and store orders are created inside checkout by
+ * finalizeStoreOrder rather than over HTTP. So the gate costs nothing today
+ * and closes the routes to everyone else.
+ */
+async function requireOrdersStaff(c: any): Promise<Response | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearers+/i, '');
+  if (!token) return c.json({ error: 'Sign in required.' }, 401);
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return c.json({ error: 'Sign in required.' }, 401);
+    const owners = [
+      'ericerb555@proton.me',
+      ...(Deno.env.get('PLATFORM_OWNER_EMAILS') || '')
+        .split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    ];
+    const email = String(data.user.email || '').toLowerCase();
+    if (owners.includes(email) || STAFF_ROLE_SET.has(trustedRole(data.user))) return null;
+    return c.json({ error: 'Internal access is required to change an order.' }, 403);
+  } catch {
+    return c.json({ error: 'Sign in required.' }, 401);
+  }
+}
+
+
+
 // Test endpoint to verify router is mounted
 ordersRouter.get('/orders/test', async (c) => {
   return c.json({ 
@@ -148,6 +188,9 @@ const generateVendorOrderId = () => `vorder_${Date.now()}_${Math.random().toStri
 
 // Create Order from Cart
 ordersRouter.post('/orders', async (c) => {
+  const refused = await requireOrdersStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const { 
@@ -622,6 +665,9 @@ ordersRouter.get('/orders/vendor/:vendorId', async (c) => {
 
 // Update Order Status
 ordersRouter.put('/orders/:id/status', async (c) => {
+  const refused = await requireOrdersStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const { status, trackingNumber } = await c.req.json();
@@ -657,6 +703,9 @@ ordersRouter.put('/orders/:id/status', async (c) => {
 
 // Update Vendor Order Status
 ordersRouter.put('/vendor-orders/:id/status', async (c) => {
+  const refused = await requireOrdersStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const { status, trackingNumber, vendorNotes } = await c.req.json();
@@ -742,6 +791,9 @@ ordersRouter.get('/admin/orders/all', async (c) => {
 
 // Cancel Order
 ordersRouter.post('/orders/:id/cancel', async (c) => {
+  const refused = await requireOrdersStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const { reason } = await c.req.json();

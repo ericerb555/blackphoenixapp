@@ -4210,7 +4210,29 @@ app.get('/make-server-3eae23a6/suppliers', async (c) => {
   }
 });
 
+
+/**
+ * Only the company keeps the supplier book and awards its work.
+ *
+ * None of these routes checked anything. The supplier list is who we buy from
+ * and at what terms; an RFQ award is a purchasing decision; and a quote against
+ * an RFQ arrived with no proof of which supplier sent it, so anybody could
+ * enter a price under somebody else's name.
+ *
+ * Every screen that uses these is a company screen — SupplierRfqTab and the
+ * supplier hub. No portal touches them.
+ */
+async function requireSupplierStaff(c: any): Promise<Response | null> {
+  const user = await intakeActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (await intakeIsAdmin(user) || STAFF_VIEW_ROLES.has(trustedRole(user))) return null;
+  return c.json({ success: false, error: 'Internal access is required.' }, 403);
+}
+
 app.post('/make-server-3eae23a6/suppliers', async (c) => {
+  const refused = await requireSupplierStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json().catch(() => ({}));
     if (!String(body.name || '').trim()) {
@@ -4234,6 +4256,9 @@ app.post('/make-server-3eae23a6/suppliers', async (c) => {
 });
 
 app.put('/make-server-3eae23a6/suppliers/:id', async (c) => {
+  const refused = await requireSupplierStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const existing = await kv.get(`supplier:${id}`) as any;
@@ -4249,6 +4274,9 @@ app.put('/make-server-3eae23a6/suppliers/:id', async (c) => {
 });
 
 app.delete('/make-server-3eae23a6/suppliers/:id', async (c) => {
+  const refused = await requireSupplierStaff(c);
+  if (refused) return refused;
+
   try {
     await kv.del(`supplier:${c.req.param('id')}`);
     return c.json({ success: true });
@@ -4263,6 +4291,9 @@ app.delete('/make-server-3eae23a6/suppliers/:id', async (c) => {
 registerFieldOpsCollection('supplier-rfqs', 'supplier_rfq:', 'rfq');
 
 app.post('/make-server-3eae23a6/supplier-rfqs/:id/quote', async (c) => {
+  const refused = await requireSupplierStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const rfq = await kv.get(`supplier_rfq:${id}`) as any;
@@ -4296,6 +4327,9 @@ app.post('/make-server-3eae23a6/supplier-rfqs/:id/quote', async (c) => {
 });
 
 app.post('/make-server-3eae23a6/supplier-rfqs/:id/award', async (c) => {
+  const refused = await requireSupplierStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const rfq = await kv.get(`supplier_rfq:${id}`) as any;
