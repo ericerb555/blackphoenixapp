@@ -161,6 +161,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
+import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
@@ -11030,12 +11031,159 @@ app.post('/make-server-3eae23a6/financial-reconciliation/transactions/:id/reconc
 
 // Completed work orders are derived from canonical paid invoices and their linked work requests.
 // Costs remain zero until receipts/labor are recorded through their respective workflows; we never invent financial data.
+/**
+ * GET /work-orders/quoting-accuracy — is the quoting proving profitable.
+ *
+ * Grouped by trade rather than listed by job, because that is the difference
+ * between something to act on and a story. "Deck framing runs 18% over the
+ * quoted hours across nine jobs" changes what the next quote says. "Job 402 lost
+ * money" might mean it rained.
+ *
+ * It reports what it could not see as loudly as what it could. A company where
+ * only four of forty finished jobs have time booked against them does not have a
+ * quoting problem yet — it has a timekeeping problem, and being told the margin
+ * on four jobs as though it were the answer would hide that.
+ */
+app.get('/make-server-3eae23a6/work-orders/quoting-accuracy', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+
+    const [requests, invoices, payments, timeEntries, employees, purchaseOrders] = await Promise.all([
+      readWorkRequests(), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'),
+      kv.getByPrefix('time_entry_history:'), kv.getByPrefix('time_employee:'), kv.getByPrefix('purchase_order:'),
+    ]);
+
+    const payRateByEmployee: Record<string, number> = {};
+    for (const e of (employees as any[] || [])) {
+      if (e?.id) payRateByEmployee[String(e.id)] = Number(e.payRate) || 0;
+    }
+    const paidPayments = (payments as any[] || []).filter((p: any) =>
+      ['paid', 'completed'].includes(String(p.status || '').toLowerCase()));
+
+    const outcomes: any[] = [];
+    for (const request of (requests as any[] || [])) {
+      const invoice = (invoices as any[] || []).find((inv: any) => {
+        const links = [inv.workRequestId, inv.work_request_id, inv.projectId, inv.project_id, inv.sourceWorkRequestId];
+        const paid = ['paid', 'completed'].includes(String(inv.status || '').toLowerCase())
+          || paidPayments.some((p: any) => String(p.invoiceId || p.invoice_id || '') === String(inv.id));
+        return paid && links.some((v: any) => String(v || '') === String(request.id));
+      });
+      if (!invoice) continue;
+
+      const amount = Number(invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0) || 0;
+      outcomes.push(jobOutcome({
+        request,
+        invoiceAmount: amount,
+        completedAt: invoice.paidAt || invoice.paid_at || invoice.updatedAt || '',
+        timeEntries: timeEntries as any[],
+        payRateByEmployee,
+        purchaseOrders: purchaseOrders as any[],
+      }));
+    }
+
+    // The trade a job was, under whichever field the intake form used.
+    const tradeOf = (o: any) => {
+      const r = (requests as any[]).find((x: any) => String(x.id) === o.workRequestId) || {};
+      return String(r.serviceType || r.project_type || r.trade || r.category || 'general').toLowerCase();
+    };
+
+    const variance = varianceByTask(outcomes, tradeOf);
+    const proposals = variance
+      .map((v: any) => proposeRate(v, Number(c.req.query(`rate_${v.key}`)) || 0))
+      .filter(Boolean);
+
+    const withMargin = outcomes.filter((o: any) => o.margin.percent !== null);
+    const averageMargin = withMargin.length
+      ? Math.round((withMargin.reduce((s: number, o: any) => s + o.margin.percent, 0) / withMargin.length) * 100) / 100
+      : null;
+
+    return c.json({
+      success: true,
+      variance,
+      proposals,
+      // Said plainly, because the coverage is the story until it is high.
+      coverage: {
+        finishedAndPaid: outcomes.length,
+        withMeasuredLabour: outcomes.filter((o: any) => o.actual.labourKnown === 'measured').length,
+        withMeasuredMaterials: outcomes.filter((o: any) => o.actual.materialKnown === 'measured').length,
+        withFullCosts: withMargin.length,
+        usableForLearning: outcomes.filter((o: any) => o.enoughToLearn).length,
+        minJobsToLearn: MIN_JOBS_TO_LEARN,
+      },
+      averageMargin,
+      losingJobs: outcomes
+        .filter((o: any) => o.margin.percent !== null && o.margin.percent < 0)
+        .map((o: any) => ({ id: o.workRequestId, title: o.title, customer: o.customer, margin: o.margin })),
+    });
+  } catch (error: any) {
+    console.error('[QuotingAccuracy]', error);
+    return c.json({ success: false, error: error?.message || 'Could not work that out.' }, 500);
+  }
+});
+
+/**
+ * The cost half of a completion report.
+ *
+ * WHAT WAS HERE BEFORE
+ *
+ * `totalCosts: 0, profitAmount: amount, profitMargin: amount > 0 ? 100 : 0`.
+ * Literals. Every finished job in the company's history reported full margin,
+ * because costs it did not have were written down as zero and zero costs
+ * subtract to perfect profit. The screen looked populated and healthy and was
+ * answering the one question it exists for with a number nobody had computed.
+ *
+ * The arithmetic now lives in `jobOutcome.ts`, tested, and the rule it enforces
+ * is that unknown is not zero: a job with no time booked to it and no purchase
+ * order against it reports **null** and a sentence saying so, and the screen has
+ * to render "not enough data" rather than a margin.
+ */
+function costsFromOutcome(
+  request: any, invoiceAmount: number, completedAt: string,
+  timeEntries: any[], payRateByEmployee: Record<string, number>, purchaseOrders: any[],
+) {
+  const outcome = jobOutcome({
+    request, invoiceAmount, completedAt, timeEntries, payRateByEmployee, purchaseOrders,
+  });
+  return {
+    totalMaterialCosts: outcome.actual.materialCost,
+    totalLaborCosts: outcome.actual.labourCost,
+    totalLaborHours: outcome.actual.hours,
+    totalSubcontractorCosts: outcome.actual.subcontractorCost,
+    totalServiceProviderCosts: null,
+    otherExpenses: null,
+    totalCosts: outcome.actual.total,
+    profitAmount: outcome.margin.amount,
+    profitMargin: outcome.margin.percent,
+    quotedHours: outcome.quoted.hours,
+    // What the screen needs to be honest: whether these figures are complete,
+    // and what is missing when they are not.
+    costsKnown: outcome.margin.known === 'measured',
+    labourKnown: outcome.actual.labourKnown,
+    materialKnown: outcome.actual.materialKnown,
+    gaps: outcome.gaps,
+  };
+}
+
 app.get('/make-server-3eae23a6/work-orders/completion-reports', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
     if (!user?.email || !admin) return c.json({ success: false, error: 'Administrator access is required to view completion reports.' }, 403);
-    const [requests, invoices, payments] = await Promise.all([readWorkRequests(), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:')]);
+    const [requests, invoices, payments, timeEntries, employees, purchaseOrders] = await Promise.all([
+      readWorkRequests(), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'),
+      // The three sources that make this report mean something. Without them it
+      // was reporting `totalCosts: 0` and therefore 100% margin on every job
+      // ever completed — literals, not calculations.
+      kv.getByPrefix('time_entry_history:'), kv.getByPrefix('time_employee:'), kv.getByPrefix('purchase_order:'),
+    ]);
     const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase()));
+
+    const payRateByEmployee: Record<string, number> = {};
+    for (const e of (employees as any[] || [])) {
+      if (e?.id) payRateByEmployee[String(e.id)] = Number(e.payRate) || 0;
+    }
     const reports = (requests as any[]).flatMap((request: any) => {
       const linkedInvoices = (invoices as any[] || []).filter((invoice: any) => {
         const links = [invoice.workRequestId, invoice.work_request_id, invoice.projectId, invoice.project_id, invoice.sourceWorkRequestId];
@@ -11046,7 +11194,7 @@ app.get('/make-server-3eae23a6/work-orders/completion-reports', async (c) => {
         const payment = paidPayments.find((entry: any) => String(entry.invoiceId || entry.invoice_id || '') === String(invoice.id));
         const amount = Number(invoice.total_amount ?? invoice.total ?? invoice.amount ?? 0) || 0;
         const completedAt = invoice.paidAt || invoice.paid_at || payment?.paidAt || payment?.updatedAt || invoice.updatedAt || invoice.updated_at || new Date().toISOString();
-        return { id: request.id, invoiceId: invoice.id, itemNumber: String(request.itemNumber || request.workOrderNumber || request.id).slice(0, 50), customerName: request.client_name || request.clientName || request.customerName || invoice.customer_name || invoice.customerName || '', customerEmail: request.client_email || request.clientEmail || request.customerEmail || invoice.customerEmail || '', customerPhone: request.client_phone || request.clientPhone || request.customerPhone || '', title: request.title || request.project_name || request.projectTitle || invoice.description || 'Completed project', description: request.description || request.project_details?.description || '', location: request.location || request.address || request.client_info?.address || 'Not specified', requestDate: request.created_at || request.createdAt || completedAt, startDate: request.projectSchedule?.tasks?.[0]?.startDate || request.schedule?.startAt || request.created_at || completedAt, completionDate: completedAt, invoicePaidDate: completedAt, estimatedValue: Number(request.estimatedValue || request.quote?.totalCost || amount) || amount, finalInvoiceAmount: amount, totalMaterialCosts: 0, totalLaborCosts: 0, totalSubcontractorCosts: 0, totalServiceProviderCosts: 0, otherExpenses: 0, totalCosts: 0, profitAmount: amount, profitMargin: amount > 0 ? 100 : 0, receipts: [], laborEntries: [], changeOrders: [], notes: request.notes || '', internalNotes: request.internalNotes || '' };
+        return { id: request.id, invoiceId: invoice.id, itemNumber: String(request.itemNumber || request.workOrderNumber || request.id).slice(0, 50), customerName: request.client_name || request.clientName || request.customerName || invoice.customer_name || invoice.customerName || '', customerEmail: request.client_email || request.clientEmail || request.customerEmail || invoice.customerEmail || '', customerPhone: request.client_phone || request.clientPhone || request.customerPhone || '', title: request.title || request.project_name || request.projectTitle || invoice.description || 'Completed project', description: request.description || request.project_details?.description || '', location: request.location || request.address || request.client_info?.address || 'Not specified', requestDate: request.created_at || request.createdAt || completedAt, startDate: request.projectSchedule?.tasks?.[0]?.startDate || request.schedule?.startAt || request.created_at || completedAt, completionDate: completedAt, invoicePaidDate: completedAt, estimatedValue: Number(request.estimatedValue || request.quote?.totalCost || amount) || amount, finalInvoiceAmount: amount, ...costsFromOutcome(request, amount, completedAt, timeEntries as any[], payRateByEmployee, purchaseOrders as any[]), receipts: [], laborEntries: [], changeOrders: [], notes: request.notes || '', internalNotes: request.internalNotes || '' };
       });
     }).sort((a: any, b: any) => Date.parse(b.invoicePaidDate) - Date.parse(a.invoicePaidDate));
     return c.json({ success: true, reports });

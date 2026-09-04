@@ -1591,3 +1591,62 @@ useful for the part that is genuinely language: reading the variance and saying
 line in your quote". The numbers stay deterministic and tested.
 
 ## Awaiting approval.
+
+## Review — quoted against actual
+
+Items 1–3 and 5 are done. Item 4 has its logic and its evidence sentence but no
+screen to accept a proposal on yet; noted below.
+
+**`jobOutcome.ts`, 46/46.** The rule the whole file turns on is *unknown is not
+zero*, because that is precisely how the old report reached 100%: costs it did
+not have were written as zero, zero costs subtract to full margin, and the screen
+looked healthy. Now a job with no time booked and no purchase order returns
+`null` and a sentence saying which, and both the API and the screen render "Not
+known".
+
+Tested: hours from this job only; each employee's own pay rate; a flagged time
+entry excluded, since its finish time is a placeholder; an employee with no pay
+rate counted as *missing* rather than as free labour; cancelled and draft
+purchase orders excluded; a loss reported as a loss; and half-known jobs — labour
+measured, materials absent — refusing to show a margin at all.
+
+**The completion report no longer invents anything.** `totalCosts: 0` and
+`profitMargin: amount > 0 ? 100 : 0` are gone. Labour comes from time entries
+allocated to the work order at each employee's own rate, which is real: an entry
+cannot reach payroll unless its allocations reconcile exactly to the hours
+worked, and an employee may only bill to a job assigned to them.
+
+**The screen's headline was wrong in the other direction too.** It averaged
+`wo.profitMargin || 0` over every completed job, so an unknown job counted as a
+0% one. It now averages over jobs whose costs are known and says how many those
+are, with the rest counted separately.
+
+**`GET /work-orders/quoting-accuracy`** groups by trade, not by job — "deck
+framing runs 18% over across nine jobs" is actionable, "job 402 lost money" might
+mean it rained. Five jobs before a pattern is called confident, ten per cent
+before a rate is worth proposing. It reports coverage first, because a company
+where four of forty finished jobs have time booked has a timekeeping problem, not
+a quoting problem, and a margin computed on those four would hide it.
+
+**Rates are proposed, never applied.** `laborTasks.ts` says a figure Eric has
+edited is `source: 'yours'` and never silently overwritten; `proposeRate` returns
+the corrected figure with the evidence behind it and writes nothing.
+
+### Left undone, deliberately
+
+The accept-a-proposal screen. The route returns proposals and nothing renders
+them yet, so item 4 is half-built: the reasoning exists, the button does not.
+Also, `proposeRate` needs the current rate passed in per trade, which the route
+currently takes from a query parameter — that wants wiring to `laborTasks`
+properly when the screen is built.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 6 pages, 0 threw. 46/46 on
+`jobOutcome`.
+
+### Not verified in a browser
+
+And it cannot be meaningfully verified until at least one finished job has time
+booked against it and a purchase order linked to it. Until then every job will
+honestly report "Not known", which is itself the correct first result.

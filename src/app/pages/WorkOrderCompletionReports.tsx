@@ -116,10 +116,23 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
     sum + (wo.finalInvoiceAmount || wo.estimatedValue || 0), 0
   );
 
-  const totalProfit = completedWorkOrders.reduce((sum, wo) => sum + (wo.profitAmount || 0), 0);
-  const avgProfitMargin = completedWorkOrders.length > 0
-    ? completedWorkOrders.reduce((sum, wo) => sum + (wo.profitMargin || 0), 0) / completedWorkOrders.length
-    : 0;
+  /**
+   * Averaged over the jobs whose costs are actually known, not over all of them.
+   *
+   * `wo.profitMargin || 0` turned every unknown job into a 0% one and divided by
+   * the whole list, so the headline moved every time a job was finished without
+   * its costs recorded — in the opposite direction to the old bug, and just as
+   * wrong. Jobs with nothing to measure are counted separately and said out
+   * loud instead.
+   */
+  const measured = completedWorkOrders.filter(
+    (wo) => wo.profitMargin !== null && wo.profitMargin !== undefined,
+  );
+  const unmeasuredCount = completedWorkOrders.length - measured.length;
+  const totalProfit = measured.reduce((sum, wo) => sum + (wo.profitAmount || 0), 0);
+  const avgProfitMargin = measured.length > 0
+    ? measured.reduce((sum, wo) => sum + (wo.profitMargin || 0), 0) / measured.length
+    : null;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] pb-20">
@@ -177,8 +190,22 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
               <h3 className="text-sm font-medium text-gray-400">Avg Profit Margin</h3>
               <TrendingUp className="w-5 h-5 text-green-500" />
             </div>
-            <p className="text-3xl font-bold text-white">{avgProfitMargin.toFixed(1)}%</p>
-            <p className="text-sm text-gray-400 mt-1">Across all projects</p>
+            <p className="text-3xl font-bold text-white">
+              {avgProfitMargin === null ? '—' : `${avgProfitMargin.toFixed(1)}%`}
+            </p>
+            {/* Says what it is across. "Across all projects" was untrue: it was
+                across all projects with their costs hardcoded to zero, which is
+                how this screen came to claim 100% on everything. */}
+            <p className="text-sm text-gray-400 mt-1">
+              {measured.length === 0
+                ? 'No job yet has both its labour and materials recorded'
+                : `Across ${measured.length} job${measured.length === 1 ? '' : 's'} with costs recorded`}
+              {unmeasuredCount > 0 && (
+                <span className="block text-yellow-500/80">
+                  {unmeasuredCount} more finished, costs not recorded
+                </span>
+              )}
+            </p>
           </Card>
         </div>
 
@@ -288,28 +315,57 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
                               {formatCurrency(reportData.finalInvoiceAmount)}
                             </p>
                           </div>
+                          {/* Null is not zero here.
+                              These three read `null` when the job has no time
+                              booked to it or no purchase order against it. The
+                              server used to send 0 for costs and therefore 100%
+                              margin on every job ever finished, so a dash that
+                              says "not known" is the whole correction — a
+                              number would be the bug coming back. */}
                           <div>
                             <p className="text-sm text-gray-400 mb-1">Total Costs</p>
                             <p className="text-white font-semibold">
-                              {formatCurrency(reportData.totalCosts)}
+                              {reportData.totalCosts === null || reportData.totalCosts === undefined
+                                ? <span className="text-gray-500">Not known</span>
+                                : formatCurrency(reportData.totalCosts)}
                             </p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-400 mb-1">Profit</p>
                             <p className={`font-semibold ${
-                              reportData.profitAmount > 0 ? 'text-green-500' : 'text-red-500'
+                              reportData.profitAmount === null || reportData.profitAmount === undefined
+                                ? 'text-gray-500'
+                                : reportData.profitAmount > 0 ? 'text-green-500' : 'text-red-500'
                             }`}>
-                              {formatCurrency(reportData.profitAmount)}
+                              {reportData.profitAmount === null || reportData.profitAmount === undefined
+                                ? 'Not known'
+                                : formatCurrency(reportData.profitAmount)}
                             </p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-400 mb-1">Margin</p>
                             <p className={`font-semibold ${
-                              reportData.profitMargin > 0 ? 'text-green-500' : 'text-red-500'
+                              reportData.profitMargin === null || reportData.profitMargin === undefined
+                                ? 'text-gray-500'
+                                : reportData.profitMargin > 0 ? 'text-green-500' : 'text-red-500'
                             }`}>
-                              {reportData.profitMargin.toFixed(1)}%
+                              {reportData.profitMargin === null || reportData.profitMargin === undefined
+                                ? 'Not known'
+                                : `${reportData.profitMargin.toFixed(1)}%`}
                             </p>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Why it is not known, in the words the server used. */}
+                      {Array.isArray(reportData.gaps) && reportData.gaps.length > 0 && (
+                        <div className="mt-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3">
+                          <p className="text-xs font-semibold text-yellow-400 mb-1">
+                            This job's profit cannot be worked out yet
+                          </p>
+                          <ul className="space-y-0.5 text-xs text-yellow-200/70">
+                            {reportData.gaps.map((g: string, i: number) => <li key={i}>· {g}</li>)}
+                          </ul>
                         </div>
                       )}
                     </div>
