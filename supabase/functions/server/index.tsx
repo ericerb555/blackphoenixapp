@@ -2390,9 +2390,72 @@ app.post('/make-server-3eae23a6/doba/disconnect', async (c) => {
 // ============================================
 
 // Set key-value
+/**
+ * THE GENERIC KEY-VALUE ROUTES, AND WHY THEY ARE NOW NARROW
+ *
+ * These four read, write and delete any key in the store. The store holds
+ * everything: invoices, payments, quotes, contracts, gift cards, vendor prices,
+ * purchase orders, investments, portal records. `/kv/` is on no prefix list, so
+ * they sat at the default tier — which means every customer, tenant, vendor,
+ * subcontractor and applicant with a portal login could reach them.
+ *
+ * With `get-by-prefix` that is the whole invoice book in one request. With
+ * `set` it is marking anything paid, or writing yourself a gift card. It
+ * bypassed every other gate in this file, including the ones added today.
+ *
+ * WHAT REPLACES THE FREE-FOR-ALL
+ *
+ * Staff keep the general capability — plenty of admin screens lean on it.
+ * Everybody else may touch only the handful of key shapes the app actually
+ * asks them to, and only their own: `kvOwnKey` decides that, and it is an
+ * allowlist rather than a list of things to block, because a denylist is a
+ * guess about what matters and this store gains new prefixes every week.
+ *
+ * `get-by-prefix` and `delete` are staff-only outright. Nothing in the app has
+ * ever called either from a portal, so nothing is lost — a bulk scan and a
+ * destructive write are not things a portal guest needs.
+ */
+const KV_GUEST_PREFIXES = [
+  // The work-request handoff. ClientWorkRequestForm writes one of these as a
+  // customer submits, and AdminAlertsPanel reads them back.
+  'pipeline:', 'pipeline_',
+];
+
+function kvOwnKey(key: string, userId: string, email: string): boolean {
+  const k = String(key || '');
+  if (!k) return false;
+  if (KV_GUEST_PREFIXES.some((p) => k.startsWith(p))) return true;
+  // Per-user records: `${something}_${userId}` from database.ts, and
+  // `customer_membership:${email}` from subscriptionDiscount.ts. The identity
+  // has to be in the key, and it has to be theirs.
+  if (userId && k.endsWith(`_${userId}`)) return true;
+  if (email && k.toLowerCase().endsWith(`:${email.toLowerCase()}`)) return true;
+  return false;
+}
+
+/** Staff, or the owner of this specific key. Returns a response when refused. */
+async function requireKvAccess(c: any, key: string): Promise<Response | null> {
+  const user = await intakeActor(c);
+  if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+  if (await intakeIsAdmin(user) || STAFF_VIEW_ROLES.has(trustedRole(user))) return null;
+  if (kvOwnKey(key, String(user.id || ''), String(user.email || ''))) return null;
+  return c.json({ error: 'You may not read or change that record.' }, 403);
+}
+
+/** Staff only — no portal user needs a bulk scan or a destructive write. */
+async function requireKvStaff(c: any): Promise<Response | null> {
+  const user = await intakeActor(c);
+  if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+  if (await intakeIsAdmin(user) || STAFF_VIEW_ROLES.has(trustedRole(user))) return null;
+  return c.json({ error: 'Internal access is required.' }, 403);
+}
+
 app.post('/make-server-3eae23a6/kv/set', async (c) => {
   try {
     const { key, value } = await c.req.json();
+    if (!key) return c.json({ error: 'Key required' }, 400);
+    const refused = await requireKvAccess(c, String(key));
+    if (refused) return refused;
     await kv.set(key, value);
     return c.json({ success: true });
   } catch (error: any) {
@@ -2408,6 +2471,8 @@ app.get('/make-server-3eae23a6/kv/get', async (c) => {
     if (!key) {
       return c.json({ error: 'Key parameter required' }, 400);
     }
+    const refused = await requireKvAccess(c, String(key));
+    if (refused) return refused;
     const value = await kv.get(key);
     return c.json({ value: stripBase64(value) });
   } catch (error: any) {
@@ -2423,6 +2488,10 @@ app.get('/make-server-3eae23a6/kv/get-by-prefix', async (c) => {
     if (!prefix) {
       return c.json({ error: 'Prefix parameter required' }, 400);
     }
+    // Staff only. A prefix scan returns whole books at a time — every invoice,
+    // every payment — and no portal screen has ever called this.
+    const refused = await requireKvStaff(c);
+    if (refused) return refused;
     const values = await kv.getByPrefix(prefix);
     return c.json({ values: stripBase64(values) });
   } catch (error: any) {
@@ -2438,6 +2507,10 @@ app.delete('/make-server-3eae23a6/kv/delete', async (c) => {
     if (!key) {
       return c.json({ error: 'Key parameter required' }, 400);
     }
+    // Staff only. Nothing in the app deletes through this route, and a
+    // destructive write with a free-text key is not something to leave open.
+    const refused = await requireKvStaff(c);
+    if (refused) return refused;
     await kv.del(key);
     return c.json({ success: true });
   } catch (error: any) {
