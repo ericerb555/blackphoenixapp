@@ -1,7 +1,9 @@
 // eCommerce Products API Routes
 // Phase 1: Foundation & Backend Infrastructure
 import { Hono } from 'npm:hono';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { trustedRole } from './trustedRole.ts';
 
 /**
  * Short-lived, single-flight cache for the full product list.
@@ -101,8 +103,55 @@ const generateSlug = (name: string) => {
     .replace(/^-|-$/g, '');
 };
 
+/**
+ * Only an administrator may change the catalogue.
+ *
+ * WHY THIS IS STATED HERE RATHER THAN LEFT TO THE MIDDLEWARE
+ *
+ * index.tsx carries `app.use('/products/*')` which admin-gates writes, and
+ * these handlers relied on it entirely. That wildcard covers `/products/:id`
+ * and it is not obvious that it covers bare `/products` — which is the create
+ * route. An admin gate that depends on whether a router treats `*` as matching
+ * zero segments is not a gate anybody should have to reason about.
+ *
+ * A shadowed copy of these routes further down index.tsx did check
+ * administrator access explicitly. Those are being deleted as dead code, and
+ * the check they carried is written here first so nothing is lost with them.
+ *
+ * Reads stay open: the storefront has to render the catalogue to a stranger.
+ */
+const CATALOGUE_ADMIN_ROLES = new Set([
+  'owner', 'platform_owner', 'business_owner', 'admin', 'master_admin',
+  'super_admin', 'superadmin', 'management', 'staff', 'employee',
+]);
+
+async function requireCatalogueAdmin(c: any): Promise<Response | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return c.json({ error: 'Sign in required.' }, 401);
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return c.json({ error: 'Sign in required.' }, 401);
+
+  const owners = [
+    'ericerb555@proton.me',
+    ...(Deno.env.get('PLATFORM_OWNER_EMAILS') || '')
+      .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  ];
+  const email = String(data.user.email || '').toLowerCase();
+  // app_metadata only, via trustedRole — a role the browser can write is not a
+  // role, and this one decides who can put things in the shop and price them.
+  if (owners.includes(email) || CATALOGUE_ADMIN_ROLES.has(trustedRole(data.user))) return null;
+
+  return c.json({ error: 'Administrator access is required to change products.' }, 403);
+}
+
 // Create Product
 productsRouter.post('/products', async (c) => {
+  const refused = await requireCatalogueAdmin(c);
+  if (refused) return refused;
   try {
     const body = await c.req.json();
     const { vendorId, name, description, category, price, inventoryQuantity, images, ...rest } = body;
@@ -288,6 +337,9 @@ productsRouter.get('/products', async (c) => {
 
 // Update Product
 productsRouter.put('/products/:id', async (c) => {
+  const refused = await requireCatalogueAdmin(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const updates = await c.req.json();
@@ -365,6 +417,9 @@ productsRouter.put('/products/:id', async (c) => {
 
 // Delete Product
 productsRouter.delete('/products/:id', async (c) => {
+  const refused = await requireCatalogueAdmin(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const product = await kv.get(`product_${id}`) || await kv.get(`live_product_${id}`);
@@ -409,6 +464,9 @@ const productSource = (p: any): string =>
 // Toggle storefront visibility for every product from a given source.
 // Body: { source: string, isActive: boolean }
 productsRouter.post('/products/source-visibility', async (c) => {
+  const refused = await requireCatalogueAdmin(c);
+  if (refused) return refused;
+
   try {
     const { source, isActive } = await c.req.json();
     if (!source || typeof source !== 'string') {
@@ -446,6 +504,9 @@ productsRouter.post('/products/source-visibility', async (c) => {
 
 // Bulk Update Inventory
 productsRouter.post('/products/bulk-inventory', async (c) => {
+  const refused = await requireCatalogueAdmin(c);
+  if (refused) return refused;
+
   try {
     const { updates } = await c.req.json(); // Array of { productId, quantity }
 

@@ -1,8 +1,8 @@
 /**
  * ZendropTopProducts — pulls the TOP (best-selling) products from the connected
  * Zendrop account, lets you auto-generate store-ready product info with AI, and
- * publishes them into the live store catalog (`store_product:` — what the public
- * store reads).
+ * publishes them into the live store catalog (`product_` — what the public
+ * store reads, and what checkout prices from).
  *
  * Backed by real server routes:
  *   GET  /zendrop/top-products?limit=N   → real best-sellers (no side effects)

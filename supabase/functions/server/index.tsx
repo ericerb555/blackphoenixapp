@@ -126,16 +126,17 @@ function computeShipping(subtotal: number, cfg: { enabled: boolean; threshold: n
 /**
  * What one unit of a product actually costs, according to us.
  *
- * The first two keys are the live catalogue: `ecommerce-products.tsx` serves
- * the storefront from `product_` and `live_product_`, and this has always
- * matched it. `store_product:` is included for completeness — a shadowed pair
- * of routes further down this file reads and writes that prefix, and nothing in
- * production has ever used it. Cheap insurance if that path is ever revived,
- * and not a gap that was ever open.
+ * These are the two keys the live catalogue uses: `ecommerce-products.tsx`
+ * serves the storefront from `product_` and `live_product_`, and this has
+ * always matched it.
+ *
+ * A `store_product:` lookup was briefly added here while a shadowed set of
+ * routes in this file was still using that prefix. Those routes are gone and
+ * nothing can write that key any more, so the lookup went with them rather than
+ * costing a wasted read on every item of every checkout.
  */
 async function authoritativeUnitPrice(id: string): Promise<number | null> {
-  const product = (await kv.get(`store_product:${id}`))
-    || (await kv.get(`product_${id}`))
+  const product = (await kv.get(`product_${id}`))
     || (await kv.get(`live_product_${id}`));
   if (!product) return null;
   const p = product as any;
@@ -4532,48 +4533,26 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRODUCTS CATALOG — marketplace + vendor storefront. Writes are admin-gated by
-// the `/products/*` middleware above; reads are public.
+// PRODUCTS CATALOG — served entirely by `productsRouter` (ecommerce-products.tsx),
+// mounted near the top of this file.
+//
+// A second GET/POST/PATCH/DELETE set used to live here, reading and writing a
+// `store_product:` prefix. It was unreachable: the router is mounted roughly
+// four thousand lines earlier and Hono takes the first matching handler, so
+// every request landed there instead. Production had 123 rows under `product_`
+// and none under `store_product:`, which is what a route that never ran looks
+// like.
+//
+// It was worth deleting rather than leaving. It read a different prefix from
+// the real catalogue, which is what made the checkout pricing look broken when
+// it was not — an hour was spent on that. Dead code that contradicts the live
+// code is not neutral; it is a trap with a plausible story attached.
+//
+// The one handler here that was NOT shadowed was PATCH — the router offers PUT
+// — and nothing in the app has ever called it. The admin check the POST carried
+// has been written explicitly into the router's write routes, so nothing was
+// lost with it.
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/make-server-3eae23a6/products', async (c) => {
-  try {
-    let products = ((await kv.getByPrefix('store_product:')) as any[] || []).filter(Boolean).map(stripBase64);
-    const isActive = c.req.query('isActive');
-    const vendorId = c.req.query('vendorId');
-    if (isActive === 'true') products = products.filter((p: any) => p.isActive !== false);
-    if (vendorId) products = products.filter((p: any) => String(p.vendorId || '') === String(vendorId));
-    products.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    return c.json({ success: true, products });
-  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load products.' }, 500); }
-});
-app.post('/make-server-3eae23a6/products', async (c) => {
-  try {
-    const actor = await intakeActor(c);
-    if (!actor?.email || !(await intakeIsAdmin(actor))) return c.json({ success: false, error: 'Administrator access is required to create products.' }, 403);
-    const body = stripBase64(await c.req.json().catch(() => ({})));
-    const incoming = body?.product && typeof body.product === 'object' ? body.product : body;
-    const now = new Date().toISOString();
-    const id = String(incoming.id || `prod_${crypto.randomUUID()}`);
-    const product = { ...incoming, id, isActive: incoming.isActive !== false, createdAt: incoming.createdAt || now, updatedAt: now };
-    await kv.set(`store_product:${id}`, product);
-    return c.json({ success: true, product });
-  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save product.' }, 500); }
-});
-app.patch('/make-server-3eae23a6/products/:id', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const existing = await kv.get(`store_product:${id}`) as any;
-    if (!existing) return c.json({ success: false, error: 'Product not found.' }, 404);
-    const body = stripBase64(await c.req.json().catch(() => ({})));
-    const product = { ...existing, ...body, id, updatedAt: new Date().toISOString() };
-    await kv.set(`store_product:${id}`, product);
-    return c.json({ success: true, product });
-  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update product.' }, 500); }
-});
-app.delete('/make-server-3eae23a6/products/:id', async (c) => {
-  try { await kv.del(`store_product:${c.req.param('id')}`); return c.json({ success: true }); }
-  catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete product.' }, 500); }
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PERSISTENT CART — server-side cart keyed by an anonymous session id.
