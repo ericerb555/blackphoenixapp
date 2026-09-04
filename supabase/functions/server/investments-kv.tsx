@@ -26,6 +26,7 @@ import OpenAI from 'npm:openai@4';
 import Stripe from 'npm:stripe@17';
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
+import { trustedRole } from './trustedRole.ts';
 
 const investmentsRouter = new Hono();
 
@@ -420,6 +421,61 @@ async function fetchFreeParcel(address: string): Promise<ParcelFacts | null> {
 }
 
 const PREFIX = '/make-server-3eae23a6';
+
+/**
+ * Who is asking, and may they change the offering.
+ *
+ * WHY THIS WAS NEEDED
+ *
+ * The opportunity, commitment and partner-property write routes carried no
+ * check at all, and `/investments/opportunities` is on neither the public nor
+ * the admin prefix list — so they fell to the default tier, which is anybody
+ * with a session. Any signed-in account could create, rewrite or delete an
+ * investment opportunity, including the terms an investor is committing money
+ * against, and could edit any commitment by id — its status, and how much had
+ * been received.
+ *
+ * `/investments/payouts` was already admin-gated by prefix. These are the ones
+ * that were missed.
+ */
+const INVESTMENT_STAFF = new Set([
+  'admin', 'owner', 'super_admin', 'superadmin', 'platform_owner',
+  'business_owner', 'master_admin', 'management', 'staff',
+]);
+
+async function investmentActor(c: any): Promise<{ email: string; staff: boolean } | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return null;
+    const email = String(data.user.email || '').toLowerCase();
+    const owners = [
+      'ericerb555@proton.me',
+      ...(Deno.env.get('PLATFORM_OWNER_EMAILS') || '')
+        .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+    ];
+    // Through the shared helper, not a hand-rolled read. It also covers
+    // `accountType` and normalises "super admin" to "super_admin", and a
+    // private copy that missed either would lock real staff out of their own
+    // offering — a different failure from the one being fixed, and just as bad.
+    return { email, staff: owners.includes(email) || INVESTMENT_STAFF.has(trustedRole(data.user)) };
+  } catch {
+    return null;
+  }
+}
+
+/** Staff only. Returns a response when refused, null when allowed. */
+async function requireInvestmentStaff(c: any): Promise<Response | null> {
+  const actor = await investmentActor(c);
+  if (!actor) return c.json({ error: 'Sign in required.' }, 401);
+  if (!actor.staff) return c.json({ error: 'Administrator access is required.' }, 403);
+  return null;
+}
 const OPP = (id: string) => `investment:opportunity:${id}`;
 const OPP_PREFIX = 'investment:opportunity:';
 const COMMIT = (id: string) => `investment:commitment:${id}`;
@@ -572,6 +628,9 @@ investmentsRouter.get(`${PREFIX}/investments/opportunities/:id`, async (c) => {
 });
 
 investmentsRouter.post(`${PREFIX}/investments/opportunities`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
@@ -585,6 +644,9 @@ investmentsRouter.post(`${PREFIX}/investments/opportunities`, async (c) => {
 });
 
 investmentsRouter.put(`${PREFIX}/investments/opportunities/:id`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const existing = await kv.get(OPP(id));
@@ -599,6 +661,9 @@ investmentsRouter.put(`${PREFIX}/investments/opportunities/:id`, async (c) => {
 });
 
 investmentsRouter.delete(`${PREFIX}/investments/opportunities/:id`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     await kv.del(OPP(c.req.param('id')));
     return c.json({ success: true });
@@ -627,6 +692,20 @@ investmentsRouter.get(`${PREFIX}/investments/commitments/investor/:email`, async
 });
 
 investmentsRouter.post(`${PREFIX}/investments/commitments`, async (c) => {
+  /**
+   * An investor commits on their own behalf, and staff may commit for them.
+   *
+   * Unlike the routes above this one is not staff-only — an investor pledging
+   * money is the point of it. What it must not do is take the investor's
+   * identity from the request, or a commitment could be filed against somebody
+   * else's name.
+   *
+   * `total_received` is forced to zero. Money received is recorded by the
+   * payout and payment routes; a commitment that could declare itself already
+   * part-paid on creation would let somebody book money that never arrived.
+   */
+  const actor = await investmentActor(c);
+  if (!actor) return c.json({ error: 'Sign in required.' }, 401);
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
@@ -634,8 +713,11 @@ investmentsRouter.post(`${PREFIX}/investments/commitments`, async (c) => {
     const commitment = {
       ...body,
       id,
-      status: body.status || 'pending',
-      total_received: body.total_received || 0,
+      investor_email: actor.staff
+        ? String(body.investor_email || actor.email).toLowerCase()
+        : actor.email,
+      status: 'pending',
+      total_received: 0,
       commitment_date: body.commitment_date || now,
       created_at: now,
       updated_at: now,
@@ -648,6 +730,9 @@ investmentsRouter.post(`${PREFIX}/investments/commitments`, async (c) => {
 });
 
 investmentsRouter.put(`${PREFIX}/investments/commitments/:id`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const existing = await kv.get(COMMIT(id));
@@ -784,6 +869,9 @@ investmentsRouter.get(`${PREFIX}/investments/analytics/portfolio/:email`, async 
 // Public submit — anyone with a property can ask us to partner. We stamp a
 // status of 'new' so it lands at the top of the owner's review pipeline.
 investmentsRouter.post(`${PREFIX}/investments/partner-properties`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
@@ -839,6 +927,9 @@ investmentsRouter.get(`${PREFIX}/investments/partner-properties/investor/:email`
 
 // Owner updates a submission (status change, notes, or agreed strategy).
 investmentsRouter.put(`${PREFIX}/investments/partner-properties/:id`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const existing = await kv.get(PARTNER(id));
@@ -853,6 +944,9 @@ investmentsRouter.put(`${PREFIX}/investments/partner-properties/:id`, async (c) 
 });
 
 investmentsRouter.delete(`${PREFIX}/investments/partner-properties/:id`, async (c) => {
+  const refused = await requireInvestmentStaff(c);
+  if (refused) return refused;
+
   try {
     await kv.del(PARTNER(c.req.param('id')));
     return c.json({ success: true });

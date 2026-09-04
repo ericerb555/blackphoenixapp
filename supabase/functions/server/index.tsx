@@ -3861,6 +3861,33 @@ async function purchaseOrderActor(c: any): Promise<{ vendorId: string | null; is
   return { vendorId: match ? String(match.id || '') : '__unresolved__', isCompany: false, signedIn: true };
 }
 
+/**
+ * Only the company side may write a purchase order.
+ *
+ * WHY EVERY WRITE HERE NEEDED THIS
+ *
+ * `/purchase-orders` was deliberately taken off the admin prefix list so that a
+ * vendor — signed in, but not an administrator — could read the orders
+ * addressed to them. The comment on that decision says the route "resolves the
+ * caller through purchaseOrderActor", and the GET does. None of the writes did.
+ *
+ * So create, full update, status change and delete all sat at the default tier,
+ * which is anybody with a session. That matters more than it first looks: a
+ * vendor invoice's amount is derived from the purchase orders it bills, so
+ * somebody able to raise a purchase order could bill against it.
+ *
+ * The vendor portal only ever reads this route, so gating the writes costs it
+ * nothing.
+ */
+async function requirePurchaseOrderCompany(c: any): Promise<Response | null> {
+  const actor = await purchaseOrderActor(c);
+  if (!actor.signedIn) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!actor.isCompany) {
+    return c.json({ success: false, error: 'Only Black Phoenix can raise or change a purchase order.' }, 403);
+  }
+  return null;
+}
+
 app.get('/make-server-3eae23a6/purchase-orders', async (c) => {
   try {
     const actor = await purchaseOrderActor(c);
@@ -3887,6 +3914,9 @@ app.get('/make-server-3eae23a6/purchase-orders', async (c) => {
 });
 
 app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json().catch(() => ({}));
     const incoming = body?.order && typeof body.order === 'object' ? body.order : body;
@@ -3954,6 +3984,9 @@ app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
  * missing two items, discovered on site.
  */
 app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+
   try {
     // Company-side only. A purchase order commits Black Phoenix to a spend.
     const actor = await intakeActor(c);
@@ -4021,6 +4054,9 @@ app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
 });
 
 app.patch('/make-server-3eae23a6/purchase-orders/:id/status', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const order = await kv.get(`purchase_order:${id}`) as any;
@@ -4051,6 +4087,9 @@ app.patch('/make-server-3eae23a6/purchase-orders/:id/status', async (c) => {
 });
 
 app.delete('/make-server-3eae23a6/purchase-orders/:id', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     await kv.del(`purchase_order:${id}`);
@@ -4060,6 +4099,9 @@ app.delete('/make-server-3eae23a6/purchase-orders/:id', async (c) => {
 
 // Full update for a purchase order (status-only changes use the PATCH above).
 app.put('/make-server-3eae23a6/purchase-orders/:id', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+
   try {
     const id = c.req.param('id');
     const existing = await kv.get(`purchase_order:${id}`) as any;
