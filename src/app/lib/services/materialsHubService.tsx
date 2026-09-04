@@ -43,6 +43,12 @@ export interface Material {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * True for the built-in demonstration list, whose prices are invented.
+   * Anything carrying this may be looked at and may not be quoted from.
+   */
+  isReference?: boolean;
 }
 
 export interface VendorPrice {
@@ -93,8 +99,141 @@ class MaterialsHubService {
   private versionKey = 'materials_hub_version';
   private currentVersion = 10; // Increment this when adding new default materials
 
+  /**
+   * Real vendor catalogue lines, once they have been fetched.
+   *
+   * WHY THE HUB NOW HAS TWO SOURCES, AND WHICH ONE WINS
+   *
+   * Everything below `getDefaultMaterials()` is a built-in demonstration list
+   * with invented prices. That was the only thing the hub ever served, which
+   * made it a catalogue of nothing anybody sells — and `addToQuote` puts
+   * `basePrice` straight onto a quote, so those invented numbers had a path to
+   * a customer's document. That is the same fault that was already found once
+   * in `/vendor-pricing/compare`, which manufactured prices with a seeded
+   * random number generator because there was no catalogue to read.
+   *
+   * There is one now. When vendor lines have been loaded they are the
+   * catalogue, and the built-in list is not shown at all — a real price list
+   * and a demonstration one mixed in the same grid is worse than either, since
+   * nothing on screen says which is which.
+   *
+   * The built-in list survives only for an empty system, and every item it
+   * produces is marked `isReference` so nothing can quote from it.
+   */
+  private vendorMaterials: Material[] | null = null;
+  private lastLoadedAt = 0;
+
+  /** Has a real catalogue been loaded? Screens use this to explain themselves. */
+  hasVendorCatalog(): boolean {
+    return this.vendorMaterials !== null && this.vendorMaterials.length > 0;
+  }
+
+  lastLoaded(): number { return this.lastLoadedAt; }
+
+  /**
+   * Fetch the live vendor catalogue.
+   *
+   * Async, and deliberately kept apart from `getAllMaterials()`, which stays
+   * synchronous. Four screens call that method from render paths; turning it
+   * async would be a rewrite of all of them, and the narrow change is a cache
+   * this fills and that one reads.
+   */
+  async refreshFromVendors(
+    apiBase: string,
+    headers: Record<string, string>,
+    category?: string,
+  ): Promise<{ ok: boolean; count: number; truncated?: boolean; error?: string }> {
+    try {
+      const url = new URL(`${apiBase}/vendor-catalog-all`);
+      if (category) url.searchParams.set('category', category);
+      const res = await fetch(url.toString(), { headers });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        return { ok: false, count: 0, error: json?.error || `The server responded ${res.status}` };
+      }
+      const items: any[] = Array.isArray(json.items) ? json.items : [];
+      this.vendorMaterials = items.map(i => this.fromCatalogItem(i));
+      this.lastLoadedAt = Date.now();
+      return { ok: true, count: this.vendorMaterials.length, truncated: Boolean(json.truncated) };
+    } catch (e: any) {
+      return { ok: false, count: 0, error: e?.message || 'Could not reach the catalogue.' };
+    }
+  }
+
+  /**
+   * A vendor catalogue line as a Material.
+   *
+   * The fields the hub's UI expects but a catalogue line does not carry —
+   * quality rating, certifications, specifications — are left empty rather than
+   * filled with plausible defaults. A five-star rating nobody awarded is the
+   * same kind of invention as a price nobody quoted.
+   */
+  private fromCatalogItem(i: any): Material {
+    const price = Number(i.price) || 0;
+    const lead = i.leadTimeDays;
+    const availability = String(i.availability || '').toLowerCase();
+    return {
+      id: `vc_${i.id}`,
+      name: String(i.name || ''),
+      description: '',
+      category: String(i.category || 'Uncategorised'),
+      subcategory: '',
+      manufacturer: '',
+      sku: String(i.sku || ''),
+      unit: String(i.unit || 'each'),
+      basePrice: price,
+      vendorPrices: [{
+        vendorId: String(i.vendorId || ''),
+        vendorName: String(i.vendorName || ''),
+        price,
+        availability: availability.includes('out') ? 'out-of-stock'
+          : availability.includes('order') ? 'made-to-order'
+            : availability.includes('low') ? 'low-stock'
+              : 'in-stock',
+        leadTime: lead === null || lead === undefined ? '' : `${lead} day${lead === 1 ? '' : 's'}`,
+        minOrderQty: 1,
+        lastUpdated: String(i.updatedAt || ''),
+        // Not a rating anybody gave. Zero reads as "unrated" rather than
+        // asserting five stars nobody awarded.
+        vendorRating: 0,
+      }],
+      qualityRating: 0,
+      specifications: {},
+      certifications: [],
+      inStock: !availability.includes('out'),
+      leadTime: lead === null || lead === undefined ? '' : `${lead} day${lead === 1 ? '' : 's'}`,
+      minOrderQuantity: 1,
+      vendorId: String(i.vendorId || ''),
+      vendorName: String(i.vendorName || ''),
+      isPublic: true,
+      isPremium: false,
+      tags: [String(i.category || '')].filter(Boolean),
+      createdAt: String(i.updatedAt || ''),
+      updatedAt: String(i.updatedAt || ''),
+    };
+  }
+
   // Get all materials
   getAllMaterials(): Material[] {
+    // Real vendor lines are the catalogue once they exist. The built-in list is
+    // not merged in beside them: nothing on screen would say which price came
+    // from a supplier and which was invented for a demonstration.
+    if (this.vendorMaterials && this.vendorMaterials.length) return this.vendorMaterials;
+    return this.getBuiltInMaterials();
+  }
+
+  /**
+   * The demonstration list, every item marked so it cannot reach a quote.
+   *
+   * Kept for an empty system so the hub is not a blank screen before any vendor
+   * has imported, and marked because the alternative — invented prices flowing
+   * into customer quotes — has already happened once in this codebase.
+   */
+  private getBuiltInMaterials(): Material[] {
+    return this.loadDefaultsFromCache().map(m => ({ ...m, isReference: true }));
+  }
+
+  private loadDefaultsFromCache(): Material[] {
     // FORCE CLEAR - Check if we need to update the materials database
     const savedVersion = localStorage.getItem(this.versionKey);
     const version = savedVersion ? parseInt(savedVersion) : 0;
@@ -277,7 +416,27 @@ class MaterialsHubService {
   addToQuote(materialId: string, quantity: number, quoteId: string): void {
     const material = this.getAllMaterials().find(m => m.id === materialId);
     if (!material) return;
-    
+
+    /**
+     * A demonstration price never reaches a quote.
+     *
+     * `basePrice` goes straight onto the line below, and on the built-in list
+     * that number was invented to make the screen look populated. Quoting it
+     * would put a figure nobody has ever sold at onto a document with our name
+     * on it — which is exactly what the seeded random prices in
+     * `/vendor-pricing/compare` did before they were removed.
+     *
+     * Throwing rather than returning quietly: the caller has to say something to
+     * the person who pressed the button, and a silent no-op reads as a broken
+     * screen.
+     */
+    if (material.isReference) {
+      throw new Error(
+        'That is a sample product, not a supplier line — its price is illustrative. '
+        + 'Import a vendor catalogue and quote from that.',
+      );
+    }
+
     const quoteItems = JSON.parse(localStorage.getItem(`quote_items_${quoteId}`) || '[]');
     quoteItems.push({
       materialId,

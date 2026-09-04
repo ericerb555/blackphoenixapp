@@ -1400,3 +1400,54 @@ App typecheck **331 → 324**; the drop is the deleted mock. The two remaining
 Server 84, unchanged. Smoke: 16 pages, 0 threw. 54/54 on `catalogImport`.
 
 Not verified in a browser: no real CSV has been through the importer.
+
+## Review — the materials hub reads real catalogues
+
+**What it was doing.** `materialsHubService.getAllMaterials()` served
+`getDefaultMaterials()` out of localStorage, behind a version counter that
+cleared the cache and rebuilt the same hardcoded list. Nothing a vendor did
+could change it. And `addToQuote` puts `basePrice` straight onto a quote line,
+so those invented prices had a one-click path onto a customer's document — the
+same fault already found once in `/vendor-pricing/compare`, which was
+manufacturing prices with a seeded random number generator because there was no
+catalogue for it to read.
+
+**What it does now.** `GET /vendor-catalog-all` returns the live lines, and the
+hub loads them on mount. Browse rather than search, because the hub opens on a
+grid with no query to give it — which is why search alone could never have fed
+it. It also returns the categories actually present, so the filters describe
+what is there instead of a fixed list somebody typed.
+
+**Real and sample are not mixed.** When vendor lines exist they are the
+catalogue and the built-in list is not shown at all. A real price and a
+demonstration price side by side in one grid is worse than either, because
+nothing on screen says which is which.
+
+**The samples survive only for an empty system**, and every one is marked
+`isReference`. That flag is refused by `addToQuote` and by the hub's one-click
+add, and a banner at the top of the screen says plainly that the prices are
+illustrative. The screen looked exactly the same before — same grid, same
+prices, same button — so a buyer had nothing to tell them.
+
+Fields a catalogue line does not carry are left empty rather than filled in.
+No quality rating, no certifications, no vendor rating. Five stars nobody
+awarded is the same kind of invention as a price nobody quoted.
+
+### A leak fixed on the way
+
+`/vendor-catalog-search` returned every vendor's prices to any signed-in caller,
+including a vendor — so one supplier could search and read a competitor's cost
+base. The file's own header says that is the thing tenant isolation exists to
+prevent, and it was true of the write routes and not the read one. A vendor now
+sees only their own lines; staff and customers see everything, which is the
+point of the hub.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 27 pages, 0 threw.
+
+### Not verified in a browser
+
+The hub has not been opened against a real imported catalogue — there is not one
+yet. The path that matters is: a vendor imports a CSV, then this screen shows
+those lines with the green banner rather than the yellow one.

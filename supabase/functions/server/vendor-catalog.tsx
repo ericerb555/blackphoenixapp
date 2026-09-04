@@ -62,6 +62,25 @@ function mayTouch(who: { isAdmin: boolean; vendorId: string | null }, vendorId: 
   return who.isAdmin || (Boolean(who.vendorId) && who.vendorId === vendorId);
 }
 
+/**
+ * Whose catalogue lines may this caller see across the whole store?
+ *
+ * The rule this file states at the top — "one vendor seeing another's cost base
+ * is the thing tenant isolation exists to prevent" — was true of the write
+ * routes and not of the read ones. `/vendor-catalog-search` returned every
+ * vendor's prices to any signed-in caller, so a vendor could search and read a
+ * competitor's cost base. That is the same commercial information the write
+ * routes are careful about, handed over by the route beside them.
+ *
+ * So: a vendor sees their own lines and nobody else's. Staff and customers see
+ * everything, which is the point of the hub — a customer picks a real product at
+ * a real price, and that is what makes their quote accurate.
+ */
+function visibleTo(who: { isAdmin: boolean; vendorId: string | null }, items: any[]): any[] {
+  if (who.isAdmin || !who.vendorId) return items;
+  return items.filter((i: any) => String(i?.vendorId || "") === who.vendorId);
+}
+
 // ─── A vendor's own catalogue ───────────────────────────────────────────────
 
 vendorCatalogRouter.get("/vendor-catalog/:vendorId", async (c) => {
@@ -299,7 +318,7 @@ vendorCatalogRouter.get("/vendor-catalog-search", async (c) => {
     const vendors = ((await kv.getByPrefix("vendor:")) as any[] || []).filter(Boolean);
     const nameOf = new Map(vendors.map((v: any) => [String(v.id), String(v.name || "")]));
 
-    const matches = all
+    const matches = visibleTo(who, all)
       .filter((i: any) => i?.isActive !== false)
       .filter((i: any) => {
         const hay = `${i?.name || ""} ${i?.sku || ""} ${i?.category || ""}`.toLowerCase();
@@ -321,6 +340,69 @@ vendorCatalogRouter.get("/vendor-catalog-search", async (c) => {
     return c.json({ success: true, matches, count: matches.length });
   } catch (error: any) {
     return c.json({ success: false, matches: [], error: error?.message }, 500);
+  }
+});
+
+/**
+ * GET /vendor-catalog-all — every catalogue line the caller may see.
+ *
+ * WHY BROWSE AND NOT ONLY SEARCH
+ *
+ * `/vendor-catalog-search` needs two characters before it answers, which is
+ * right for a lookup and useless for a hub — the materials centre opens on a
+ * grid of what exists, filtered by category, and there is no query to give it.
+ * Without this it had nothing to open on, which is why it was serving a
+ * hardcoded list out of localStorage instead.
+ *
+ * Capped, and it says when it has capped. A materials hub silently showing the
+ * first thousand of four thousand lines is a buyer concluding we do not stock
+ * something we stock.
+ */
+const MAX_BROWSE = 2000;
+
+vendorCatalogRouter.get("/vendor-catalog-all", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in to browse materials.", items: [] }, 401);
+  try {
+    const category = String(c.req.query("category") || "").trim().toLowerCase();
+
+    const all = ((await kv.getByPrefix("vendor_catalog:")) as any[] || []).filter(Boolean);
+    const vendors = ((await kv.getByPrefix("vendor:")) as any[] || []).filter(Boolean);
+    const nameOf = new Map(vendors.map((v: any) => [String(v.id), String(v.name || "")]));
+
+    let rows = visibleTo(who, all).filter((i: any) => i?.isActive !== false);
+    if (category) {
+      rows = rows.filter((i: any) => String(i?.category || "").toLowerCase() === category);
+    }
+
+    const total = rows.length;
+    const truncated = total > MAX_BROWSE;
+    const items = rows
+      .sort((a: any, b: any) => String(a?.name || "").localeCompare(String(b?.name || "")))
+      .slice(0, MAX_BROWSE)
+      .map((i: any) => ({
+        id: i.id,
+        vendorId: i.vendorId,
+        vendorName: nameOf.get(String(i.vendorId)) || i.vendorId,
+        name: i.name,
+        sku: i.sku || "",
+        category: i.category || "",
+        unit: i.unit || "each",
+        price: Number(i.price || 0),
+        availability: i.availability || "",
+        leadTimeDays: i.leadTimeDays ?? null,
+        updatedAt: i.updatedAt || i.createdAt || null,
+      }));
+
+    // The categories actually present, so the hub's filters describe what is
+    // there rather than a fixed list somebody typed once.
+    const categories = Array.from(
+      new Set(rows.map((i: any) => String(i?.category || "").trim()).filter(Boolean)),
+    ).sort();
+
+    return c.json({ success: true, items, total, truncated, categories });
+  } catch (error: any) {
+    return c.json({ success: false, items: [], error: error?.message }, 500);
   }
 });
 

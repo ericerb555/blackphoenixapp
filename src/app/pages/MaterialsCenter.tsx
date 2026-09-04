@@ -183,13 +183,42 @@ export default function MaterialsCenter() {
   const [enabledDataSources, setEnabledDataSources] = useState<any[]>([]);
   const [compareList, setCompareList] = useState<string[]>([]);
 
+  /**
+   * Whether the grid is showing real supplier lines or the built-in samples.
+   *
+   * It has to be said on screen. This hub served a hardcoded demonstration list
+   * out of localStorage and looked exactly as it does now with a real
+   * catalogue behind it — same grid, same prices, same one-click add to quote —
+   * so there was nothing to tell a buyer that the price they were reading was
+   * invented for a screenshot.
+   */
+  const [catalogState, setCatalogState] = useState<
+    { kind: 'loading' } | { kind: 'live'; count: number; truncated: boolean } | { kind: 'samples'; reason?: string }
+  >({ kind: 'loading' });
+
   useEffect(() => {
-    loadData();
+    void loadData();
     checkQuoteMode();
     checkDataSources();
   }, []);
 
-  const loadData = () => {
+  const loadData = async () => {
+    // The real catalogue first. The service keeps a synchronous reader for the
+    // four screens that call it during render, and this is what fills it.
+    try {
+      const result = await materialsHubService.refreshFromVendors(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`,
+        await authedHeaders(),
+      );
+      if (result.ok && result.count > 0) {
+        setCatalogState({ kind: 'live', count: result.count, truncated: Boolean(result.truncated) });
+      } else {
+        setCatalogState({ kind: 'samples', reason: result.ok ? undefined : result.error });
+      }
+    } catch (e: any) {
+      setCatalogState({ kind: 'samples', reason: e?.message });
+    }
+
     try {
       const allMaterials = materialsHubService.getAllMaterials();
       setMaterials(allMaterials);
@@ -245,6 +274,18 @@ export default function MaterialsCenter() {
 
   // Quick add to quote - ONE CLICK!
   const quickAddToQuote = (material: Material) => {
+    // A sample price never becomes a quote line. The built-in list exists so
+    // this screen is not blank before any vendor has imported; its prices were
+    // invented to populate it, and one click is all that stood between them and
+    // a customer's document.
+    if (material.isReference) {
+      toast.error(
+        `${material.name} is a sample product — its price is illustrative, not a supplier's. `
+        + 'Import a vendor catalogue and quote from that.',
+      );
+      return;
+    }
+
     const newItem = {
       id: `quote-${Date.now()}`,
       type: 'material',
@@ -505,6 +546,35 @@ export default function MaterialsCenter() {
           </div>
         </div>
       </div>
+
+      {/* Where these prices came from.
+          This screen looked identical when it was serving a hardcoded
+          demonstration list — same grid, same prices, same one-click add to
+          quote — so nothing told a buyer that what they were reading was
+          invented. It says so now. */}
+      {catalogState.kind !== 'loading' && (
+        <div className="px-6 pt-6">
+          {catalogState.kind === 'live' ? (
+            <div className="flex items-center gap-2 rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-2.5 text-sm">
+              <CheckCircle className="h-4 w-4 shrink-0 text-green-400" />
+              <span className="text-green-300">
+                {catalogState.count.toLocaleString()} live supplier line{catalogState.count === 1 ? '' : 's'} from your vendors' catalogues.
+                {catalogState.truncated && ' Showing the first 2,000 — narrow by category to see the rest.'}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-4 py-2.5 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />
+              <span className="text-yellow-200/90">
+                <span className="font-semibold">These are sample products, not supplier lines.</span>{' '}
+                The prices are illustrative and cannot be quoted from. Ask a vendor to import their
+                price list in their portal, and this fills with the real thing.
+                {catalogState.reason && <span className="text-yellow-200/60"> ({catalogState.reason})</span>}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="px-6 pt-6">
