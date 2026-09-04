@@ -126,6 +126,140 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
   }
 });
 
+/**
+ * POST /vendor-catalog/:vendorId/import — many lines in one request.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM THE SINGLE-ITEM ROUTE
+ *
+ * The single route writes one record per HTTP call, which is right for somebody
+ * correcting a price and hopeless for a supplier with two thousand lines — that
+ * is two thousand requests, each with its own auth round trip. The vendor was
+ * therefore expected to type their whole price list by hand, which nobody was
+ * ever going to do, so the catalogue stayed empty and the rest of the materials
+ * hub had nothing to read.
+ *
+ * WHAT IT DOES NOT DO
+ *
+ * It does not trust the rows. Every line goes through the same checks the single
+ * route applies — a name, a real price, a SKU that is the vendor's own and never
+ * generated — because a bulk route that validates more loosely than its
+ * single-item twin is just a way around the validation.
+ *
+ * It also does not silently drop anything. Every rejected row comes back with
+ * its line number and the reason, because a price list that imports 1,830 of
+ * 1,842 lines without saying so becomes twelve quotes with a material missing.
+ */
+const MAX_IMPORT_ROWS = 500;
+const MAX_CATALOG_ITEMS = 20000;
+
+vendorCatalogRouter.post("/vendor-catalog/:vendorId/import", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = Array.isArray(body?.items) ? body.items : [];
+    if (!incoming.length) return c.json({ success: false, error: "No lines were sent." }, 400);
+    if (incoming.length > MAX_IMPORT_ROWS) {
+      return c.json({
+        success: false,
+        error: `Send at most ${MAX_IMPORT_ROWS} lines per request.`,
+      }, 413);
+    }
+
+    // A ceiling on the catalogue as a whole. Import makes it easy to push a
+    // very large list, and the search route reads every line in the store.
+    const existingAll = ((await kv.getByPrefix(`vendor_catalog:${vendorId}:`)) as any[] || []).filter(Boolean);
+    if (existingAll.length + incoming.length > MAX_CATALOG_ITEMS) {
+      return c.json({
+        success: false,
+        error: `That would take your catalogue past ${MAX_CATALOG_ITEMS} lines. Get in touch and we will raise it.`,
+      }, 409);
+    }
+
+    /**
+     * Existing lines by SKU, so a re-import updates prices instead of doubling
+     * the catalogue.
+     *
+     * This is the behaviour a vendor expects and the one that makes the feature
+     * usable: a price list is re-sent when prices change, and the second import
+     * should move the numbers, not produce two of everything. Lines with no SKU
+     * cannot be matched and are always added.
+     */
+    const bySku = new Map<string, any>();
+    for (const item of existingAll) {
+      const sku = String(item?.sku || "").trim().toLowerCase();
+      if (sku) bySku.set(sku, item);
+    }
+
+    const now = new Date().toISOString();
+    let added = 0;
+    let updated = 0;
+    const rejected: Array<{ line: number; reason: string }> = [];
+
+    for (let i = 0; i < incoming.length; i++) {
+      const row = incoming[i] || {};
+      // The line number the vendor's spreadsheet shows, sent along by the
+      // client so a rejection can be pointed at the right row of their file
+      // rather than at our position in the batch.
+      const line = Number(row.line) || i + 1;
+
+      const name = String(row.name || "").trim().slice(0, 200);
+      if (!name) { rejected.push({ line, reason: "No product name." }); continue; }
+
+      const price = Number(row.price);
+      if (!Number.isFinite(price) || price < 0) {
+        rejected.push({ line, reason: "No usable price." });
+        continue;
+      }
+
+      const sku = String(row.sku || "").trim().slice(0, 60);
+      const existing = sku ? bySku.get(sku.toLowerCase()) : null;
+      const id = existing?.id || `item_${crypto.randomUUID()}`;
+
+      const item = {
+        ...(existing || {}),
+        id,
+        vendorId,
+        name,
+        sku,
+        category: String(row.category ?? existing?.category ?? "").slice(0, 80),
+        unit: String(row.unit ?? existing?.unit ?? "each").slice(0, 24) || "each",
+        price: Math.round(price * 100) / 100,
+        availability: String(row.availability ?? existing?.availability ?? "").slice(0, 80),
+        leadTimeDays: Number.isFinite(Number(row.leadTimeDays))
+          ? Number(row.leadTimeDays)
+          : (existing?.leadTimeDays ?? null),
+        isActive: existing?.isActive ?? true,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        importedAt: now,
+      };
+
+      await kv.set(ITEM(vendorId, id), item);
+      if (existing) updated++; else added++;
+      // So a duplicate SKU later in the same batch updates the row this one just
+      // wrote rather than creating a second.
+      if (sku) bySku.set(sku.toLowerCase(), item);
+    }
+
+    console.log(`[VendorCatalog] import for ${vendorId}: ${added} added, ${updated} updated, ${rejected.length} rejected`);
+    return c.json({
+      success: true,
+      added,
+      updated,
+      rejected,
+      total: existingAll.length + added,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not import those lines." }, 500);
+  }
+});
+
 vendorCatalogRouter.delete("/vendor-catalog/:vendorId/items/:itemId", async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: "Sign in first." }, 401);

@@ -30,7 +30,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { TextInput } from '../components/ui/input/TextInput';
 import { TextArea } from '../components/ui/input/TextArea';
 import LogoMarquee from '../components/LogoMarquee';
-import AIProductCatalogAssistant from '../components/AIProductCatalogAssistant';
 import { AdvancedCohortManagement } from '../components/AdvancedCohortManagement';
 import ProductAdCreator from '../components/ProductAdCreator';
 import { ProductAdCreatorErrorBoundary } from '../components/ProductAdCreatorErrorBoundary';

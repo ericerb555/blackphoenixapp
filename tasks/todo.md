@@ -1288,3 +1288,115 @@ App typecheck 331, unchanged. Server 84, unchanged. Smoke: 18 pages, 0 threw.
 None of it — the capture panels, a real video upload, or the customer save path
 now that its owner key is fixed. The video route in particular has never had a
 file put through it.
+
+---
+
+# Vendors importing catalogues and pricing
+
+Eric: *"can we make sure the vendors portals can import catalogs and pricing to
+view in the app."*
+
+## Where it stands
+
+**A vendor can enter a catalogue, one line at a time.** The portal has a working
+catalogue tab and `POST /vendor-catalog/:vendorId/items` behind it, correctly
+scoped so a vendor only ever touches their own. What it cannot do is *import*: a
+supplier with two thousand lines would be typing for a week, and there is no
+bulk route to send them to even if there were a file picker — the route writes
+one KV record per call, so two thousand lines is two thousand requests.
+
+**One screen already claims to do this and does not.**
+`AIProductCatalogAssistant`, reachable from the vendors admin hub, has a file
+drop that accepts PDF, CSV, Excel and JSON, a progress display, and a result of
+"8 products imported, 94% AI accuracy". All of it is `setTimeout` — the file is
+never read, nothing is ever sent, and the numbers are literals in the source.
+This is the exact failure the design workspace rail was built to stop: a control
+that looks like it works. It gets repaired, not left beside the real thing.
+
+**Viewing works, narrowly.** `GET /vendor-catalog-search` is real and correctly
+gated, and `VendorProductPicker` uses it — but only in the customer portal.
+`materials-hub-purpose` says the point of vendor catalogues is customer product
+selection and accurate quotes, and neither the materials hub nor the design
+centre reads them today.
+
+## The items
+
+- [ ] 1. **A bulk route.** `POST /vendor-catalog/:vendorId/import` taking many
+      lines in one request, same validation as the single route, reporting per
+      row what was accepted and what was rejected and why. A ceiling per
+      request, with the client sending batches.
+- [ ] 2. **A CSV reader in the portal.** Pick a file, map the columns, see what
+      is about to happen, then import. Column mapping matters: no two suppliers
+      name their columns the same, and refusing a file because it says "Item #"
+      instead of "SKU" would make the feature useless.
+- [ ] 3. **Show the result honestly.** Rows that failed are listed with the
+      reason and the line number. A silent partial import of a price list is a
+      wrong quote later.
+- [ ] 4. **Repair the fake assistant** — point it at the real import, or remove
+      it. Not leave it next to a working one.
+- [ ] 5. **Surface catalogues where they are used**: the materials hub, and
+      product selection in the design centre.
+
+## Worth naming before it bites
+
+`/vendor-catalog-search` reads every catalogue line in the store with
+`getByPrefix` and filters in memory. That is fine at fifty lines and a real
+problem at fifty thousand — which is one mid-sized supplier. Import is what
+makes that likely, so it wants a look as part of this rather than after.
+
+## Awaiting approval, plus one decision below.
+
+## Review — catalogue import
+
+Items 1–4 done. Item 5 is not, and the reason is worth reading.
+
+**The parsing is a separate, tested module.** `catalogImport.ts`, 54/54. It is
+separate because everything it does fails quietly rather than loudly: a splitter
+that ignores quotes turns `"Joist, 2x8", 14.20` into three columns and files the
+price as a name; a price parser that chokes on `$` reads it as NaN and drops the
+line; a header matcher that insists on "SKU" refuses every supplier who writes
+"Item #". None of those throw. They produce a catalogue that looks imported and
+is wrong, and the first anyone hears of it is a quote with the wrong price on a
+document with our name at the top.
+
+Covered: quoted fields, commas and newlines inside quotes, doubled quotes, CRLF,
+the UTF-8 BOM Excel puts on every export, tab and semicolon separators,
+`$1,234.56` and the European `1.234,56`, "Call for price" rejected rather than
+read as zero, and the case that decides it — a sheet carrying both **Unit Price**
+and **Unit**, which maps backwards under any naive matcher and gives every
+product a price of "each".
+
+**The mapping is shown, not applied.** Getting the price column wrong is not a
+mistake to make silently on somebody's behalf, so the guess is presented for the
+vendor to correct, with a preview of the first rows and a list — not a count —
+of what will be rejected and why, at the line numbers their spreadsheet shows.
+
+**Import updates by SKU rather than duplicating.** A price list is re-sent when
+prices change, and the second import has to move the numbers, not produce two of
+everything. Nothing is ever removed by an import.
+
+**The fake was dead, not reachable.** `AIProductCatalogAssistant` — 949 lines of
+`setTimeout` reporting "8 products imported, 94% AI accuracy" from literals in
+the source — was imported by the vendors admin hub and never rendered. So it was
+never a screen anybody could hit; it was a trap for whoever wired it up later
+believing it worked. Deleted, with its import.
+
+### Item 5 is bigger than it looked
+
+The materials hub does not read vendor catalogues. `materialsHubService` serves
+`getDefaultMaterials()` out of **localStorage**, with a version counter that
+clears the cache and rebuilds a hardcoded list. So the hub the vendor catalogue
+exists to feed is running on a fixed list that no vendor can affect, and pointing
+it at real catalogues is a change to its data source rather than a wiring job.
+
+That is a separate decision and needs Eric's sign-off, so it is not in this
+change. The catalogue is viewable today in the vendor's own portal and through
+`VendorProductPicker` in the customer portal, both of which read live data.
+
+### Checks
+
+App typecheck **331 → 324**; the drop is the deleted mock. The two remaining
+`VendorsAdminHub` findings are pre-existing and about `VendorProfile.createdAt`.
+Server 84, unchanged. Smoke: 16 pages, 0 threw. 54/54 on `catalogImport`.
+
+Not verified in a browser: no real CSV has been through the importer.

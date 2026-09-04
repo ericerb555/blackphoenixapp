@@ -31,6 +31,7 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
+import CatalogImport from './CatalogImport';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
@@ -853,6 +854,19 @@ export default function VendorPortalView() {
                 </div>
               ) : (
                 <>
+                  {/* Import first, then the single-line form.
+                      A supplier arrives with a price list, not with one product
+                      in mind — the list is the normal case and typing a line is
+                      the correction afterwards. */}
+                  <div className="mt-5">
+                    <CatalogImport
+                      vendorId={vendorId || ''}
+                      headers={authHeadersV}
+                      apiBase={VENDOR_API}
+                      onImported={() => vendorId ? loadCatalog(vendorId) : undefined}
+                    />
+                  </div>
+
                   {/* Add or edit a line */}
                   <form onSubmit={saveItem} className="mt-5 grid grid-cols-1 gap-2 md:grid-cols-12">
                     <input
