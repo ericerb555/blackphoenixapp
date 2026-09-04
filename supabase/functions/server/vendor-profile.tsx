@@ -3,6 +3,7 @@
 import { Hono } from 'npm:hono';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { trustedRole, STAFF_ROLE_SET } from './trustedRole.ts';
 
 export const vendorProfileRouter = new Hono();
 
@@ -192,8 +193,27 @@ vendorProfileRouter.get('/vendor-directory', async (c) => {
 
 // Update vendor profile (authenticated)
 vendorProfileRouter.put('/vendor-profile/:vendorId', async (c) => {
+  /**
+   * A vendor edits their own profile, and staff may edit any.
+   *
+   * This route took the vendor id straight from the path and wrote
+   * `vendor_${vendorId}` with no check that the caller was that vendor — so any
+   * signed-in account could rewrite another vendor's record. `email` is one of
+   * the writable fields, and a vendor's email is what several routes use to
+   * decide which vendor somebody is, which makes an editable email on somebody
+   * else's record worse than it first reads.
+   *
+   * `vendorActor` already existed in this file and is used by the route sixty
+   * lines above. It simply was not applied here.
+   */
+  const actor = await vendorActor(c);
+  if (!actor.user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  const vendorId = c.req.param('vendorId');
+  const staff = STAFF_ROLE_SET.has(trustedRole(actor.user));
+  if (!staff && String(actor.vendorId || '') !== String(vendorId)) {
+    return c.json({ success: false, error: 'That profile belongs to another vendor.' }, 403);
+  }
   try {
-    const vendorId = c.req.param('vendorId');
     const updates = await c.req.json();
     
     // Get existing vendor data
