@@ -94,6 +94,8 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   const [fixingId, setFixingId] = useState<string | null>(null);
   const [finishDraft, setFinishDraft] = useState('');
   const [savingFinish, setSavingFinish] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const hasDemoShift = heldShifts.some(s => s.id.startsWith('DEMO-HELD-'));
 
   // Hydrate from the server on mount (falls back to the localStorage-seeded
   // initial state if nothing is stored server-side yet).
@@ -140,6 +142,39 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
         })
       : list;
     setEmployees(prev => merge(base ?? prev));
+  }
+
+  /**
+   * Plant or remove a demo held shift.
+   *
+   * A real one only appears when somebody genuinely leaves a punch running for
+   * sixteen hours, which is not something anybody can sit and wait for — so
+   * there has to be a way to see this panel work. The planted entry is filed
+   * under a name matching no employee and is flagged for review, so its hours
+   * are held out of every payroll figure by construction: it cannot move
+   * anybody's pay while it sits there. The server refuses both calls to anyone
+   * who is not an admin.
+   */
+  async function demoHeldShift(action: 'plant' | 'remove') {
+    setDemoBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in again to do this.');
+      const res = await fetch(`${TIME_API(projectId)}/dev/demo-held-shift`, {
+        method: action === 'plant' ? 'POST' : 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) throw new Error(json?.error || `Time tracking responded ${res.status}`);
+      toast.success(action === 'plant'
+        ? 'Demo shift planted — it is the amber panel above.'
+        : `Removed ${json.removed} demo shift${json.removed === 1 ? '' : 's'}.`);
+      await refreshHours();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not change the demo shift.');
+    } finally {
+      setDemoBusy(false);
+    }
   }
 
   /**
@@ -499,6 +534,23 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                 )}
               </div>
             ))}
+
+            {/* A way to see the held-shift panel without waiting for somebody to
+                actually leave a punch running overnight. Says what it is; the
+                planted shift belongs to no real employee and its hours are held
+                out of payroll, so it cannot affect anybody's pay. */}
+            <div className="pt-2 flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => demoHeldShift(hasDemoShift ? 'remove' : 'plant')}
+                disabled={demoBusy}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-gray-400 border border-white/10 disabled:opacity-50"
+              >
+                {demoBusy ? 'Working…' : hasDemoShift ? 'Remove the demo held shift' : 'Plant a demo held shift'}
+              </button>
+              <span className="text-[11px] text-gray-600">
+                Shows what a forgotten punch-out looks like. Nobody's pay is affected.
+              </span>
+            </div>
           </div>
         )}
       </div>

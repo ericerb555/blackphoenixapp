@@ -1164,6 +1164,91 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
   }
 });
 
+// ── A held shift to look at ───────────────────────────────────────────────────
+//
+// The auto-close path only fires on a shift somebody genuinely left running for
+// sixteen hours, which is not something you can sit and wait for. This plants
+// one so the payroll screen can be seen doing its job, and takes it away again.
+//
+// It is deliberately harmless. The planted entry is `needsReview`, so by
+// construction its hours are held out of every payroll figure — the demo cannot
+// inflate anybody's pay even while it is sitting there. It is filed under a
+// name that matches no employee record, so no real person's hours move. And it
+// carries `demo: true` with a fixed id prefix, so the clean-up can only ever
+// delete what this route created.
+//
+// Admin only. It writes to the same store payroll reads from, and a route that
+// invents timesheet entries is not one to leave open to a portal login.
+
+const DEMO_SHIFT_PREFIX = "DEMO-HELD-";
+const DEMO_SHIFT_NAME = "Demo Crew (test shift)";
+
+timeTrackingRouter.post("/dev/demo-held-shift", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
+  try {
+    const actorId = String(c.get("actor")?.id || "");
+    // Yesterday morning, so it reads as a shift somebody walked away from
+    // rather than one still in progress.
+    const punchIn = new Date(Date.now() - 30 * 3_600_000);
+    punchIn.setHours(7, 0, 0, 0);
+    const punchInIso = punchIn.toISOString();
+
+    const id = `${DEMO_SHIFT_PREFIX}${punchIn.getTime()}`;
+    const employeeId = `demo-employee-${actorId}`;
+    const entry = {
+      id,
+      demo: true,
+      employeeId,
+      employeeName: DEMO_SHIFT_NAME,
+      punchIn: punchInIso,
+      punchOut: autoClosePunchOut(punchInIso),
+      totalHours: AUTO_CLOSE_AFTER_HOURS,
+      breakMinutes: 0,
+      allocations: [],
+      status: "completed",
+      autoClosed: true,
+      needsReview: true,
+      autoClosedAt: new Date().toISOString(),
+      notes: "Demo entry: planted to show what a forgotten punch-out looks like.",
+    };
+
+    const dateKey = punchInIso.split("T")[0];
+    await kv.set(`time_entry_history:${employeeId}:${dateKey}:${id}`, entry);
+
+    return c.json({
+      success: true,
+      entry,
+      where: "HR & Employee hub → Payroll tab. Remove it with DELETE on this same path.",
+    });
+  } catch (error) {
+    console.error("Error planting demo held shift:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+timeTrackingRouter.delete("/dev/demo-held-shift", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
+  try {
+    const all = ((await kv.getByPrefix("time_entry_history:")) as any[]) || [];
+    // Both conditions, not either. The id prefix alone would be enough today,
+    // but a clean-up that deletes timesheets should not rest on a naming
+    // convention holding.
+    const mine = all.filter((e: any) =>
+      e?.demo === true && String(e?.id || "").startsWith(DEMO_SHIFT_PREFIX));
+
+    for (const e of mine) {
+      const dateKey = String(e.punchIn || "").split("T")[0];
+      await kv.del(`time_entry_history:${e.employeeId}:${dateKey}:${e.id}`);
+    }
+    return c.json({ success: true, removed: mine.length });
+  } catch (error) {
+    console.error("Error removing demo held shifts:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // ── Field tasks (the technician's daily schedule) ──────────────────────────────
 // Genuinely persistent, KV-backed tasks keyed by employee. Replaces the static
 // array that previously hardcoded the mobile app's "Today's Tasks".
