@@ -22,7 +22,9 @@
  */
 import { Hono } from "npm:hono";
 import Stripe from "npm:stripe@17";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { trustedRole, STAFF_ROLE_SET } from "./trustedRole.ts";
 
 const stripeConnectRouter = new Hono();
 
@@ -173,7 +175,75 @@ async function refreshAccountStatus(company: CompanyRecord): Promise<CompanyReco
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 // Health / config check for this module.
-stripeConnectRouter.get(`${PREFIX}/stripe/health`, (c) => {
+/**
+ * WHO MAY DO WHAT HERE
+ *
+ * This module was written with no authorisation at all and then never mounted,
+ * so nothing enforced it and nothing needed it. Mounting it makes every route
+ * real, and the default tier is "anybody with a session" — which for a module
+ * that configures Stripe accounts and creates charges is not good enough.
+ *
+ * Three bands, decided by what each route actually exposes:
+ *
+ *   staff        the company records (they carry the env var naming this
+ *                account's secret key, and the payout bank's last four), the
+ *                Connect onboarding links, the payments ledger, the revenue
+ *                summary, and /stripe/charge — which takes an amount and has no
+ *                caller anywhere in the app.
+ *
+ *   signed in    creating a payment intent and reading its status back. A
+ *                customer paying is the point of them, and finalize reads the
+ *                real status from Stripe rather than accepting one.
+ *
+ *   redacted     GET /stripe/companies. The customer checkout needs to know
+ *                which company it is paying, and nothing else on that record.
+ */
+async function stripeActor(c: any): Promise<{ user: any; staff: boolean } | null> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return null;
+    const owners = [
+      "ericerb555@proton.me",
+      ...(Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
+        .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+    ];
+    const email = String(data.user.email || "").toLowerCase();
+    return { user: data.user, staff: owners.includes(email) || STAFF_ROLE_SET.has(trustedRole(data.user)) };
+  } catch {
+    return null;
+  }
+}
+
+async function requireStripeStaff(c: any): Promise<Response | null> {
+  const actor = await stripeActor(c);
+  if (!actor) return c.json({ success: false, error: "Sign in required." }, 401);
+  if (!actor.staff) return c.json({ success: false, error: "Internal access is required." }, 403);
+  return null;
+}
+
+/** What a customer may see of a company: enough to pay it, nothing more. */
+function publicCompany(co: any) {
+  return {
+    id: co.id,
+    name: co.name,
+    code: co.code,
+    chargesEnabled: co.chargesEnabled === true,
+  };
+}
+
+stripeConnectRouter.get(`${PREFIX}/stripe/health`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+  return healthBody(c);
+});
+
+function healthBody(c: any) {
   const accounts = configuredKeyEnvs();
   return c.json({
     ok: true,
@@ -182,13 +252,20 @@ stripeConnectRouter.get(`${PREFIX}/stripe/health`, (c) => {
     stripeConfigured: !!accounts[DEFAULT_KEY_ENV],
     accounts, // e.g. { STRIPE_SECRET_KEY: true, STRIPE_SECRET_KEY_2: false }
   });
-});
+}
 
 // List all companies (with fresh status from each company's own account).
+//
+// Staff get the whole record. Everybody else gets the four fields the checkout
+// needs — a company record carries the env var naming this account's secret key
+// and the payout bank's last four, and neither belongs in a customer's browser.
 stripeConnectRouter.get(`${PREFIX}/stripe/companies`, async (c) => {
   try {
+    const actor = await stripeActor(c);
+    if (!actor) return c.json({ success: false, error: "Sign in required." }, 401);
     let companies = await getCompanies();
     companies = await Promise.all(companies.map((co) => refreshAccountStatus(co)));
+    if (!actor.staff) return c.json({ success: true, companies: companies.map(publicCompany) });
     return c.json({ success: true, companies });
   } catch (err) {
     console.log(`[Stripe] list companies error: ${err}`);
@@ -198,6 +275,9 @@ stripeConnectRouter.get(`${PREFIX}/stripe/companies`, async (c) => {
 
 // Create or update a company (name + code + email + which key it uses).
 stripeConnectRouter.post(`${PREFIX}/stripe/companies`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const { companyId, name, code, email, stripeKeyEnv } = body || {};
@@ -250,6 +330,9 @@ stripeConnectRouter.post(`${PREFIX}/stripe/companies`, async (c) => {
 // bank itself is added in that account's OWN Stripe dashboard, so there is no
 // hosted onboarding link to open here.
 stripeConnectRouter.post(`${PREFIX}/stripe/companies/:id/connect`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const company = await getCompany(c.req.param("id"));
     if (!company) return c.json({ success: false, error: "Company not found" }, 404);
@@ -275,6 +358,9 @@ stripeConnectRouter.post(`${PREFIX}/stripe/companies/:id/connect`, async (c) => 
 
 // Refresh a single company's status from its own account.
 stripeConnectRouter.get(`${PREFIX}/stripe/companies/:id/status`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const company = await getCompany(c.req.param("id"));
     if (!company) return c.json({ success: false, error: "Company not found" }, 404);
@@ -289,6 +375,9 @@ stripeConnectRouter.get(`${PREFIX}/stripe/companies/:id/status`, async (c) => {
 // the company code. Accepts a Stripe paymentMethod id (from the client) OR, in
 // test mode, defaults to Stripe's test payment method "pm_card_visa".
 stripeConnectRouter.post(`${PREFIX}/stripe/charge`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const body = await c.req.json();
     const {
@@ -443,6 +532,9 @@ stripeConnectRouter.post(`${PREFIX}/stripe/finalize/:paymentId`, async (c) => {
 
 // List payments, optionally filtered by company.
 stripeConnectRouter.get(`${PREFIX}/stripe/payments`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const companyId = c.req.query("companyId");
     let payments = await getPayments();
@@ -455,6 +547,9 @@ stripeConnectRouter.get(`${PREFIX}/stripe/payments`, async (c) => {
 
 // Per-company revenue summary (for dashboards).
 stripeConnectRouter.get(`${PREFIX}/stripe/revenue`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const companies = await getCompanies();
     const payments = await getPayments();
@@ -486,6 +581,9 @@ stripeConnectRouter.get(`${PREFIX}/stripe/revenue`, async (c) => {
 // stubbed pointing at STRIPE_SECRET_KEY_2 (activates once that key is added).
 // Idempotent.
 stripeConnectRouter.post(`${PREFIX}/stripe/seed`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
   try {
     const existing = await getCompanies();
     if (existing.length > 0) {

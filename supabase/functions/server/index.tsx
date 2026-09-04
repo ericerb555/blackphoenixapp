@@ -182,6 +182,7 @@ import { trustedRole } from "./trustedRole.ts";
 import bidIntakeRouter from "./bid-intake.tsx";
 import architectReviewRouter from "./architect-review.tsx";
 import jurisdictionsRouter from "./jurisdictions.tsx";
+import stripeConnectRouter from "./stripe-connect.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
   loadStaffRecipients, saveStaffRecipients, ownerEmailsFromEnv, isValidEmail,
@@ -555,6 +556,12 @@ app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
 app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
 app.route("/make-server-3eae23a6/architect-review", architectReviewRouter);
 app.route("/make-server-3eae23a6/jurisdictions", jurisdictionsRouter);
+// Never mounted, so Company Payment Routing has been calling /stripe/health and
+// /stripe/companies into a 404 since it was written. Its routes carry their own
+// prefix, so it mounts at the root. Every route in it now states who may call
+// it — the module had no authorisation of its own, which did not matter while
+// nothing could reach it and matters entirely now.
+app.route("/", stripeConnectRouter);
 app.route("/make-server-3eae23a6/design-links", designLinksRouter);
 app.route("/make-server-3eae23a6/design-assistant", designAssistantRouter);
 app.route("/make-server-3eae23a6/cms", contentManagementRouter);
