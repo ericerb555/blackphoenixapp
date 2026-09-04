@@ -1068,3 +1068,111 @@ name. Validation stays on the server; the screen only collects.
 Server typecheck 84, app typecheck 332, both unchanged. Smoke: 8 pages, 0 threw.
 
 Still unverified in a browser.
+
+---
+
+# Letting the customer into the design centre
+
+Eric's decision: a **"Design Your Project" tab in the customer portal**, pointing
+at the design centre itself — not a cut-down copy of it.
+
+## What is already true, and needs nothing
+
+- **Their work is separated.** Design projects are keyed by an owner derived
+  from the token, and a requested `?owner=` is validated against the signed-in
+  user, so a customer only ever sees their own designs.
+- **The spend is bounded.** The render, blueprint and AI buckets are metered per
+  account, which is what makes opening these routes to customers affordable.
+- **They are not blocked today.** After sign-in the route guard falls through to
+  "all portal access allowed", so a customer who typed `/deck-designer` would
+  already get in. This is a discoverability change, not a permissions change.
+
+## The items
+
+- [ ] 1. Add the tab to `CustomerPortalView`, navigating to `deck-designer`.
+      One design centre, not an embedded second one.
+- [ ] 2. A way back. The tab takes them out of the portal chrome, and being
+      stranded in a tool with no route home is the exact complaint that got the
+      old Figma redirect removed.
+- [ ] 3. Trim the workspace rail for customers. `DESIGN_TOOLS` currently offers
+      Permits & zoning, Zoning variance, Document scanner and Materials hub —
+      all internal workflow, one click from where the customer would land.
+      A customer sees the design centre and nothing else on the rail.
+- [ ] 4. Start them on their own house, not a blank site. `rebuilds-not-new-
+      builds` says replacing an existing structure is the normal case, and the
+      address drives snow load, frost depth and code edition.
+- [ ] 5. **Make the design go somewhere.** See below.
+
+## Item 5 is the one that decides whether this is worth doing
+
+`DeckDesigner.tsx:507` carries the comment *"No quote is linked to a deck design
+yet"*, and it is accurate — the design centre saves a design and produces no
+quote and no work request. Today that is fine, because the only people in there
+are staff who then go and do the next step by hand.
+
+Put a customer in it and that stops being fine. They would spend an evening
+designing their deck, press save, and nothing would reach you. `pipeline-is-the-
+spine` says anything producing a number or a document has to write into the
+pipeline rather than compute beside it — and a customer's finished design is
+exactly that.
+
+So the tab needs a **"Send this to Black Phoenix"** action that creates a work
+request carrying the design id, the address and the saved version, landing it in
+the pipeline the same way the visualiser's renders already do.
+
+That is the real work here. Items 1–4 are an afternoon; item 5 is the feature.
+
+## What I am NOT proposing
+
+Not restyling the portal — one tab added to an existing list, nothing else
+moved. Not changing the route guard. Not giving customers pricing: the design
+centre does not currently show margin, labour rate or supplier cost, and this
+change must not be the thing that starts.
+
+## Awaiting approval before any of this is built.
+
+## Review — the customer's way into the design centre
+
+All five items done.
+
+**The tab is a panel, not a jump.** `CustomerDesignTab.tsx` explains what the
+design centre is and says plainly that a drawing is an idea rather than a plan or
+a price, then offers a way in and lists the designs they already have. Dropping
+a homeowner straight onto an empty canvas that expects spans and a code edition
+is how a good tool gets a reputation for being difficult.
+
+**Item 5 turned out to need no server work.** The existing
+`POST /work-requests` already enforces that the email matches the signed-in
+account, persists, raises the admin alert and notifies staff. So "Send to Black
+Phoenix" posts to the same route the enquiry form uses, carrying
+`designProjectId` and the saved version. One way in means one place a job starts.
+
+Whether a design has already been sent is read back from the customer's own work
+requests rather than flagged on the design. A flag would be a second copy of the
+truth, and if the office deleted the request the design would go on claiming it
+had been sent.
+
+**`from=portal` changes presentation only.** It trims the workspace rail to the
+design centre and the stair calculator — permits, variances, the document
+scanner and the materials hub are office workflow and were one click from where
+the portal drops them — and adds "Back to my portal". Nothing about access
+depends on it: the server decides what a customer can read and write from their
+token, and design projects are scoped to their owner there.
+
+**The address travels with them** and seeds an empty site field only, never
+replacing a typed one — the same rule the job-linked address already follows,
+because the address sets snow load, frost depth and the code edition.
+
+### Found on the way
+
+The `deals` tab had a button and a render branch but was missing from the
+`activeTab` union, so TypeScript called the comparison impossible. It worked at
+runtime only because the click handler casts. One word, and the app baseline
+drops 332 → 331.
+
+### Checks
+
+App typecheck **332 → 331**, and the one that went is named above. Server
+untouched at 84. Smoke: 21 pages, 0 threw.
+
+Not verified in a browser: the tab, the send, and the trimmed rail.

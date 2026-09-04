@@ -24,7 +24,7 @@ import {
   User, Settings, Home, Calendar, Clock, MapPin, Phone, Mail,
   Download, Eye, Check, X, Star, TrendingUp, Activity, AlertCircle,
   CheckCircle, Package, ChevronRight, CreditCard, FileCheck, Send,
-  ClipboardList, Wrench, Info, AlertTriangle, ShoppingCart, Trash2,
+  ClipboardList, Wrench, Info, AlertTriangle, ShoppingCart, Trash2, Hammer,
   Recycle, Video, ArrowUpRight, ArrowDownRight, Plus, Filter,
   Upload, Search, Play, Pause, Volume2, VolumeX, ChevronLeft, 
   Sparkles, Zap, Crown, Gift, Trophy, Timer, Users, Target, ExternalLink, Smartphone, Monitor,
@@ -43,6 +43,7 @@ import ClientWorkRequestForm from '../forms/ClientWorkRequestForm';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import FloorVisualiser from './FloorVisualiser';
 import HomeVisualiser from './HomeVisualiser';
+import CustomerDesignTab from './CustomerDesignTab';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { publicAnonKey, projectId } from '../../utils/supabase/info';
@@ -73,7 +74,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'guide'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
@@ -676,6 +677,7 @@ export default function CustomerPortalView() {
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
     { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'referrals', label: 'Referrals', icon: Star },
+    { id: 'design', label: 'Design Your Project', icon: Hammer },
     { id: 'visualiser', label: 'See It On Your Home', icon: ImageIcon },
     { id: 'floor-visualiser', label: 'Try a Floor', icon: ImageIcon },
     { id: 'documents', label: 'Documents', icon: FileText },
@@ -851,6 +853,16 @@ export default function CustomerPortalView() {
             where this is worth having. */}
         {activeTab === 'visualiser' && (
           <HomeVisualiser customerEmail={user?.email} customerName={user?.user_metadata?.full_name || user?.email} />
+        )}
+        {/* The design centre, reached with enough context that it does not open
+            cold: their address goes with them, because it sets snow load, frost
+            depth and which code edition applies. */}
+        {activeTab === 'design' && (
+          <CustomerDesignTab
+            customerEmail={customerInfo.email}
+            customerName={customerInfo.name}
+            customerAddress={customerInfo.address}
+          />
         )}
         {activeTab === 'floor-visualiser' && <FloorVisualiser accent="orange" />}
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}

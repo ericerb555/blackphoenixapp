@@ -342,6 +342,27 @@ function DesignerSession({ session, onSession }: {
     setSite(s => (String(s.address || '').trim() ? s : { ...s, address: fromJob }));
   }, [link.jobAddress]);
 
+  /**
+   * The same courtesy for a customer arriving from their portal, where the
+   * address on file is theirs rather than a job's.
+   *
+   * Same rule, for the same reason: fill an empty field, never replace a typed
+   * one. It runs once, because a customer whose project is somewhere other than
+   * their own house — a rental, a parent's place — must be able to change it and
+   * have the change stay changed.
+   */
+  /** Read once on mount: the URL does not change under the designer. */
+  const [fromPortal] = useState(cameFromPortal);
+
+  const portalAddressSeeded = useRef(false);
+  useEffect(() => {
+    if (portalAddressSeeded.current) return;
+    const fromPortal = addressFromUrl();
+    if (!fromPortal) return;
+    portalAddressSeeded.current = true;
+    setSite(s => (String(s.address || '').trim() ? s : { ...s, address: fromPortal }));
+  }, []);
+
   const addressDiffers = Boolean(
     link.jobAddress
     && String(site.address || '').trim()
@@ -1095,7 +1116,7 @@ function DesignerSession({ session, onSession }: {
             been impossible from three of the four stages.
           */}
           <div className="space-y-4">
-            <DesignWorkspaceNav current="deck-designer" />
+            <DesignWorkspaceNav current="deck-designer" audience={fromPortal ? 'customer' : 'staff'} />
             <div className={card}>
               <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
                 <MapPin className="w-4 h-4 text-[#ea580c]" /> Project &amp; site
@@ -1824,6 +1845,37 @@ function jobFromUrl(): { email: string; jobId: string } | null {
     return { email, jobId };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Is a customer driving this, rather than the office?
+ *
+ * Set by the portal's "Design your project" tab as `?from=portal`. It changes
+ * two things and nothing else: the workspace rail loses the office tools —
+ * permits, zoning variances, the document scanner, the materials hub — which
+ * would otherwise sit one click from where a homeowner lands, and a way back to
+ * the portal appears. The tool itself is identical, because a cut-down copy of
+ * it would be a second design centre to keep in step with the first.
+ *
+ * It is a presentation choice, not a permission. Nothing here is load-bearing
+ * for access: what a customer can read and write is decided by the server from
+ * their token, and their designs are scoped to them there.
+ */
+function cameFromPortal(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('from') === 'portal';
+  } catch {
+    return false;
+  }
+}
+
+/** An address handed over by the portal, so the design starts at their house. */
+function addressFromUrl(): string {
+  try {
+    return String(new URLSearchParams(window.location.search).get('address') || '').trim();
+  } catch {
+    return '';
   }
 }
 

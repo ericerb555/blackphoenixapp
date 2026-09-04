@@ -9,7 +9,7 @@
  * built. A rail advertising a tool that is not there is worse than a short
  * rail, because someone plans a job around it.
  */
-import { Hammer, ArrowDownRight, Building2, ScanLine, FileSignature, Package, Layers } from 'lucide-react';
+import { Hammer, ArrowDownRight, Building2, ScanLine, FileSignature, Package, Layers, ArrowLeft } from 'lucide-react';
 import { useCurrentJob } from '../lib/useCurrentJob';
 import { describeJob } from '../lib/currentJob';
 
@@ -31,8 +31,32 @@ export const DESIGN_TOOLS: WorkspaceLink[] = [
   { id: 'materials', label: 'Materials hub', hint: 'Pricing and suppliers', icon: Package, route: 'materials-hub' },
 ];
 
-export default function DesignWorkspaceNav({ current }: { current: string }) {
+/**
+ * The tools a customer sees.
+ *
+ * Everything left out is office workflow, not a secret: permits and zoning
+ * variances are filings we make on their behalf, the document scanner produces
+ * town submissions, and the materials hub is where we work out what to buy.
+ * None of it is anything a homeowner would want mid-design, and all of it is
+ * one click from where the portal drops them.
+ *
+ * The stair calculator stays, because somebody designing a deck with steps has
+ * a real use for it.
+ */
+const CUSTOMER_TOOL_IDS = new Set(['deck-designer', 'stairs']);
+
+export default function DesignWorkspaceNav({
+  current,
+  audience = 'staff',
+}: {
+  current: string;
+  /** 'customer' trims the rail to the design tools and offers a way back. */
+  audience?: 'staff' | 'customer';
+}) {
   const job = useCurrentJob();
+  const tools = audience === 'customer'
+    ? DESIGN_TOOLS.filter(t => CUSTOMER_TOOL_IDS.has(t.id))
+    : DESIGN_TOOLS;
   const go = (route: string) => {
     // The app exposes its router here; fall back to a normal link so the rail
     // still works if that is ever absent.
@@ -78,9 +102,24 @@ export default function DesignWorkspaceNav({ current }: { current: string }) {
         )}
       </div>
 
+      {/* The way out.
+          The Design Center used to be a Figma prototype at its own domain, and
+          because the jump was a full page load there was no way back short of
+          retyping the address. That is not a mistake to repeat on the people
+          whose houses we are designing. */}
+      {audience === 'customer' && (
+        <button
+          onClick={() => go('customer-portal')}
+          className="w-full flex items-center gap-2 px-2.5 py-2 mb-1 rounded-xl text-left text-sm text-gray-300 border border-[#2A2A2A] hover:border-orange-500/40 hover:text-white transition"
+        >
+          <ArrowLeft className="w-4 h-4 shrink-0 text-[#ea580c]" />
+          Back to my portal
+        </button>
+      )}
+
       <p className="text-[10px] uppercase tracking-wide text-gray-500 px-2 py-1.5">Design workspace</p>
       <div className="space-y-0.5">
-        {DESIGN_TOOLS.map(t => {
+        {tools.map(t => {
           const Icon = t.icon;
           const active = t.id === current;
           return (
