@@ -1650,3 +1650,93 @@ App typecheck 324, server 84, both unchanged. Smoke: 6 pages, 0 threw. 46/46 on
 And it cannot be meaningfully verified until at least one finished job has time
 booked against it and a purchase order linked to it. Until then every job will
 honestly report "Not known", which is itself the correct first result.
+
+---
+
+# What needs doing to go live
+
+Checked against the code today, not recalled. Ordered by what would hurt.
+
+## 1. Verified broken features — a screen calls a route that does not exist
+
+Twenty-five server routers are never mounted. Three are confirmed to be called
+by the app right now, so each is a 404 in front of a user:
+
+| Screen | Calls | Lives in (unmounted) |
+|---|---|---|
+| `ClientWorkRequestForm` — **customer-facing** | `/quotes/generate-from-blueprint` | `quote-from-blueprint.tsx` |
+| `jobFinancialService` | `/job-financials/kv`, `/job-financials/snapshot` | `job-financials.tsx` |
+| `BuildingCodeChecker` | `/design-standards/code-rules` | `design-standards.tsx` |
+
+The remaining twenty-two need a per-feature decision — mount it, or remove the
+screen that calls it. Both are cheap; leaving them is what is expensive, because
+each one is a customer finding a dead button.
+
+## 2. Almost nothing has been verified in a running browser
+
+This is the largest risk and it is not a code problem. Built and never opened:
+the bid room round trip, model-first render, blueprint reader, architect link,
+the command centre, the timeclock prompt and auto-close, the held-shift
+correction, the customer design tab, section capture and video upload, the
+catalogue CSV import, the materials hub on live data, investments in the
+portals, and the completion report.
+
+Every one passed typecheck and smoke. Smoke proves a page mounts; it proves
+nothing about a round trip. Going live on that is going live on inference.
+
+## 3. Demonstration data is in production
+
+- Investment opportunities are seeded demo cards — and as of today they are
+  visible to every signed-in portal user, which is the change that made this
+  urgent rather than cosmetic.
+- The HR hub seeds four employees (Mike Torres, Jake Sullivan…) and two payroll
+  runs into `localStorage` when it finds none.
+- The materials hub's sample list. Labelled and unquotable now, but present.
+
+## 4. Security still open
+
+- **The quote share link.** One `randomUUID` with the dashes removed, stored in
+  plaintext, with a `createdAt` and no expiry and no revocation — and it
+  authorises **signing** the quote, not just reading it. The architect-review
+  link built later in this project uses 256 bits, stored as a SHA-256 hash, with
+  expiry and revocation; this is the pattern that should have been copied.
+- Thirteen of the thirty-two audited money routes have still not been reviewed.
+- Investment offerings show to every signed-in portal user with no eligibility
+  gating of any kind. Offering an investment is regulated; who may see an offer
+  usually is not "anyone with a login".
+
+## 5. Features that are real but have no data yet
+
+None of these are bugs. They are the reason a demo would fall flat.
+
+- No vendor has imported a catalogue, so the materials hub shows samples and no
+  quote can price from a real supplier line.
+- No finished job has both time booked and a purchase order linked, so every
+  completion report will honestly say "Not known".
+- Every figure in `laborTasks.ts` is `source: 'seed'` — industry starting
+  numbers, not Black Phoenix's own. The quoting-accuracy loop built today is
+  what corrects them, and it needs finished jobs to learn from.
+
+## 6. Known baseline
+
+324 app typecheck findings and 84 server, neither in the crash classes. Not
+blockers; stated so "unchanged" keeps meaning something.
+
+## 7. Process
+
+`test-before-production` says schema and backend changes get tried in a non-
+production environment first. Everything this session went straight to the live
+project. There is no staging environment set up.
+
+## The shortest honest path to a live first customer
+
+1. Fix the three verified 404s, decide the other twenty-two.
+2. Walk one job end to end in a browser: request in → design → quote → work
+   order → time booked → invoice → completion report. That single pass exercises
+   most of what was built and is the only thing that will tell us what is really
+   broken.
+3. Import one real supplier price list.
+4. Harden the quote share link, since it signs.
+5. Decide who may see investment offerings.
+
+Items 1–3 are the difference between a demo that works and one that does not.
