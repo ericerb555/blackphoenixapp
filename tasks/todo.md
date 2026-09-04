@@ -1518,3 +1518,76 @@ show to **every** signed-in portal user, and the seeded demo cards are visible
 alongside anything real. Offering an investment is a regulated activity, and who
 may see an offer usually needs gating — by accreditation, by portal type, or by
 invitation. Naming it rather than deciding it.
+
+---
+
+# Learning from finished jobs, so quoting is proving profitable
+
+Eric: *"i also want the ai to learn from my finialized work requests to make sure
+are quoting is proving to be profitable."*
+
+## First, the thing to know
+
+`GET /work-orders/completion-reports` — the screen called **Completion Reports**,
+badged NEW on the command centre — reports every finished job like this:
+
+    totalMaterialCosts: 0, totalLaborCosts: 0, totalSubcontractorCosts: 0,
+    otherExpenses: 0, totalCosts: 0,
+    profitAmount: amount, profitMargin: amount > 0 ? 100 : 0
+
+Those are literals, not calculations. **Every completed job reports 100% profit**,
+because its costs are hardcoded to zero. The one report that exists to answer
+"is our quoting profitable" answers "yes, entirely" to every job it has ever
+seen. That has to be the first thing fixed; a wrong answer is worse than none.
+
+## The data to learn from does exist
+
+- **Quoted** — the estimate on the work request: hours, materials, price.
+- **Actual labour** — real, and new this week. Time entries are allocated to a
+  work order and cannot be submitted to payroll unless they reconcile exactly to
+  the hours worked, so hours × pay rate is a measured labour cost, not an
+  estimate.
+- **Actual materials** — purchase orders, and now real vendor catalogue prices.
+- **Billed** — the paid invoice.
+
+And `laborTasks.ts` was built for exactly this. Its `hoursPerUnit` figures are
+marked `source: 'seed'`, and the file says in its own header that they are
+"industry starting figures… meant to be corrected the first time a real job is
+measured against it", with anything Eric has edited marked `source: 'yours'` and
+never silently overwritten.
+
+So this is not a new mechanism. It is the feedback half of one that was built
+deliberately and left open.
+
+## The items
+
+- [ ] 1. **`jobOutcome.ts`, pure and tested.** Given a work request, its quote,
+      its time entries, its purchase orders and its invoice, produce quoted vs
+      actual for labour hours, labour cost, materials and margin — each carrying
+      how it was known, `measured` or `estimated`, on the existing provenance
+      vocabulary. Untested arithmetic here is a wrong margin, which is a worse
+      quote next time.
+- [ ] 2. **Fix the completion report** to use it instead of zeros. This will
+      make good jobs look less profitable than the screen currently claims,
+      because it currently claims all of it.
+- [ ] 3. **Variance by task**, not by job. "Deck framing runs 18% over the
+      quoted hours across nine jobs" is actionable; "job 402 lost money" is not.
+      Reported with the number of jobs behind it, because two jobs is an anecdote.
+- [ ] 4. **Propose rate corrections, never apply them.** Where a task has enough
+      measured jobs, offer the corrected `hoursPerUnit` with the evidence, for
+      Eric to accept or reject. `source: 'yours'` is never overwritten, and
+      nothing changes a price without a person saying so.
+- [ ] 5. **Say what is not known.** A job with no allocated time entries has no
+      measured labour, and must read as "not enough data" rather than as
+      profitable. Missing cost data looks exactly like zero cost, which is how
+      the current report got to 100%.
+
+## Where the AI actually belongs
+
+Not in the arithmetic. Quoted-versus-actual is subtraction, and a language model
+doing subtraction on money is a worse version of a calculator. The model is
+useful for the part that is genuinely language: reading the variance and saying
+*why* — "the three jobs that overran were all second-storey, and access is not a
+line in your quote". The numbers stay deterministic and tested.
+
+## Awaiting approval.
