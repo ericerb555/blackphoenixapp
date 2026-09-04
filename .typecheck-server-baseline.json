@@ -1,5 +1,5 @@
 {
-  "total": 96,
+  "total": 84,
   "byFile": {
     "supabase/functions/make-server-12c91054-stub/index.ts": 5,
     "supabase/functions/make-server-57095a78-stub/index.ts": 4,
@@ -13,13 +13,11 @@
     "supabase/functions/server/index.tsx": 5,
     "supabase/functions/server/investments-kv.tsx": 1,
     "supabase/functions/server/kitchen-cabinet-schedule.tsx": 1,
-    "supabase/functions/server/owner-executive.tsx": 8,
     "supabase/functions/server/plans.tsx": 1,
     "supabase/functions/server/providerBids.tsx": 3,
-    "supabase/functions/server/seo-automation.tsx": 4,
     "supabase/functions/server/stripe-connect.tsx": 3,
     "supabase/functions/server/time-tracking.tsx": 1,
     "supabase/functions/server/zendrop.tsx": 1
   },
-  "note": "97 -> 96: the spend ceiling moved to aiSpend.ts and its union-narrowing finding was fixed on the way rather than relocated."
+  "note": "96 -> 84: 23 server files that nothing imports and nothing calls were deleted; their findings went with them."
 }
