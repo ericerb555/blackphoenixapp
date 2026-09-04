@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { saveDual, loadDual } from '../lib/database';
 import { projectId } from '../utils/supabase/info';
-import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X } from 'lucide-react';
+import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 type PayType = 'hourly' | 'salary' | 'contract';
@@ -19,6 +19,33 @@ interface Employee {
 interface PayrollRun {
   id: string; periodStart: string; periodEnd: string;
   status: 'draft' | 'approved' | 'paid'; totalGross: number; employeeCount: number;
+}
+
+/** A shift the clock closed by itself, waiting on a real finish time. */
+interface HeldShift {
+  id: string; employeeId: string; employeeName: string;
+  punchIn: string; punchOut: string; totalHours: number;
+  autoClosed: boolean; reason: string;
+}
+
+const TIME_API = (id: string) =>
+  `https://${id}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking`;
+
+/**
+ * A datetime-local value for the punch-out box, defaulted to the placeholder
+ * already on the record and rendered in the browser's own timezone.
+ *
+ * Doing this by hand rather than with toISOString(): that converts to UTC, so
+ * the box would open showing a time four or five hours away from the one the
+ * crew would name, and whoever is correcting it would be reading a different
+ * clock from the person they are asking.
+ */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 const SEED: Employee[] = [
@@ -58,6 +85,16 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Employee> | null>(null);
 
+  // Shifts nobody punched out of. The clock closed them after sixteen hours
+  // with a placeholder finish time, and their hours are deliberately absent
+  // from the figures above until somebody says when the person actually
+  // finished. Until then payroll is short and this is the only place that says
+  // why, so it sits in front of the payroll runs rather than below them.
+  const [heldShifts, setHeldShifts] = useState<HeldShift[]>([]);
+  const [fixingId, setFixingId] = useState<string | null>(null);
+  const [finishDraft, setFinishDraft] = useState('');
+  const [savingFinish, setSavingFinish] = useState(false);
+
   // Hydrate from the server on mount (falls back to the localStorage-seeded
   // initial state if nothing is stored server-side yet).
   useEffect(() => {
@@ -71,30 +108,76 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
 
       // Overlay real logged hours from the time-tracking system (matched by full name).
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) throw new Error('Sign in is required to load payroll hours.');
-        const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking/hours-summary`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } }
-        );
-        if (!res.ok) throw new Error(`Time tracking responded ${res.status}`);
-        const json = await res.json();
-        if (json.success && json.summary) {
-          const merged = base.map(e => {
-            const key = `${e.firstName} ${e.lastName}`.trim();
-            const h = json.summary[key];
-            return h ? { ...e, hoursThisWeek: h.hoursThisWeek, hoursThisPeriod: h.hoursThisPeriod } : e;
-          });
-          setEmployees(merged);
-        } else {
-          setEmployees(base);
-        }
+        await refreshHours(base);
       } catch (err) {
         console.error('Could not load real hours from time-tracking:', err);
         setEmployees(base);
       }
     })();
   }, [user?.id]);
+
+  /**
+   * Pull the real hours, and the shifts being held back from them.
+   *
+   * Called again after a finish time is corrected, because the correction moves
+   * hours from held into payable and the figures at the top of this screen
+   * would otherwise keep showing the shortfall that has just been resolved.
+   */
+  async function refreshHours(base?: Employee[]) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sign in is required to load payroll hours.');
+    const res = await fetch(
+      `${TIME_API(projectId)}/hours-summary`,
+      { headers: { Authorization: `Bearer ${session.access_token}` } }
+    );
+    if (!res.ok) throw new Error(`Time tracking responded ${res.status}`);
+    const json = await res.json();
+    setHeldShifts(Array.isArray(json?.held) ? json.held : []);
+    const merge = (list: Employee[]) => (json?.success && json?.summary)
+      ? list.map(e => {
+          const h = json.summary[`${e.firstName} ${e.lastName}`.trim()];
+          return h ? { ...e, hoursThisWeek: h.hoursThisWeek, hoursThisPeriod: h.hoursThisPeriod } : e;
+        })
+      : list;
+    setEmployees(prev => merge(base ?? prev));
+  }
+
+  /**
+   * Record when somebody actually finished a shift the clock closed for them.
+   *
+   * The server does the checking — that the time is after the punch-in and
+   * within a plausible shift — because this is the number that becomes a wage
+   * and a customer's invoice, and a screen is not where that is decided.
+   */
+  async function saveFinishTime(shift: HeldShift) {
+    if (!finishDraft) { toast.error('Enter when the shift actually finished.'); return; }
+    setSavingFinish(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in again to record this.');
+      const res = await fetch(`${TIME_API(projectId)}/entries/${encodeURIComponent(shift.id)}/finish-time`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        // A datetime-local box has no timezone, so the browser's own is applied
+        // here — the supervisor is typing the time the crew would say.
+        body: JSON.stringify({ punchOut: new Date(finishDraft).toISOString() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) throw new Error(json?.error || `Time tracking responded ${res.status}`);
+      toast.success(
+        json.unallocatedHours > 0.01
+          ? `${json.totalHours}h recorded — ${shift.employeeName} still has ${json.unallocatedHours}h to assign to a work order.`
+          : `${json.totalHours}h recorded for ${shift.employeeName}.`
+      );
+      setFixingId(null);
+      setFinishDraft('');
+      await refreshHours();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not record the finish time.');
+    } finally {
+      setSavingFinish(false);
+    }
+  }
 
   useEffect(() => { saveDual('hr_employees', employees); }, [employees]);
   useEffect(() => { saveDual('hr_payroll', payroll); }, [payroll]);
@@ -231,6 +314,13 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
             <button key={t} onClick={() => setTab(t)} className="flex-1 py-2 rounded-lg text-sm font-bold capitalize transition"
               style={tab === t ? { background: '#ea580c', color: 'white' } : { color: '#6b7280' }}>
               {t}
+              {/* Held shifts only appear on the payroll tab, so the count has to
+                  be visible from the other one or nobody finds them. */}
+              {t === 'payroll' && heldShifts.length > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-black text-amber-400 bg-amber-500/15 border border-amber-500/30">
+                  {heldShifts.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -292,6 +382,86 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
 
         {tab === 'payroll' && (
           <div className="space-y-3">
+            {/* Held shifts come first. Their hours are missing from the estimate
+                above, and a payroll run that is short by a day's labour should
+                say so before somebody approves it. */}
+            {heldShifts.length > 0 && (
+              <div className="rounded-2xl p-4" style={{ background: '#111', border: '1px solid rgba(245,158,11,0.3)' }}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-black text-white text-sm">
+                      {heldShifts.length} shift{heldShifts.length === 1 ? '' : 's'} held back from payroll
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Nobody punched out of these, so the clock closed them after 16 hours with a
+                      placeholder finish time. Their hours are not in the figures above. Ask what time
+                      the person finished and record it here.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {heldShifts.map(shift => (
+                    <div key={shift.id} className="rounded-xl p-3" style={{ background: '#0b0b0b', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-white text-sm">{shift.employeeName || 'Unnamed employee'}</p>
+                          <p className="text-xs text-gray-500">
+                            In {new Date(shift.punchIn).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            {' · '}
+                            <span className="text-amber-400">{shift.totalHours}h placeholder</span>
+                          </p>
+                        </div>
+                        {fixingId !== shift.id && (
+                          <button
+                            onClick={() => { setFixingId(shift.id); setFinishDraft(toLocalInput(shift.punchOut || shift.punchIn)); }}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20"
+                          >
+                            Set finish time
+                          </button>
+                        )}
+                      </div>
+
+                      {fixingId === shift.id && (
+                        <div className="mt-3 flex flex-wrap items-end gap-2">
+                          <label className="text-xs text-gray-400">
+                            <span className="block mb-1">When did they actually finish?</span>
+                            <input
+                              type="datetime-local"
+                              value={finishDraft}
+                              onChange={e => setFinishDraft(e.target.value)}
+                              min={toLocalInput(shift.punchIn)}
+                              className="px-3 py-2 rounded-xl text-sm text-white"
+                              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)' }}
+                            />
+                          </label>
+                          <button
+                            onClick={() => saveFinishTime(shift)}
+                            disabled={savingFinish}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50"
+                            style={{ background: 'linear-gradient(135deg,#ea580c,#c2410c)' }}
+                          >
+                            <Save className="w-3.5 h-3.5" /> {savingFinish ? 'Saving…' : 'Record'}
+                          </button>
+                          <button
+                            onClick={() => { setFixingId(null); setFinishDraft(''); }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-400 border border-white/10"
+                          >
+                            <X className="w-3.5 h-3.5" /> Cancel
+                          </button>
+                          <p className="w-full text-[11px] text-gray-500">
+                            The split across work orders was made against the placeholder, so it will
+                            need redoing against the real hours before this can go to payroll.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button onClick={() => {
               const run: PayrollRun = { id: `PAY-${Date.now()}`, periodStart: '2026-07-26', periodEnd: '2026-08-08', status: 'draft', totalGross: Math.round(periodPay), employeeCount: active.length };
               setPayroll(prev => [run, ...prev]);

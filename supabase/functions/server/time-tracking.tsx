@@ -1113,8 +1113,11 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
     let entries = (await kv.getByPrefix("time_entry_history:")) || [];
     // A field employee only receives their own aggregate; HR/admin receives the full summary.
     if (!c.get("admin")) entries = entries.filter((entry: any) => String(entry?.employeeId || "") === String(c.get("actor")?.id || ""));
-    // name -> { week, period }
-    const byName: Record<string, { hoursThisWeek: number; hoursThisPeriod: number }> = {};
+    // name -> { week, period, held }
+    const byName: Record<string, { hoursThisWeek: number; hoursThisPeriod: number; hoursHeld: number }> = {};
+    // The individual shifts behind `hoursHeld`, so the payroll screen can put a
+    // name and a date in front of somebody instead of an unexplained shortfall.
+    const held: any[] = [];
 
     for (const e of entries) {
       const name = String(e?.employeeName || "").trim();
@@ -1122,7 +1125,26 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
       const when = new Date(e?.punchOut || e?.completedAt || e?.punchIn || e?.createdAt);
       if (isNaN(when.getTime())) continue;
       const hrs = Number(e?.totalHours) || 0;
-      if (!byName[name]) byName[name] = { hoursThisWeek: 0, hoursThisPeriod: 0 };
+      if (!byName[name]) byName[name] = { hoursThisWeek: 0, hoursThisPeriod: 0, hoursHeld: 0 };
+
+      // This is the number HR multiplies by a pay rate. A shift that was closed
+      // automatically carries a placeholder finish time, so its hours are held
+      // out of it rather than paid — and surfaced, not silently dropped.
+      if (blockedFromPayroll(e)) {
+        byName[name].hoursHeld += hrs;
+        held.push({
+          id: e.id,
+          employeeId: e.employeeId,
+          employeeName: name,
+          punchIn: e.punchIn,
+          punchOut: e.punchOut,
+          totalHours: hrs,
+          autoClosed: Boolean(e.autoClosed),
+          reason: reviewReason(e),
+        });
+        continue;
+      }
+
       if (when >= periodAgo) byName[name].hoursThisPeriod += hrs;
       if (when >= weekAgo) byName[name].hoursThisWeek += hrs;
     }
@@ -1131,9 +1153,11 @@ timeTrackingRouter.get("/hours-summary", async (c) => {
     for (const k of Object.keys(byName)) {
       byName[k].hoursThisWeek = Math.round(byName[k].hoursThisWeek * 100) / 100;
       byName[k].hoursThisPeriod = Math.round(byName[k].hoursThisPeriod * 100) / 100;
+      byName[k].hoursHeld = Math.round(byName[k].hoursHeld * 100) / 100;
     }
 
-    return c.json({ success: true, summary: byName });
+    held.sort((a, b) => String(b.punchIn || "").localeCompare(String(a.punchIn || "")));
+    return c.json({ success: true, summary: byName, held });
   } catch (error) {
     console.error("Error building hours summary:", error);
     return c.json({ success: false, error: String(error) }, 500);

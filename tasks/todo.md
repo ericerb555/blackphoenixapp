@@ -1040,3 +1040,31 @@ in `EmployeePortalView` is a pre-existing prop-type error on line 1219. Smoke:
 Not yet verified in a browser: the eight-hour prompt, and the supervisor's
 finish-time correction has no screen yet — the route exists and is reachable,
 but nothing in the UI calls it.
+
+## Follow-up: the correction screen, and a gap it exposed
+
+- [x] Held shifts listed at the top of the payroll tab, with a finish-time box
+- [x] A count badge on the tab, so they are findable from the employees tab
+- [x] `hours-summary` holds placeholder hours out of the figures HR pays from
+
+The third item was not planned and matters more than the first two. Hardening
+went into `GET /payroll-report`, which nothing in the app calls. The endpoint HR
+actually pays from is `GET /hours-summary`, and it was still adding a
+placeholder sixteen hours into `hoursThisWeek` and `hoursThisPeriod` — the
+numbers the HR hub multiplies by a pay rate for "Period Payroll Est". So the
+guarded route was the unused one and the live one was open. It now holds those
+hours out, returns them as `hoursHeld`, and returns the shifts behind them as
+`held` so the screen can name them.
+
+The lesson is the one from the products-route episode: check what the client
+actually calls before treating a route as the one that counts.
+
+The panel sits above the payroll runs rather than below them, because its whole
+purpose is to be read before somebody approves a run that is short. The
+finish-time box opens on the placeholder in the browser's own timezone —
+`toISOString` would have shown a time hours away from the one the crew would
+name. Validation stays on the server; the screen only collects.
+
+Server typecheck 84, app typecheck 332, both unchanged. Smoke: 8 pages, 0 threw.
+
+Still unverified in a browser.
