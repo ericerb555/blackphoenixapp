@@ -260,6 +260,20 @@ const PUBLIC_PREFIXES = [
   '/webhook',           // provider callbacks, which authenticate by signature
   '/stripe/webhook',
 
+  /**
+   * Finishing a guest checkout.
+   *
+   * The shopper comes back from Stripe still signed out, and the order is only
+   * created once the session is verified — so this has to be reachable without
+   * a session or the money is taken and no order exists.
+   *
+   * Only two routes live under this prefix and each guards itself: `confirm`
+   * requires the PAYMENT_CONFIRMATION_SECRET header, and `complete` verifies
+   * the checkout session with Stripe before finalising anything. There is no
+   * GET here, so a checkout id in somebody's hands reveals nothing.
+   */
+  '/store/checkouts/',
+
   // An architect reviewing a framing submittal has no account here, by
   // design — see architect-review.tsx. Only the /review/ half is exempt:
   // issuing, listing and revoking links sit under /links and stay behind
@@ -359,6 +373,22 @@ const PUBLIC_POST_PATHS = [
   '/applications/submit',     // the older form endpoint, still linked
   '/signup/universal',        // portal card signups
   '/referrals/attributions',  // credits a referral code at signup
+
+  /**
+   * Guest checkout.
+   *
+   * The storefront and the cart both post here with the anon key alone, and the
+   * buyer's name, email and address are collected in a guest form — there is no
+   * login anywhere in the flow, by design. Without this entry the wall answered
+   * "Sign in required" and the shop could not take money from anybody who was
+   * not already a user. Confirmed against production before this was added.
+   *
+   * Safe to expose because the route trusts nothing it is given: every unit
+   * price is looked up from our own product records, shipping and tax are
+   * recomputed, and an item that cannot be priced is refused rather than sold
+   * at the price the browser suggested.
+   */
+  '/store/checkout',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
