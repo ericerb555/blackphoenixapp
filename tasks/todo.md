@@ -1176,3 +1176,65 @@ App typecheck **332 → 331**, and the one that went is named above. Server
 untouched at 84. Smoke: 21 pages, 0 threw.
 
 Not verified in a browser: the tab, the send, and the trimmed rail.
+
+---
+
+# Photos and video in every section of the design centre
+
+Eric: *"i should be able to add picture and video in all section of the design
+center so i can add on to existing structures."*
+
+## Where it stands today
+
+The design centre has five stages — **Capture, Design, Scope, Price,
+Documents** — and nine trades. Capture is the only stage that takes a file at
+all. The other four take nothing.
+
+**Video does not work anywhere, including on Capture.** The Capture tab is
+labelled *"Photos, video and what is already there"*, `JobFolder` draws a film
+icon next to a video file so one looks accepted, and then:
+
+- `designPhotos.ts:58` filters the pile to `image/` and silently drops the rest
+- the server's `PHOTO_TYPES` (`design-projects.tsx:63`) lists only jpeg, png,
+  webp, heic and heif — there is no video type in it
+
+So a video can be picked, appears in the list, and vanishes on save without a
+word. That is the promise the label already makes, unkept.
+
+**Everything attaches to the project, not to a section.** A kitchen photograph
+and a siding photograph land in the same pile with nothing to tell them apart,
+which is why they cannot be shown back next to the work they are about.
+
+## The items
+
+- [ ] 1. **Tag what already exists.** Photos gain the stage and trade they were
+      taken in. Without this, capture in nine sections produces one heap.
+- [ ] 2. **Make video real, and by a different road.** A phone video is
+      50–500MB; the photo path base64-encodes into a JSON body, which is
+      correct for a 12MB photo and will simply fail for video. Video needs a
+      signed upload straight to storage. Proposed ceiling **200MB**, about two
+      minutes of phone video — enough for a walk along an elevation, which is
+      the thing stills lose.
+- [ ] 3. **One capture control, dropped into every section**, tagged with the
+      stage and trade it sits in. One component, nine placements — not nine
+      capture panels to keep in step.
+- [ ] 4. **Show it back where it was taken**, so the pictures of the existing
+      kitchen are on the kitchen and the elevation walk is on siding.
+- [ ] 5. **Say what the ceilings are.** 60 files a project today; video will
+      need its own count and a total size, and hitting a limit must say so
+      rather than dropping the file quietly — which is the bug being fixed.
+
+## What this is really for
+
+`rebuilds-not-new-builds`: the job is nearly always an addition to something
+already standing, and the photographs are the best evidence of what is there —
+better than anything typed. This is what feeds the building record and the
+model-first render, so capture is not an attachment feature, it is the input.
+
+## Not proposed
+
+Not touching how the render or the blueprint reader consume photos — they keep
+reading the same pile, now better labelled. Not raising the per-project photo
+count. Not adding capture to the portal visualiser, which has its own.
+
+## Awaiting approval.
