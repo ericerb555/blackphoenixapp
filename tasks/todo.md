@@ -2067,3 +2067,62 @@ That is worth clearing before anybody else sees a portfolio.
   Wholesale, "Black Phoenix Supply (owner test)"
 - Four seeded HR employees and two seeded payroll runs
 - Eligibility gating on real offerings, once there are any
+
+---
+
+# The quote share link
+
+The link that lets a customer **sign** a quote had the weakest security in the
+system. `shareToken.ts`, 28/28.
+
+## What was wrong, in rising order of seriousness
+
+1. **Stored in plaintext** under `quote_token:{token}`. The link is the whole
+   credential, so anything that could read the store — a backup, a mis-scoped
+   route, a log — held every live one. It is now filed under a SHA-256 of
+   itself, so a leak of the store is not a leak of the links.
+2. **No expiry.** A link mailed in March still worked in December. Thirty days.
+3. **No revocation.** A quote sent to the wrong address could not be withdrawn,
+   and nobody could find the record because it was filed under itself.
+   `POST /quotes/:id/revoke-link` records the withdrawal rather than deleting it,
+   so "that link was withdrawn on the 5th" stays answerable.
+4. **`POST /quotes/generate-link` had no authorisation at all.** Any signed-in
+   account could mint a signing link for any quote id and then read or sign it
+   through the public by-token routes — every customer's pricing available to
+   every other portal account, and a signature obtainable on a quote that was
+   never sent. Staff only now.
+5. **A signed quote could be re-signed.** A customer could flip approved to
+   rejected and back as often as they liked, overwriting the stored signature
+   and its timestamp each time, so the record of what was agreed was whatever
+   the last click said. 409 now.
+
+Invalid, expired and revoked all answer the same 404. "Expired" would confirm
+the link was once real, which is information a stranger guessing should not get.
+
+`shareTokenUsable` fails closed on an unreadable expiry date — a malformed date
+must not mean immortal.
+
+On entropy: the old token was 122 bits, which was never actually brute-forceable.
+The upgrade to 256 is cheap and removes the question, but hashing, expiry and
+revocation are the three that mattered.
+
+## Found on the way: sending a quote never worked
+
+The pipeline's "send quote to customer" gates its entire success branch on
+`data.approvalUrl`, and this route returned `link` and `url`. So the stage was
+never advanced to quote-sent, the 3- and 7-day follow-ups were never scheduled,
+and the link was never copied to the clipboard. The response now carries
+`approvalUrl` as well, rather than renaming a field other callers may read.
+
+## Safe to change now
+
+Production holds **zero** share tokens, so there were no live links to break and
+no compatibility shim was needed. Checked before changing the format.
+
+## Checks
+
+App typecheck 324, server 84, both unchanged. 28/28 on `shareToken`. Smoke
+reports nothing reached — the change is server-side.
+
+Not verified against a live request: issuing a link, opening it, signing once,
+being refused a second time, and revoking.

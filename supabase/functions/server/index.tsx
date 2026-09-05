@@ -167,6 +167,7 @@ import jobFinancialsRouter from "./job-financials.tsx";
 import designStandardsRouter from "./design-standards.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
+import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
@@ -4108,16 +4109,63 @@ app.post('/make-server-3eae23a6/quotes', async (c) => {
 // Generate a shareable signing link for a quote (public token → quote id).
 app.post('/make-server-3eae23a6/quotes/generate-link', async (c) => {
   try {
+    /**
+     * Only the company issues a signing link.
+     *
+     * This route had no check at all: any signed-in account could mint a link
+     * for any quote id and then read or sign it through the public by-token
+     * routes. That is every customer's pricing available to every other portal
+     * account, and a signature obtainable on a quote that was never sent.
+     */
+    const { user: linkActor, admin: linkAdmin } = await financialActor(c);
+    if (!linkActor?.email || !linkAdmin) {
+      return c.json({ success: false, error: 'Administrator access is required to issue a quote link.' }, 403);
+    }
+    const actorEmail = linkActor.email;
+
     const body = await c.req.json().catch(() => ({}));
     const quoteId = String(body.quoteId || body.id || '');
     if (!quoteId) return c.json({ success: false, error: 'A quote id is required.' }, 400);
     const quote = await kv.get(`quote:${quoteId}`) as any;
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
-    const token = crypto.randomUUID().replace(/-/g, '');
-    await kv.set(`quote_token:${token}`, { quoteId, createdAt: new Date().toISOString() });
-    await kv.set(`quote:${quoteId}`, { ...quote, shareToken: token, updatedAt: new Date().toISOString() });
+    /**
+     * The link is filed under a hash of itself.
+     *
+     * It used to be stored in plaintext, with no expiry and no way to withdraw
+     * it — and this link authorises **signing** a quote, which is the closest
+     * thing here to a signature on a contract. Anything that could read the
+     * store held every live link, since the link is the whole credential.
+     *
+     * The quote keeps `shareTokenHash`, never the token. The token itself exists
+     * for the length of this response and then only in the customer's email; if
+     * it is lost, a new one is issued rather than recovered, which is the
+     * property that makes storing the hash worth anything.
+     */
+    const nowIso = new Date().toISOString();
+    const { token, hash } = await mintShareToken();
+    await kv.set(`quote_token:${hash}`, shareTokenRecord(quoteId, nowIso, String(actorEmail || '')));
+    await kv.set(`quote:${quoteId}`, {
+      ...quote,
+      shareTokenHash: hash,
+      shareTokenIssuedAt: nowIso,
+      // Any previously issued link for this quote is left in place rather than
+      // silently killed — revoking is a deliberate act, and see the revoke
+      // route below.
+      shareToken: undefined,
+      updatedAt: nowIso,
+    });
     const link = `${rentAppUrl()}/quote/${token}`;
-    return c.json({ success: true, token, link, url: link });
+    /**
+     * `approvalUrl` is the name the caller actually reads.
+     *
+     * The pipeline's "send quote to customer" gates its whole success branch on
+     * `data.approvalUrl`, and this route returned `link` and `url`. So the stage
+     * was never advanced, the 3- and 7-day follow-ups were never scheduled, and
+     * the link was never copied to the clipboard — the quote simply appeared not
+     * to send. Returned under all three names rather than renaming one, because
+     * `link` and `url` may have other callers.
+     */
+    return c.json({ success: true, token, link, url: link, approvalUrl: link, expiresInDays: QUOTE_LINK_DAYS });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to generate link.' }, 500); }
 });
 
@@ -13382,8 +13430,15 @@ app.put('/make-server-3eae23a6/quotes/:id', async (c) => {
 // Public: resolve a share token into a customer-facing quote record.
 app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
   try {
-    const record = await kv.get(`quote_token:${c.req.param('token')}`) as any;
-    if (!record?.quoteId) return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    // Looked up by hash — the plaintext token is never stored, so it can only
+    // arrive from the link itself.
+    const record = await kv.get(`quote_token:${await hashToken(c.req.param('token'))}`) as any;
+    // One answer for invalid, expired and revoked. "Expired" would confirm the
+    // link was once real, which is information a stranger guessing should not
+    // be given.
+    if (!shareTokenUsable(record, Date.now())) {
+      return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    }
     const quote = await kv.get(`quote:${record.quoteId}`) as any;
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
     const stripped = stripBase64(quote);
@@ -13401,10 +13456,30 @@ app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
 // Public: customer approves or rejects a quote via its share token.
 app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
   try {
-    const record = await kv.get(`quote_token:${c.req.param('token')}`) as any;
-    if (!record?.quoteId) return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    const record = await kv.get(`quote_token:${await hashToken(c.req.param('token'))}`) as any;
+    if (!shareTokenUsable(record, Date.now())) {
+      return c.json({ success: false, error: 'This quote link is invalid or has expired.' }, 404);
+    }
     const quote = await kv.get(`quote:${record.quoteId}`) as any;
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+
+    /**
+     * A signed quote is signed.
+     *
+     * Re-signing let a customer flip approved to rejected and back as often as
+     * they liked, overwriting the stored signature and its timestamp each time —
+     * so the record of what was agreed, and when, was whatever the last click
+     * said. 409 rather than 400: the request is well formed, the state is what
+     * refuses it.
+     */
+    if (alreadyDecided(quote)) {
+      return c.json({
+        success: false,
+        error: 'This quote has already been signed. Ask us to send a fresh one if something needs changing.',
+        status: quote.status || 'signed',
+      }, 409);
+    }
+
     const body = stripBase64(await c.req.json().catch(() => ({})));
     const decision = body.decision === 'rejected' ? 'rejected' : 'approved';
     const now = new Date().toISOString();
@@ -13419,6 +13494,44 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
     }
     return c.json({ success: true, quote: updated });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to record your decision.' }, 500); }
+});
+
+/**
+ * POST /quotes/:id/revoke-link — withdraw a quote's signing link.
+ *
+ * The missing third of the pattern. A link sent to the wrong address, or a
+ * quote superseded before anybody signed it, previously could not be taken
+ * back: the token worked until somebody deleted the record by hand, and nobody
+ * could find it because it was filed under itself.
+ *
+ * Revoking is recorded rather than deleted, so "this link was withdrawn on the
+ * 5th" stays answerable.
+ */
+app.post('/make-server-3eae23a6/quotes/:id/revoke-link', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+    const quoteId = c.req.param('id');
+    const quote = await kv.get(`quote:${quoteId}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+
+    const hash = String(quote.shareTokenHash || '');
+    if (!hash) return c.json({ success: false, error: 'This quote has no active link.' }, 404);
+
+    const record = await kv.get(`quote_token:${hash}`) as any;
+    const now = new Date().toISOString();
+    if (record) {
+      await kv.set(`quote_token:${hash}`, { ...record, revokedAt: now, revokedBy: user.email });
+    }
+    await kv.set(`quote:${quoteId}`, { ...quote, shareTokenHash: null, shareTokenRevokedAt: now, updatedAt: now });
+
+    console.log(`[Quotes] share link for ${quoteId} revoked by ${user.email}`);
+    return c.json({ success: true, revokedAt: now });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to revoke that link.' }, 500);
+  }
 });
 
 // ── ACCESS REQUESTS ──────────────────────────────────────────────────────────
