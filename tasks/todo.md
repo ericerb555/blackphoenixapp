@@ -1801,3 +1801,75 @@ App typecheck 324, server 84, both unchanged. Smoke reports no page reached by
 these changes, which is correct — all three are server-side.
 
 Twenty-two unmounted routers remain, none of them currently called by a screen.
+
+---
+
+# Before inviting vendors and subcontractors
+
+Checked today. The two journeys are in very different states.
+
+## The blocker: nothing on the server ever creates a vendor record
+
+`vendorActor` (vendor-profile) and `catalogActor` (vendor-catalog) both resolve a
+signed-in account to a vendor by looking for a `vendor:` record — stamped
+`app_metadata.vendorId` first, then a match on email. Nothing in
+`supabase/functions/server/` ever writes one. The only `createVendor` in the
+codebase is `src/app/lib/supabase-data.ts`, and it calls `saveToStorage`, which
+is `localStorage.setItem`. That file says so in its own header: *"Previously used
+API endpoints, now using browser storage for prototyping."*
+
+So a vendor record created in the admin UI exists in **that browser and nowhere
+else**, the server's `vendor:` prefix is empty, and every vendor who signs in
+lands on the screen that reads *"This account is not linked to a vendor record
+yet."* No catalogue, no purchase orders, no billing.
+
+Everything built for vendors this week sits behind that door: the CSV price-list
+import, the materials hub reading live catalogues, vendor pricing in quotes.
+Inviting a vendor today means inviting them to an empty room.
+
+Five other entity types are in the same file and the same state: `subcontractor:`,
+`advertiser:`, `customer:`, `plan:`, `giftcard:`.
+
+## There are two identity systems and no bridge between them
+
+Approving a vendor or subcontractor application **does** work, and does a lot: it
+creates an intake record, syncs portal access, creates an `organizations` row and
+an `organization_members` row in Postgres through `ensureProviderOrg`, and sends
+a portal invite to claim it. That is the Phoenix Exchange identity, and it is
+what lets somebody be invited to price work.
+
+None of it writes the `vendor:` KV record the vendor portal resolves against. So
+an approved vendor can be invited to bid and cannot open their own catalogue.
+The bridge is the missing piece, not either half.
+
+## Subcontractors are in better shape
+
+Their path — application → CRM → intake → organisation → portal invite — is
+server-side throughout. The bid room tables and their RLS exist and were tested
+on a database branch. What has never happened is a real subcontractor account
+walking it: receiving an invitation, opening it, pricing lines, submitting, and
+seeing an award come back.
+
+## What is confirmed working
+
+Production secrets are set: `RESEND_API_KEY`, `OPENAI_API_KEY`,
+`STRIPE_SECRET_KEY` and the ecommerce Stripe key. Invitation email will send.
+
+## The order to fix this in
+
+- [ ] 1. **Write vendor records on the server.** Either move `createVendor` off
+      localStorage onto a real route, or have vendor approval write the `vendor:`
+      record the way it already writes the organisation. The second is better: it
+      puts identity creation in one place, at approval, where it belongs.
+- [ ] 2. **Bridge the two identities**, so a vendor resolved through an
+      organisation also resolves in the vendor portal. Otherwise every vendor
+      needs creating twice and the two copies will drift.
+- [ ] 3. **Walk one vendor end to end** — invite, claim, sign in, import a price
+      list, see it in the materials hub, receive a purchase order.
+- [ ] 4. **Walk one subcontractor end to end** — invite, claim, receive a bid
+      invitation, price the lines, submit, be awarded, see it on the job.
+- [ ] 5. Decide what happens to the other four localStorage entity types before
+      anything depends on them.
+
+Items 3 and 4 are the actual answer to "what needs to work end to end". Until
+each has been walked once by a real account, everything else is inference.
