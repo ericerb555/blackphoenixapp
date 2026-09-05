@@ -166,6 +166,7 @@ import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
 import jobFinancialsRouter from "./job-financials.tsx";
 import designStandardsRouter from "./design-standards.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
+import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
@@ -1841,10 +1842,140 @@ app.patch('/make-server-3eae23a6/applications/:id', async (c) => {
       }
     }
 
+    /**
+     * A vendor also needs the record their own portal resolves against.
+     *
+     * The organisation written above is the Phoenix Exchange identity — it is
+     * what lets somebody be invited to price work. The vendor portal resolves
+     * something else entirely: a `vendor:` record in the key-value store,
+     * matched by `app_metadata.vendorId` or by email. Nothing on the server ever
+     * wrote one, so an approved vendor could be invited to bid and could not
+     * open their own catalogue, purchase orders or billing.
+     *
+     * Written here, at approval, so a vendor's identity is created once in one
+     * place. The alternative — creating it by hand in the admin screen — is what
+     * exists today, and that screen writes to `localStorage`.
+     *
+     * Vendors only. A subcontractor is not a supplier: they receive bid
+     * invitations, not purchase orders, and giving them a vendor record would
+     * put them in the supplier registry that scopes the purchase-order book.
+     */
+    let vendorRecord: any = null;
+    if (intake && intakePortalType(applications[index]) === 'vendor') {
+      try {
+        const nowIso = new Date().toISOString();
+        const wantedId = vendorIdForApplication(String(applications[index].id || ''));
+        const existingVendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+        const existing = existingVendors.find((v: any) => String(v?.id || '') === wantedId) || null;
+
+        const candidate = vendorRecordFrom(
+          applications[index], existing, nowIso, providerOrg?.orgId || null,
+        );
+
+        if (!candidate) {
+          console.warn(`[Applications] Vendor ${applications[index].id} approved with no usable email — no vendor record written.`);
+        } else {
+          // Two vendor records on one address is worse than none: the portal
+          // takes the first match it finds, so which company a person sees
+          // would depend on the order the store happened to return them in.
+          const clash = conflictingVendor(existingVendors, candidate.id, candidate.email);
+          if (clash) {
+            console.warn(`[Applications] ${candidate.email} already belongs to vendor ${clash.id}; not writing a second record.`);
+            vendorRecord = clash;
+          } else {
+            await kv.set(`vendor:${candidate.id}`, candidate);
+            vendorRecord = candidate;
+            applications[index] = { ...applications[index], vendorId: candidate.id };
+            console.log(`[Applications] vendor record ${candidate.id} written for ${candidate.email}`);
+          }
+        }
+      } catch (vendorErr: any) {
+        // The approval itself already happened. A failure here leaves the vendor
+        // unlinked, which is visible in their portal and fixable, and must not
+        // read as the approval failing.
+        console.warn('[Applications] Vendor record could not be written:', vendorErr?.message);
+      }
+    }
+
     applications[index] = { ...applications[index], planProposal: planProposal || applications[index].planProposal || null, planProposalId: planProposal?.id || applications[index].planProposalId || null };
     await kv.set(APPLICATIONS_KEY, applications);
-    return c.json({ success: true, application: applications[index], intake, access, planProposal, providerOrg });
+    return c.json({ success: true, application: applications[index], intake, access, planProposal, providerOrg, vendorRecord });
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+/**
+ * POST /vendors/backfill-from-applications — give already-approved vendors the
+ * record they never got.
+ *
+ * Writing the record at approval only helps vendors approved from now on.
+ * Everyone already approved is still unlinked, and telling Eric the bug is fixed
+ * while every existing vendor stays locked out of their portal would be telling
+ * him something untrue.
+ *
+ * Safe to run repeatedly: the id is derived from the application, so a second
+ * run updates rather than duplicates, and existing fields win — payment terms
+ * and a corrected company name are not undone by a backfill. An address that
+ * already belongs to a different vendor is reported and skipped rather than
+ * given a second record.
+ *
+ * Admin only. It writes the registry that scopes the purchase-order book.
+ */
+app.post('/make-server-3eae23a6/vendors/backfill-from-applications', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!await intakeIsAdmin(user)) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+
+    const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
+    const approvedVendors = applications.filter((a: any) =>
+      ['approved', 'active'].includes(String(a?.status || '').toLowerCase())
+      && intakePortalType(a) === 'vendor');
+
+    const nowIso = new Date().toISOString();
+    let existingVendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
+
+    const created: string[] = [];
+    const updated: string[] = [];
+    const skipped: Array<{ application: string; reason: string }> = [];
+
+    for (const application of approvedVendors) {
+      const wantedId = vendorIdForApplication(String(application.id || ''));
+      const existing = existingVendors.find((v: any) => String(v?.id || '') === wantedId) || null;
+      const candidate = vendorRecordFrom(application, existing, nowIso, application.exchangeOrgId || null);
+
+      if (!candidate) {
+        skipped.push({ application: String(application.id || ''), reason: 'No email on the application, so nothing could ever match it.' });
+        continue;
+      }
+
+      const clash = conflictingVendor(existingVendors, candidate.id, candidate.email);
+      if (clash) {
+        skipped.push({
+          application: String(application.id || ''),
+          reason: `${candidate.email} already belongs to vendor ${clash.id}.`,
+        });
+        continue;
+      }
+
+      await kv.set(`vendor:${candidate.id}`, candidate);
+      // Kept current within the loop, so two approved applications sharing one
+      // address collide with each other and not only with what was already
+      // stored before the run started.
+      existingVendors = [...existingVendors.filter((v: any) => String(v?.id || '') !== candidate.id), candidate];
+      (existing ? updated : created).push(candidate.id);
+    }
+
+    console.log(`[Vendors] backfill: ${created.length} created, ${updated.length} updated, ${skipped.length} skipped`);
+    return c.json({
+      success: true,
+      approvedVendorApplications: approvedVendors.length,
+      created, updated, skipped,
+    });
+  } catch (error: any) {
+    console.error('[Vendors] backfill failed:', error);
+    return c.json({ success: false, error: error?.message || 'Backfill failed.' }, 500);
+  }
 });
 
 app.get('/make-server-3eae23a6/application-plan-proposals', async (c) => {

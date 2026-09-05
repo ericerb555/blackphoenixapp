@@ -1873,3 +1873,58 @@ Production secrets are set: `RESEND_API_KEY`, `OPENAI_API_KEY`,
 
 Items 3 and 4 are the actual answer to "what needs to work end to end". Until
 each has been walked once by a real account, everything else is inference.
+
+## Review — the vendor record at approval
+
+**Approving a vendor now writes the record their portal resolves against.** It
+sits beside the organisation the same approval already creates, so a vendor's
+identity is made once, in one place, at one moment. `vendorRecord.ts`, 34/34.
+
+The rule the tests exist for is that **re-approving must not undo the office's
+edits**. Payment terms, a corrected company name, a separate accounts-payable
+address and a category are all things set after approval, and a re-save must
+leave them alone. Existing values win; only genuinely absent fields are filled.
+
+Other decisions worth stating:
+
+- The id is derived from the application (`VEN-{applicationId}`), not the clock.
+  The dead localStorage version used `VEN-${Date.now()}`, which would make a new
+  vendor every time somebody pressed approve twice.
+- Payment terms are **not** defaulted. Inventing "Net 30" here would put a term
+  on an invoice that nobody agreed to.
+- An email already belonging to a different vendor is reported and skipped, not
+  given a second record — `vendorActor` takes the first match it finds, so two
+  records on one address means which company a person sees depends on the order
+  the store returned them in.
+- No email means no record. The portal matches on email, so a record without one
+  can never resolve and would sit in the registry looking like a linked vendor.
+- Vendors only. A subcontractor receives bid invitations, not purchase orders,
+  and a vendor record would put them in the registry that scopes the
+  purchase-order book.
+- A failure writing it is logged and swallowed. The approval already happened,
+  and an unlinked vendor is visible and fixable; a 500 that reads as "approval
+  failed" is not.
+
+**`POST /vendors/backfill-from-applications`** gives already-approved vendors the
+record they never got. Without it the fix would only help vendors approved from
+now on, and saying "fixed" while every existing vendor stayed locked out would
+have been untrue. Admin only, idempotent, and it reports what it skipped and why.
+
+### A correction to what I told Eric earlier
+
+I said a vendor record created in the admin UI "exists in that browser and
+nowhere else". That describes what `createVendor` in `supabase-data.ts` does,
+but I did not check whether anything calls it. Nothing does — neither it nor
+`vendorPortalService.createVendor` is reachable from any screen. So there is no
+phantom vendor data to clean up. The accurate statement is simply that **nothing
+created vendor records at all**, which is what this change fixes.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. 34/34 on `vendorRecord`. Smoke
+reports nothing reached, which is right — the change is server-side.
+
+### Still to do
+
+Neither route has been exercised against the live server. The backfill is the
+one to run first, and its response says exactly what it did.
