@@ -1974,3 +1974,60 @@ statement did not.
 App typecheck 324, server 84, both unchanged — the two `VendorsAdminHub`
 findings are the pre-existing `VendorProfile.createdAt` ones, moved down the
 file by the insertion. Smoke: 8 pages, 0 threw.
+
+---
+
+# Sample investment listings were about to be shown to real people
+
+## What was live
+
+Three seeded listings in production, `status: open`, with no field distinguishing
+them from a real offer:
+
+| Title | Minimum | Projected ROI | Target raise |
+|---|---|---|---|
+| Company Equity — Series A | $25,000 | 22% | $1,500,000 |
+| Turnkey Rental Portfolio | $10,000 | 14% | $800,000 |
+| Value-Add Multifamily | $50,000 | 19% | $2,000,000 |
+
+They were invented to make the screen look populated, and they were harmless
+while nobody could see them — the tab was sending the publishable key and being
+refused at the wall. **Fixing that yesterday is what made them visible**, in
+eleven portals, with a commit button beside each one. Inviting vendors and
+subcontractors this week would have put fabricated investment offers, with
+specific minimums and projected returns, in front of them.
+
+That is the most serious thing outstanding on the go-live list, and it was
+created by the fix rather than found by it.
+
+## What changed
+
+- Seeded listings are marked `isDemo: true` when created.
+- The three already in production predate the flag, so they are recognised by
+  their exact seeded titles. An explicit `isDemo: false` overrides that, so a
+  real offering can one day be published under one of those names.
+- `GET /investments/opportunities` sends them to staff only, and reports
+  `demoHidden` so a portal showing nothing can say why.
+- `GET /investments/opportunities/:id` answers 404 for a non-staff caller.
+  Hiding a listing from the list is not enough — an id is guessable from a
+  shared link or a stale page.
+- `POST /investments/commitments` refuses a pledge against one. A commitment is
+  a promise against terms that were invented to populate a screen.
+- Staff see them labelled **SAMPLE — not a real offer**, so the seed data is
+  obvious to the people who have to decide what to do with it.
+
+Nothing was deleted. Removing production records is Eric's call, and hiding is
+reversible in a way that deleting is not.
+
+## Still his to decide
+
+- Whether to delete the three, or rewrite one as a real offering.
+- The six seeded `vendor:` records — Home Depot, Lowe's, Grainger, Ferguson,
+  Electrical Wholesale, "Black Phoenix Supply (owner test)" — and the four
+  seeded HR employees, which are the same class of problem and not yet handled.
+- Eligibility. Even with the samples gone, a real offering would currently show
+  to every signed-in portal account with no accreditation or invitation gate.
+
+## Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 27 pages, 0 threw.

@@ -558,10 +558,42 @@ async function ensureSeeded() {
   const now = new Date().toISOString();
   const entries = DEMO_OPPORTUNITIES.map((o) => {
     const id = crypto.randomUUID();
-    return { key: OPP(id), value: { ...o, id, created_at: now, updated_at: now } };
+    // Marked at the moment they are created. Without this there is nothing in
+    // the record to tell a demonstration listing from a real offer — see
+    // `isDemoOpportunity` for why that matters more here than anywhere else.
+    return { key: OPP(id), value: { ...o, id, isDemo: true, created_at: now, updated_at: now } };
   });
   await kv.mset(entries);
   await kv.set(SEED_FLAG, now);
+}
+
+/**
+ * Is this a seeded demonstration listing rather than a real offer?
+ *
+ * WHY THIS IS NOT A COSMETIC CONCERN
+ *
+ * These three listings quote a minimum investment, a projected return and a
+ * target raise — "$25,000 minimum, 22% projected ROI" — and the portal tab puts
+ * a commit button next to them. They were invented to make the screen look
+ * populated. Until recently nobody could see them, because the tab was sending
+ * the publishable key and being refused; fixing that put fabricated investment
+ * offers in front of every signed-in portal account, which is the sort of thing
+ * that should never reach a customer, a vendor or a subcontractor.
+ *
+ * The title check exists because the three already in production predate the
+ * flag. Matching on the exact seeded titles is narrow and deliberate: it catches
+ * those records without a migration, and a real offering that happened to be
+ * named "Company Equity — Series A" would be caught too, which is why the
+ * override below exists.
+ */
+const DEMO_TITLES = new Set(DEMO_OPPORTUNITIES.map((o) => o.title));
+
+export function isDemoOpportunity(opp: any): boolean {
+  // An explicit `isDemo: false` wins, so a real offering can be published under
+  // a seeded title once somebody says so.
+  if (opp?.isDemo === false) return false;
+  if (opp?.isDemo === true) return true;
+  return DEMO_TITLES.has(String(opp?.title || ''));
 }
 
 // Funding progress and investor counts are NEVER stored as truth — they are
@@ -606,10 +638,31 @@ function withLiveFunding(opp: any, funding: Map<string, { raised: number; invest
 investmentsRouter.get(`${PREFIX}/investments/opportunities`, async (c) => {
   try {
     await ensureSeeded();
-    const opportunities = (await kv.getByPrefix(OPP_PREFIX)) || [];
+    const all = ((await kv.getByPrefix(OPP_PREFIX)) || []) as any[];
+
+    /**
+     * Demonstration listings are staff-only.
+     *
+     * They quote a minimum, a projected return and a target raise, and the
+     * portal tab puts a commit button beside them. Showing an invented offer to
+     * a customer, a vendor or a subcontractor is not a cosmetic problem — it is
+     * an investment offer nobody is actually making.
+     *
+     * Staff still see them, marked, so the seed data is visible to the people
+     * who have to decide what to do with it rather than silently disappearing.
+     */
+    const actor = await investmentActor(c);
+    const opportunities = actor?.staff ? all : all.filter((o) => !isDemoOpportunity(o));
+
     opportunities.sort((a: any, b: any) => (b.created_at || '').localeCompare(a.created_at || ''));
     const funding = await fundingByOpportunity();
-    return c.json({ opportunities: opportunities.map((o: any) => withLiveFunding(o, funding)) });
+    return c.json({
+      opportunities: opportunities.map((o: any) => ({
+        ...withLiveFunding(o, funding),
+        isDemo: isDemoOpportunity(o),
+      })),
+      demoHidden: actor?.staff ? 0 : all.filter((o) => isDemoOpportunity(o)).length,
+    });
   } catch (error: any) {
     console.log(`Error fetching opportunities: ${error?.message || error}`);
     return c.json({ error: `Failed to fetch opportunities: ${error?.message || error}` }, 500);
@@ -618,10 +671,19 @@ investmentsRouter.get(`${PREFIX}/investments/opportunities`, async (c) => {
 
 investmentsRouter.get(`${PREFIX}/investments/opportunities/:id`, async (c) => {
   try {
-    const opportunity = await kv.get(OPP(c.req.param('id')));
+    const opportunity = await kv.get(OPP(c.req.param('id'))) as any;
     if (!opportunity) return c.json({ error: 'Opportunity not found' }, 404);
+
+    // Hiding it from the list is not enough on its own — the id is guessable
+    // from a shared link or an old page. Answered as absent rather than
+    // refused, which is the same answer the list gives.
+    const actor = await investmentActor(c);
+    if (!actor?.staff && isDemoOpportunity(opportunity)) {
+      return c.json({ error: 'Opportunity not found' }, 404);
+    }
+
     const funding = await fundingByOpportunity();
-    return c.json({ opportunity: withLiveFunding(opportunity, funding) });
+    return c.json({ opportunity: { ...withLiveFunding(opportunity, funding), isDemo: isDemoOpportunity(opportunity) } });
   } catch (error: any) {
     return c.json({ error: `Failed to fetch opportunity: ${error?.message || error}` }, 500);
   }
@@ -736,6 +798,25 @@ investmentsRouter.post(`${PREFIX}/investments/commitments`, async (c) => {
   if (!actor) return c.json({ error: 'Sign in required.' }, 401);
   try {
     const body = await c.req.json();
+
+    /**
+     * Nobody commits money to a demonstration listing.
+     *
+     * The opportunity is checked here and not only hidden from the list,
+     * because a commitment is a pledge against terms — a minimum, a projected
+     * return, a term in years — that were invented to populate a screen. A
+     * pledge recorded against those is a promise the company never made.
+     */
+    const targetId = String(body.opportunity_id || body.opportunityId || '');
+    if (targetId) {
+      const target = await kv.get(OPP(targetId)) as any;
+      if (target && isDemoOpportunity(target) && !actor.staff) {
+        return c.json({
+          error: 'That listing is a sample and is not open for investment.',
+        }, 400);
+      }
+    }
+
     const now = new Date().toISOString();
     const id = body.id || crypto.randomUUID();
     const commitment = {

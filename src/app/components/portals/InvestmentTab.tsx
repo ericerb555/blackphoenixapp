@@ -52,6 +52,11 @@ interface Opportunity {
   highlight?: string;
   benefits?: string[];
   location?: string;
+  /**
+   * A seeded demonstration listing, not an offer. The server only sends these
+   * to staff, so anybody seeing one is in a position to do something about it.
+   */
+  isDemo?: boolean;
 }
 
 interface PortfolioSummary {
@@ -434,7 +439,16 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
                 <div key={o.id} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-5 hover:border-emerald-500/40 transition">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h4 className="font-semibold text-white">{o.title || 'Investment Opportunity'}</h4>
+                      <h4 className="font-semibold text-white">
+                        {o.title || 'Investment Opportunity'}
+                        {/* Only staff are sent these at all. Labelled so the sample
+                            data is obvious to whoever has to clear it out. */}
+                        {o.isDemo && (
+                          <span className="ml-2 rounded border border-yellow-500/30 bg-yellow-500/10 px-1.5 py-0.5 align-middle text-[10px] font-bold text-yellow-400">
+                            SAMPLE — not a real offer
+                          </span>
+                        )}
+                      </h4>
                       {o.location && <p className="text-xs text-gray-500 mt-0.5">{o.location}</p>}
                     </div>
                     {o.category && (
