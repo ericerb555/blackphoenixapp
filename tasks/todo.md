@@ -2031,3 +2031,39 @@ reversible in a way that deleting is not.
 ## Checks
 
 App typecheck 324, server 84, both unchanged. Smoke: 27 pages, 0 threw.
+
+## Done — the three sample listings are deleted
+
+Removed from production on 2026-09-05:
+
+    investment:opportunity:1c592707…  Company Equity — Series A
+    investment:opportunity:74ee552d…  Turnkey Rental Portfolio
+    investment:opportunity:da3e63da…  Value-Add Multifamily
+
+`investment:opportunity:` is now empty. The seed flag `investment:seeded:v1` is
+still set, so `ensureSeeded` returns early and nothing recreates them — which is
+the thing that would have made the deletion pointless, and was checked before
+running it.
+
+The full records are saved to the session scratchpad as
+`deleted-sample-opportunities-2026-09-05.json`, so this is reversible.
+
+### One thing deliberately left
+
+`investment:commitment:owner-test-1` — Eric's own test record, `source:
+owner-self-test`, $50,000 committed with $6,250 received, pointing at the Series
+A listing that has just been deleted. It was not covered by the instruction,
+which named the three listings, and it carries money figures, so it is reported
+rather than removed.
+
+It will not crash anything: the portal renders `c.opportunity?.title ||
+'Investment'`. But Eric's own portfolio will now show a $50,000 active
+commitment against a listing called simply "Investment", with $6,250 received.
+That is worth clearing before anybody else sees a portfolio.
+
+### The other seed data, still outstanding
+
+- Six `vendor:` records — Home Depot, Lowe's, Grainger, Ferguson, Electrical
+  Wholesale, "Black Phoenix Supply (owner test)"
+- Four seeded HR employees and two seeded payroll runs
+- Eligibility gating on real offerings, once there are any
