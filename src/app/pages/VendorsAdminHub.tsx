@@ -23,6 +23,7 @@ import { VendorProfile } from '../lib/services/vendorPortalService';
 import { supabase } from '../lib/supabase';
 import { vendorPriorityService } from '../lib/services/vendorPriorityService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { ChartContainer } from '../components/ChartContainer';
 import { VendorInvoicesTab } from '../components/portals/VendorBilling';
@@ -68,6 +69,96 @@ interface VendorStatus {
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
 type TabId = 'relationships' | 'billing' | 'advertising' | 'api-integrations';
+
+/**
+ * Give approved vendors the record their portal resolves against.
+ *
+ * WHY THIS BUTTON EXISTS AT ALL
+ *
+ * A vendor's portal — catalogue, purchase orders, billing — resolves the signed-
+ * in account to a `vendor:` record. Approval now writes one, but only for
+ * vendors approved from that change onwards; anyone approved before it has an
+ * organisation and no vendor record, so their portal reads "not linked to a
+ * vendor record yet" and stays empty.
+ *
+ * Running it is safe and repeatable: ids are derived from the source record
+ * rather than the clock, so a second run updates instead of duplicating, and
+ * fields the office has edited — payment terms, a corrected company name — are
+ * never overwritten. It is worth re-running after each batch of approvals until
+ * the approval-time write has proven itself in practice.
+ */
+function BackfillVendorRecords() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<any>(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/vendors/backfill-from-applications`, {
+        method: 'POST',
+        headers: await authedHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) throw new Error(json?.error || `The server responded ${res.status}`);
+      setResult(json);
+      const made = (json.created?.length || 0) + (json.updated?.length || 0);
+      toast.success(made
+        ? `${json.created?.length || 0} vendor record${json.created?.length === 1 ? '' : 's'} created, ${json.updated?.length || 0} updated.`
+        : 'Nothing to do — every approved vendor already has a record.');
+    } catch (err: any) {
+      toast.error(err?.message || 'The backfill could not run.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-white">Link approved vendors to their portals</h3>
+          <p className="mt-0.5 text-sm text-gray-400">
+            Vendors approved before this was automatic have no vendor record, so their portal
+            opens empty. This gives them one. Safe to run again — it updates rather than
+            duplicates, and never overwrites anything you have edited.
+          </p>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="shrink-0 rounded-lg bg-gradient-to-r from-orange-600 to-orange-700 px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
+        >
+          {running ? 'Working…' : 'Link approved vendors'}
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-3 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3 text-sm">
+          <p className="text-gray-300">
+            <span className="font-semibold text-white">{result.created?.length || 0}</span> created
+            {' · '}<span className="font-semibold text-white">{result.updated?.length || 0}</span> updated
+            {' · '}<span className="font-semibold text-white">{result.skipped?.length || 0}</span> skipped
+          </p>
+          {/* Where the candidates came from. A run that does nothing should say
+              which side was empty rather than just showing zeroes. */}
+          <p className="mt-1 text-xs text-gray-500">
+            Looked at {result.fromOrganizations ?? 0} vendor organisation
+            {result.fromOrganizations === 1 ? '' : 's'} and {result.fromApplications ?? 0} approved
+            application{result.fromApplications === 1 ? '' : 's'}.
+          </p>
+          {Array.isArray(result.skipped) && result.skipped.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-yellow-400/80">
+              {result.skipped.map((s: any, i: number) => (
+                <li key={i}>· {s.application} — {s.reason}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function VendorsAdminHub() {
   const [activeTab, setActiveTab] = useState<TabId>('relationships');
@@ -130,7 +221,10 @@ export default function VendorsAdminHub() {
         </div>
 
         {/* Tab Content */}
-        <div className="min-h-[600px]">
+        <div className="min-h-[600px] space-y-4">
+          {/* On the relationships tab because that is where vendors are
+              approved, and this is the step that was missing from approval. */}
+          {activeTab === 'relationships' && <BackfillVendorRecords />}
           {activeTab === 'relationships' && <VendorRelationshipsTab />}
           {activeTab === 'billing' && <VendorBillingAdminTab />}
           {activeTab === 'advertising' && <AdvertisingManagementTab />}

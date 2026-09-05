@@ -1928,3 +1928,49 @@ reports nothing reached, which is right — the change is server-side.
 
 Neither route has been exercised against the live server. The backfill is the
 one to run first, and its response says exactly what it did.
+
+## Review — the backfill button
+
+On the **Vendor Relationships** tab of the Vendors Admin Hub, above the list —
+that tab is where vendors are approved, and this is the step approval was
+missing.
+
+It reports what it did rather than only that it worked: created, updated and
+skipped counts, each skipped record with its reason, and — the part that matters
+after the mistake below — how many candidates came from organisations and how
+many from applications. A run that does nothing now says which side was empty
+instead of showing three zeroes.
+
+### The mistake this caught
+
+The backfill was written to read the applications list. Checking production
+before running it showed there is **no `applications` record in the store at
+all**, while `organizations` holds eleven rows including one real vendor. So the
+route would have found nothing, done nothing, and returned success — and I would
+have reported that as "no vendors needed linking", which is a different and
+untrue statement.
+
+It now reads organisations first and applications second. Organisations are the
+durable half of an approval; applications evidently get cleared.
+
+### What production actually holds
+
+Worth recording, because several of these bear on going live:
+
+- 11 organisations: 1 vendor (`erbrealtygroup@gmail.com`), 1 subcontractor,
+  4 customers, 4 landlords, 1 operator
+- 6 `vendor:` records, all seed data — Home Depot, Lowe's, Grainger, Ferguson,
+  Electrical Wholesale, and one named "Black Phoenix Supply (owner test)"
+- 0 applications, 0 purchase orders, 1 vendor catalogue line, 1 time entry
+- 7 owner invites, 6 still `profile_required`
+
+An earlier note in this file said the server's `vendor:` prefix was empty. That
+was wrong — those six exist. They are seed records with addresses like
+`api@homedepot.com` that nobody signs in as, so the conclusion held, but the
+statement did not.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged — the two `VendorsAdminHub`
+findings are the pre-existing `VendorProfile.createdAt` ones, moved down the
+file by the insertion. Smoke: 8 pages, 0 threw.
