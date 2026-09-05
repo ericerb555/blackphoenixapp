@@ -1927,10 +1927,49 @@ app.post('/make-server-3eae23a6/vendors/backfill-from-applications', async (c) =
       return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     }
 
+    /**
+     * Vendors come from two places, and the durable one is Postgres.
+     *
+     * This route was written to read the applications list, which was wrong
+     * against the real data: there is no `applications` record in the store at
+     * all, while `organizations` holds live vendor and subcontractor rows. The
+     * organisation is what approval actually leaves behind — applications can be
+     * cleared, and evidently have been — so it is the better source, and reading
+     * only the applications list would have made this route return zeros and
+     * report success.
+     *
+     * Both are read. An organisation is authoritative; an approved application
+     * with no organisation is still worth a record.
+     */
+    const orgs = await supabase
+      .from('organizations')
+      .select('id, name, legal_name, email, phone, status, type')
+      .eq('type', 'vendor');
+    if (orgs.error) {
+      console.warn('[Vendors] backfill could not read organizations:', orgs.error.message);
+    }
+
+    const fromOrgs = (orgs.data || [])
+      .filter((o: any) => ['active', 'approved'].includes(String(o?.status || 'active').toLowerCase()))
+      .map((o: any) => ({
+        id: String(o.id),
+        companyName: o.name || o.legal_name || '',
+        email: o.email || '',
+        phone: o.phone || '',
+        category: 'Vendor',
+        _origin: 'organization',
+      }));
+
     const applications: any[] = (await kv.get(APPLICATIONS_KEY)) || [];
-    const approvedVendors = applications.filter((a: any) =>
-      ['approved', 'active'].includes(String(a?.status || '').toLowerCase())
-      && intakePortalType(a) === 'vendor');
+    const fromApplications = applications
+      .filter((a: any) =>
+        ['approved', 'active'].includes(String(a?.status || '').toLowerCase())
+        && intakePortalType(a) === 'vendor')
+      .map((a: any) => ({ ...a, _origin: 'application' }));
+
+    // An organisation and an application for the same person produce the same
+    // vendor once, because the email collision check below catches the second.
+    const approvedVendors = [...fromOrgs, ...fromApplications];
 
     const nowIso = new Date().toISOString();
     let existingVendors = ((await kv.getByPrefix('vendor:')) as any[] || []).filter(Boolean);
@@ -1945,14 +1984,17 @@ app.post('/make-server-3eae23a6/vendors/backfill-from-applications', async (c) =
       const candidate = vendorRecordFrom(application, existing, nowIso, application.exchangeOrgId || null);
 
       if (!candidate) {
-        skipped.push({ application: String(application.id || ''), reason: 'No email on the application, so nothing could ever match it.' });
+        skipped.push({
+          application: `${application._origin}:${application.id || ''}`,
+          reason: 'No email on the record, so the portal could never match it to a login.',
+        });
         continue;
       }
 
       const clash = conflictingVendor(existingVendors, candidate.id, candidate.email);
       if (clash) {
         skipped.push({
-          application: String(application.id || ''),
+          application: `${application._origin}:${application.id || ''}`,
           reason: `${candidate.email} already belongs to vendor ${clash.id}.`,
         });
         continue;
@@ -1969,7 +2011,9 @@ app.post('/make-server-3eae23a6/vendors/backfill-from-applications', async (c) =
     console.log(`[Vendors] backfill: ${created.length} created, ${updated.length} updated, ${skipped.length} skipped`);
     return c.json({
       success: true,
-      approvedVendorApplications: approvedVendors.length,
+      candidates: approvedVendors.length,
+      fromOrganizations: fromOrgs.length,
+      fromApplications: fromApplications.length,
       created, updated, skipped,
     });
   } catch (error: any) {
