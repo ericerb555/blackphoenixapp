@@ -1740,3 +1740,64 @@ project. There is no staging environment set up.
 5. Decide who may see investment offerings.
 
 Items 1–3 are the difference between a demo that works and one that does not.
+
+## Review — the three 404s
+
+All three mounted. None of them could be mounted as it stood, which is the point
+of the exercise: an unmounted router has never been through an authorisation
+review, because nothing could reach it.
+
+**`job-financials.tsx` was a skeleton key.** `GET /snapshot` returned every
+record under the prefix and `POST /kv` wrote any key with any value, both to any
+caller past the wall — which is every signed-in portal account, including
+tenants, advertisers and customers. That is the company's job costing: labour,
+purchases, margins. It is the same shape found and removed from `/kv/*` earlier
+in this project, and mounting it unchanged would have put it straight back.
+
+Now staff-only, read from `app_metadata` through `trustedRole`, with the write
+confined to the key families the service actually uses. Those families were read
+out of `jobFinancialService.tsx` rather than guessed — the first version of the
+allowlist I wrote was wrong, inventing `change_orders_` and `job_notes_` and
+missing `materials_`, `job_folders_` and `job_activity_logs`, which would have
+silently refused half the service's writes.
+
+**`quote-from-blueprint.tsx` had no check at all**, and it writes a quote. Three
+things fixed with the mount:
+
+- It now requires a signed-in caller and records who asked. The customer work
+  request form calls it, so it must admit customers — but a quote with no owner
+  cannot be traced to the blueprint that produced it.
+- It wrote `quote_${quoteNumber}` with an **underscore**. Every other screen
+  reads `quote:${id}`. Every quote it produced would have saved successfully and
+  been invisible to the quote list, the pipeline and the portal. Never noticed,
+  because it has never actually written one.
+- It returned `materialsMarkup` and the pre-markup subtotal to the caller — the
+  company's margin, in a customer-facing response. Not rendered, which is not a
+  defence; it is in the network response either way. Stripped from the reply and
+  kept on the stored record.
+
+Its own permissive CORS block is gone too. `index.tsx` already applies CORS
+across `/*`, and a second `use('*')` inside a sub-app mounted at `/quotes` would
+have run as middleware for everything under that prefix — including
+`/quotes/by-token/:token/sign`, the public signing route.
+
+**`design-standards.tsx` needed nothing.** Two GETs over reference data, seeding
+defaults on first read. Mounted as it was.
+
+### Named, not fixed
+
+`quote-from-blueprint` prices labour at `0.5 hours per square foot` and
+`squareFootage * 0.15` for carpentry, with hardcoded fallback rates. Those
+figures were typed into the file. They are not measured, not citable, and not
+what `laborTasks.ts` exists to provide. The quote is marked `binding: false`,
+`provenance: 'blueprint-analysis'`, stays a draft and goes to the office rather
+than the customer, which makes it survivable as an internal first pass — and the
+comment in the file says plainly that it should be repriced through `laborTasks`.
+Fixing it properly was beyond "fix the 404".
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke reports no page reached by
+these changes, which is correct — all three are server-side.
+
+Twenty-two unmounted routers remain, none of them currently called by a screen.

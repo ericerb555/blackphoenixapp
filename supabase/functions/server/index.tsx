@@ -162,6 +162,9 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
+import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
+import jobFinancialsRouter from "./job-financials.tsx";
+import designStandardsRouter from "./design-standards.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
@@ -708,6 +711,23 @@ app.route("/", pipelineRouter);
 app.route("/", vendorPricingRouter);
 app.route("/", brandsRouter);
 app.route("/make-server-3eae23a6", companyConfigRouter);
+
+// ── Three routers that existed and were never mounted ────────────────────────
+//
+// Each of these had a screen calling it, so each was a 404 in front of a user:
+// the customer work request form posting a blueprint quote, the job financial
+// tracker reading its own figures, and the building code checker asking for the
+// live ruleset.
+//
+// None was mounted as it stood. `job-financials` was a skeleton key — read every
+// job's costing, write any key — and is now staff-only with its writes confined
+// to the key families the service actually uses. `quote-from-blueprint` had no
+// authorisation at all, wrote to `quote_…` where nothing else reads, and handed
+// the caller the company's materials markup. `design-standards` is read-only
+// reference data and needed nothing.
+app.route("/make-server-3eae23a6/quotes", quoteFromBlueprintRouter);
+app.route("/", jobFinancialsRouter);
+app.route("/", designStandardsRouter);
 
 // Health check
 // Resolve a human-friendly company name. The COMPANY_NAME secret was set to a

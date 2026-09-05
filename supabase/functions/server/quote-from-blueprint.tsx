@@ -6,22 +6,61 @@
  */
 
 import { Hono } from 'npm:hono@4';
-import { cors } from 'npm:hono/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 
 const quoteFromBlueprintRouter = new Hono();
 
-// Enable CORS
-quoteFromBlueprintRouter.use('*', cors({
-  origin: '*',
-  allowMethods: ['POST', 'GET', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}));
+const supabaseAdmin = createClient(
+  Deno.env.get('SUPABASE_URL') || '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+);
+
+/** The signed-in person behind the request, or null. */
+async function blueprintActor(c: any): Promise<{ id: string; email: string } | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) return null;
+    return { id: String(data.user.id), email: String(data.user.email || '').toLowerCase() };
+  } catch {
+    return null;
+  }
+}
+
+/*
+ * CORS is not set here.
+ *
+ * It used to be, from the days when this router was standalone and unmounted.
+ * `index.tsx` already applies it across `/*`, and a second `use('*')` inside a
+ * sub-app mounted at `/quotes` would run as middleware for everything under
+ * that prefix — including `/quotes/by-token/:token/sign`, which is the public
+ * signing route. Duplicating a permissive CORS policy onto a signing endpoint
+ * is not a thing to do by accident on the way to fixing a 404.
+ */
 
 // POST /quotes/generate-from-blueprint - Auto-generate quote from blueprint analysis
 quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
   console.log('[Quote from Blueprint] Request received');
-  
+
+  /**
+   * Who is asking.
+   *
+   * This route had no check of any kind while it was unmounted. It writes a
+   * quote into the store, and the customer work request form calls it — so it
+   * has to admit customers, but it must know which one, or a quote lands with no
+   * owner and no way to tell whose blueprint produced it.
+   *
+   * Prices are not taken from the request and never were: the labour rates and
+   * the markup are read from the company's own settings and the totals are
+   * computed here. That part was already right and is the part that matters.
+   */
+  const caller = await blueprintActor(c);
+  if (!caller) {
+    return c.json({ success: false, error: 'Sign in to generate a quote.' }, 401);
+  }
+
   try {
     const body = await c.req.json();
     const { workRequestId, blueprintAnalysis, clientInfo, projectInfo } = body;
@@ -90,7 +129,25 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
       { name: 'General Labor', hourlyRate: 40 }
     ];
 
-    // Estimate labor hours based on square footage
+    /**
+     * READ THIS BEFORE TRUSTING THE HOURS BELOW.
+     *
+     * `0.5 hours per square foot`, `squareFootage * 0.15` for carpentry, and the
+     * fallback hourly rates above are figures that were typed into this file.
+     * They are not Black Phoenix's measured production rates and not an
+     * industry table anybody can cite — which is exactly the problem
+     * `laborTasks.ts` was written to solve, with per-trade man-hours marked
+     * `source: 'seed'` or `source: 'yours'` so the difference is visible.
+     *
+     * This route predates that module and still does its own arithmetic. The
+     * quote it produces is therefore marked `binding: false` with
+     * `provenance: 'blueprint-analysis'`, it is a draft, and it goes to the
+     * office rather than to the customer. That is survivable for an internal
+     * first pass and is not survivable on a quote anybody sends.
+     *
+     * The correct fix is to price this through `laborTasks`, the same as every
+     * other estimate. Until that is done, treat these hours as a placeholder.
+     */
     const estimatedTotalHours = squareFootage * 0.5; // ~0.5 hours per sq ft
     const projectManagementHours = Math.max(40, squareFootage / 50);
 
@@ -225,12 +282,29 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
       metadata: {
         createdAt: new Date().toISOString(),
         createdBy: 'AI Blueprint Analysis',
+        // Who actually asked, as opposed to what produced it. Without this a
+        // quote arrives with no way to tell whose blueprint made it.
+        requestedBy: caller.email,
+        requestedByUserId: caller.id,
         status: 'draft',
+        // Read from a blueprint the customer supplied, not from a site visit.
+        // Said on the record so nobody downstream mistakes it for measured.
+        provenance: 'blueprint-analysis',
+        binding: false,
         validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
       }
     };
 
-    await kv.set(`quote_${quoteNumber}`, quote);
+    /**
+     * `quote:` — the key every other quote screen reads.
+     *
+     * This wrote `quote_${quoteNumber}` with an underscore. Nothing else in the
+     * codebase reads that shape, so every quote this route has ever produced
+     * would have been stored successfully and been invisible to the quote list,
+     * the pipeline and the customer portal. It went unnoticed because the route
+     * was never mounted, so it has never actually written one.
+     */
+    await kv.set(`quote:${quoteNumber}`, { ...quote, id: quoteNumber });
 
     console.log('[Quote from Blueprint] Quote generated successfully');
     console.log(`- Quote Number: ${quoteNumber}`);
@@ -238,10 +312,25 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     console.log(`- Material Items: ${quoteMaterials.length}`);
     console.log(`- Total: $${total.toLocaleString()}`);
 
+    /**
+     * What goes back, and what deliberately does not.
+     *
+     * The stored quote carries `materialsMarkup` and the materials subtotal
+     * before markup — the company's margin, in a number. This route is called
+     * by the customer work request form, so returning the whole quote object
+     * would put our markup in a customer's browser. It is not rendered there,
+     * which is not a defence: it is in the network response either way.
+     *
+     * The caller only needs the quote number — that is all the form uses — but
+     * the totals are useful to staff, so what comes back is the finished
+     * figures with the workings removed.
+     */
+    const { materialsMarkup: _markup, materialsSubtotal: _preMarkup, ...safeTotals } = quote.totals;
+
     return c.json({
       success: true,
       quoteNumber,
-      quote,
+      quote: { ...quote, totals: safeTotals },
       summary: {
         laborItems: quoteLaborItems.length,
         materialItems: quoteMaterials.length,
