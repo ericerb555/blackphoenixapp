@@ -9829,8 +9829,29 @@ app.get('/make-server-3eae23a6/gift-cards/:code', async (c) => {
   }
 });
 
+/**
+ * POST /gift-cards/:code/redeem — spend against a card by hand.
+ *
+ * WHY THIS IS STAFF ONLY
+ *
+ * Nothing in the app calls it: store checkout goes through
+ * `reserveGiftCardForStore` and `captureStoreGiftCardReservation` instead. So
+ * this is the manual path — somebody at the desk applying a card to an invoice.
+ *
+ * It was open to any signed-in account holding a code, and it moves money: it
+ * decrements a balance and writes a redemption. It also reads the balance and
+ * then writes it back, which is not atomic (see the note in the todo file), so
+ * two simultaneous calls with different redemption ids can both pass the check
+ * and spend the same balance twice. Restricting it to staff does not fix that
+ * arithmetic — it removes customers from the set of people who can trigger it,
+ * which is the part that mattered while the route sat unused and open.
+ */
 app.post('/make-server-3eae23a6/gift-cards/:code/redeem', async (c) => {
   try {
+    const redeemActor = await rewardsActor(c);
+    if (!await rewardsAdmin(redeemActor)) {
+      return c.json({ success: false, error: 'Administrator access is required to redeem a gift card.' }, 403);
+    }
     const body = await c.req.json();
     const code = normalizeGiftCardCode(c.req.param('code'));
     const amount = money(body.amount);

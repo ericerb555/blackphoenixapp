@@ -2126,3 +2126,70 @@ reports nothing reached — the change is server-side.
 
 Not verified against a live request: issuing a link, opening it, signing once,
 being refused a second time, and revoking.
+
+---
+
+# Gift cards: one route closed, one race that needs a decision
+
+Working through the money routes that were audited and never reviewed.
+
+## Closed: `POST /gift-cards/:code/redeem`
+
+Nothing in the app calls it — store checkout goes through
+`reserveGiftCardForStore` and `captureStoreGiftCardReservation` instead — so this
+is the manual path, somebody at the desk applying a card to an invoice. It was
+open to **any signed-in account holding a code**, and it moves money. Staff only
+now.
+
+What is already right about it, and worth not breaking: the code is 16
+characters from a 32-symbol alphabet, so 80 bits and not guessable; a repeated
+call with the same `idempotencyKey` returns the original redemption rather than
+spending twice; and the balance check is reservation-aware.
+
+## Not fixed: the balance is read, then written
+
+Both gift-card paths do this:
+
+    const card = await kv.get(cardKey)          // balance 100
+    if (available < amount) refuse              // passes
+    card.balance = card.balance - amount        // computed from that read
+    await kv.set(cardKey, card)
+
+Two requests arriving together both read 100, both pass the check for 100, and
+both write 0. The card is spent twice. The idempotency key does not help — it
+only protects a retry of the *same* redemption, and these are two different ones.
+
+**This affects the path that is actually in use.** `reserveGiftCardForStore` has
+the same shape, keyed by `(code, checkoutId)`, so two simultaneous checkouts with
+one card each reserve the full balance and the card pays for both orders.
+
+Restricting the manual route to staff removes customers from the set of people
+who can trigger it there. It does not fix the arithmetic, and it does nothing at
+all for the checkout path.
+
+### Why it is not fixed here
+
+`kv_store.tsx` offers get, set, del, mget, mset, mdel and getByPrefix — there is
+no compare-and-set, so there is no way to express "decrement only if the balance
+is still what I read" in application code. A correct fix needs the decrement to
+happen in one statement in Postgres:
+
+    update kv_store_57095a78
+       set value = jsonb_set(value, '{balance}', to_jsonb(round(bal - $amount, 2)))
+     where key = $key
+       and (value->>'balance')::numeric >= $amount
+    returning value
+
+Zero rows back means insufficient balance, and the check and the write cannot be
+separated. That is a database function and therefore a schema change, and
+`test-before-production` says those get tried on a branch first. So it wants
+agreeing rather than pushing.
+
+**Until then a gift card can be double-spent at store checkout by racing two
+orders.** Worth knowing before the storefront takes real money.
+
+## Checks
+
+Server typecheck 84, unchanged. No test added: the change is an authorisation
+gate on an inline route, and the arithmetic it does not fix is the part that
+would deserve one.
