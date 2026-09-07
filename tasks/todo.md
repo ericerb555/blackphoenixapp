@@ -2193,3 +2193,55 @@ orders.** Worth knowing before the storefront takes real money.
 Server typecheck 84, unchanged. No test added: the change is an authorisation
 gate on an inline route, and the arithmetic it does not fix is the part that
 would deserve one.
+
+## Done — the gift-card double-spend, built and tested on a branch
+
+`supabase/migrations/013_gift_card_atomic_debit.sql`. Branch
+`giftcard-atomic-debit` created, migration applied there, tested, then applied to
+production and the branch deleted. About two hours at $0.01344/hour.
+
+### What the branch caught
+
+The first version of the function moved only `balance` — and that was worse than
+useless. The caller would then have written the card back with its own
+`redeemedAmount` and `redemptionHistory` from a stale read, putting the old
+balance straight back. **The exact bug the function exists to prevent would have
+survived it**, and it would have looked fixed.
+
+So everything the redemption changes now moves inside the same statement:
+balance down, redeemedAmount up, the history entry appended. The comment on the
+function says the caller must not write the card back, because that is the trap.
+
+This is what testing on a branch was for. It would not have been caught by
+reading the code, and in production it would have been caught by a customer.
+
+### Tested on the branch
+
+- a normal debit, and a debit for the exact balance
+- refused: over balance, negative amount, zero amount, cancelled card, a card
+  with no balance field, a card that does not exist
+- rounding — 10.00 less 3.333 gives 6.67
+- **two full-balance debits in one statement: the first succeeds, the second is
+  refused**, because the guard re-read rather than trusting a snapshot. That is
+  the property that fixes it.
+- permissions: `anon` false, `authenticated` false, `service_role` true —
+  verified on the branch and again in production. The browser holds anon and
+  authenticated, so it cannot call this directly.
+
+### Both call sites moved
+
+`captureStoreGiftCardReservation` (the path in use) and the manual
+`/gift-cards/:code/redeem` both go through `debitGiftCard` now. Neither writes
+the card back afterwards. `debitGiftCard` fails closed: an RPC error returns
+null, because a debit we cannot prove happened must not be reported as one.
+
+The `redeemedAt` closing timestamp is still a plain write, deliberately — it
+touches a field the debit does not, and only once the balance is already zero.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke reports nothing reached, as
+the change is server-side.
+
+Not verified end to end: no gift card has been bought and spent through the
+running storefront. The function itself is tested; the wiring around it is not.

@@ -9863,15 +9863,19 @@ app.post('/make-server-3eae23a6/gift-cards/:code/redeem', async (c) => {
     const prior = await kv.get(redemptionKey);
     if (prior) return c.json({ success: true, duplicate: true, redemption: prior, card: await kv.get(`${GIFT_CARD_PREFIX}${code}`) });
 
-    const card = await kv.get(`${GIFT_CARD_PREFIX}${code}`) as any;
-    if (!card || card.status !== 'active') return c.json({ success: false, error: 'Gift card not found or inactive.' }, 404);
-    if ((await availableGiftCardBalance(code, card)) < amount) return c.json({ success: false, error: 'Gift card balance is reserved or too low for this redemption.' }, 409);
+    const existing = await kv.get(`${GIFT_CARD_PREFIX}${code}`) as any;
+    if (!existing || existing.status !== 'active') return c.json({ success: false, error: 'Gift card not found or inactive.' }, 404);
+    // Checked first only for the better message: this accounts for balance held
+    // by open store reservations, which the atomic debit below does not know
+    // about. The debit is still the thing that decides.
+    if ((await availableGiftCardBalance(code, existing)) < amount) return c.json({ success: false, error: 'Gift card balance is reserved or too low for this redemption.' }, 409);
+
     const redemption = { id: redemptionId, amount, orderReference, redeemedAt: new Date().toISOString() };
-    card.balance = money(money(card.balance) - amount);
-    card.redeemedAmount = money(money(card.redeemedAmount) + amount);
-    card.redemptionHistory = [...(Array.isArray(card.redemptionHistory) ? card.redemptionHistory : []), redemption];
-    if (card.balance === 0) card.redeemedAt = redemption.redeemedAt;
-    await kv.set(`${GIFT_CARD_PREFIX}${code}`, card);
+    const card = await debitGiftCard(code, amount, redemption);
+    if (!card) return c.json({ success: false, error: 'Gift card balance is too low for this redemption.' }, 409);
+    if (money(card.balance) === 0 && !card.redeemedAt) {
+      await kv.set(`${GIFT_CARD_PREFIX}${code}`, { ...card, redeemedAt: redemption.redeemedAt });
+    }
     await kv.set(redemptionKey, redemption);
     return c.json({ success: true, redemption, card });
   } catch (error: any) {
@@ -11960,6 +11964,37 @@ async function activeGiftCardReservations(code: string) {
   return reservations.filter((reservation: any) => reservation?.status === 'reserved' && new Date(reservation.expiresAt || 0).getTime() > now);
 }
 
+/**
+ * Spend against a gift card, atomically.
+ *
+ * The only way a balance should ever go down. Everything the redemption changes
+ * — balance, redeemedAmount, the history entry — moves inside one UPDATE in
+ * Postgres, so the check and the write cannot be separated and two simultaneous
+ * spends cannot both succeed against the same money.
+ *
+ * **Do not write the card back after calling this.** A `kv.set` with the object
+ * you read beforehand puts the stale balance straight back, which is the bug
+ * this exists to prevent. Use the card it returns.
+ *
+ * Returns null when the debit was refused: insufficient balance, a non-positive
+ * amount, or a card that is missing or not active. Null is a refusal, not an
+ * error to retry.
+ */
+async function debitGiftCard(code: string, amount: number, redemption: any): Promise<any | null> {
+  const key = `${GIFT_CARD_PREFIX}${normalizeGiftCardCode(code)}`;
+  const { data, error } = await supabase.rpc('gift_card_debit', {
+    card_key: key,
+    debit_amount: money(amount),
+    redemption,
+  });
+  if (error) {
+    console.error('[Gift cards] atomic debit failed:', error.message);
+    // Fail closed. A debit we cannot prove happened must not be reported as one.
+    return null;
+  }
+  return data || null;
+}
+
 async function availableGiftCardBalance(code: string, card?: any) {
   const storedCard = card || await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(code)}`) as any;
   if (!storedCard || storedCard.status !== 'active') return 0;
@@ -11985,14 +12020,24 @@ async function captureStoreGiftCardReservation(checkout: any, orderId: string) {
   const key = giftReservationKey(reservation.code, checkout.id);
   const stored = await kv.get(key) as any;
   if (!stored || stored.status === 'captured') return stored || null;
-  const card = await kv.get(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(reservation.code)}`) as any;
-  if (!card || card.status !== 'active' || money(card.balance) < money(stored.amount)) throw new Error('Gift card balance is no longer available.');
   const redemption = { id: stored.id, amount: money(stored.amount), orderReference: orderId, redeemedAt: new Date().toISOString(), source: 'store_checkout' };
-  card.balance = money(money(card.balance) - redemption.amount);
-  card.redeemedAmount = money(money(card.redeemedAmount) + redemption.amount);
-  card.redemptionHistory = [...(Array.isArray(card.redemptionHistory) ? card.redemptionHistory : []), redemption];
-  if (card.balance === 0) card.redeemedAt = redemption.redeemedAt;
-  await kv.set(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(reservation.code)}`, card);
+
+  /**
+   * The spend, in one statement.
+   *
+   * This used to read the card, check the balance, subtract in JavaScript and
+   * write the whole object back. Two checkouts capturing at the same moment both
+   * read the same balance, both passed, and both wrote — so one gift card paid
+   * for two orders. The reservation did not prevent it: reservations are keyed
+   * per checkout, so two checkouts simply held two of them.
+   */
+  const card = await debitGiftCard(reservation.code, redemption.amount, redemption);
+  if (!card) throw new Error('Gift card balance is no longer available.');
+  if (money(card.balance) === 0 && !card.redeemedAt) {
+    // A closing timestamp, written only once the balance is actually zero.
+    // Safe as a plain write: it touches a field the debit does not.
+    await kv.set(`${GIFT_CARD_PREFIX}${normalizeGiftCardCode(reservation.code)}`, { ...card, redeemedAt: redemption.redeemedAt });
+  }
   const captured = { ...stored, status: 'captured', capturedAt: redemption.redeemedAt, orderId };
   await kv.set(key, captured);
   await kv.set(`${GIFT_REDEMPTION_PREFIX}${normalizeGiftCardCode(reservation.code)}:${stored.id}`, redemption);
