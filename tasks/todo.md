@@ -2245,3 +2245,70 @@ the change is server-side.
 
 Not verified end to end: no gift card has been bought and spent through the
 running storefront. The function itself is tested; the wiring around it is not.
+
+---
+
+# 97% of the database is orphaned backups
+
+Swept production for demo data before inviting anyone, and found something
+larger.
+
+## The numbers
+
+    289   backup blobs under data_backup:<timestamp>
+      5   entries in data_backup:index
+    115 MB of a 119 MB store
+
+284 megabyte-sized blobs that nothing can see, restore, or delete.
+
+## Why they are orphaned
+
+`POST /data/backup` wrote the blob first and updated the index afterwards,
+inside a try/catch that deliberately swallowed failures so a cleanup problem
+would not fail the backup. Pruning then deletes **only what the index lists**.
+So any blob whose index update did not happen fell out of the system entirely —
+invisible to the prune, to the restore list, to everything — while still
+occupying its megabyte, permanently.
+
+The prune itself works: the index holds exactly `MAX_BACKUPS = 5`. It has simply
+never been able to see the other 284.
+
+## Fixed
+
+The index entry is now written **before** the blob. The worst case becomes an
+index entry pointing at a blob that was never written — which the restore path
+already handles by getting null, and which the next prune removes. A dangling
+pointer is recoverable; an orphaned megabyte is not.
+
+Note this router is currently **unmounted**, so nothing is writing backups today
+and the 115 MB is static rather than growing. The fix matters if it is ever
+mounted again, which the go-live list has as an open question.
+
+## Not deleted — Eric's call
+
+The 284 orphans contain real data: user profiles, email addresses, phone
+numbers, work request details, and `demo_mode: true` payloads. Deleting them is
+destructive and he has not named them, so they are reported rather than removed.
+
+Clearing them would return roughly 115 MB and leave the five indexed backups
+intact:
+
+    delete from kv_store_57095a78
+    where key ~ '^data_backup:[0-9]+$'
+      and key not in (select jsonb_array_elements(value)->>'key'
+                      from kv_store_57095a78 where key = 'data_backup:index');
+
+There are also four older singletons — `data_backup_anonymous`,
+`data_backup_1a9f3ae4…`, `data_backup_e252c5ef…` — from a per-user scheme that
+predates the timestamped one.
+
+## Also checked, and clean
+
+`hr_employees` and `hr_payroll` are **not** on the server. The four seeded HR
+employees and two payroll runs exist only in whichever browser opened the HR hub,
+so they were wrongly listed alongside real production seed data in the earlier
+go-live note. Corrected.
+
+## Checks
+
+Server typecheck 84, unchanged.

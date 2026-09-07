@@ -80,7 +80,32 @@ dataBackupRouter.post("/backup", async (c) => {
     // Generate backup key with timestamp
     const backupKey = `${BACKUP_KEY_PREFIX}${Date.now()}`;
 
-    // Save the backup row and update the "latest" pointer.
+    /**
+     * The index entry is written BEFORE the blob. This order is the fix.
+     *
+     * WHAT WENT WRONG WITH THE OTHER ORDER
+     *
+     * The blob was written first and the index updated afterwards, inside a
+     * try/catch that deliberately swallowed failures so a cleanup problem would
+     * not fail the backup. Pruning then deletes only what the index lists — so
+     * any blob whose index update did not happen became invisible to the prune,
+     * to the restore list, and to everything else, while still occupying about a
+     * megabyte. Permanently.
+     *
+     * Production shows exactly that: **289 backup rows against an index holding
+     * 5**, and 115 MB of a 119 MB store. 284 megabyte blobs nobody can see,
+     * restore, or delete through this router.
+     *
+     * Written this way round, the worst case is an index entry pointing at a
+     * blob that was never written — which the restore path already handles by
+     * getting null back, and which the next prune removes. A dangling pointer is
+     * recoverable. An orphaned megabyte is not.
+     */
+    let index: BackupIndexEntry[] = (await kv.get(INDEX_KEY)) || [];
+    if (!Array.isArray(index)) index = [];
+    index.push({ key: backupKey, timestamp: backup.timestamp, itemCount });
+    await kv.set(INDEX_KEY, index);
+
     // The latest pointer stores only the key (not a second full copy of the
     // blob) to avoid doubling the write cost.
     await kv.set(backupKey, backup);
@@ -88,14 +113,10 @@ dataBackupRouter.post("/backup", async (c) => {
 
     console.log(`✅ [DataBackup] Saved backup with ${itemCount} items`);
 
-    // Update the lightweight metadata index and prune old backups.
+    // Prune, using the index that now definitely contains this backup.
     // This never loads full blobs into memory (unlike getByPrefix), so it
     // stays well under the statement-timeout / memory limits.
     try {
-      let index: BackupIndexEntry[] = (await kv.get(INDEX_KEY)) || [];
-      if (!Array.isArray(index)) index = [];
-
-      index.push({ key: backupKey, timestamp: backup.timestamp, itemCount });
       // Newest last; keep only the most recent MAX_BACKUPS.
       index.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
 
