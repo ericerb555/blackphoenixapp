@@ -36,7 +36,7 @@ const admin = createClient(
 const ITEM = (vendorId: string, itemId: string) => `vendor_catalog:${vendorId}:${itemId}`;
 
 /** Resolve the caller, and which vendor they are, by the same rules as /vendor/me. */
-async function catalogActor(c: any): Promise<{ email: string; isAdmin: boolean; vendorId: string | null } | null> {
+async function catalogActor(c: any): Promise<{ email: string; isAdmin: boolean; vendorId: string | null; isVendor: boolean } | null> {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) return null;
   const { data: { user }, error } = await admin.auth.getUser(token);
@@ -47,14 +47,24 @@ async function catalogActor(c: any): Promise<{ email: string; isAdmin: boolean; 
   const isAdmin = ["owner", "admin", "master_admin", "management"].includes(role);
   const email = String(user.email || "").toLowerCase();
 
+  // Does this account belong to a vendor at all, whether or not a vendor record
+  // has been created for them yet? An account stamped with a vendorId, or whose
+  // role says vendor, is a vendor even while unlinked — and unlinked is the
+  // state every vendor is in between signing up and being approved.
   const stamped = String(user.app_metadata?.vendorId || user.app_metadata?.vendor_id || "").trim();
-  if (stamped) return { email, isAdmin, vendorId: stamped };
+  const roleSaysVendor = ["vendor", "supplier", "vendor_admin"].includes(role);
+
+  if (stamped) return { email, isAdmin, vendorId: stamped, isVendor: true };
 
   const vendors = ((await kv.getByPrefix("vendor:")) as any[] || []).filter(Boolean);
   const match = vendors.find((v: any) =>
     [v?.email, v?.contactEmail, v?.ownerEmail].some((e) => String(e || "").toLowerCase() === email && email),
   );
-  return { email, isAdmin, vendorId: match ? String(match.id || "") : null };
+  return {
+    email, isAdmin,
+    vendorId: match ? String(match.id || "") : null,
+    isVendor: Boolean(match) || roleSaysVendor,
+  };
 }
 
 /** May this caller touch this vendor's catalogue? */
@@ -75,10 +85,32 @@ function mayTouch(who: { isAdmin: boolean; vendorId: string | null }, vendorId: 
  * So: a vendor sees their own lines and nobody else's. Staff and customers see
  * everything, which is the point of the hub — a customer picks a real product at
  * a real price, and that is what makes their quote accurate.
+ *
+ * WHY `isVendor` EXISTS SEPARATELY FROM `vendorId`
+ *
+ * The first version of this said `if (who.isAdmin || !who.vendorId) return
+ * items` — everyone see-all except a vendor with a resolved id. Signing in as a
+ * freshly created vendor account showed the hole immediately: an **unlinked**
+ * vendor has `vendorId: null`, fell into the see-all branch, and was handed a
+ * competitor's catalogue. Unlinked is the state every vendor is in between
+ * signing up and being approved, so the guard was open at exactly the moment it
+ * needed to be shut.
+ *
+ * The test is now "does this account belong to a vendor at all", which is true
+ * before the link exists. An unlinked vendor sees nothing, which is correct: no
+ * lines are theirs yet.
  */
-function visibleTo(who: { isAdmin: boolean; vendorId: string | null }, items: any[]): any[] {
-  if (who.isAdmin || !who.vendorId) return items;
-  return items.filter((i: any) => String(i?.vendorId || "") === who.vendorId);
+function visibleTo(
+  who: { isAdmin: boolean; vendorId: string | null; isVendor: boolean },
+  items: any[],
+): any[] {
+  if (who.isAdmin) return items;
+  if (who.isVendor) {
+    return who.vendorId
+      ? items.filter((i: any) => String(i?.vendorId || "") === who.vendorId)
+      : [];
+  }
+  return items;
 }
 
 // ─── A vendor's own catalogue ───────────────────────────────────────────────

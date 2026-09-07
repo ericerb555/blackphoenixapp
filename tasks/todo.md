@@ -2312,3 +2312,95 @@ go-live note. Corrected.
 ## Checks
 
 Server typecheck 84, unchanged.
+
+---
+
+# Portal walkthrough, signed in as real accounts
+
+Eric asked for the portals to be checked, vendor first, and for me to place a
+vendor myself. I cannot drive a browser in this session, so what follows is the
+**server half**: three real accounts created in production auth, signed in for
+real tokens, and every endpoint each portal calls exercised as that user. What is
+not covered is whether the screens render — that still needs eyes.
+
+Test accounts and all their data were deleted afterwards.
+
+## One real bug found, fixed and re-verified
+
+**`/vendor-catalog-all` handed a competing vendor's catalogue to an unlinked
+vendor.** The visibility guard I wrote earlier read
+`if (who.isAdmin || !who.vendorId) return items` — everybody sees everything
+except a vendor with a *resolved* id. A brand-new vendor account has
+`vendorId: null`, so it fell into the see-all branch.
+
+Unlinked is the state every vendor is in between signing up and being approved.
+The guard was open at precisely the moment it needed to be shut, and I would not
+have found it by reading, because the code looks right until you are holding a
+token that has no vendor id.
+
+The test is now "does this account belong to a vendor at all" — a stamped
+vendorId, a matching vendor record, or a role of vendor/supplier. An unlinked
+vendor sees nothing, which is correct: no lines are theirs yet. Re-probed with
+the same token after deploying: browse empty, search empty, direct read and
+write of another vendor's catalogue both 403.
+
+## Vendor — works
+
+- `/vendor/me` reports unlinked with a reason, then resolves once a record exists
+- `/purchase-orders` returns nothing, scoped to `__unresolved__` — failing closed
+- catalogue import: 2 lines added, the line with no price rejected **with its
+  line number from the file**
+- re-importing the same SKU at a new price: **0 added, 1 updated**, total still
+  2. Updates rather than duplicates, as designed
+- after linking, browsing all catalogues returns only their own two
+
+## Customer — works, including the save that was broken
+
+- `/work-requests`, `/invoices`, `/quotes` all return only their own (empty)
+- saving a design to their own owner key succeeds
+- saving to the shared staff namespace is refused: *"That is not yours to save
+  to."* — this is the bug that would have let a customer design for an hour and
+  lose everything, now confirmed fixed from the customer's side
+- listing the staff namespace returns empty rather than staff designs
+
+## Subcontractor — works
+
+- submits a bid; identity is taken from the token, not the body
+- a second bid on the same job is refused as a duplicate
+- sees their own bid; **the customer account sees none of it**
+
+## The rest, probed with the lowest-privilege token
+
+All correctly refused: time-tracking employee list (403), another employee's
+record (403), payroll report (403), completion reports (403), quoting accuracy
+(403), job-financials read (empty) and write (403), quote link generation (403),
+gift-card redemption (403). `hours-summary` returns an empty summary rather than
+everybody's hours.
+
+And the three routers mounted earlier are confirmed live from outside:
+`design-standards/code-rules` returns the real IRC 2021 ruleset, and
+`quotes/generate-from-blueprint` answers 400 for a missing blueprint where it
+used to 404.
+
+## Found on the way — worth acting on before inviting anyone
+
+**Signup email is failing.** `POST /auth/v1/signup` returns
+`500 unexpected_failure — "Error sending confirmation email"`, and the account is
+not created. Confirmation is required, and **four of the eight real accounts are
+unconfirmed**: marksutton@hotmail.com, markdavidsutton@yahoo.com,
+marksutton04@gmail.com, opodroubnyi@gmail.com. Those are the same people whose
+owner invites sit at `profile_required`.
+
+That is Supabase Auth's own SMTP, which is separate from the `RESEND_API_KEY` the
+app uses for its own mail — so the app can send email while signup cannot. Until
+custom SMTP is configured in Auth settings, **an invited vendor or subcontractor
+may never be able to create an account.** This is the first thing to fix before
+inviting anybody, and it is configuration rather than code.
+
+**A policy question, not a bug:** a subcontractor can read vendor catalogue
+prices. Reasonable if they price materials, worth a decision if any of them also
+supply.
+
+## Checks
+
+Server typecheck 84, unchanged.
