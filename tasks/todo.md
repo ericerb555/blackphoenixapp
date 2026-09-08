@@ -2650,3 +2650,68 @@ There are two different products here and the work is not the same:
 They can both exist eventually. Building the wrong one first wastes the effort.
 
 ## Awaiting a decision.
+
+## Built — vendors can connect their own API
+
+Three new pieces, two of them tested: `outboundGuard.ts` (50/50),
+`vendorFeed.ts` (43/43), and `VendorApiFeed.tsx` on the portal.
+
+### The guard is the part that matters
+
+We are being asked to fetch, from inside our own network, an address a stranger
+typed. That is server-side request forgery in one sentence, and the endpoint
+field is the attack.
+
+Refused, and tested: `http://`, `file:`, `gopher:`, `ftp:`; credentials smuggled
+into the URL; any port but 443; `169.254.169.254` and every other link-local
+address; `metadata.google.internal` and bare `metadata`; loopback, `0.0.0.0`,
+`10/8`, `172.16-31/12`, `192.168/16`, carrier-grade NAT `100.64/10`, multicast;
+`.internal`, `.local` and `localhost` names; and the IPv6 forms — `::1`, unique
+local, link local, and IPv4-mapped.
+
+**The mapped-address case is the one testing earned.** `https://[::ffff:127.0.0.1]/`
+is normalised by the URL parser to `[::ffff:7f00:1]`, so the dotted-quad check I
+wrote first never matched it and loopback walked straight through. Both
+spellings are handled now; the hex one is the form that actually arrives.
+
+Redirects are followed by hand and re-validated at every hop, because a public
+URL answering `302 Location: http://169.254.169.254/` defeats any check made
+only on the address originally typed. The response is read with an 8MB ceiling
+rather than trusting `content-length`, which a hostile server can understate.
+
+**What it honestly cannot do:** a hostname needs DNS to know where it points, and
+`resolveVerdict` reports whether it actually managed a lookup. Where the runtime
+will not do DNS the step is skipped — and the test screen says so, rather than
+implying a check that never ran.
+
+### The rest
+
+- The key is stored server-side and **never returned**. Saving reports only that
+  one is set; an empty key on update means "leave it alone", never "clear it".
+- The feed lands through `importCatalogRows`, lifted out of the CSV import route
+  so both use the same validation, the same update-by-SKU rule and the same
+  catalogue ceiling. Two importers would be two sets of rules and the one that
+  drifted would be the one nobody watched.
+- Field mapping is guessed and **shown for the vendor to confirm**, same as the
+  CSV importer, and tested against the case that decides it: a feed carrying
+  both "Unit Price" and "Unit" maps backwards under any naive matcher.
+- The test reports what it found — how many products, where in the response,
+  what mapped, how many rows would be rejected — rather than a green tick.
+
+### Removed
+
+`vendor_api_settings`, a `localStorage` bag holding a live API key on the
+vendor's own machine where nothing could use it. Its "Test connection" fetched
+the endpoint *from the vendor's browser*, which proves a vendor can reach their
+own API and nothing about whether we can. The old key is deliberately not
+migrated: reading a credential out of a browser to file it elsewhere is not
+something to do quietly on somebody's behalf.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 12 pages, 0 threw. 93 tests
+across the two new modules.
+
+Not verified against a real vendor API — nobody has one registered yet. The
+guard's refusals are all tested; what has not been exercised is a successful
+fetch of somebody's live catalogue.

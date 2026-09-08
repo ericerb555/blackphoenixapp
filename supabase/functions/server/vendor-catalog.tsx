@@ -25,6 +25,8 @@
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { inspectUrl, safeFetch } from "./outboundGuard.ts";
+import { findProductArray, guessFeedMapping, buildFeedRows, missingFeedFields } from "./vendorFeed.ts";
 
 export const vendorCatalogRouter = new Hono();
 
@@ -203,6 +205,105 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
 const MAX_IMPORT_ROWS = 500;
 const MAX_CATALOG_ITEMS = 20000;
 
+/**
+ * Write catalogue lines, wherever they came from.
+ *
+ * Lifted out of the CSV import route so the API feed lands through exactly the
+ * same code. Two importers would be two sets of validation rules, two ideas
+ * about what a duplicate SKU means and two catalogue ceilings, and the one that
+ * drifted would be the one nobody was watching.
+ *
+ * `limitBatch` is false for a feed: the per-request cap exists because the
+ * browser posts in batches of 500, and a sync is not a request from a browser.
+ * The whole-catalogue ceiling still applies to both.
+ */
+async function importCatalogRows(
+  vendorId: string,
+  incoming: any[],
+  limitBatch = true,
+): Promise<{ added: number; updated: number; rejected: Array<{ line: number; reason: string }>; total: number; error?: string }> {
+  const empty = { added: 0, updated: 0, rejected: [] as Array<{ line: number; reason: string }>, total: 0 };
+  if (!incoming.length) return { ...empty, error: "No lines were sent." };
+  if (limitBatch && incoming.length > MAX_IMPORT_ROWS) {
+    return { ...empty, error: `Send at most ${MAX_IMPORT_ROWS} lines per request.` };
+  }
+
+  // A ceiling on the catalogue as a whole. Import makes it easy to push a very
+  // large list, and the search route reads every line in the store.
+  const existingAll = ((await kv.getByPrefix(`vendor_catalog:${vendorId}:`)) as any[] || []).filter(Boolean);
+  if (existingAll.length + incoming.length > MAX_CATALOG_ITEMS) {
+    return {
+      ...empty,
+      error: `That would take the catalogue past ${MAX_CATALOG_ITEMS} lines. Get in touch and we will raise it.`,
+    };
+  }
+
+  /**
+   * Existing lines by SKU, so a re-import updates prices instead of doubling
+   * the catalogue. A price list is re-sent when prices change, and the second
+   * import should move the numbers, not produce two of everything. Lines with
+   * no SKU cannot be matched and are always added.
+   */
+  const bySku = new Map<string, any>();
+  for (const item of existingAll) {
+    const sku = String(item?.sku || "").trim().toLowerCase();
+    if (sku) bySku.set(sku, item);
+  }
+
+  const now = new Date().toISOString();
+  let added = 0;
+  let updated = 0;
+  const rejected: Array<{ line: number; reason: string }> = [];
+
+  for (let i = 0; i < incoming.length; i++) {
+    const row = incoming[i] || {};
+    // The position the vendor's own file or feed shows, sent along so a
+    // rejection points at their row rather than at our place in the batch.
+    const line = Number(row.line) || i + 1;
+
+    const name = String(row.name || "").trim().slice(0, 200);
+    if (!name) { rejected.push({ line, reason: "No product name." }); continue; }
+
+    const price = Number(row.price);
+    if (!Number.isFinite(price) || price < 0) {
+      rejected.push({ line, reason: "No usable price." });
+      continue;
+    }
+
+    const sku = String(row.sku || "").trim().slice(0, 60);
+    const existing = sku ? bySku.get(sku.toLowerCase()) : null;
+    const id = existing?.id || `item_${crypto.randomUUID()}`;
+
+    const item = {
+      ...(existing || {}),
+      id,
+      vendorId,
+      name,
+      sku,
+      category: String(row.category ?? existing?.category ?? "").slice(0, 80),
+      unit: String(row.unit ?? existing?.unit ?? "each").slice(0, 24) || "each",
+      price: Math.round(price * 100) / 100,
+      availability: String(row.availability ?? existing?.availability ?? "").slice(0, 80),
+      leadTimeDays: Number.isFinite(Number(row.leadTimeDays))
+        ? Number(row.leadTimeDays)
+        : (existing?.leadTimeDays ?? null),
+      isActive: existing?.isActive ?? true,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      importedAt: now,
+    };
+
+    await kv.set(ITEM(vendorId, id), item);
+    if (existing) updated++; else added++;
+    // So a duplicate SKU later in the same batch updates the row this one just
+    // wrote rather than creating a second.
+    if (sku) bySku.set(sku.toLowerCase(), item);
+  }
+
+  console.log(`[VendorCatalog] import for ${vendorId}: ${added} added, ${updated} updated, ${rejected.length} rejected`);
+  return { added, updated, rejected, total: existingAll.length + added };
+}
+
 vendorCatalogRouter.post("/vendor-catalog/:vendorId/import", async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
@@ -210,101 +311,23 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/import", async (c) => {
   if (!mayTouch(who, vendorId)) {
     return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
   }
-
   try {
     const body = await c.req.json().catch(() => ({}));
     const incoming = Array.isArray(body?.items) ? body.items : [];
-    if (!incoming.length) return c.json({ success: false, error: "No lines were sent." }, 400);
-    if (incoming.length > MAX_IMPORT_ROWS) {
-      return c.json({
-        success: false,
-        error: `Send at most ${MAX_IMPORT_ROWS} lines per request.`,
-      }, 413);
+    const outcome = await importCatalogRows(vendorId, incoming);
+    if (outcome.error) {
+      // 413 for a batch that is too large, 409 for a catalogue that is full,
+      // 400 for an empty request — the same codes this route always returned.
+      const status = outcome.error.includes("at most") ? 413
+        : outcome.error.includes("past") ? 409 : 400;
+      return c.json({ success: false, error: outcome.error }, status);
     }
-
-    // A ceiling on the catalogue as a whole. Import makes it easy to push a
-    // very large list, and the search route reads every line in the store.
-    const existingAll = ((await kv.getByPrefix(`vendor_catalog:${vendorId}:`)) as any[] || []).filter(Boolean);
-    if (existingAll.length + incoming.length > MAX_CATALOG_ITEMS) {
-      return c.json({
-        success: false,
-        error: `That would take your catalogue past ${MAX_CATALOG_ITEMS} lines. Get in touch and we will raise it.`,
-      }, 409);
-    }
-
-    /**
-     * Existing lines by SKU, so a re-import updates prices instead of doubling
-     * the catalogue.
-     *
-     * This is the behaviour a vendor expects and the one that makes the feature
-     * usable: a price list is re-sent when prices change, and the second import
-     * should move the numbers, not produce two of everything. Lines with no SKU
-     * cannot be matched and are always added.
-     */
-    const bySku = new Map<string, any>();
-    for (const item of existingAll) {
-      const sku = String(item?.sku || "").trim().toLowerCase();
-      if (sku) bySku.set(sku, item);
-    }
-
-    const now = new Date().toISOString();
-    let added = 0;
-    let updated = 0;
-    const rejected: Array<{ line: number; reason: string }> = [];
-
-    for (let i = 0; i < incoming.length; i++) {
-      const row = incoming[i] || {};
-      // The line number the vendor's spreadsheet shows, sent along by the
-      // client so a rejection can be pointed at the right row of their file
-      // rather than at our position in the batch.
-      const line = Number(row.line) || i + 1;
-
-      const name = String(row.name || "").trim().slice(0, 200);
-      if (!name) { rejected.push({ line, reason: "No product name." }); continue; }
-
-      const price = Number(row.price);
-      if (!Number.isFinite(price) || price < 0) {
-        rejected.push({ line, reason: "No usable price." });
-        continue;
-      }
-
-      const sku = String(row.sku || "").trim().slice(0, 60);
-      const existing = sku ? bySku.get(sku.toLowerCase()) : null;
-      const id = existing?.id || `item_${crypto.randomUUID()}`;
-
-      const item = {
-        ...(existing || {}),
-        id,
-        vendorId,
-        name,
-        sku,
-        category: String(row.category ?? existing?.category ?? "").slice(0, 80),
-        unit: String(row.unit ?? existing?.unit ?? "each").slice(0, 24) || "each",
-        price: Math.round(price * 100) / 100,
-        availability: String(row.availability ?? existing?.availability ?? "").slice(0, 80),
-        leadTimeDays: Number.isFinite(Number(row.leadTimeDays))
-          ? Number(row.leadTimeDays)
-          : (existing?.leadTimeDays ?? null),
-        isActive: existing?.isActive ?? true,
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-        importedAt: now,
-      };
-
-      await kv.set(ITEM(vendorId, id), item);
-      if (existing) updated++; else added++;
-      // So a duplicate SKU later in the same batch updates the row this one just
-      // wrote rather than creating a second.
-      if (sku) bySku.set(sku.toLowerCase(), item);
-    }
-
-    console.log(`[VendorCatalog] import for ${vendorId}: ${added} added, ${updated} updated, ${rejected.length} rejected`);
     return c.json({
       success: true,
-      added,
-      updated,
-      rejected,
-      total: existingAll.length + added,
+      added: outcome.added,
+      updated: outcome.updated,
+      rejected: outcome.rejected,
+      total: outcome.total,
     });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Could not import those lines." }, 500);
@@ -437,5 +460,215 @@ vendorCatalogRouter.get("/vendor-catalog-all", async (c) => {
     return c.json({ success: false, items: [], error: error?.message }, 500);
   }
 });
+
+// ─── A vendor's own API feed ─────────────────────────────────────────────────
+//
+// A vendor registers the endpoint their system serves a catalogue from, and we
+// pull it. Three things make that safe enough to do:
+//
+//   1. The credential lives here, not in their browser. It used to be typed
+//      into a form backed by `localStorage`, which meant a live production API
+//      key sat in plaintext on a machine we do not control, was lost when they
+//      cleared it, and was never seen by anything that could use it.
+//
+//   2. The credential is never sent back. Saving it returns only whether one is
+//      set. A key that can be read back is a key that leaks through any screen
+//      that shows it, and there is no reason for this one to ever leave again.
+//
+//   3. The URL goes through `outboundGuard`. We are being asked to fetch an
+//      address a stranger chose, from inside our own network, which is exactly
+//      server-side request forgery — see that file for what it refuses and,
+//      just as importantly, what it cannot check.
+
+const FEED = (vendorId: string) => `vendor_feed:${vendorId}`;
+
+/** What comes back to the browser. Deliberately not the key. */
+function publicFeed(feed: any) {
+  if (!feed) return null;
+  const { apiKey: _secret, ...rest } = feed;
+  return { ...rest, hasKey: Boolean(feed.apiKey) };
+}
+
+vendorCatalogRouter.get("/vendor-catalog/:vendorId/feed", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
+  }
+  const feed = await kv.get(FEED(vendorId));
+  return c.json({ success: true, feed: publicFeed(feed) });
+});
+
+vendorCatalogRouter.put("/vendor-catalog/:vendorId/feed", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const existing = (await kv.get(FEED(vendorId))) as any;
+
+    const endpoint = String(body.endpoint || "").trim();
+    if (endpoint) {
+      const verdict = inspectUrl(endpoint);
+      if (!verdict.ok) return c.json({ success: false, error: verdict.reason }, 400);
+    }
+
+    const authStyle = ["bearer", "header", "query"].includes(String(body.authStyle || ""))
+      ? String(body.authStyle) : "bearer";
+
+    const feed = {
+      vendorId,
+      endpoint,
+      authStyle,
+      // The header or query parameter the key travels in, for vendors who do not
+      // use a bearer token.
+      authName: String(body.authName || existing?.authName || "X-API-Key").slice(0, 64),
+      // An empty key on an update means "leave it alone", never "clear it" —
+      // otherwise saving any other field from a screen that cannot read the key
+      // would wipe it.
+      apiKey: body.apiKey ? String(body.apiKey) : (existing?.apiKey || ""),
+      mapping: body.mapping && typeof body.mapping === "object" ? body.mapping : (existing?.mapping || {}),
+      arrayPath: String(body.arrayPath ?? existing?.arrayPath ?? "").slice(0, 120),
+      enabled: body.enabled === undefined ? Boolean(existing?.enabled) : Boolean(body.enabled),
+      lastSyncAt: existing?.lastSyncAt || null,
+      lastSyncSummary: existing?.lastSyncSummary || null,
+      updatedAt: new Date().toISOString(),
+      updatedBy: who.email,
+    };
+    await kv.set(FEED(vendorId), feed);
+    return c.json({ success: true, feed: publicFeed(feed) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not save those settings." }, 500);
+  }
+});
+
+/**
+ * POST /vendor-catalog/:vendorId/feed/test — fetch it and say what came back.
+ *
+ * Reports honestly rather than "connected": how many products were found, where
+ * in the response they were, what the mapping guessed, and how many rows would
+ * be rejected. A test that only says OK is a test that tells you nothing about
+ * whether the sync will produce a usable catalogue.
+ */
+vendorCatalogRouter.post("/vendor-catalog/:vendorId/feed/test", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
+  }
+
+  const feed = (await kv.get(FEED(vendorId))) as any;
+  if (!feed?.endpoint) return c.json({ success: false, error: "No endpoint has been set yet." }, 400);
+
+  const result = await fetchVendorFeed(feed);
+  if (!result.ok) return c.json({ success: false, error: result.error }, 400);
+
+  let parsed: any;
+  try { parsed = JSON.parse(result.body || ""); }
+  catch { return c.json({ success: false, error: "That endpoint did not return JSON." }, 400); }
+
+  const found = findProductArray(parsed);
+  if (!found) {
+    return c.json({
+      success: false,
+      error: "No list of products was found in the response. Check the endpoint returns the catalogue itself.",
+    }, 400);
+  }
+
+  const mapping = Object.keys(feed.mapping || {}).length ? feed.mapping : guessFeedMapping(found.rows);
+  const built = buildFeedRows(found.rows, mapping);
+
+  return c.json({
+    success: true,
+    status: result.status,
+    productsFound: found.rows.length,
+    foundAt: found.path,
+    mapping,
+    missing: missingFeedFields(mapping),
+    usable: built.rows.length,
+    rejected: built.rejected.slice(0, 20),
+    rejectedTotal: built.rejected.length,
+    duplicates: built.duplicates,
+    sample: built.rows.slice(0, 5),
+    // Said out loud when the runtime would not let us resolve the hostname, so
+    // nobody assumes a check happened that did not.
+    dnsChecked: result.dnsChecked !== false,
+  });
+});
+
+/**
+ * POST /vendor-catalog/:vendorId/feed/sync — pull it in for real.
+ *
+ * Writes through exactly the same code the CSV import uses, so validation, the
+ * update-by-SKU rule and the ceiling on catalogue size are shared rather than
+ * reimplemented for feeds and left to drift.
+ */
+vendorCatalogRouter.post("/vendor-catalog/:vendorId/feed/sync", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
+  }
+
+  const feed = (await kv.get(FEED(vendorId))) as any;
+  if (!feed?.endpoint) return c.json({ success: false, error: "No endpoint has been set yet." }, 400);
+  if (missingFeedFields(feed.mapping || {}).length) {
+    return c.json({ success: false, error: "Match the name and price fields before syncing." }, 400);
+  }
+
+  const result = await fetchVendorFeed(feed);
+  if (!result.ok) return c.json({ success: false, error: result.error }, 400);
+
+  let parsed: any;
+  try { parsed = JSON.parse(result.body || ""); }
+  catch { return c.json({ success: false, error: "That endpoint did not return JSON." }, 400); }
+
+  const found = findProductArray(parsed);
+  if (!found) return c.json({ success: false, error: "No list of products was found in the response." }, 400);
+
+  const built = buildFeedRows(found.rows, feed.mapping);
+  const outcome = await importCatalogRows(vendorId, built.rows, false);
+
+  const summary = {
+    at: new Date().toISOString(),
+    productsFound: found.rows.length,
+    added: outcome.added,
+    updated: outcome.updated,
+    rejected: [...built.rejected, ...outcome.rejected].length,
+    duplicates: built.duplicates,
+    error: outcome.error || null,
+  };
+  await kv.set(FEED(vendorId), { ...feed, lastSyncAt: summary.at, lastSyncSummary: summary });
+
+  if (outcome.error) return c.json({ success: false, error: outcome.error, summary }, 409);
+  return c.json({
+    success: true,
+    ...summary,
+    rejectedDetail: [...built.rejected, ...outcome.rejected].slice(0, 20),
+  });
+});
+
+/** Fetch the feed with whatever authentication the vendor configured. */
+async function fetchVendorFeed(feed: any) {
+  const headers: Record<string, string> = {};
+  let url = feed.endpoint;
+
+  if (feed.apiKey) {
+    if (feed.authStyle === "bearer") headers.Authorization = `Bearer ${feed.apiKey}`;
+    else if (feed.authStyle === "header") headers[feed.authName || "X-API-Key"] = feed.apiKey;
+    else if (feed.authStyle === "query") {
+      const u = new URL(url);
+      u.searchParams.set(feed.authName || "api_key", feed.apiKey);
+      url = u.toString();
+    }
+  }
+  return await safeFetch(url, { headers });
+}
 
 export default vendorCatalogRouter;

@@ -32,6 +32,7 @@ import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
 import CatalogImport from './CatalogImport';
+import VendorApiFeed from './VendorApiFeed';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
@@ -191,16 +192,19 @@ export default function VendorPortalView() {
     date: String(o.orderDate || o.createdAt || '').slice(0, 10),
     deliveryDate: o.expectedDate || o.expectedDelivery || undefined,
   }));
-  const [apiSettings, setApiSettings] = useUserData('vendor_api_settings', {
-    hasApiIntegration: false,
-    apiEndpoint: '',
-    apiKey: '',
-    apiDocumentationUrl: '',
-    webhookUrl: '',
-    apiNotes: ''
-  });
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiTestStatus, setApiTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  /*
+   * `vendor_api_settings` is gone.
+   *
+   * It was a `useUserData` bag — `localStorage` — holding the endpoint and a
+   * live API key, on the vendor's own machine, where nothing could use them and
+   * clearing the browser lost them. `VendorApiFeed` keeps the connection on the
+   * server and never sends the key back, so there is no client-side copy to
+   * keep in step with anything.
+   *
+   * The old key is deliberately not migrated. It was never usable by us, and
+   * reading a credential out of a browser to file it somewhere else is not a
+   * thing to do quietly on somebody's behalf — the vendor re-enters it once.
+   */
 
   // Promotions & Reels state
   const [vendorDeals, setVendorDeals] = useUserData<any[]>('vendor_deals', []);
@@ -1040,237 +1044,13 @@ export default function VendorPortalView() {
               </div>
             </div>
 
-            {/* API Status Card */}
-            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-lg font-bold text-white mb-1">Integration Status</h2>
-                  <p className="text-sm text-gray-400">Configure your API connection settings</p>
-                </div>
-                <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                  apiSettings.hasApiIntegration 
-                    ? 'bg-green-500/10 border border-green-500/20 text-green-400' 
-                    : 'bg-gray-500/10 border border-gray-500/20 text-gray-400'
-                }`}>
-                  {apiSettings.hasApiIntegration ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span className="text-sm font-semibold">Connected</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-4 h-4" />
-                      <span className="text-sm font-semibold">Not Connected</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Enable Toggle */}
-              <label className="flex items-center gap-3 p-4 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg cursor-pointer hover:border-orange-500/30 transition">
-                <input
-                  type="checkbox"
-                  checked={apiSettings.hasApiIntegration}
-                  onChange={(e) => {
-                    setApiSettings({ ...apiSettings, hasApiIntegration: e.target.checked });
-                    toast.success(e.target.checked ? 'API integration enabled' : 'API integration disabled');
-                  }}
-                  className="w-5 h-5 rounded border-[#2A2A2A] bg-[#1A1A1A] text-orange-600 focus:ring-orange-500"
-                />
-                <Zap className="w-5 h-5 text-orange-500" />
-                <div>
-                  <span className="text-white font-medium block">Enable API Integration</span>
-                  <span className="text-sm text-gray-400">Allow automated data exchange with your systems</span>
-                </div>
-              </label>
-            </div>
-
-            {/* API Configuration */}
-            {apiSettings.hasApiIntegration && (
-              <>
-                <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">API Configuration</h3>
-                  
-                  <div className="space-y-6">
-                    {/* API Endpoint */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        <LinkIcon className="w-4 h-4 inline mr-2" />
-                        API Endpoint URL
-                      </label>
-                      <input
-                        type="url"
-                        value={apiSettings.apiEndpoint}
-                        onChange={(e) => setApiSettings({ ...apiSettings, apiEndpoint: e.target.value })}
-                        className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white focus:outline-none focus:border-orange-500"
-                        placeholder="https://api.yourcompany.com/v1"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">The base URL for your API endpoint</p>
-                    </div>
-
-                    {/* API Key */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        <Key className="w-4 h-4 inline mr-2" />
-                        API Key / Authentication Token
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showApiKey ? 'text' : 'password'}
-                          value={apiSettings.apiKey}
-                          onChange={(e) => setApiSettings({ ...apiSettings, apiKey: e.target.value })}
-                          className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white focus:outline-none focus:border-orange-500 font-mono pr-24"
-                          placeholder="sk_live_••••••••••••••••"
-                        />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              if (apiSettings.apiKey) {
-                                navigator.clipboard.writeText(apiSettings.apiKey);
-                                toast.success('API key copied to clipboard');
-                              }
-                            }}
-                            className="p-2 text-gray-400 hover:text-white transition"
-                            title="Copy API Key"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            className="p-2 text-gray-400 hover:text-white transition"
-                            title={showApiKey ? 'Hide key' : 'Show key'}
-                          >
-                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">Your API authentication credentials (stored securely and encrypted)</p>
-                    </div>
-
-                    {/* API Documentation URL */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        <Globe className="w-4 h-4 inline mr-2" />
-                        API Documentation URL
-                      </label>
-                      <input
-                        type="url"
-                        value={apiSettings.apiDocumentationUrl}
-                        onChange={(e) => setApiSettings({ ...apiSettings, apiDocumentationUrl: e.target.value })}
-                        className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white focus:outline-none focus:border-orange-500"
-                        placeholder="https://docs.yourcompany.com/api"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Link to your API documentation for our developers</p>
-                    </div>
-
-                    {/* Webhook URL */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        <Zap className="w-4 h-4 inline mr-2" />
-                        Webhook URL (for notifications)
-                      </label>
-                      <input
-                        type="url"
-                        value={apiSettings.webhookUrl}
-                        onChange={(e) => setApiSettings({ ...apiSettings, webhookUrl: e.target.value })}
-                        className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white focus:outline-none focus:border-orange-500"
-                        placeholder="https://yourcompany.com/webhooks/orders"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Where we'll send order notifications and updates</p>
-                    </div>
-
-                    {/* API Notes */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Additional Notes
-                      </label>
-                      <textarea
-                        value={apiSettings.apiNotes}
-                        onChange={(e) => setApiSettings({ ...apiSettings, apiNotes: e.target.value })}
-                        rows={4}
-                        className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white focus:outline-none focus:border-orange-500 resize-none"
-                        placeholder="Any special requirements, authentication methods, rate limits, or other important details..."
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Test Connection */}
-                <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Test Connection</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    Test your API connection to verify that all settings are configured correctly.
-                  </p>
-                  
-                  <div className="flex items-center gap-4">
-                    <PrimaryButton
-                      onClick={async () => {
-                        if (!apiSettings.apiEndpoint) {
-                          toast.error('Enter an API endpoint URL first.');
-                          return;
-                        }
-                        setApiTestStatus('testing');
-                        try {
-                          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                          if (apiSettings.apiKey) headers['Authorization'] = `Bearer ${apiSettings.apiKey}`;
-                          const res = await fetch(apiSettings.apiEndpoint, { method: 'GET', headers, signal: AbortSignal.timeout(8000) });
-                          if (res.ok || res.status === 401 || res.status === 403) {
-                            // 401/403 means endpoint exists but auth failed — still "reachable"
-                            setApiTestStatus('success');
-                            toast.success(res.ok ? 'API connection successful! Endpoint is reachable.' : `Endpoint reachable (HTTP ${res.status} — check your API key).`);
-                          } else {
-                            setApiTestStatus('error');
-                            toast.error(`API returned HTTP ${res.status}. Check your endpoint URL.`);
-                          }
-                        } catch (err: any) {
-                          setApiTestStatus('error');
-                          const msg = err?.name === 'TimeoutError' ? 'Connection timed out after 8 seconds.' : 'Could not reach endpoint. Check the URL and CORS settings.';
-                          toast.error(msg);
-                        }
-                      }}
-                      disabled={apiTestStatus === 'testing'}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${apiTestStatus === 'testing' ? 'animate-spin' : ''}`} />
-                      {apiTestStatus === 'testing' ? 'Testing...' : 'Test Connection'}
-                    </PrimaryButton>
-
-                    {apiTestStatus === 'success' && (
-                      <div className="flex items-center gap-2 text-green-400">
-                        <CheckCircle2 className="w-5 h-5" />
-                        <span className="font-medium">Connection Successful</span>
-                      </div>
-                    )}
-
-                    {apiTestStatus === 'error' && (
-                      <div className="flex items-center gap-2 text-red-400">
-                        <AlertTriangle className="w-5 h-5" />
-                        <span className="font-medium">Connection Failed</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Save Changes */}
-                <div className="flex items-center justify-between bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
-                  <div>
-                    <p className="text-white font-medium">Save API Settings</p>
-                    <p className="text-sm text-gray-400">Your changes will be saved securely</p>
-                  </div>
-                  <PrimaryButton
-                    onClick={() => {
-                      // Force a write by spreading the current value — triggers useUserData's save effect
-                      setApiSettings({ ...apiSettings });
-                      toast.success('API settings saved!');
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save Settings
-                  </PrimaryButton>
-                </div>
-              </>
-            )}
+            {/* The real connection, replacing a form that wrote an API key to
+                localStorage and told the vendor they were "Connected". */}
+            <VendorApiFeed
+              vendorId={vendorId || ''}
+              apiBase={VENDOR_API}
+              headers={authHeadersV}
+            />
           </div>
         )}
       </div>
