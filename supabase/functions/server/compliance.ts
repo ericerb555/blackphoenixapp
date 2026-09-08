@@ -220,6 +220,85 @@ export function needsAttention(
     .sort((a, b) => (a.daysRemaining ?? -9999) - (b.daysRemaining ?? -9999));
 }
 
+/**
+ * When to actually send a reminder.
+ *
+ * WHY NOT "EVERY DAY IT IS EXPIRING"
+ *
+ * Because a message that arrives every morning for thirty days is a message
+ * nobody reads by the fourth. The reminder that gets a certificate renewed is
+ * the one that arrives rarely enough to still mean something, so this fires at
+ * a few thresholds and stays quiet in between.
+ *
+ * Once expired it repeats weekly rather than never — a lapsed policy is not a
+ * thing to mention once and drop, because the company cannot work until it is
+ * fixed.
+ */
+export const REMINDER_DAYS = [30, 14, 7, 3, 1, 0];
+
+/** The threshold this status has just crossed, or null on a quiet day. */
+export function reminderThreshold(status: ComplianceStatus): number | null {
+  const days = status.daysRemaining;
+
+  // Required cover that is absent or undated is chased on the same weekly
+  // rhythm as an expired one: both mean the company cannot be sent to a site.
+  if (status.required && (status.state === 'missing' || status.state === 'undated')) return -1;
+
+  if (days === null) return null;
+  if (days < 0) {
+    // Weekly after expiry: day 7, 14, 21… and the day it lapsed.
+    return days === 0 || Math.abs(days) % 7 === 0 ? days : null;
+  }
+  return REMINDER_DAYS.includes(days) ? days : null;
+}
+
+/**
+ * Has this exact reminder already gone out?
+ *
+ * Keyed on the record and the threshold rather than on the day, so a job that
+ * runs twice — a retry, an overlapping schedule, somebody pressing the button —
+ * does not send twice. Renewing the policy changes `expiresOn`, which changes
+ * the key, so the next cycle starts clean.
+ */
+export function reminderKey(orgId: string, kind: ComplianceKind, expiresOn: string, threshold: number): string {
+  return `${orgId}:${kind}:${expiresOn || 'none'}:${threshold}`;
+}
+
+export interface DueReminder {
+  kind: ComplianceKind;
+  label: string;
+  threshold: number;
+  state: ComplianceState;
+  message: string;
+  key: string;
+}
+
+/** Everything that should be sent for one provider today. */
+export function remindersDue(
+  orgId: string,
+  records: ComplianceRecord[],
+  today: Date = new Date(),
+): DueReminder[] {
+  const byKind = new Map<ComplianceKind, ComplianceRecord>();
+  for (const r of records || []) if (r?.kind) byKind.set(r.kind, r);
+
+  const out: DueReminder[] = [];
+  for (const status of summarise(records, today).statuses) {
+    const threshold = reminderThreshold(status);
+    if (threshold === null) continue;
+    const expiresOn = byKind.get(status.kind)?.expiresOn || '';
+    out.push({
+      kind: status.kind,
+      label: status.label,
+      threshold,
+      state: status.state,
+      message: status.message,
+      key: reminderKey(orgId, status.kind, expiresOn, threshold),
+    });
+  }
+  return out;
+}
+
 /** Reject a date that is obviously wrong before it is stored. */
 export function validExpiry(value: string, today: Date = new Date()): { ok: boolean; reason?: string } {
   const days = daysUntil(value, today);

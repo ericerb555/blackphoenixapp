@@ -169,7 +169,7 @@ import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, provid
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
 import { safeFetch } from "./outboundGuard.ts";
-import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry } from "./compliance.ts";
+import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry, remindersDue } from "./compliance.ts";
 import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
@@ -401,6 +401,18 @@ const PUBLIC_POST_PATHS = [
    * at the price the browser suggested.
    */
   '/store/checkout',
+
+  /**
+   * The certificate reminder run, called by the database scheduler.
+   *
+   * A scheduler has no session, so the wall would refuse it — and the whole
+   * point of the job is that it runs when nobody is looking. Exempt here and
+   * guarded by `COMPLIANCE_CRON_SECRET` inside the route, which refuses
+   * everything when the variable is unset rather than falling open. Only this
+   * exact path, not the `/compliance/` prefix: reading a company's insurance
+   * position stays behind the wall.
+   */
+  '/compliance/run-reminders',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
@@ -3642,7 +3654,8 @@ app.post('/make-server-3eae23a6/bid-room/award', async (c) => {
      * route, and there are real situations where a renewal is in hand and the
      * paperwork is a day behind. `override` acknowledges it deliberately.
      */
-    const cover = ((await kv.get(`org_compliance:${winner.org_id}`)) as any[]) || [];
+    const coverStored = (await kv.get(`org_compliance:${winner.org_id}`)) as any;
+    const cover = Array.isArray(coverStored) ? coverStored : (coverStored?.records || []);
     const coverage = summariseComplianceRecords(cover);
     if (!coverage.clearToWork && !body.override) {
       return c.json({
@@ -3764,7 +3777,10 @@ app.get('/make-server-3eae23a6/compliance/:orgId', async (c) => {
       // Another company's insurance position is not the caller's business.
       return c.json({ success: false, error: 'That belongs to another company.' }, 403);
     }
-    const records = ((await kv.get(COMPLIANCE(orgId))) as any[]) || [];
+    const stored = (await kv.get(COMPLIANCE(orgId))) as any;
+    // Older rows were a bare array; newer ones carry the owner so the reminder
+    // sweep can tell whose documents it is looking at from the value alone.
+    const records = Array.isArray(stored) ? stored : (stored?.records || []);
     return c.json({ success: true, records, ...summariseCompliance(records) });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || 'Could not load that.' }, 500);
@@ -3804,10 +3820,127 @@ app.put('/make-server-3eae23a6/compliance/:orgId', async (c) => {
       });
     }
 
-    await kv.set(COMPLIANCE(orgId), clean);
+    await kv.set(COMPLIANCE(orgId), { orgId, records: clean, updatedAt: new Date().toISOString() });
     return c.json({ success: true, records: clean, rejected, ...summariseCompliance(clean) });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || 'Could not save that.' }, 500);
+  }
+});
+
+/**
+ * POST /compliance/run-reminders — chase certificates that are running out.
+ *
+ * WHY IT IS A ROUTE AND NOT A LAZY CHECK
+ *
+ * The timeclock's auto-close runs whenever somebody reads a shift, which works
+ * because everything that cares about a stale punch reads it on the way past.
+ * That is exactly what is not true here: nobody opens the record of a
+ * subcontractor who has gone quiet, and a lapsed certificate on a company you
+ * are not currently working with is precisely the one you find out about too
+ * late. This has to run on a clock whether or not anyone is looking.
+ *
+ * AUTHENTICATED BY A SHARED SECRET, NOT A SESSION
+ *
+ * A scheduler has no user. `COMPLIANCE_CRON_SECRET` is the same pattern the
+ * payment confirmation route already uses. Without the variable set the route
+ * refuses everything rather than falling open — an unset secret must not mean
+ * "no check required", which is the failure mode that turns a machine endpoint
+ * into a public one.
+ *
+ * SENDING TWICE IS THE THING TO AVOID
+ *
+ * Every reminder is keyed on the company, the document, its expiry date and the
+ * threshold — so a retry, an overlapping schedule or somebody pressing the
+ * button by hand cannot send the same warning again. Renewing the policy
+ * changes the expiry, which changes the key, so the next cycle starts clean.
+ */
+app.post('/make-server-3eae23a6/compliance/run-reminders', async (c) => {
+  const secret = Deno.env.get('COMPLIANCE_CRON_SECRET') || '';
+  const offered = c.req.header('X-Compliance-Cron-Secret') || '';
+  if (!secret || offered !== secret) {
+    // Also reachable by an administrator, so it can be run by hand without
+    // anybody needing to hold the scheduler's secret.
+    const actor = await intakeActor(c);
+    if (!actor?.email || !await intakeIsAdmin(actor)) {
+      return c.json({ success: false, error: 'Unauthorized.' }, 401);
+    }
+  }
+
+  try {
+    const today = new Date();
+    const all = ((await kv.getByPrefix('org_compliance:')) as any[]) || [];
+    const sentKeys = new Set(((await kv.get('compliance_reminders_sent')) as string[]) || []);
+
+    // Only organisations that still exist and can be written to.
+    const { data: orgs } = await supabase.from('organizations').select('id, name, email, type, status');
+    const orgById = new Map<string, { id: string; name: string; email: string; type: string; status: string }>(
+      (orgs || []).map((o: any) => [String(o.id), o]),
+    );
+
+    let sent = 0;
+    let skipped = 0;
+    const lapsed: Array<{ org: string; what: string }> = [];
+
+    for (const record of all) {
+      // The key carries the org id; the stored value is the array of documents.
+      const orgId = String(record?.orgId || '');
+      const records = record?.records;
+      // A bare array predates the owner being stored, so there is no way to
+      // tell whose it is — skipped rather than guessed at. Saving the record
+      // once from the portal fixes it.
+      if (!orgId || !Array.isArray(records)) { skipped++; continue; }
+
+      const org = orgById.get(orgId);
+      if (!org || !org.email) { skipped++; continue; }
+      if (String(org.status || 'active').toLowerCase() !== 'active') { skipped++; continue; }
+
+      for (const due of remindersDue(orgId, records, today)) {
+        if (sentKeys.has(due.key)) continue;
+
+        const urgent = due.state === 'expired' || due.threshold <= 1;
+        try {
+          await notifyRecipient(String(org.email).toLowerCase(), 'work_request', {
+            subject: urgent
+              ? `Action needed: ${due.label}`
+              : `${due.label} expires soon`,
+            text: `${due.message}\n\n`
+              + `Update it in your portal under Insurance & Licences. `
+              + `We check cover when a job is awarded, so an out-of-date certificate `
+              + `is the thing most likely to cost you work you have already won.`,
+          });
+          sentKeys.add(due.key);
+          sent++;
+          if (due.state === 'expired' || due.state === 'missing' || due.state === 'undated') {
+            lapsed.push({ org: org.name, what: due.label });
+          }
+        } catch {
+          // One failure must not stop the rest of the run.
+        }
+      }
+    }
+
+    // Bounded, so the record of what has been sent cannot grow without limit.
+    // Old keys ageing out is harmless: their expiry dates are long past, so the
+    // thresholds they belong to can never come round again.
+    await kv.set('compliance_reminders_sent', [...sentKeys].slice(-5000));
+
+    // The office wants one summary, not one message per lapse.
+    if (lapsed.length) {
+      notifyStaffInBackground('work_request', {
+        subject: `${lapsed.length} subcontractor${lapsed.length === 1 ? '' : 's'} without current cover`,
+        heading: '🛡️ Insurance and licences',
+        rows: lapsed.slice(0, 20).map((l) => [l.org, l.what]),
+        ctaLabel: 'Open the bid room',
+        ctaPath: '/bid-room',
+        dedupeKey: `compliance:${today.toISOString().slice(0, 10)}`,
+      });
+    }
+
+    console.log(`[Compliance] reminders: ${sent} sent, ${skipped} orgs skipped, ${lapsed.length} lapsed`);
+    return c.json({ success: true, sent, skipped, lapsed: lapsed.length });
+  } catch (error: any) {
+    console.error('[Compliance] reminder run failed:', error);
+    return c.json({ success: false, error: error?.message || 'The reminder run failed.' }, 500);
   }
 });
 

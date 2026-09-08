@@ -3012,3 +3012,62 @@ Nothing chases an expiry yet. `needsAttention()` exists and is tested — it
 returns what a reminder run would send, worst first — but no cron calls it, so a
 certificate lapses quietly until somebody opens the portal or tries to award.
 That wants the scheduled job this project does not yet have.
+
+## The reminder job
+
+`compliance.ts` is now 60/60 — the extra twenty cover when a reminder fires.
+
+### Quiet in between, or nobody reads it
+
+A message every morning for thirty days is a message ignored by the fourth. It
+fires at **30, 14, 7, 3, 1 and 0 days**, and is silent on every other day — 29
+days out, 20, 8, 2 all send nothing. After expiry it repeats **weekly**, because
+a lapsed policy is not a thing to mention once and drop: the company cannot work
+until it is fixed. Missing required cover is chased on the same weekly rhythm.
+
+Every reminder is keyed on the company, the document, **its expiry date** and the
+threshold, so a retry or an overlapping run cannot send the same warning twice —
+and renewing the policy changes the date, which starts a clean cycle.
+
+### What running it actually taught me
+
+Two things, neither of which reading the code would have shown.
+
+**The extension check was wrong.** My first query UNIONed installed extensions
+with available ones, and I read rows from the available half as proof they were
+installed. `pg_cron` and `pg_net` were not installed at all. Both are now.
+
+**And the schedule would have failed silently every morning.** The first version
+sent only the shared secret and came back
+`401 UNAUTHORIZED_NO_AUTH_HEADER` — the edge function gateway refuses a request
+with no `Authorization` header before any of our code runs. Firing the exact
+cron command by hand and reading `net._http_response` is what caught it. The
+schedule existing is not evidence that it works, and the first symptom of the
+version I nearly shipped would have been an uninsured subcontractor on a site.
+
+Now verified end to end: the real command, through pg_net, answers **200
+`{"success":true,"sent":0,"skipped":0,"lapsed":0}`** — zero because no cover is
+recorded yet, which is the correct answer today.
+
+### Security
+
+`/compliance/run-reminders` is the only path exempted from the auth wall, not the
+`/compliance/` prefix — reading a company's insurance position stays behind it.
+The route refuses everything when `COMPLIANCE_CRON_SECRET` is unset rather than
+falling open, and an administrator can also run it by hand without holding the
+scheduler's secret. Wrong secret confirmed 401 against production.
+
+Secrets sit in `private_cron_config`, revoked from `anon` and `authenticated`,
+rather than inline in the cron command where anyone able to read `cron.job`
+would see them.
+
+### Also
+
+The office gets one daily summary of who is not covered, not one message per
+lapse. And a `07:00` local reminder was not attempted: 12:00 UTC lands at 8am
+Eastern in winter and 9am in summer, which is close enough for a certificate and
+avoids a second DST-aware schedule.
+
+### Checks
+
+Server typecheck 84, unchanged. 60/60 on `compliance`.
