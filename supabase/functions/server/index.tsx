@@ -430,6 +430,23 @@ const PUBLIC_POST_PATHS = [
    * position stays behind the wall.
    */
   '/compliance/run-reminders',
+
+  /**
+   * An invited person setting their password for the first time.
+   *
+   * This is the last step of every invitation — vendor, subcontractor, tenant,
+   * owner — and the person doing it is by definition signed out, because
+   * creating their password is what lets them sign in. The wall answered
+   * **401 "Sign in required."**, so the invitation could not be completed by
+   * anybody. Confirmed against production before changing anything, and it
+   * explains the six owner invites sitting at `profile_required`.
+   *
+   * The route already guards itself properly on the invite token: it refuses a
+   * missing one, an unknown one, one already used, and one that has expired.
+   * The token is the credential, and the wall was the only thing standing
+   * between an invited person and their account.
+   */
+  '/intake/set-password',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>

@@ -3237,3 +3237,69 @@ app, since App.tsx changed — 0 threw.
 No real change order has been sent through it. The routes answer correctly to a
 bad token; what has not happened is a real one going out and coming back
 approved.
+
+---
+
+# Nobody has ever been able to accept an invitation
+
+The quote link failing at three layers suggested checking every other link we
+email to somebody who has no account. The invitation is the one that matters
+most — it is how a vendor or a subcontractor gets in at all — and it was broken
+at the last step.
+
+## What was wrong
+
+`POST /intake/set-password` answered **401 "Sign in required."** The person
+setting their password is by definition signed out, because creating the
+password is what lets them sign in. The auth wall refused it, so the invitation
+could not be completed by anyone.
+
+The route already guarded itself properly — it refuses a missing token, an
+unknown one, one already used and one that has expired. The token was always the
+credential. The wall was the only thing between an invited person and their
+account, and it never let anybody through.
+
+## The evidence it had never worked
+
+Every invite token in production is `used: false`, apart from a single one of
+Eric's own. Six owner invites sit at `profile_required` — Mark Sutton three
+times over, opodroubnyi, erbdylan22 — and that status is exactly what an
+invitation that cannot be completed looks like.
+
+So this is not a regression. **The invite flow has never worked**, and every
+person invited to this platform hit the same wall.
+
+## Verified end to end, not inferred
+
+With a throwaway token against a test address, all against production:
+
+1. Signed out, real token → `{"success":true}`
+2. Sign in with the new password → real session, 894-character token
+3. The same token again → *"This invitation link was already used."*
+
+Then the probe account and its token were deleted.
+
+## The pattern worth naming
+
+Three flows now, all the same shape: a link is emailed to somebody with no
+account, and something in front of the route insists they have one. Quote
+approval had it at three layers. Change orders would have. Invitations had it at
+the last step.
+
+The auth wall defaults unlisted routes to signed-in, which is the right default
+and the reason this codebase is not full of open endpoints. But it means **every
+route designed for a person without an account is broken until somebody
+remembers to list it** — and the symptom is always silence, because the person
+who hits it is outside the company and simply gives up.
+
+Worth checking the same way whenever a new emailed link is added: is the route
+public, is the page public, and does the URL resolve.
+
+## Checks
+
+Server typecheck 84, unchanged.
+
+## Still to do
+
+The four unconfirmed accounts and the six stale invites need re-inviting now that
+the flow works. Their existing tokens are mostly expired.
