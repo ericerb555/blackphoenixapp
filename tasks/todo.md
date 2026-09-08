@@ -2946,3 +2946,69 @@ App typecheck 324, unchanged. Smoke: 7 pages, 0 threw.
 
 Insurance and licence expiry — the thing that actually stops a subcontractor
 working on a site — is not tracked anywhere.
+
+---
+
+# Insurance and licence expiry
+
+`compliance.ts`, 40/40. The thing that actually stops a subcontractor working on
+a site, and nothing tracked it — a sub whose general liability lapsed last month
+looked exactly like one covered through next year.
+
+## Dates, not timestamps
+
+A policy expires on a **day**, not at an instant. `new Date('2026-10-01')` is
+midnight UTC, which is the evening of September 30th in New Hampshire — so cover
+good through October would have read as expiring a day early, every time, for
+everybody. Parsed as UTC calendar parts and compared in whole days, and there is
+a test that fails if that regresses.
+
+## The rule that matters most
+
+**Unknown is not valid.** A certificate on file with no expiry date recorded is a
+blocker, not a pass. It cannot be confirmed current, and treating unknown as fine
+is how somebody ends up on a roof uninsured. Same reasoning as `jobOutcome`
+refusing to call a missing cost zero.
+
+## What is required, and what is merely recorded
+
+General liability and workers' compensation block. The rest — commercial auto, a
+trade licence, a bond — are recorded when held and warn when lapsed, because a
+sole trader with no employees genuinely has no workers' comp policy and a trade
+licence depends on the trade. Blanket-requiring everything would mark honest
+companies non-compliant, which teaches people to ignore the flag.
+
+Expiring within 30 days warns rather than blocks. Expiring **today** still counts
+as covered — cover runs to the end of the day it names.
+
+## Checked where it matters
+
+At the award. `POST /bid-room/award` looks at the winner's cover and returns 409
+with the specific blockers rather than awarding silently. The Bid Room shows them
+and offers **Award anyway**, because a renewal can genuinely be in hand while the
+certificate is a day behind, and whether that is acceptable is a judgement about
+a particular company on a particular job. What must not happen is awarding work
+to an uninsured subcontractor with nobody noticing — which is what happened
+before, because there was nothing to notice.
+
+Enforcement is deliberately not the route's decision to make.
+
+## Where it lives
+
+Records hang off the provider's **organisation** — the identity the bid room
+already awards to — so the expiry can be checked at the moment work is
+committed. A company reads and writes only its own; staff see any.
+
+The subcontractor gets a tab of its own rather than a settings page, because it
+decides whether they can work.
+
+## Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 8 pages, 0 threw.
+
+## Not done
+
+Nothing chases an expiry yet. `needsAttention()` exists and is tested — it
+returns what a reminder run would send, worst first — but no cron calls it, so a
+certificate lapses quietly until somebody opens the portal or tries to award.
+That wants the scheduled job this project does not yet have.

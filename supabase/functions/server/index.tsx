@@ -169,6 +169,7 @@ import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, provid
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
 import { safeFetch } from "./outboundGuard.ts";
+import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry } from "./compliance.ts";
 import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
@@ -3632,6 +3633,27 @@ app.post('/make-server-3eae23a6/bid-room/award', async (c) => {
     const winner = (allBids || []).find((b: any) => b.id === bidId);
     if (!winner) return c.json({ success: false, error: 'That bid is not on this request.' }, 404);
 
+    /**
+     * Is the company we are about to award to actually insured?
+     *
+     * Checked here because this is the moment it matters — the point where work
+     * is committed to somebody. Reported, not enforced: whether an expired
+     * certificate stops an award is Eric's decision and not one to make inside a
+     * route, and there are real situations where a renewal is in hand and the
+     * paperwork is a day behind. `override` acknowledges it deliberately.
+     */
+    const cover = ((await kv.get(`org_compliance:${winner.org_id}`)) as any[]) || [];
+    const coverage = summariseComplianceRecords(cover);
+    if (!coverage.clearToWork && !body.override) {
+      return c.json({
+        success: false,
+        needsOverride: true,
+        error: 'That company is not showing current cover.',
+        blockers: coverage.blockers,
+        warnings: coverage.warnings,
+      }, 409);
+    }
+
     // The write RLS actually gates. If the caller does not own the request,
     // nothing comes back and nothing below happens.
     const { data: wonRows, error: wonErr } = await asUser.from('bids')
@@ -3708,6 +3730,92 @@ app.post('/make-server-3eae23a6/bid-room/award', async (c) => {
     return c.json({ success: false, error: error?.message || 'Could not award that bid.' }, 500);
   }
 });
+
+// ── Insurance and licences ───────────────────────────────────────────────────
+//
+// A certificate of insurance is a date that decides whether somebody may be on
+// a site tomorrow, not a file to keep. Nothing tracked them, so a subcontractor
+// whose general liability lapsed last month was indistinguishable from one whose
+// cover runs to next year — and the expensive way to discover the difference is
+// a claim on a job where nobody was covered.
+//
+// Records live against the provider's **organisation**, which is the identity
+// the bid room already awards work to, so an expiry can be checked at the moment
+// it matters.
+
+const COMPLIANCE = (orgId: string) => `org_compliance:${orgId}`;
+
+/** Which organisations may this caller read or write compliance for? */
+async function complianceOrgIds(c: any): Promise<{ orgIds: string[]; staff: boolean } | null> {
+  const actor = await intakeActor(c);
+  if (!actor?.id) return null;
+  if (await intakeIsAdmin(actor)) return { orgIds: [], staff: true };
+  const asUser = userScopedClient(c);
+  const { data } = await asUser.from('organization_members').select('org_id, status').eq('status', 'active');
+  return { orgIds: (data || []).map((m: any) => String(m.org_id)), staff: false };
+}
+
+app.get('/make-server-3eae23a6/compliance/:orgId', async (c) => {
+  try {
+    const who = await complianceOrgIds(c);
+    if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    const orgId = c.req.param('orgId');
+    if (!who.staff && !who.orgIds.includes(orgId)) {
+      // Another company's insurance position is not the caller's business.
+      return c.json({ success: false, error: 'That belongs to another company.' }, 403);
+    }
+    const records = ((await kv.get(COMPLIANCE(orgId))) as any[]) || [];
+    return c.json({ success: true, records, ...summariseCompliance(records) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not load that.' }, 500);
+  }
+});
+
+app.put('/make-server-3eae23a6/compliance/:orgId', async (c) => {
+  try {
+    const who = await complianceOrgIds(c);
+    if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    const orgId = c.req.param('orgId');
+    if (!who.staff && !who.orgIds.includes(orgId)) {
+      return c.json({ success: false, error: 'That belongs to another company.' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const incoming = Array.isArray(body?.records) ? body.records : [];
+    const clean: any[] = [];
+    const rejected: Array<{ kind: string; reason: string }> = [];
+
+    for (const r of incoming) {
+      const kind = String(r?.kind || '');
+      if (!COMPLIANCE_LABELS[kind as keyof typeof COMPLIANCE_LABELS]) continue;
+      const expiresOn = String(r?.expiresOn || '').trim();
+      if (expiresOn) {
+        const verdict = validExpiry(expiresOn);
+        if (!verdict.ok) { rejected.push({ kind, reason: verdict.reason || 'Bad date.' }); continue; }
+      }
+      clean.push({
+        kind,
+        issuer: String(r?.issuer || '').slice(0, 160),
+        reference: String(r?.reference || '').slice(0, 80),
+        expiresOn,
+        coverage: Number.isFinite(Number(r?.coverage)) ? Number(r.coverage) : null,
+        documentUrl: String(r?.documentUrl || '').slice(0, 500) || null,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    await kv.set(COMPLIANCE(orgId), clean);
+    return c.json({ success: true, records: clean, rejected, ...summariseCompliance(clean) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not save that.' }, 500);
+  }
+});
+
+/** Summary in the shape the screens want, without repeating the call. */
+function summariseCompliance(records: any[]) {
+  const s = summariseComplianceRecords(records);
+  return { statuses: s.statuses, clearToWork: s.clearToWork, blockers: s.blockers, warnings: s.warnings };
+}
 
 app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
   try {

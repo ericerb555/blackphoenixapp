@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
 import NotificationBell from './NotificationBell';
+import CompliancePanel from './CompliancePanel';
 import PortalSettings from './PortalSettings';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
@@ -41,7 +42,7 @@ function badge(s: string) {
   return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
 }
 
-type Tab = 'dashboard' | 'jobs' | 'bids' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'documents' | 'guide';
+type Tab = 'dashboard' | 'jobs' | 'bids' | 'compliance' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'documents' | 'guide';
 
 function getDemoProfile() {
   try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
@@ -293,6 +294,7 @@ export default function SubcontractorPortal() {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'jobs', label: 'Active Jobs', icon: Briefcase },
     { id: 'bids', label: 'My Bids', icon: FileText },
+    { id: 'compliance', label: 'Insurance & Licences', icon: Award },
     { id: 'payments', label: 'Payments', icon: DollarSign },
     { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
@@ -604,6 +606,31 @@ export default function SubcontractorPortal() {
           </div>
         )}
 
+        {/* INSURANCE & LICENCES */}
+        {tab === 'compliance' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-bold">Insurance &amp; Licences</h2>
+              <p className="mt-1 text-sm text-gray-400">
+                Keep these current and you stay eligible for work. We check them when a
+                job is awarded, so an expired certificate is the thing most likely to
+                cost you a job you have already won on price.
+              </p>
+            </div>
+            {myOrgIds[0] ? (
+              <CompliancePanel
+                orgId={myOrgIds[0]}
+                apiBase={`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`}
+                headers={() => ({ Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' })}
+              />
+            ) : (
+              <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 text-center text-sm text-gray-400">
+                Your account is not linked to a company yet, so there is nowhere to record
+                cover. The office can link it.
+              </div>
+            )}
+          </div>
+        )}
         {/* PAYMENTS */}
         {tab === 'payments' && (
           <div className="space-y-4">

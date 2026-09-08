@@ -515,7 +515,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
    * permissions are unchanged, and does the telling as part of the same action
    * rather than as a step somebody might skip.
    */
-  const awardBid = async (request: BidRequest, bid: Bid) => {
+  const awardBid = async (request: BidRequest, bid: Bid, override = false) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
@@ -526,10 +526,31 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
             Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ bidRequestId: request.id, bidId: bid.id }),
+          body: JSON.stringify({ bidRequestId: request.id, bidId: bid.id, override }),
         },
       );
       const payload = await res.json().catch(() => ({}));
+
+      /**
+       * Their insurance has lapsed, or was never recorded.
+       *
+       * Surfaced as a decision rather than a refusal: a renewal genuinely can be
+       * in hand while the certificate is a day behind, and whether that is
+       * acceptable is a judgement about a particular company on a particular
+       * job. What must not happen is awarding work to an uninsured
+       * subcontractor without anybody noticing, which is what happened before
+       * there was anything to notice.
+       */
+      if (res.status === 409 && payload?.needsOverride) {
+        toast.warning(
+          `${orgNames[bid.org_id] || 'That company'}: ${(payload.blockers || []).join(' ')}`,
+          {
+            duration: 12000,
+            action: { label: 'Award anyway', onClick: () => void awardBid(request, bid, true) },
+          },
+        );
+        return;
+      }
       if (!res.ok || !payload?.success) throw new Error(payload?.error || `The server responded ${res.status}`);
 
       const told = payload.notified?.lost || 0;
