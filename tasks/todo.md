@@ -2582,3 +2582,71 @@ them wants a column and a storage path, which is its own change.
 App typecheck 324, unchanged. Smoke: 7 pages, 0 threw. Not verified in a browser
 — and it cannot be until a bid request exists with an invitation to a real
 subcontractor org, which is the natural first thing to try.
+
+---
+
+# Vendor portal: what "ready to pull in APIs" actually needs
+
+Checked before proposing anything. The short version: **the API section in the
+vendor portal is a form and nothing else.**
+
+## What is there today
+
+**The vendor's API settings never leave their browser.** `vendor_api_settings`
+goes through `useUserData`, which is `localStorage.getItem` / `setItem`. So the
+endpoint, the API key, the webhook URL and the notes a vendor carefully fills in
+are written to their own machine, are lost when they clear it, and have never
+been seen by our server.
+
+**There is no ingestion at all.** Nothing under `supabase/functions/server/` so
+much as mentions `apiEndpoint` or a vendor API. Nothing has ever called a
+vendor's system.
+
+So a vendor can switch on "API integration", paste a live production key into a
+password field, press save, and precisely nothing happens — while the screen
+tells them they are integrated. That is worse than not offering it.
+
+**The big-box integrations are also inert.** `materials-api.tsx` has real clients
+for Home Depot, Lowe's and Grainger, but the file is **unmounted**, and all three
+keys in production share one identical hash — the same value in all three slots,
+which is a placeholder rather than three real credentials.
+
+## What it needs
+
+1. **Credentials on the server, not the browser.** Written once, never returned
+   to the client afterwards. A key that can be read back is a key that leaks
+   through any screen that shows it.
+2. **A normaliser, with mapping.** Their JSON into our catalogue shape — name,
+   SKU, unit, price, category. No two vendor APIs agree on field names, which is
+   the same problem the CSV importer already solves with column mapping, and the
+   same solution should be reused rather than reinvented.
+3. **A sync that goes through the existing import route**, so validation, the
+   update-by-SKU rule and the rejection reporting are shared rather than
+   duplicated.
+4. **A "test connection" that reports honestly** — what came back, how many
+   lines were understood, what could not be mapped.
+5. **SSRF protection, and this is the one to get right before anything else.**
+   The vendor supplies a URL and our server fetches it. Without a guard, a
+   vendor can point it at `http://169.254.169.254/` and have our server hand
+   back cloud instance credentials, or at an internal address to probe the
+   private network. Any vendor-supplied URL must be forced to https, resolved,
+   and refused if it lands on a private, loopback, link-local or metadata
+   address — checked after DNS resolution, because a hostname can resolve to
+   127.0.0.1.
+
+## The decision I need before building
+
+There are two different products here and the work is not the same:
+
+- **Vendors connect their own systems** — each vendor registers an endpoint and
+  their own credentials; we pull their catalogue on a schedule. This is what the
+  portal's form implies, and it is the one with the SSRF problem, because the
+  URL comes from outside.
+- **We hold integrations centrally** — Home Depot, Lowe's, Grainger and Ferguson
+  as named connectors with our own keys, the way `materials-api.tsx` was
+  written. No SSRF exposure, fixed endpoints, but it only ever covers suppliers
+  we build a connector for.
+
+They can both exist eventually. Building the wrong one first wastes the effort.
+
+## Awaiting a decision.
