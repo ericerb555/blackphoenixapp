@@ -291,6 +291,23 @@ const PUBLIC_PREFIXES = [
   // issuing, listing and revoking links sit under /links and stay behind
   // the wall as well as behind their own staff check.
   '/architect-review/review/',
+
+  /**
+   * A customer reading and signing a quote, or answering a change order.
+   *
+   * These were behind the wall, which meant the share link never worked for the
+   * person it is for. Confirmed against production: an anonymous request to
+   * `/quotes/by-token/…` answered 401. A signing link whose whole purpose is to
+   * reach somebody without an account cannot require an account, so every quote
+   * link ever sent to a signed-out customer was a dead end.
+   *
+   * Only the `by-token` halves are exempt. Issuing a link stays behind the wall
+   * and behind an administrator check, and the token itself is the credential:
+   * 256 bits, stored as a hash, expiring, revocable, and refusing a second
+   * decision. See shareToken.ts.
+   */
+  '/quotes/by-token/',
+  '/change-orders/by-token/',
 ];
 
 // Public to read, protected to change. The storefront has to render these to a
@@ -14146,6 +14163,163 @@ app.post('/make-server-3eae23a6/purchase-orders/:id/send', async (c) => {
   } catch (error: any) {
     console.error('[PurchaseOrders] send failed:', error);
     return c.json({ success: false, error: error?.message || 'Could not send that purchase order.' }, 500);
+  }
+});
+
+// ── CHANGE ORDER APPROVAL ────────────────────────────────────────────────────
+//
+// The contract now promises, in clause 9, that when we uncover a concealed
+// condition we stop, show the customer what we found and what it costs, and wait
+// for their written approval before continuing. That promise had no mechanism
+// behind it: a change order could be created from the field app and listed by
+// the office, and there was no way to send one to a customer or for them to
+// answer it.
+//
+// It reuses the quote share-token module rather than inventing a second one —
+// same problem, and that one is already hashed at rest, expiring, revocable and
+// refuses a second decision.
+
+/**
+ * POST /change-orders/:id/send — put it in front of the customer.
+ */
+app.post('/make-server-3eae23a6/change-orders/:id/send', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+    const id = c.req.param('id');
+    const co = await kv.get(`change_order:${id}`) as any;
+    if (!co) return c.json({ success: false, error: 'Change order not found.' }, 404);
+
+    const to = String(co.customerEmail || '').trim().toLowerCase();
+    if (!to) return c.json({ success: false, error: 'That change order has no customer email on it.' }, 400);
+
+    const nowIso = new Date().toISOString();
+    const { token, hash } = await mintShareToken();
+    await kv.set(`change_order_token:${hash}`, shareTokenRecord(id, nowIso, user.email));
+    await kv.set(`change_order:${id}`, {
+      ...co,
+      status: co.status === 'approved' || co.status === 'declined' ? co.status : 'sent',
+      shareTokenHash: hash,
+      sentAt: nowIso,
+      sentBy: user.email,
+      updatedAt: nowIso,
+    });
+
+    const link = `${rentAppUrl()}/change-order/${token}`;
+    const cost = Number(co.estimatedCost || 0);
+    notifyRecipient(to, 'work_request', {
+      subject: `Approval needed: ${co.title || co.coNumber} — ${co.projectName || 'your project'}`,
+      text: `We have found something on your job that was not in the original quote, and we have `
+        + `stopped that part of the work until you have seen it.\n\n`
+        + `${co.title || ''}\n${co.description || ''}\n\n`
+        + `Additional cost: $${cost.toLocaleString()}\n\n`
+        + `Review it, with the photographs, and approve or decline here:\n${link}\n\n`
+        + `Nothing is charged and no work continues on this item until you decide.`,
+    }).catch(() => { /* the link is issued whether or not the mail got out */ });
+
+    return c.json({ success: true, link, expiresInDays: QUOTE_LINK_DAYS });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not send that change order.' }, 500);
+  }
+});
+
+/** GET /change-orders/by-token/:token — what the customer sees. Public. */
+app.get('/make-server-3eae23a6/change-orders/by-token/:token', async (c) => {
+  try {
+    const record = await kv.get(`change_order_token:${await hashToken(c.req.param('token'))}`) as any;
+    if (!shareTokenUsable(record, Date.now())) {
+      return c.json({ success: false, error: 'This link is invalid or has expired.' }, 404);
+    }
+    const co = await kv.get(`change_order:${record.quoteId}`) as any;
+    if (!co) return c.json({ success: false, error: 'Change order not found.' }, 404);
+
+    // Built field by field. A change order record carries our labour hours and
+    // margin working; the customer is owed the reason, the evidence and the
+    // number, not our costing.
+    return c.json({
+      success: true,
+      changeOrder: {
+        coNumber: co.coNumber,
+        title: co.title || '',
+        description: co.description || '',
+        projectName: co.projectName || '',
+        customerName: co.customerName || '',
+        photos: (Array.isArray(co.photos) ? co.photos : []).map((p: any) => ({
+          url: p?.url || '', caption: p?.caption || '',
+        })),
+        estimatedCost: Number(co.estimatedCost || 0),
+        status: co.status || 'sent',
+        decidedAt: co.decidedAt || null,
+        createdAt: co.createdAt || null,
+      },
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to load this change order.' }, 500);
+  }
+});
+
+/**
+ * POST /change-orders/by-token/:token/decide — the answer clause 9 asks for.
+ *
+ * One decision only. A change order that has been answered is answered: letting
+ * it be flipped afterwards would mean the record of what the customer agreed to,
+ * and when, is whatever was clicked last — on a document that authorises
+ * spending their money.
+ */
+app.post('/make-server-3eae23a6/change-orders/by-token/:token/decide', async (c) => {
+  try {
+    const record = await kv.get(`change_order_token:${await hashToken(c.req.param('token'))}`) as any;
+    if (!shareTokenUsable(record, Date.now())) {
+      return c.json({ success: false, error: 'This link is invalid or has expired.' }, 404);
+    }
+    const co = await kv.get(`change_order:${record.quoteId}`) as any;
+    if (!co) return c.json({ success: false, error: 'Change order not found.' }, 404);
+
+    if (['approved', 'declined'].includes(String(co.status || '').toLowerCase()) || co.decidedAt) {
+      return c.json({
+        success: false,
+        error: `You already ${co.status} this change order. Call us if something needs to change.`,
+        status: co.status,
+      }, 409);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const decision = body.decision === 'declined' ? 'declined' : 'approved';
+    const now = new Date().toISOString();
+    const updated = {
+      ...co,
+      status: decision,
+      decidedAt: now,
+      decision: {
+        decision,
+        signerName: String(body.signerName || co.customerName || 'Customer').slice(0, 160),
+        note: String(body.note || '').slice(0, 2000),
+        at: now,
+      },
+      updatedAt: now,
+    };
+    await kv.set(`change_order:${co.id}`, updated);
+
+    notifyStaffInBackground('work_request', {
+      subject: `Change order ${decision}: ${co.coNumber} — ${co.projectName || ''}`,
+      heading: decision === 'approved' ? '✅ Change order approved' : '⛔ Change order declined',
+      rows: [
+        ['Change order', String(co.coNumber || '')],
+        ['Project', String(co.projectName || '')],
+        ['Customer', String(co.customerName || co.customerEmail || '')],
+        ['Additional cost', `$${Number(co.estimatedCost || 0).toLocaleString()}`],
+        ['Their note', String(body.note || '—')],
+      ],
+      ctaLabel: 'Open job tracking',
+      ctaPath: '/job-tracking',
+      dedupeKey: `change_order_decision:${co.id}`,
+    });
+
+    return c.json({ success: true, status: decision });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Unable to record your decision.' }, 500);
   }
 });
 

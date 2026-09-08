@@ -3130,3 +3130,60 @@ the text that decides who pays in a dispute and it is cheap to have read.
 App typecheck 324, unchanged — the two findings in this file are pre-existing, on
 a line the change does not touch. Smoke: 5 pages, 0 threw. There is only one copy
 of these terms in the codebase, so nothing else needed the same edit.
+
+---
+
+# Change order approval — the mechanism clause 9 promises
+
+Writing the concealed-conditions clause yesterday committed the company, in
+writing, to stopping work, showing the customer what was found, and waiting for
+their **written approval** before continuing. That promise had nothing behind it:
+a change order could be raised from the field app and listed by the office, and
+there was no way to send one to a customer or for them to answer it.
+
+## Built on the module that already exists
+
+`shareToken.ts` rather than a second token scheme — same problem, and that one is
+already 256-bit, hashed at rest, expiring, revocable, and refuses a second
+decision. Three routes: send, read by token, decide by token.
+
+**What the customer is shown is assembled field by field.** A change order record
+carries our labour hours and costing; they are owed the reason, the photographs
+and the number, not our working.
+
+**One decision, and it is final.** A change order that has been answered cannot
+be flipped, because otherwise the record of what a customer agreed to — on a
+document authorising spending their money — is whatever was clicked last.
+
+The email says the thing that matters: *nothing is charged and no work continues
+on this item until you decide.*
+
+## The bug this uncovered, which is the bigger finding
+
+**Quote share links have never worked.** `/quotes/by-token/…` sat behind the auth
+wall, so an anonymous request answered **401** — confirmed against production
+before changing anything. A signing link exists precisely to reach somebody who
+has no account, so every quote link ever sent to a signed-out customer was a dead
+end.
+
+I hardened that token last week — hashed it, gave it an expiry, added revocation,
+stopped it being re-signed — and never checked it was reachable by the person it
+is for. Making a thing secure is not the same as making it work, and I tested one
+and not the other.
+
+Both `by-token` halves are now public at the wall. Issuing a link stays behind
+the wall and behind an administrator check; the token is the credential.
+
+Verified against production: an anonymous read of a bad quote token now answers
+404 "invalid or expired" rather than 401, the change-order equivalent does the
+same, and issuing a link anonymously is still 401.
+
+## Not done
+
+No screen renders the change order to the customer yet — the routes are live and
+the link is emailed, but `/change-order/:token` has no page behind it. That is
+the next piece, and it is a page rather than a decision.
+
+## Checks
+
+Server typecheck 84, unchanged.
