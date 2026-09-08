@@ -475,6 +475,22 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // account here on purpose; the token in the path is the whole credential
     // and the server checks it against a stored hash.
     'architect-review',
+
+    /**
+     * A customer signing a quote, or answering a change order.
+     *
+     * Both are opened from an email by somebody who has no account and is not
+     * going to make one to answer a question about their own house. The token
+     * in the link is the credential — 256 bits, stored as a hash, expiring,
+     * revocable, one decision only.
+     *
+     * `customer-quote-approval` was missing from this list, so a signed-out
+     * customer opening a quote link was told to log in. Together with the
+     * server-side 401 on `/quotes/by-token/`, that made every quote link sent
+     * to somebody without an account a dead end at two separate layers.
+     */
+    'customer-quote-approval',
+    'change-order-approval',
     'shop',
     'store',
     'order-tracking',

@@ -79,6 +79,7 @@ const RevenueMonetizationHub = lazy(() => import("./pages/RevenueMonetizationHub
 const CustomerRegistrationForm = lazy(() => import("./pages/CustomerRegistrationForm"));
 const SupplierManagementHub = lazy(() => import("./pages/SupplierManagementHub"));
 const CustomerQuoteApproval = lazy(() => import("./pages/CustomerQuoteApproval"));
+const ChangeOrderApproval = lazy(() => import("./pages/ChangeOrderApproval"));
 const UserManagementHub = lazy(() => import("./pages/UserManagementHub"));
 const SubscriptionHub = lazy(() => import("./pages/SubscriptionHub"));
 const CohortManagement = lazy(() => import("./pages/CohortManagement"));
@@ -273,6 +274,9 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "supplier-management-hub":    SupplierManagementHub,
   "hr-employee-hub":            HREmployeeHub,
   "customer-quote-approval":    CustomerQuoteApproval,
+  // Opened from an email by a customer with no account, so it takes the same
+  // ?token= form the quote approval page already uses.
+  "change-order-approval":      ChangeOrderApproval,
 
   // Vendors & eCommerce
   "vendors-admin-hub":          VendorsAdminHub,

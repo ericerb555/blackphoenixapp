@@ -3187,3 +3187,53 @@ the next piece, and it is a page rather than a decision.
 ## Checks
 
 Server typecheck 84, unchanged.
+
+## The change order page — and the third layer of the quote-link bug
+
+`ChangeOrderApproval.tsx`, opened from an email by somebody with no account.
+
+### How it is written
+
+It leads with the promise from clause 9 — *we have stopped, nothing is charged,
+nothing continues until you decide* — because the reassurance is what makes the
+rest readable by a person who did not expect this bill.
+
+The photographs are given their own section. A number on its own asks to be
+argued with; a photograph of the rot is the whole case.
+
+**Decline is a real button**, the same size as approve, not a grey link
+underneath it. A change order somebody cannot comfortably refuse is one they
+dispute later, and declining is an ordinary outcome — the work stops there and
+the scope shrinks. An already-answered link shows the answer rather than an
+error.
+
+### The bug went three layers deep
+
+Yesterday I found `/quotes/by-token/` answering 401 behind the auth wall. Wiring
+this page up found the other two:
+
+1. **Server:** the route was behind the auth wall — fixed yesterday.
+2. **Client:** `customer-quote-approval` was not in `publicRoutes`, so a
+   signed-out customer was told *"Please log in to continue."*
+3. **The link itself:** the email said `/quote/<token>`, but `quote` routes to
+   **ServiceScheduling**, and the approval page reads its token from a query
+   parameter rather than the path. So even signed in, the link landed on the
+   scheduling screen, which then found no token.
+
+Any one of the three was fatal. A quote link has never once worked, and I fixed
+the first layer last week while calling that flow hardened. Secure, reachable and
+correctly addressed are three separate tests.
+
+Both links are now `?token=` against a registered page, and both pages are public
+on the client and the server.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: **332 pages** — the whole
+app, since App.tsx changed — 0 threw.
+
+### Still unverified
+
+No real change order has been sent through it. The routes answer correctly to a
+bad token; what has not happened is a real one going out and coming back
+approved.

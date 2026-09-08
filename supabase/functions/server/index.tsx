@@ -4580,7 +4580,15 @@ app.post('/make-server-3eae23a6/quotes/generate-link', async (c) => {
       shareToken: undefined,
       updatedAt: nowIso,
     });
-    const link = `${rentAppUrl()}/quote/${token}`;
+    /**
+     * `/customer-quote-approval?token=…`, not `/quote/<token>`.
+     *
+     * The old form pointed at a path the router resolves to ServiceScheduling,
+     * and the approval page reads its token from a query parameter rather than
+     * the path — so the emailed link landed on the wrong screen, which then
+     * found no token. The third of three reasons a quote link never worked.
+     */
+    const link = `${rentAppUrl()}/customer-quote-approval?token=${token}`;
     /**
      * `approvalUrl` is the name the caller actually reads.
      *
@@ -14207,7 +14215,7 @@ app.post('/make-server-3eae23a6/change-orders/:id/send', async (c) => {
       updatedAt: nowIso,
     });
 
-    const link = `${rentAppUrl()}/change-order/${token}`;
+    const link = `${rentAppUrl()}/change-order-approval?token=${token}`;
     const cost = Number(co.estimatedCost || 0);
     notifyRecipient(to, 'work_request', {
       subject: `Approval needed: ${co.title || co.coNumber} — ${co.projectName || 'your project'}`,
