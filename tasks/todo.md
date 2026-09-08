@@ -2865,3 +2865,50 @@ The customer portal has no bell at all — it has no Bell button to repair, so
 adding one is a placement decision rather than a repair. And nothing yet
 notifies on a bid being **won or lost**, which is the moment a subcontractor
 most wants to hear about.
+
+## Awarding a bid now tells the people who bid
+
+The last gap in the loop: job list → invitation → bid → **award**.
+
+### What it was
+
+Three Supabase calls made from the browser — mark the bid won, mark the others
+lost, mark the request awarded. They worked, and row-level security kept them
+honest. What a browser cannot do is send anything, so the winner found out by
+signing in and noticing a word had changed, and **the companies who lost were
+never told at all**. A losing bidder is holding crew dates against a job they are
+not getting; not telling them is both discourteous and a reason they stop
+bidding.
+
+### What it is
+
+`POST /bid-room/award` does the same three writes **with the caller's own
+token**, so the policies that guarded the browser version guard this one — the
+route adds the telling, not authority. Notification cannot be a step somebody
+skips, so the award and the message are one action.
+
+- The winner is told they won, and for how much.
+- Every unsuccessful bidder is told, and **the winning price is deliberately
+  absent**. What another company bid is theirs. A losing bidder needs to know to
+  release the dates, not what they were beaten by.
+- Awarding a job that is already awarded to somebody else is refused, because
+  the alternative is telling a second company they won the same work.
+- Contact addresses are read with the service client — the caller's own
+  permissions deliberately cannot read a competitor's organisation, and the
+  losers' addresses are needed precisely because they are not the caller's.
+- A message that fails does not undo the award, and one failure does not stop
+  the rest being told.
+
+### A correction
+
+Mid-change the server count read 90 against a baseline of 84, and I first read
+the difference as six errors in unrelated stub files. It was not: the stub errors
+appear in both lists and the diff had simply sorted them differently. All six
+were mine — `new Map(rows.map(...))` infers `Map<any, unknown>`, so every
+`orgById.get(...)?.email` was a property access on `unknown`. Typing the map
+fixed it. Worth recording because "the errors are somewhere else" was a
+comfortable read and a wrong one.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 5 pages, 0 threw.

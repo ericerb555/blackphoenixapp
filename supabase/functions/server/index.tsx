@@ -3578,6 +3578,137 @@ function userScopedClient(c: any) {
   );
 }
 
+/**
+ * POST /bid-room/award — award a bid, and tell everybody who bid.
+ *
+ * WHY THIS MOVED OFF THE CLIENT
+ *
+ * The award was three Supabase calls made from the browser: mark the bid won,
+ * mark the others lost, mark the request awarded. They worked, and row-level
+ * security kept them honest. What they could not do is send anything — so a
+ * subcontractor learned they had won by signing in and noticing the word
+ * change, and the ones who lost were never told at all. Losing bidders are
+ * holding crew availability against a job they are not getting; not telling them
+ * is both discourteous and a reason they stop bidding.
+ *
+ * Notification cannot be a step the caller might skip, so the award and the
+ * telling are one route.
+ *
+ * PERMISSION IS STILL THE DATABASE'S ANSWER
+ *
+ * Every write goes through a client carrying the caller's own token, so the same
+ * policies that guarded the browser version guard this one. The route adds the
+ * notifying; it does not add authority.
+ */
+app.post('/make-server-3eae23a6/bid-room/award', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const requestId = String(body.bidRequestId || '').trim();
+    const bidId = String(body.bidId || '').trim();
+    if (!requestId || !bidId) {
+      return c.json({ success: false, error: 'A bid request and a bid are required.' }, 400);
+    }
+
+    const asUser = userScopedClient(c);
+
+    // The request, seen through the caller's own permissions.
+    const { data: reqRows, error: reqErr } = await asUser
+      .from('bid_requests').select('id, org_id, title, trade, status, awarded_bid_id').eq('id', requestId);
+    if (reqErr) return c.json({ success: false, error: reqErr.message }, 400);
+    const request = reqRows?.[0];
+    if (!request) return c.json({ success: false, error: 'That bid request was not found.' }, 404);
+
+    // Awarding twice would tell a second company they had won the same job.
+    if (request.status === 'awarded' && request.awarded_bid_id && request.awarded_bid_id !== bidId) {
+      return c.json({
+        success: false,
+        error: 'This job has already been awarded to someone else. Withdraw that award first.',
+      }, 409);
+    }
+
+    const { data: allBids, error: bidsErr } = await asUser
+      .from('bids').select('id, org_id, amount, status').eq('bid_request_id', requestId);
+    if (bidsErr) return c.json({ success: false, error: bidsErr.message }, 400);
+    const winner = (allBids || []).find((b: any) => b.id === bidId);
+    if (!winner) return c.json({ success: false, error: 'That bid is not on this request.' }, 404);
+
+    // The write RLS actually gates. If the caller does not own the request,
+    // nothing comes back and nothing below happens.
+    const { data: wonRows, error: wonErr } = await asUser.from('bids')
+      .update({ status: 'won', updated_at: new Date().toISOString() }).eq('id', bidId).select();
+    if (wonErr) return c.json({ success: false, error: wonErr.message }, 400);
+    if (!wonRows?.length) {
+      return c.json({ success: false, error: 'You do not have permission to award this bid.' }, 403);
+    }
+
+    const losers = (allBids || []).filter((b: any) => b.id !== bidId && b.status === 'submitted');
+    if (losers.length) {
+      await asUser.from('bids')
+        .update({ status: 'lost', updated_at: new Date().toISOString() })
+        .in('id', losers.map((b: any) => b.id));
+    }
+    await asUser.from('bid_requests')
+      .update({ status: 'awarded', awarded_bid_id: bidId, updated_at: new Date().toISOString() })
+      .eq('id', requestId);
+
+    /**
+     * Telling them, which is the point.
+     *
+     * Contact addresses are read with the service client because the caller's
+     * own permissions deliberately do not let them read a competitor's
+     * organisation — and the losers' addresses are needed precisely because they
+     * are not the caller's own org.
+     */
+    const orgIds = [winner.org_id, ...losers.map((b: any) => b.org_id)];
+    const { data: orgs } = await supabase
+      .from('organizations').select('id, name, email').in('id', orgIds);
+    // Typed explicitly: `new Map(rows.map(...))` infers `Map<any, unknown>`, so
+    // every `orgById.get(...)?.email` below becomes a property access on
+    // `unknown` and the whole notify block stops typechecking.
+    const orgById = new Map<string, { id: string; name: string; email: string }>(
+      (orgs || []).map((o: any) => [String(o.id), o]),
+    );
+    const company = resolveCompanyName();
+    const notified = { won: false, lost: 0 };
+
+    const winnerOrg = orgById.get(winner.org_id);
+    if (winnerOrg?.email) {
+      try {
+        await notifyRecipient(String(winnerOrg.email).toLowerCase(), 'bid', {
+          subject: `You won: ${request.title}`,
+          text: `${company} has awarded "${request.title}" to ${winnerOrg.name}.`
+            + ` Your bid of $${Number(winner.amount || 0).toLocaleString()} was accepted.`
+            + ` We will be in touch with the schedule and the paperwork.`,
+        });
+        notified.won = true;
+      } catch { /* the award stands whether or not the message got out */ }
+    }
+
+    for (const b of losers) {
+      const org = orgById.get(b.org_id);
+      if (!org?.email) continue;
+      try {
+        await notifyRecipient(String(org.email).toLowerCase(), 'bid', {
+          subject: `Not this time: ${request.title}`,
+          // The winning price is deliberately absent. What another company bid
+          // is theirs, and a losing bidder needs to know to release the dates,
+          // not what they were beaten by.
+          text: `${company} has awarded "${request.title}" to another provider.`
+            + ` Thank you for pricing it — you can release the dates you were holding.`
+            + ` We will send the next one that suits your trade.`,
+        });
+        notified.lost++;
+      } catch { /* one failure must not stop the rest being told */ }
+    }
+
+    console.log(`[Exchange] awarded ${requestId} to ${winner.org_id}; told ${notified.lost} unsuccessful bidder(s)`);
+    return c.json({ success: true, awardedTo: winnerOrg?.name || winner.org_id, notified });
+  } catch (error: any) {
+    console.error('[Exchange] award failed:', error);
+    return c.json({ success: false, error: error?.message || 'Could not award that bid.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
   try {
     const actor = await intakeActor(c);

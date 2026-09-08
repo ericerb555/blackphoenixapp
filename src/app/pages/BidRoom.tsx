@@ -501,23 +501,42 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
     }
   };
 
+  /**
+   * Award the job, and tell everyone who bid.
+   *
+   * This used to be three Supabase calls made straight from here — mark the bid
+   * won, mark the others lost, mark the request awarded. They worked, and RLS
+   * kept them honest. What a browser cannot do is send anything, so the winner
+   * found out by signing in and noticing the word change, and the companies who
+   * lost were never told at all. A losing bidder is holding crew dates for a job
+   * they are not getting.
+   *
+   * The route does the same three writes with the caller's own token, so the
+   * permissions are unchanged, and does the telling as part of the same action
+   * rather than as a step somebody might skip.
+   */
   const awardBid = async (request: BidRequest, bid: Bid) => {
     try {
-      const { error: bidErr, data: bidRows } = await supabase.from('bids')
-        .update({ status: 'won', updated_at: new Date().toISOString() }).eq('id', bid.id).select();
-      if (bidErr) throw bidErr;
-      if (!bidRows?.length) throw new Error('You do not have permission to award this bid.');
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-room/award`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ bidRequestId: request.id, bidId: bid.id }),
+        },
+      );
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || `The server responded ${res.status}`);
 
-      const losers = bidsFor(request.id).filter(b => b.id !== bid.id && b.status === 'submitted');
-      if (losers.length) {
-        await supabase.from('bids').update({ status: 'lost' }).in('id', losers.map(b => b.id));
-      }
-      const { error: reqErr } = await supabase.from('bid_requests')
-        .update({ status: 'awarded', awarded_bid_id: bid.id, updated_at: new Date().toISOString() })
-        .eq('id', request.id);
-      if (reqErr) throw reqErr;
-
-      toast.success(`Awarded to ${orgNames[bid.org_id] || 'the selected bidder'}.`);
+      const told = payload.notified?.lost || 0;
+      toast.success(
+        `Awarded to ${payload.awardedTo || orgNames[bid.org_id] || 'the selected bidder'}.`
+        + (told ? ` ${told} unsuccessful bidder${told === 1 ? '' : 's'} told.` : ''),
+      );
       await load();
     } catch (err: any) {
       console.error('[Exchange] awardBid:', err);
