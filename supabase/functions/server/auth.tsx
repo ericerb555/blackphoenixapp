@@ -239,10 +239,38 @@ const getSupabaseClient = () => {
 // Sign up endpoint
 authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
   try {
-    const { email, password, full_name, role = "client" } = await c.req.json();
+    const { email, password, full_name } = await c.req.json();
+
+    /**
+     * The role is NOT taken from the request. It never was safe to.
+     *
+     * THE HOLE THIS CLOSES
+     *
+     * `/auth/` is on the public prefix list, so this route answers anyone on the
+     * internet with no session at all. It used to read `role` out of the body,
+     * defaulting to "client", and hand it to `setPermissions`, which writes
+     * `role_name` and — for "master_admin" — `permissions: { all: true }`.
+     *
+     * `/admin/users` and `/auth/me` in this same file read exactly those fields
+     * back as their admin check. So an anonymous POST asking for
+     * `role: "master_admin"` produced an account that could sign in and list
+     * every user in the system. That was confirmed against production, not
+     * reasoned about: the probe account came back with
+     * `role: master_admin, permissions: { all: true }` and a 200 from
+     * `/admin/users` carrying real people's records.
+     *
+     * Self-registration grants the lowest role there is, always. Anything above
+     * a client is granted by an invitation or an approval — paths that require
+     * an administrator to already be signed in.
+     */
+    const role = "client";
 
     if (!email || !password) {
       return c.json({ error: "Email and password are required" }, 400);
+    }
+    // A password floor, since this route creates a real, confirmed account.
+    if (String(password).length < 8) {
+      return c.json({ error: "Password must be at least 8 characters" }, 400);
     }
 
     const supabase = getSupabaseAdmin();
@@ -280,10 +308,13 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
     // Assign default role (client by default) (KV store)
     try {
       await setPermissions(userId, {
+        // All four values are constants now, because `role` is. The ternaries
+        // that used to be here read the caller's requested role and are exactly
+        // what turned a public signup into an administrator.
         role_name: role,
-        display_name: role.charAt(0).toUpperCase() + role.slice(1),
-        level: role === "master_admin" ? 1 : role === "admin" ? 2 : role === "manager" ? 3 : 4,
-        permissions: role === "master_admin" ? { all: true } : {},
+        display_name: "Client",
+        level: 4,
+        permissions: {},
       });
     } catch (roleError) {
       console.error("Role assignment error:", roleError);

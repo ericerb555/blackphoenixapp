@@ -2404,3 +2404,69 @@ supply.
 ## Checks
 
 Server typecheck 84, unchanged.
+
+---
+
+# Signups, and a critical hole found while fixing them
+
+## What Eric asked for
+
+The SMTP fixed so signups work. The SMTP itself is Supabase Auth configuration
+in the dashboard, which I cannot reach — but it turned out not to be the right
+fix anyway.
+
+## Why it was not an SMTP problem
+
+`supabase.auth.signUp` asks **Supabase Auth's own SMTP** to send a confirmation
+email. That is a different thing from the `RESEND_API_KEY` this application sends
+all its other mail with. Auth's SMTP is unconfigured, so signup returned
+`500 — "Error sending confirmation email"` and created no account.
+
+The invitation path never had this problem, which is why it went unnoticed:
+`ensureAuthUser` creates accounts server-side with `email_confirm: true` and
+sends the invite through Resend. So invited vendors and subcontractors could
+always get in. **My earlier note said an invited vendor might never be able to
+register — that was wrong, and this corrects it.** It was self-registration that
+was broken.
+
+`/auth/signup` already existed and already did the right thing. Registration now
+goes through it and signs in immediately, with no Auth SMTP anywhere in the path.
+
+**Named trade-off:** nothing now proves the person owns the address they typed.
+The account is a plain client with no privileges. Configuring custom SMTP in the
+Auth settings would restore real verification — Resend works for this: host
+`smtp.resend.com`, port 587, username `resend`, password the existing
+`RESEND_API_KEY`, sender `team@send.theblackphoenixcompany.com`, which is already
+the verified sending domain. That is a five-minute dashboard change and worth
+doing.
+
+## The critical part
+
+`/auth/` is on the **public** prefix list, so `/auth/signup` answers anyone with
+no session. It read `role` out of the request body and passed it to
+`setPermissions`, which writes `role_name` and, for `master_admin`,
+`permissions: { all: true }`. `/admin/users` and `/auth/me` in the same file read
+exactly those fields back as their admin check.
+
+Confirmed against production rather than reasoned about:
+
+    POST /auth/signup  {"role":"master_admin"}      → 200, account created
+    POST /auth/v1/token                             → signed in
+    GET  /auth/me    → role master_admin, permissions {all:true}
+    GET  /admin/users → 200, every user in the system
+
+An anonymous request from anywhere on the internet made itself an administrator
+and read the whole user list.
+
+Fixed: self-registration grants `client`, always. The role is not read from the
+request at all, and the level and permissions that were computed from it are now
+constants. Re-run after deploying: same request gives `role: "client"`,
+`permissions: {}`, and `/admin/users` answers **403**.
+
+**Audited for prior exploitation.** Only the two probe accounts I created had
+permission records at all. No real account carries a self-assigned role, so this
+was never used against the project. Both probes deleted.
+
+## Checks
+
+Server typecheck 84, app 324, both unchanged. Smoke: 103 pages, 0 threw.

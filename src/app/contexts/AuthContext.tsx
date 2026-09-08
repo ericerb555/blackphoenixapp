@@ -340,10 +340,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile?: { fullName?: string; phone?: string; accountType?: string }
   ) => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+      /**
+       * Registration goes through our own server, not `supabase.auth.signUp`.
+       *
+       * WHY IT HAD TO MOVE
+       *
+       * `supabase.auth.signUp` asks Supabase Auth to send a confirmation email
+       * over ITS OWN SMTP, which is a different thing from the `RESEND_API_KEY`
+       * this application sends all its other mail with. That SMTP is not
+       * configured, so signup returned
+       * `500 unexpected_failure — "Error sending confirmation email"` and **no
+       * account was created**. Public registration was completely broken, and
+       * four of the eight real accounts on the project sit unconfirmed for the
+       * same reason.
+       *
+       * `/auth/signup` creates the account server-side with the service role and
+       * `email_confirm: true` — exactly what the invitation flow already does,
+       * which is why invited users could always get in while self-registration
+       * could not. No Auth SMTP is involved anywhere in the path.
+       *
+       * A trade-off worth naming: nothing proves the person owns the address
+       * they typed. The account is a plain client with no privileges, and the
+       * server refuses to grant anything more, so the exposure is somebody
+       * registering under an address that is not theirs. Configuring custom SMTP
+       * in the Auth settings would restore real verification; until then this is
+       * a working signup rather than a broken one.
+       */
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/signup`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+          body: JSON.stringify({ email, password, full_name: profile?.fullName }),
+        },
+      );
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) {
+        return { error: new Error(payload?.error || 'Sign up failed. Please try again.') };
+      }
+
+      // Signed in straight away — the account is already confirmed, so there is
+      // nothing to wait for and no email to chase.
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         return { error };
       }
