@@ -141,7 +141,8 @@ export default function VendorApiFeed({ vendorId, apiBase, headers }: Props) {
             </h2>
             <p className="mt-1 text-sm text-gray-400">
               Point us at the endpoint your catalogue comes from and we will pull it in.
-              No API? Upload a price list instead — it ends up in the same place.
+              Tell us where to send orders and we will do that too. No API? Upload a price
+              list and take orders by email — both end up in the same place.
             </p>
           </div>
           <span className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
@@ -165,6 +166,73 @@ export default function VendorApiFeed({ vendorId, apiBase, headers }: Props) {
               Must be https. It has to return the catalogue as JSON.
             </span>
           </label>
+
+          {/* ── Receiving orders, which is optional ───────────────────────
+              Plenty of suppliers will happily hand over a price list and have
+              no way to take an order over an API. Leaving this blank is a
+              normal answer, not an unfinished setup, so it says so. */}
+          <label className="md:col-span-2">
+            <span className="mb-1 block text-xs text-gray-400">
+              Purchase order endpoint <span className="text-gray-600">— optional</span>
+            </span>
+            <input
+              className={input} type="url" placeholder="https://api.yoursystem.com/v1/orders"
+              value={feed?.orderEndpoint || ''}
+              onChange={(e) => setFeed({ ...feed, orderEndpoint: e.target.value })}
+            />
+            <span className="mt-1 block text-[11px] text-gray-600">
+              If your system can accept a purchase order, we will POST it here as JSON
+              using the same key. Leave it blank and we will email your orders instead —
+              that works perfectly well and most suppliers prefer it.
+            </span>
+          </label>
+
+          {feed?.orderEndpoint && (
+            <p className="md:col-span-2 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3 text-[11px] text-gray-400">
+              {/* Stated plainly, because a "test" button is the obvious thing to
+                  expect here and its absence is deliberate. */}
+              <span className="font-semibold text-gray-300">There is no test button for this one.</span>{' '}
+              Testing it would mean POSTing an order to your live system, which could
+              create a real one. The first purchase order we send reports exactly what
+              your endpoint replied, and if it fails the order stays a draft on our side
+              until it goes through.
+            </p>
+          )}
+
+          {feed?.orderEndpoint && (
+            <details className="md:col-span-2 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+              <summary className="cursor-pointer text-[11px] font-semibold text-gray-300">
+                What we will POST — give this to whoever builds your endpoint
+              </summary>
+              {/* The real shape, so a vendor's developer can build against it
+                  without asking. It is what `deliverablePurchaseOrder` emits. */}
+              <pre className="mt-2 overflow-x-auto text-[10px] leading-relaxed text-gray-400">{`{
+  "poNumber":   "PO-260907-GRA",
+  "issuedAt":   "2026-09-07T14:02:11.000Z",
+  "currency":   "usd",
+  "buyer":      { "name": "...", "contact": "orders@..." },
+  "fulfillment":"delivery" | "pickup",
+  "neededBy":   "2026-10-01" | null,
+  "shipTo":     "12 Elm St, Nashua NH",
+  "reference":  "Sutton deck rebuild",
+  "lines": [
+    { "name": "2x8-16 PT joist", "sku": "PT-2816",
+      "unit": "ea", "quantity": 24,
+      "unitPrice": 14.2, "lineTotal": 340.8 }
+  ],
+  "itemCount": 1,
+  "total": 340.8
+}`}</pre>
+              <p className="mt-2 text-[11px] text-gray-500">
+                Sent with an <code className="text-gray-400">Idempotency-Key</code> header of{' '}
+                <code className="text-gray-400">bp-po-&lt;poNumber&gt;</code>, so if you receive the
+                same order twice you can tell. Answer 2xx to accept. Anything else is
+                treated as a failure and your response body is shown to our team, so a
+                clear error message there saves a phone call. The endpoint must accept the
+                request directly — we will not follow a redirect on an order.
+              </p>
+            </details>
+          )}
 
           <label>
             <span className="mb-1 block text-xs text-gray-400">How your key is sent</span>

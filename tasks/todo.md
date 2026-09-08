@@ -2782,3 +2782,30 @@ App typecheck 324, server 84, both unchanged. Smoke: 5 pages, 0 threw.
 Not verified against a real vendor system. The email road can be tried today
 against any vendor with an address on file; the API road needs a supplier
 endpoint that accepts orders.
+
+## The order endpoint is now something a vendor can actually set
+
+The server accepted `orderEndpoint` but nothing in the portal offered it, so a
+vendor had no way to say "yes, we can take orders over an API". It is on the
+connection screen now, marked optional, alongside the catalogue endpoint and
+sharing the same key.
+
+**Blank is a real answer.** Plenty of suppliers will hand over a price list and
+have no way to receive an order programmatically, so the field says leaving it
+empty means orders arrive by email and that this is what most suppliers prefer —
+rather than looking like an unfinished setup.
+
+**There is deliberately no test button for it**, and the screen says why: testing
+would mean POSTing an order to their live system, which could create a real one.
+The first purchase order reports exactly what their endpoint replied, and a
+failure leaves the order a draft on our side.
+
+**The payload shape is published in the panel**, collapsed, so whoever builds
+their endpoint can work from it without asking — along with the
+`Idempotency-Key` they will receive, that 2xx means accepted, that their error
+body is shown to our team so a clear message saves a phone call, and that we
+will not follow a redirect on an order.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 12 pages, 0 threw.
