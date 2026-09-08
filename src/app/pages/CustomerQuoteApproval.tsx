@@ -861,8 +861,82 @@ export default function CustomerQuoteApproval() {
             <p><strong className="text-white">6. PERMITS & INSPECTIONS:</strong> Contractor will obtain all necessary permits. Work will be performed to code and subject to inspection.</p>
             <p><strong className="text-white">7. INSURANCE:</strong> Contractor maintains general liability and workers' compensation insurance.</p>
             <p><strong className="text-white">8. CANCELLATION:</strong> Either party may cancel with 48 hours written notice. Deposit is non-refundable after materials are ordered.</p>
+
+            {/*
+              Clauses 9 and 10 are the ones that decide who pays when a job
+              turns out to be different from the job that was quoted.
+
+              WHY THEY ARE WRITTEN THIS WAY
+
+              "Any extra cost is yours" on its own is the weak version. A
+              concealed-conditions clause is worth having when it is specific
+              about what counts, and when it obliges us to stop, show the
+              customer what we found, price it, and get approval before
+              spending their money. That sequence is what makes it fair, what
+              makes it hold up, and what stops the argument happening at the
+              end of the job instead of at the moment of discovery.
+
+              The numbers — 30 days, 5%, $250 — are commercial choices, not
+              legal requirements, and are meant to be adjusted.
+            */}
+            <p><strong className="text-white">9. CONCEALED AND UNFORESEEN CONDITIONS:</strong> This quote is based on the
+              conditions that were visible and accessible when it was prepared. Renovation and repair work regularly
+              uncovers conditions that could not be seen beforehand — rot, water or insect damage behind finishes;
+              failed, undersized or missing structure; wiring, plumbing or venting that is unsafe or not to code;
+              asbestos, lead or mould; unmarked or mislocated utilities; and existing work that must be brought up to
+              current code before an inspector will pass ours.{' '}
+              <strong className="text-white">If we find such a condition we will stop work in that area, tell you in
+              writing what we found and what it will cost to put right, and wait for your written approval before
+              continuing.</strong> Work elsewhere carries on where it is safe to do so. The cost of correcting a
+              concealed condition is not included in this quote and is the responsibility of the owner. Black Phoenix
+              does not carry the cost of conditions that could not have been seen at the time of quoting.</p>
+
+            <p><strong className="text-white">10. MATERIAL PRICES:</strong> Quoted material prices are held for 30 days
+              from the date of this quote. Beyond that, and where a supplier raises a price after the quote is signed,
+              the documented difference is passed through at cost — we will show you the supplier's invoice or
+              quotation, and we add no markup to an increase. Where an increase on a single item is more than 5% or
+              $250, whichever is greater, we will tell you before ordering, and you may approve it, choose an
+              alternative, or remove the item from the scope.</p>
           </div>
         </div>
+
+        {/*
+          Said in plain words, immediately above the signature.
+
+          Clauses 9 and 10 sit inside a scrolling box with eight others, and the
+          one point a customer most needs to have actually understood is the one
+          about who pays when the wall comes off. An unread clause is a disputed
+          clause — the argument happens at the end of the job, when somebody is
+          holding an invoice they were not expecting. Saying it here, briefly and
+          without legal furniture, is what stops that.
+
+          It repeats rather than replaces the terms above; nothing here is the
+          operative text.
+        */}
+        {!approved && !alreadySigned && (
+          <div className="bg-[#1A1A1A] border border-amber-500/30 rounded-2xl p-6 mb-6">
+            <h3 className="flex items-center gap-2 text-lg font-bold text-white">
+              <AlertCircle className="w-5 h-5 text-amber-400" />
+              Before you sign — what could change this price
+            </h3>
+            <p className="mt-2 text-gray-300">
+              This price covers what we could see. On a renovation, taking a wall or a floor
+              apart sometimes reveals things nobody could have known were there — rot behind a
+              finish, wiring that is not to code, structure that has failed.
+            </p>
+            <p className="mt-2 text-gray-300">
+              <strong className="text-white">If that happens, we stop and show you</strong> what
+              we found and what it costs before we spend a penny of your money on it. You decide
+              whether to go ahead. What we will not do is absorb the cost of a problem that was
+              hidden when we quoted — and we will not quietly add it to your bill either.
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Material prices are held for 30 days. After that, any documented supplier increase is
+              passed on at cost with no markup, and anything over 5% or $250 comes to you first.
+              Clauses 9 and 10 above are the full terms.
+            </p>
+          </div>
+        )}
 
         {/* ── E-SIGNATURE SECTION ── */}
         {approved || alreadySigned ? (

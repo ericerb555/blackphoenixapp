@@ -3071,3 +3071,62 @@ avoids a second DST-aware schedule.
 ### Checks
 
 Server typecheck 84, unchanged. 60/60 on `compliance`.
+
+---
+
+# Concealed conditions and price movement, in the terms
+
+Eric: cover the case where hidden problems appear during a build, prices move,
+and the company should not carry that cost.
+
+## Two clauses, not one
+
+**9. Concealed and unforeseen conditions.** Names what actually counts — rot,
+water and insect damage behind finishes; failed, undersized or missing
+structure; unsafe or non-compliant wiring, plumbing and venting; asbestos, lead
+and mould; unmarked utilities; and existing work that has to be brought to code
+before an inspector will pass ours.
+
+**10. Material prices.** Prices held 30 days. Beyond that, a documented supplier
+increase is passed through **at cost with no markup**, with the supplier's own
+invoice shown. Anything over 5% or $250 on a single item comes to the customer
+before it is ordered.
+
+## Why it is written this way
+
+"Any extra cost is yours" on its own is the weak version of this clause. What
+makes a concealed-conditions term worth having — and what makes it stand up — is
+the sequence it obliges us to follow: **stop, show them what we found, price it,
+and get written approval before spending their money.** Work elsewhere carries on
+meanwhile.
+
+That is also the commercially better clause. It moves the argument to the moment
+of discovery, where there is a photograph of the rot and a number, instead of to
+the end of the job where somebody is holding an invoice they were not expecting.
+And "no markup on an increase" is worth saying out loud: it is the sentence that
+stops a customer suspecting the escalation clause is a margin device.
+
+## Said again in plain words above the signature
+
+The full clauses sit in a scrolling box with eight others. The one point a
+customer most needs to have genuinely understood is who pays when the wall comes
+off — and an unread clause is a disputed clause. So there is a short, plain
+statement immediately above the signature: this price covers what we could see;
+if something is hidden we stop and show you before spending your money; we will
+not absorb it and we will not quietly add it to your bill either. It repeats the
+terms rather than replacing them.
+
+## Two things for Eric
+
+**The numbers are commercial choices, not legal ones.** 30 days, 5%, $250 — all
+easy to find in the file and meant to be changed to whatever he actually wants.
+
+**Worth one pass by an attorney before it is used in anger.** It is written to be
+clear and fair rather than clever, which is usually what survives, but this is
+the text that decides who pays in a dispute and it is cheap to have read.
+
+## Checks
+
+App typecheck 324, unchanged — the two findings in this file are pre-existing, on
+a line the change does not touch. Smoke: 5 pages, 0 threw. There is only one copy
+of these terms in the codebase, so nothing else needed the same edit.
