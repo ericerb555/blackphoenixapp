@@ -2470,3 +2470,71 @@ was never used against the project. Both probes deleted.
 ## Checks
 
 Server typecheck 84, app 324, both unchanged. Smoke: 103 pages, 0 threw.
+
+---
+
+# What the portals still need
+
+Checked against the code, not guessed, and separated into "showing invented
+data" and "genuinely missing".
+
+## Showing invented data
+
+**Subcontractor — the whole job list.** `BID_ROOM_JOBS` and `OPEN_JOBS` are
+literal arrays in `SubcontractorPortal.tsx`. A subcontractor signs in and sees
+"Master Bathroom Renovation, Dallas TX" and "Office HVAC Installation, due
+2024-02-15" — three invented jobs, two of them with 2024 dates. They can bid on
+them, and the bid is stored for real, against a job that does not exist.
+
+This is the largest gap in the whole system, and it is worse than it looks:
+**there are two bid systems and the portal uses the wrong one.** The structured
+bid room — `bid_requests`, `bid_invitations`, `bid_request_lines` with RLS in
+Postgres, built for line-by-line pricing and awards — is not connected to this
+portal at all. What the portal calls is `/subcontractor/bids`, where the sub
+supplies `jobId` themselves as free text.
+
+So a subcontractor has no way to see real work, and the office has no way to put
+real work in front of them.
+
+**Condo manager — dues.** `DUES.map(...)` renders a hardcoded array.
+
+**Property manager — three dead constants.** `WORK_REQUESTS`, `PROPERTIES` and
+`PAYMENTS` are declared and never rendered. Harmless, but they should go before
+somebody wires them up believing they are real.
+
+## Genuinely real, verified live
+
+**Vendor** has no hardcoded arrays at all — every figure comes from an endpoint,
+confirmed by signing in. **Customer** likewise, apart from `DEFAULT_NOTICES`
+which is a fallback. The `_OPPS` arrays in the landlord, condo and
+property-manager portals are reference content — revenue ideas with NH statute
+notes — not data pretending to be live, and should stay.
+
+## Genuinely missing
+
+**Vendor**
+- Nothing tells them a purchase order has arrived. Every portal is pull-only;
+  there is no notification anywhere.
+- They receive purchase orders but can never quote first — there is no RFQ step,
+  so pricing only ever comes from their catalogue.
+- The catalogue has no deactivate, no bulk remove, no export. Import is
+  one-directional.
+- An unlinked vendor is told they are unlinked and given nothing to do about it.
+
+**Subcontractor**
+- Real jobs to bid on (above).
+- Being told they won. There is no award notification and no route from a won
+  bid to the work appearing in their portal.
+- Payment visibility — what is owed, what has been paid.
+- Insurance and licence expiry, which is the thing that actually stops a sub
+  working on a site.
+
+**Customer**
+- The loop back from a sent design. They can send one now; nothing shows them
+  the quote it produced.
+- When the crew is coming. No schedule or appointment anywhere.
+- Change orders — no way to see or approve one, though the field app raises them.
+
+**All portals**
+- Notifications. Nothing is ever pushed; everything must be found by looking.
+- Nothing explains what to do when an account is not linked to its record.
