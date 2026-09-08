@@ -225,10 +225,11 @@ const TIMEOUT_MS = 20_000;
  */
 export async function safeFetch(
   raw: string,
-  init: { headers?: Record<string, string> } = {},
+  init: { headers?: Record<string, string>; method?: string; body?: string } = {},
 ): Promise<SafeFetchResult> {
   let target = raw;
   let dnsChecked = true;
+  const method = (init.method || 'GET').toUpperCase();
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const verdict = inspectUrl(target);
@@ -244,7 +245,9 @@ export async function safeFetch(
     const timer = AbortSignal.timeout ? AbortSignal.timeout(TIMEOUT_MS) : undefined;
     try {
       res = await fetch(verdict.url.toString(), {
+        method,
         headers: { Accept: 'application/json', ...(init.headers || {}) },
+        body: method === 'GET' || method === 'HEAD' ? undefined : init.body,
         redirect: 'manual',
         signal: timer,
       });
@@ -253,6 +256,22 @@ export async function safeFetch(
     }
 
     if (res.status >= 300 && res.status < 400) {
+      /**
+       * A redirect is followed on a read and refused on a write.
+       *
+       * Following one on a POST means re-sending the body to wherever the first
+       * host pointed — so a vendor whose order endpoint redirects would have our
+       * purchase order, with its prices and quantities, delivered to a third
+       * address of their choosing. Reading a catalogue from a redirect is
+       * harmless; sending an order to one is handing over data.
+       */
+      if (method !== 'GET' && method !== 'HEAD') {
+        return {
+          ok: false,
+          error: 'That endpoint redirected. An order endpoint must accept the request directly.',
+          dnsChecked,
+        };
+      }
       const location = res.headers.get('location');
       if (!location) return { ok: false, error: 'That endpoint redirected to nowhere.', dnsChecked };
       // Relative redirects are resolved against the hop we are on, then checked

@@ -168,6 +168,8 @@ import designStandardsRouter from "./design-standards.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
+import { safeFetch } from "./outboundGuard.ts";
+import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
@@ -13597,6 +13599,120 @@ app.post('/make-server-3eae23a6/quotes/:id/revoke-link', async (c) => {
     return c.json({ success: true, revokedAt: now });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || 'Unable to revoke that link.' }, 500);
+  }
+});
+
+/**
+ * POST /purchase-orders/:id/send — actually tell the vendor.
+ *
+ * WHAT WAS MISSING
+ *
+ * `purchase-orders/from-materials` created the order as a draft and stopped.
+ * Nothing emailed the supplier and nothing called their system, so an order
+ * existed in our store and the only way they learned of it was by opening their
+ * portal and noticing. An order nobody has been told about is not an order.
+ *
+ * TWO ROADS, ONE OF THEM ALWAYS AVAILABLE
+ *
+ * If the vendor registered an order endpoint on their connection, the purchase
+ * order is POSTed to it through the outbound guard — the same protection the
+ * catalogue pull uses, and it matters more here because a POST carries our data
+ * outward. If they have not, it goes by email, which is what most suppliers
+ * actually want and needs nothing of them.
+ *
+ * SENDING TWICE IS NOT A DUPLICATE MESSAGE
+ *
+ * It is potentially a second delivery of physical materials to a site. An order
+ * already sent is refused unless `resend` is asked for explicitly, so a double
+ * click cannot do it.
+ */
+app.post('/make-server-3eae23a6/purchase-orders/:id/send', async (c) => {
+  const refused = await requirePurchaseOrderCompany(c);
+  if (refused) return refused;
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email || !await intakeIsAdmin(actor)) {
+      return c.json({ success: false, error: 'Administrator access is required to send a purchase order.' }, 403);
+    }
+
+    const id = c.req.param('id');
+    const order = await kv.get(`purchase_order:${id}`) as any;
+    if (!order) return c.json({ success: false, error: 'Purchase order not found.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    if (alreadyDelivered(order) && !body.resend) {
+      return c.json({
+        success: false,
+        error: `This order was already sent ${order.delivery?.at ? `on ${String(order.delivery.at).slice(0, 10)}` : ''}. Send it again only if the vendor did not receive it.`,
+        delivery: order.delivery,
+      }, 409);
+    }
+
+    const vendor = order.vendorId ? await kv.get(`vendor:${order.vendorId}`) as any : null;
+    const payload = deliverablePurchaseOrder(order, {
+      name: resolveCompanyName(),
+      // The company's ordering address, not the individual who pressed the
+      // button — a supplier should reply to the business.
+      contact: Deno.env.get('ORDERS_EMAIL') || Deno.env.get('APP_FROM_EMAIL') || actor.email,
+    });
+
+    const feed = order.vendorId ? await kv.get(`vendor_feed:${order.vendorId}`) as any : null;
+    let delivery: any;
+
+    if (feed?.orderEndpoint) {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (feed.apiKey) {
+        if (feed.authStyle === 'bearer') headers.Authorization = `Bearer ${feed.apiKey}`;
+        else if (feed.authStyle === 'header') headers[feed.authName || 'X-API-Key'] = feed.apiKey;
+      }
+      // A stable key so a vendor who receives the same order twice can tell it
+      // is the same one. Theirs to use; ours to send consistently.
+      headers['Idempotency-Key'] = `bp-po-${order.poNumber || id}`;
+
+      const result = await safeFetch(feed.orderEndpoint, {
+        method: 'POST', headers, body: JSON.stringify(payload),
+      });
+      delivery = result.error
+        ? { state: 'failed', channel: 'api', at: new Date().toISOString(), detail: result.error }
+        : deliveryFromResponse(result.status, result.ok, result.body || '');
+    } else {
+      const to = String(vendor?.contactEmail || vendor?.email || '').toLowerCase();
+      if (!to) {
+        return c.json({
+          success: false,
+          error: 'That vendor has no API endpoint and no email address on file, so there is nowhere to send this.',
+        }, 400);
+      }
+      await notifyRecipient(to, 'work_request', {
+        subject: `Purchase order ${payload.poNumber} from ${payload.buyer.name}`,
+        text: purchaseOrderEmailText(payload),
+      });
+      delivery = {
+        state: 'sent', channel: 'email', at: new Date().toISOString(),
+        detail: `Emailed to ${to}.`,
+      };
+    }
+
+    const updated = {
+      ...order,
+      // Only a successful send advances the order. A failed attempt leaves it a
+      // draft, because a draft is what it still is.
+      status: delivery.state === 'sent' ? 'sent' : order.status,
+      delivery,
+      sentAt: delivery.state === 'sent' ? delivery.at : (order.sentAt || null),
+      sentBy: delivery.state === 'sent' ? actor.email : (order.sentBy || null),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`purchase_order:${id}`, updated);
+
+    console.log(`[PurchaseOrders] ${id} ${delivery.state} via ${delivery.channel}`);
+    if (delivery.state !== 'sent') {
+      return c.json({ success: false, error: delivery.detail, delivery, order: updated }, 502);
+    }
+    return c.json({ success: true, delivery, order: updated });
+  } catch (error: any) {
+    console.error('[PurchaseOrders] send failed:', error);
+    return c.json({ success: false, error: error?.message || 'Could not send that purchase order.' }, 500);
   }
 });
 

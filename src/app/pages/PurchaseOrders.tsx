@@ -3,6 +3,7 @@ import { useNavigate } from '../hooks/useNavigate';
 import { ChevronLeft, Plus, Search, Filter, Download, Eye, Edit, Trash2, Check, X, Clock, AlertCircle } from 'lucide-react';
 import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { toast } from 'sonner';
 
 interface PurchaseOrder {
   id: string;
@@ -107,6 +108,49 @@ export default function PurchaseOrders() {
     } catch (error) {
       console.error('Error creating purchase order:', error);
       alert('Failed to create purchase order. Please try again.');
+    }
+  };
+
+  /**
+   * Send the order to the vendor for real.
+   *
+   * The server decides how: their order API if they registered one on their
+   * connection, email otherwise. It refuses an order that has already gone out,
+   * because sending twice is not a duplicate message — it is potentially a
+   * second delivery of materials to a site. A 409 comes back with the date it
+   * was first sent, and this offers the resend rather than doing it.
+   */
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
+  const handleSendToVendor = async (orderId: string, resend = false) => {
+    setSendingId(orderId);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${encodeURIComponent(orderId)}/send`,
+        { method: 'POST', headers: await authedHeaders(), body: JSON.stringify({ resend }) },
+      );
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409 && !resend) {
+        toast.warning(data.error || 'That order has already been sent.', {
+          action: { label: 'Send again', onClick: () => void handleSendToVendor(orderId, true) },
+        });
+        return;
+      }
+      if (!res.ok || !data?.success) throw new Error(data?.error || `The server responded ${res.status}`);
+
+      toast.success(
+        data.delivery?.channel === 'email'
+          ? `Emailed to the vendor. ${data.delivery.detail}`
+          : 'Delivered to the vendor’s system.',
+      );
+      await fetchOrders();
+    } catch (err: any) {
+      // The vendor's own words where there are any — a failure that says only
+      // "failed" cannot be acted on by whoever has to chase it.
+      toast.error(err?.message || 'Could not send that purchase order.');
+    } finally {
+      setSendingId(null);
     }
   };
 
@@ -369,13 +413,18 @@ export default function PurchaseOrders() {
                     </>
                   )}
 
+                  {/* "Send to Vendor" used to call handleUpdateStatus(id,
+                      'sent') — it moved our own status column and told the
+                      supplier nothing at all. It now actually sends: to their
+                      order API if they registered one, by email otherwise. */}
                   {order.status === 'approved' && (
                     <button
-                      onClick={() => handleUpdateStatus(order.id, 'sent')}
+                      onClick={() => handleSendToVendor(order.id)}
+                      disabled={sendingId === order.id}
                       className="flex items-center gap-2 px-3 py-1.5 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 text-[#ea580c] rounded-lg transition-colors"
                     >
                       <Download className="w-4 h-4" />
-                      Send to Vendor
+                      {sendingId === order.id ? 'Sending…' : 'Send to Vendor'}
                     </button>
                   )}
 

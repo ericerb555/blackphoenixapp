@@ -520,9 +520,19 @@ vendorCatalogRouter.put("/vendor-catalog/:vendorId/feed", async (c) => {
     const authStyle = ["bearer", "header", "query"].includes(String(body.authStyle || ""))
       ? String(body.authStyle) : "bearer";
 
+    // Where we POST a purchase order. Separate from the catalogue endpoint
+    // because reading a price list and receiving an order are different things
+    // in every system that has both, and validated the same way.
+    const orderEndpoint = String(body.orderEndpoint || "").trim();
+    if (orderEndpoint) {
+      const ov = inspectUrl(orderEndpoint);
+      if (!ov.ok) return c.json({ success: false, error: `Order endpoint: ${ov.reason}` }, 400);
+    }
+
     const feed = {
       vendorId,
       endpoint,
+      orderEndpoint,
       authStyle,
       // The header or query parameter the key travels in, for vendors who do not
       // use a bearer token.

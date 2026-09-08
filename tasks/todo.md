@@ -2715,3 +2715,70 @@ across the two new modules.
 Not verified against a real vendor API — nobody has one registered yet. The
 guard's refusals are all tested; what has not been exercised is a successful
 fetch of somebody's live catalogue.
+
+## Sending a purchase order to the vendor
+
+`purchaseOrderDelivery.ts`, 34/34.
+
+### What it replaces
+
+`from-materials` created the order as a draft and stopped. Nothing emailed the
+supplier, nothing called their system — and the "Send to Vendor" button on the
+purchase orders screen called `handleUpdateStatus(id, 'sent')`, which moved our
+own status column and told the vendor nothing at all. An order nobody has been
+told about is not an order, and a button that says "Send" and does not send is
+worse than no button.
+
+### Two roads, one always available
+
+If the vendor registered an **order endpoint** on their connection, the order is
+POSTed there through the same outbound guard the catalogue pull uses. If they
+have not, it goes by **email**, which is what most suppliers actually want and
+asks nothing of them. A vendor with neither an endpoint nor an email address is
+refused with that as the reason, rather than silently marked sent.
+
+### What a supplier is allowed to see
+
+The payload is assembled **field by field**, never by spreading the order
+record — so a field added to a purchase order later cannot quietly start
+appearing in an outbound message to a third party. Tested: `sourceQuoteId`,
+`raisedBy`, internal notes and the customer quote total are all absent from what
+goes out. The reply-to is the company's ordering address, not whichever staff
+member pressed the button.
+
+Line totals are **recomputed, never trusted** — a stored total that disagrees
+with quantity times price is a dispute with a supplier over a number we sent
+them.
+
+### A rounding bug the tests found
+
+The first version rounded the unit price to cents before multiplying. At
+$0.3333 each — ordinary for fasteners and bulk lumber — that becomes $0.33, and
+3,000 of them lose ten dollars against what the supplier's own system invoices.
+Full precision on the unit price, rounding only the line total.
+
+### Sending twice
+
+Refused. It is not a duplicate message, it is potentially a second delivery of
+materials to a site. A 409 comes back naming the date it first went, and the
+screen offers a resend rather than doing one. An `Idempotency-Key` goes with the
+API call so a vendor receiving it twice can tell it is the same order.
+
+A **failed** send leaves the order a draft, because a draft is what it still is,
+and keeps the vendor's own error text so whoever chases it has something to go
+on.
+
+### And a redirect rule
+
+`safeFetch` now takes a method and a body. Redirects are followed on a read and
+**refused on a write**: following one on a POST re-sends the body to wherever
+the first host points, so a vendor whose order endpoint redirects would have our
+purchase order delivered to a third address of their choosing.
+
+### Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 5 pages, 0 threw.
+
+Not verified against a real vendor system. The email road can be tried today
+against any vendor with an address on file; the API road needs a supplier
+endpoint that accepts orders.
