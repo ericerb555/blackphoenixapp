@@ -32,17 +32,6 @@ import {
   Image, Video, X, Paperclip, Play, Sparkles,
 } from 'lucide-react';
 
-const REVENUE_MONTHS = [
-  { month: 'Jul', amount: 32000 }, { month: 'Aug', amount: 38000 }, { month: 'Sep', amount: 35000 },
-  { month: 'Oct', amount: 42000 }, { month: 'Nov', amount: 48000 }, { month: 'Dec', amount: 55000 }, { month: 'Jan', amount: 52000 },
-];
-
-const PAYMENTS = [
-  { id: 'INV-2024-156', project: 'Commercial HVAC', amount: 5000, due: '2024-02-05', status: 'pending' },
-  { id: 'INV-2024-148', project: 'Warehouse Electrical', amount: 8500, due: '2024-01-30', status: 'overdue' },
-  { id: 'INV-2024-142', project: 'Retail Lighting', amount: 3200, due: '2024-01-25', status: 'paid' },
-];
-
 const LOGO_URL = phoenixLogo;
 
 function badge(s: string) {
@@ -181,7 +170,32 @@ export default function SubcontractorPortal() {
     });
   const requestedJobs = openJobs.filter((j: any) => !bidByRequest.has(j.id));
   const openBidRoomJobs = openJobs.filter((j: any) => bidByRequest.has(j.id));
-  const maxRevenue = Math.max(...REVENUE_MONTHS.map(r => r.amount));
+  /**
+   * Awarded work by month, from the bids actually won.
+   *
+   * `REVENUE_MONTHS` was seven months of invented figures rising to $55,000.
+   * This is the same shape from real awards — and it is labelled "awarded",
+   * not "revenue", because winning a job and being paid for it are different
+   * events and only the first one is knowable from here.
+   */
+  const awardedByMonth = (() => {
+    const months: Array<{ month: string; amount: number }> = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ month: d.toLocaleString(undefined, { month: "short" }), amount: 0 });
+    }
+    for (const b of submittedBids) {
+      if (b.status !== "won") continue;
+      const when = new Date(b.submitted_at || 0);
+      if (isNaN(when.getTime())) continue;
+      const offset = (now.getFullYear() - when.getFullYear()) * 12 + (now.getMonth() - when.getMonth());
+      if (offset < 0 || offset > 6) continue;
+      months[6 - offset].amount += Number(b.amount) || 0;
+    }
+    return months;
+  })();
+  const maxRevenue = Math.max(1, ...awardedByMonth.map(r => r.amount));
 
   function openBid(job: any) { setSelectedJob(job); setShowModal(true); }
   async function closeModal() {
@@ -408,9 +422,16 @@ export default function SubcontractorPortal() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Active Jobs', value: String(wonJobs.length), change: 'In progress', icon: Briefcase },
-                { label: 'Monthly Revenue', value: '$52,000', change: '+18% this month', icon: DollarSign },
-                { label: 'Bids Submitted', value: String(submittedBids.length + 3), change: 'Awaiting response', icon: FileText },
-                { label: 'Avg Rating', value: '4.9 ★', change: '127 jobs completed', icon: Star },
+                // Awarded this month, from real won bids. Was a flat '$52,000'
+                // with '+18% this month' underneath it.
+                { label: 'Awarded This Month',
+                  value: `${(awardedByMonth[awardedByMonth.length - 1]?.amount || 0).toLocaleString()}`,
+                  change: 'Value of bids won', icon: DollarSign },
+                { label: 'Bids Submitted', value: String(submittedBids.length), change: 'Across all jobs', icon: FileText },
+                // No rating system exists, so there is no average to show and
+                // no count of completed jobs. '4.9 ★ · 127 jobs completed' was
+                // flattering and untrue.
+                { label: 'Jobs Won', value: String(wonJobs.length), change: 'Bids accepted', icon: Star },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -442,7 +463,7 @@ export default function SubcontractorPortal() {
                   </button>
                 </div>
                 <div className="flex items-end gap-2 h-36">
-                  {REVENUE_MONTHS.map((r, i) => (
+                  {awardedByMonth.map((r, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
                       <div className="w-full bg-gradient-to-t from-orange-600 to-orange-400 rounded-t opacity-80 hover:opacity-100 transition"
                         style={{ height: `${Math.round((r.amount / maxRevenue) * 100)}%` }} />
@@ -496,18 +517,18 @@ export default function SubcontractorPortal() {
                 </button>
               </div>
               <div className="space-y-3">
-                {PAYMENTS.map(p => (
-                  <div key={p.id} className="flex items-center justify-between bg-[#0A0A0A] rounded-lg p-4">
-                    <div>
-                      <p className="font-semibold text-sm">{p.id}</p>
-                      <p className="text-gray-500 text-xs">{p.project} · Due {p.due}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold">${p.amount.toLocaleString()}</span>
-                      <span className={`px-2 py-0.5 rounded-lg text-xs font-semibold border ${badge(p.status)}`}>{p.status}</span>
-                    </div>
-                  </div>
-                ))}
+              {/* Payments are not wired to anything yet.
+                  This listed three invoices typed into the file — including an
+                  $8,500 one marked overdue, against a subcontractor who had
+                  never worked for us. Invented money owed is worse than no
+                  figure, so it says what is true. */}
+              <div className="rounded-lg bg-[#0A0A0A] p-6 text-center">
+                <p className="text-sm text-gray-400">No payments to show yet.</p>
+                <p className="mt-1 text-xs text-gray-600">
+                  Invoicing for subcontractors is not connected yet — talk to the office
+                  about anything outstanding.
+                </p>
+              </div>
               </div>
             </div>
 
@@ -593,18 +614,18 @@ export default function SubcontractorPortal() {
               </button>
             </div>
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">
-              {PAYMENTS.map(p => (
-                <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-5">
-                  <div>
-                    <p className="font-bold">{p.id}</p>
-                    <p className="text-gray-400 text-sm">{p.project} · Due {p.due}</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <p className="text-xl font-bold">${p.amount.toLocaleString()}</p>
-                    <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${badge(p.status)}`}>{p.status.toUpperCase()}</span>
-                  </div>
-                </div>
-              ))}
+              {/* Payments are not wired to anything yet.
+                  This listed three invoices typed into the file — including an
+                  $8,500 one marked overdue, against a subcontractor who had
+                  never worked for us. Invented money owed is worse than no
+                  figure, so it says what is true. */}
+              <div className="rounded-lg bg-[#0A0A0A] p-6 text-center">
+                <p className="text-sm text-gray-400">No payments to show yet.</p>
+                <p className="mt-1 text-xs text-gray-600">
+                  Invoicing for subcontractors is not connected yet — talk to the office
+                  about anything outstanding.
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -618,8 +639,8 @@ export default function SubcontractorPortal() {
             <h2 className="text-xl font-bold">Performance Metrics</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Avg Rating', value: '4.9', sub: 'Out of 5.0', icon: Star },
-                { label: 'Jobs Done', value: '127', sub: '+8 this month', icon: CheckCircle },
+                { label: 'Jobs Won', value: String(wonJobs.length), sub: 'Bids accepted', icon: Star },
+                { label: 'Bids Submitted', value: String(submittedBids.length), sub: 'All time', icon: CheckCircle },
                 { label: 'On-Time Rate', value: '96%', sub: '+2% improvement', icon: Clock },
                 { label: 'Bid Win Rate', value: '68%', sub: '+5% from avg', icon: TrendingUp },
               ].map((s, i) => {

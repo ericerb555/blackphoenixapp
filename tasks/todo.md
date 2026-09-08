@@ -2912,3 +2912,37 @@ comfortable read and a wrong one.
 ### Checks
 
 App typecheck 324, server 84, both unchanged. Smoke: 5 pages, 0 threw.
+
+## Finishing the subcontractor portal — the invented numbers I left behind
+
+When the job list was replaced I removed `BID_ROOM_JOBS` and `OPEN_JOBS` and
+left the rest of the file alone. Going back to it, the rest of the file was
+still largely fiction.
+
+**Payments.** Three invoices typed into the source, including
+`INV-2024-148 · Warehouse Electrical · $8,500 · overdue` — an overdue debt shown
+to a subcontractor who has never worked for us. There is no subcontractor
+invoicing anywhere in the system: vendor billing is scoped to vendor records and
+subcontractors do not have one. So the tab now says plainly that invoicing is not
+connected and to talk to the office. Invented money owed is worse than no figure.
+
+**Revenue.** `REVENUE_MONTHS` was seven months rising to $55,000. Replaced with
+awarded value by month, computed from bids actually won — and labelled
+**"awarded"**, not revenue, because winning a job and being paid for it are
+different events and only the first is knowable from here.
+
+**And the one that was worst.** The dashboard read
+`value: String(submittedBids.length + 3)`. A real count of their bids, with
+three invented ones silently added. Also gone: a flat `$52,000` monthly revenue
+with "+18% this month", and `4.9 ★ · 127 jobs completed` on both the dashboard
+and the performance tab — no rating system exists, so there is no average and no
+count. Those cards now show jobs won and bids submitted, which are real numbers.
+
+### Checks
+
+App typecheck 324, unchanged. Smoke: 7 pages, 0 threw.
+
+### Still true of this portal
+
+Insurance and licence expiry — the thing that actually stops a subcontractor
+working on a site — is not tracked anywhere.
