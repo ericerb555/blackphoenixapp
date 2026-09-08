@@ -9,6 +9,7 @@
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "smoke:all": "node scripts/smoke.mjs --all",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit"
   },

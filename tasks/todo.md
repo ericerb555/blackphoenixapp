@@ -3303,3 +3303,72 @@ Server typecheck 84, unchanged.
 
 The four unconfirmed accounts and the six stale invites need re-inviting now that
 the flow works. Their existing tokens are mostly expired.
+
+---
+
+# `npm run e2e` — a probe that stands where the customer stands
+
+Three flows in this project passed typecheck and smoke while being completely
+dead: the quote signing link, broken at three separate layers; the change order
+link, which had no route at all; and `intake/set-password`, so no invitation
+could ever be accepted. Every one was a route meant for somebody with **no
+account**, sitting behind an auth wall that defaults to signed-in.
+
+Nothing in the build catches that, because the code is correct — it is the
+reachability that is wrong. Smoke mounts a page and proves it does not throw. It
+cannot tell you the page is talking to a door that is locked.
+
+## What it asks
+
+Twenty-nine checks in four groups:
+
+**Public doors.** Quote approval, quote signing, change order approval, change
+order decision and invitation set-password, each called with a token that does
+not exist. The right answer is the route's own refusal — 404 or 400 — and
+**never the wall's 401**. That single distinction is the one that would have
+caught all three outages.
+
+**Doors that must stay shut.** The mirror image: issuing a quote or change order
+link, redeeming a gift card, reading and writing job financials, the payroll
+report, completion reports, quoting accuracy, the compliance run and the vendor
+backfill. Anonymous callers must be refused.
+
+**A real customer, through the front door.** Signs up on the public route, signs
+in, and then: is a `client` and not an administrator, holds no permissions,
+cannot list every user, sees only their own work requests, is not handed the
+purchase order book, sees no sample investment offers, and cannot save a design
+into the shared staff namespace. That last one is the bug that let a customer
+draw for an hour and lose it; the escalation checks are the hole that let an
+anonymous request make itself `master_admin`.
+
+**Reference data**, and the server's own health.
+
+## It uses no privileged credentials, on purpose
+
+Only the publishable key and an account it creates through the public signup
+route — exactly the access a real customer has. A probe authenticating as an
+administrator would pass while the customer's door stayed locked, which is the
+whole failure it exists to catch.
+
+## Two things it caught about itself
+
+**It asserted the wrong thing first.** The building-code ruleset answers 401
+anonymously, and I nearly recorded that as a bug. It is correct — the design
+centre requires an account. The probe was wrong about the app, not the reverse,
+and it is now asked signed-in. Worth writing down because "the test failed so
+the code is broken" is the comfortable read and it was the wrong one.
+
+**And it leaked accounts.** The first version minted `e2e-<timestamp>@…` on every
+run, which would have left a trail of real accounts in production auth that the
+probe has no service role to delete. One fixed address now, reused; signing up
+twice simply fails and it signs in instead.
+
+## Result
+
+**29/29**, run twice to prove it is repeatable and leaves nothing behind.
+
+## Also noticed
+
+`BuildingCodeChecker` — the only consumer of `design-standards`, one of the three
+routers mounted earlier this week — is not rendered anywhere in the app. The
+route is live and correct; nothing puts it on a screen.
