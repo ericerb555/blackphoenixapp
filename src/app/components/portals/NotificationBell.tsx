@@ -16,7 +16,16 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
-export default function NotificationBell({ session, accent = 'teal' }: { session: any; accent?: 'teal' | 'indigo' }) {
+/**
+ * The accent list grew as the bell reached more portals. It was 'teal' |
+ * 'indigo' because those were the only two that mounted it — the vendor,
+ * subcontractor and customer portals all had a Bell icon that opened
+ * notification *preferences* instead, an inbox-shaped button that had never
+ * shown a notification.
+ */
+type BellAccent = 'teal' | 'indigo' | 'orange';
+
+export default function NotificationBell({ session, accent = 'teal' }: { session: any; accent?: BellAccent }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
@@ -24,8 +33,8 @@ export default function NotificationBell({ session, accent = 'teal' }: { session
   const ref = useRef<HTMLDivElement | null>(null);
 
   const authHeaders = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined;
-  const dot = accent === 'indigo' ? 'bg-indigo-500' : 'bg-teal-500';
-  const activeText = accent === 'indigo' ? 'text-indigo-400' : 'text-teal-400';
+  const dot = accent === 'indigo' ? 'bg-indigo-500' : accent === 'orange' ? 'bg-orange-500' : 'bg-teal-500';
+  const activeText = accent === 'indigo' ? 'text-indigo-400' : accent === 'orange' ? 'text-orange-400' : 'text-teal-400';
 
   const load = async () => {
     if (!authHeaders) return;

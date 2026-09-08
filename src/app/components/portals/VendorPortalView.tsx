@@ -35,6 +35,7 @@ import CatalogImport from './CatalogImport';
 import VendorApiFeed from './VendorApiFeed';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import NotificationBell from './NotificationBell';
 import PortalSettings from './PortalSettings';
 
 const VENDOR_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -380,9 +381,11 @@ export default function VendorPortalView() {
               <p className="text-gray-400 mt-1">{vendorInfo.name} · {vendorInfo.accountManager} · {vendorInfo.email}</p>
             </div>
             <div className="flex items-center gap-3">
-              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
-                <Bell className="w-5 h-5" />
-              </button>
+              {/* This was a Bell that opened notification *preferences* — an
+                  inbox-shaped button that had never shown a notification.
+                  The real bell reads /me/notifications; the gear beside it
+                  still opens settings. */}
+              <NotificationBell session={session} accent="orange" />
               <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white hover:border-orange-500/30 transition">
                 <Settings className="w-5 h-5" />
               </button>

@@ -3276,7 +3276,20 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
 // SMS when someone requests work, signs a lease, sends a message, or makes a
 // payment. Preferences are stored per event/channel and set from the portal.
 // ─────────────────────────────────────────────────────────────────────────────
-const NOTIF_EVENTS = ['work_request', 'lease_signed', 'landlord_form', 'form_completed', 'message', 'payment'] as const;
+/**
+ * The events somebody can be notified about.
+ *
+ * The first six are landlord and tenant shaped, which is where notifications
+ * started. `purchase_order` and `bid` are here because the whole notification
+ * system existed and worked — inbox, preferences, email, SMS — and simply was
+ * never called for the two people we are about to start inviting. A vendor
+ * received a purchase order and found out by opening their portal and noticing;
+ * a subcontractor was invited to price a job the same way.
+ */
+const NOTIF_EVENTS = [
+  'work_request', 'lease_signed', 'landlord_form', 'form_completed', 'message', 'payment',
+  'purchase_order', 'bid',
+] as const;
 type NotifEvent = typeof NOTIF_EVENTS[number];
 // Human labels for the preferences UI (sent to the client alongside prefs).
 const NOTIF_EVENT_LABELS: Record<string, string> = {
@@ -3286,6 +3299,8 @@ const NOTIF_EVENT_LABELS: Record<string, string> = {
   form_completed: 'Form completed by tenant',
   message: 'New portal messages',
   payment: 'Rent & payment activity',
+  purchase_order: 'Purchase orders sent to you',
+  bid: 'Bid invitations and results',
 };
 
 function notifPrefsKey(email: string) { return `notif_prefs:${String(email).toLowerCase()}`; }
@@ -3658,6 +3673,26 @@ app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
           console.error('[bid-room/notify-invites] email failed:', err);
           row.emailReason = err?.message || 'send failed';
         }
+      }
+
+      /**
+       * ── the portal bell ──────────────────────────────────────────────────
+       *
+       * Independent of email and SMS again, and the gap that mattered: the
+       * invitation email went out and the portal we told them to log into
+       * showed nothing. The bell was empty on the one event the bid room exists
+       * to deliver, so an invitation lived entirely in an inbox they may not
+       * check.
+       */
+      if (to) {
+        try {
+          await notifyRecipient(to, 'bid', {
+            subject: `Invited to bid: ${request.title}`,
+            text: `${COMPANY_NAME} invited ${p.name} to price "${request.title}"`
+              + `${request.trade ? ` (${request.trade})` : ''}. Bids due ${due}.`,
+          });
+          row.inApp = true;
+        } catch { /* email and sms stand on their own */ }
       }
 
       // ── sms ──────────────────────────────────────────────────────────────
@@ -13691,6 +13726,32 @@ app.post('/make-server-3eae23a6/purchase-orders/:id/send', async (c) => {
         state: 'sent', channel: 'email', at: new Date().toISOString(),
         detail: `Emailed to ${to}.`,
       };
+    }
+
+    /**
+     * Tell the vendor in their portal as well, whichever road the order took.
+     *
+     * The API road is the one that needed this. A machine-to-machine POST puts
+     * the order in their system and leaves the human who logs into the portal
+     * with no idea it happened — so the bell stays empty on the very event the
+     * portal exists to surface. Their notification preferences still apply, so
+     * a vendor who has turned purchase-order email off gets the in-app entry
+     * and no mail.
+     *
+     * Deliberately after the send and only on success: an order that failed to
+     * reach them is not something to announce as having arrived.
+     */
+    if (delivery.state === 'sent') {
+      const notifyTo = String(vendor?.contactEmail || vendor?.email || '').toLowerCase();
+      // The email road already told them; a second copy is noise.
+      if (notifyTo && delivery.channel === 'api') {
+        notifyRecipient(notifyTo, 'purchase_order', {
+          subject: `Purchase order ${payload.poNumber}`,
+          text: `${payload.buyer.name} sent you purchase order ${payload.poNumber}`
+            + ` — ${payload.itemCount} line${payload.itemCount === 1 ? '' : 's'}, $${payload.total.toFixed(2)}.`
+            + ` It went to your ordering system.`,
+        }).catch(() => { /* the order is delivered; a failed notice must not undo that */ });
+      }
     }
 
     const updated = {

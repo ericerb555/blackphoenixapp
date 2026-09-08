@@ -2809,3 +2809,59 @@ will not follow a redirect on an order.
 ### Checks
 
 App typecheck 324, server 84, both unchanged. Smoke: 12 pages, 0 threw.
+
+---
+
+# Notifications: the system existed and nobody called it
+
+## What was already there
+
+The whole thing, working. `notifyRecipient(email, event, opts)` writes to a
+per-user inbox, sends the email, sends the SMS, and honours that person's
+per-event preferences. `GET /me/notifications` reads the inbox.
+`NotificationBell` renders it with unread counts, mark-as-read and clear.
+
+## Two things were missing
+
+**Nobody called it for a vendor or a subcontractor.** The fifteen existing calls
+cover payments, work requests, messages, leases and forms — all landlord and
+tenant. A vendor received a purchase order and found out by opening their portal
+and noticing. A subcontractor was invited to price a job and found out the same
+way.
+
+**And the bell was not in their portals.** Worse than absent: the vendor and
+subcontractor portals each had a `Bell` button that opened notification
+*preferences*. An inbox-shaped control, in the inbox position, that had never
+once shown a notification.
+
+## Fixed
+
+- `purchase_order` and `bid` added to the event list, so both are things a
+  person can turn off like any other.
+- A purchase order sent **by API** now also lands in the vendor's portal. That
+  was the case that needed it: a machine-to-machine POST puts the order in their
+  system and leaves the human who logs in with no idea. The email road already
+  told them, so it does not send twice.
+- A bid invitation now writes to the invited provider's bell, independently of
+  the email and SMS that were already going out. The invitation used to live
+  entirely in an inbox they might not check, while the portal we told them to
+  log into showed nothing.
+- The real `NotificationBell` replaces the preferences shortcut in the vendor
+  and subcontractor portals. The gear beside it still opens settings.
+- The bell's accent type was `'teal' | 'indigo'` — the two portals that had ever
+  mounted it. Widened rather than forcing a colour that does not belong.
+
+Notifications are fired **after** the thing succeeded and never allowed to fail
+it: a purchase order that reached the vendor is delivered whether or not we
+managed to tell them twice.
+
+## Checks
+
+App typecheck 324, server 84, both unchanged. Smoke: 16 pages, 0 threw.
+
+## Still missing
+
+The customer portal has no bell at all — it has no Bell button to repair, so
+adding one is a placement decision rather than a repair. And nothing yet
+notifies on a bid being **won or lost**, which is the moment a subcontractor
+most wants to hear about.

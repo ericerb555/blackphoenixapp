@@ -14,6 +14,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
+import NotificationBell from './NotificationBell';
 import PortalSettings from './PortalSettings';
 
 // Wrap marquee so if it crashes it doesn't take the whole portal down
@@ -320,9 +321,11 @@ export default function SubcontractorPortal() {
                   <AlertCircle className="w-3.5 h-3.5" /> {requestedJobs.length} bid request{requestedJobs.length > 1 ? 's' : ''}
                 </div>
               )}
-              <button aria-label="Notifications" onClick={() => { setSettingsSection('notifications'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
-                <Bell className="w-5 h-5" />
-              </button>
+              {/* This was a Bell that opened notification *preferences* — an
+                  inbox-shaped button that had never shown a notification.
+                  The real bell reads /me/notifications; the gear beside it
+                  still opens settings. */}
+              <NotificationBell session={session} accent="orange" />
               <button aria-label="Settings" onClick={() => { setSettingsSection('account'); setShowPortalSettings(true); }} className="p-2 rounded-lg bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white transition">
                 <Settings className="w-5 h-5" />
               </button>
