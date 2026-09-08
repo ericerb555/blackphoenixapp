@@ -2538,3 +2538,47 @@ notes — not data pretending to be live, and should stay.
 **All portals**
 - Notifications. Nothing is ever pushed; everything must be found by looking.
 - Nothing explains what to do when an account is not linked to its record.
+
+## Done — the subcontractor sees real jobs
+
+`BID_ROOM_JOBS` and `OPEN_JOBS` are deleted. The portal now reads the bid room.
+
+**Where the jobs come from.** `supabase.from('bid_requests')` with the
+subcontractor's own session. The row-level security written in migration 003
+already answers exactly the question this screen asks — a request is visible to
+the org that posted it and to any org invited to it, once it has left draft — so
+the database does the scoping and there is no route that could get it wrong.
+"Waiting on you" is now simply the invited requests with no bid against them yet,
+rather than a `requestedFromMe` flag typed into an array.
+
+**Active jobs** are the bids marked `won`, not three invented projects with 2024
+due dates.
+
+**Bids go where the office looks.** They insert into the `bids` table, which is
+what `BidRoom.tsx` reads and what awards run on. RLS checks the insert twice: the
+org must be one this person belongs to, and the request must be open to them — so
+a bid cannot be filed under another company's name or against a job they were
+never invited to, whatever this screen sends.
+
+### Why the old path had to go rather than be kept alongside
+
+`/subcontractor/bids` has exactly two routes — the subcontractor's own list and
+their own submit — and **nothing on the office side has ever read either.** Its
+only client is this screen. Every bid submitted through it, including the one I
+submitted during the walkthrough, went somewhere nobody at Black Phoenix would
+ever look. Two bid systems where one is a closed loop is not a choice worth
+preserving.
+
+### Left behind, and worth knowing
+
+Attachments. The uploader writes to `subcontractor_bid_upload:{userId}:{id}` and
+the download route is scoped to the uploader, so **the office could never open
+them anyway**. `bids` has no attachment column. For now the file names ride along
+in the bid notes so the office knows they exist and can ask; properly attaching
+them wants a column and a storage path, which is its own change.
+
+### Checks
+
+App typecheck 324, unchanged. Smoke: 7 pages, 0 threw. Not verified in a browser
+— and it cannot be until a bid request exists with an invitation to a real
+subcontractor org, which is the natural first thing to try.

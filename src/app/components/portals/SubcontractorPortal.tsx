@@ -1,5 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
-import { useState, useEffect, Component, ReactNode } from 'react';
+import { useState, useEffect, Component, ReactNode, useCallback } from 'react';
 import { toast } from 'sonner@2.0.3';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
@@ -30,34 +30,6 @@ import {
   Clock, TrendingUp, Target, Send, AlertCircle, Building2,
   Image, Video, X, Paperclip, Play, Sparkles,
 } from 'lucide-react';
-
-// Static bid room data — no hooks to cause loops
-const BID_ROOM_JOBS = [
-  {
-    id: 'br-001', title: 'Master Bathroom Renovation', category: 'Plumbing & Tile',
-    description: 'Full bathroom gut and remodel — plumbing rough-in, tile work, fixture install.',
-    location: 'Dallas, TX 75201', budget: { min: 8000, max: 14000 }, deadline: '2026-07-15',
-    priority: 'high', requirements: ['Licensed plumber', 'Tile experience'], requestedFromMe: true,
-  },
-  {
-    id: 'br-002', title: 'Electrical Panel Upgrade — 200A', category: 'Electrical',
-    description: 'Upgrade from 100A to 200A service, new sub-panel in garage.',
-    location: 'Plano, TX 75024', budget: { min: 3500, max: 6000 }, deadline: '2026-07-10',
-    priority: 'urgent', requirements: ['Licensed electrician'], requestedFromMe: false,
-  },
-  {
-    id: 'br-003', title: 'HVAC System Replacement', category: 'HVAC',
-    description: 'Replace 5-ton split system, ductwork inspection and sealing.',
-    location: 'Irving, TX 75039', budget: { min: 7000, max: 12000 }, deadline: '2026-07-20',
-    priority: 'medium', requirements: ['HVAC certified', 'EPA 608'], requestedFromMe: true,
-  },
-];
-
-const OPEN_JOBS = [
-  { id: 'j1', title: 'Office HVAC Installation', client: 'Commercial Properties LLC', value: 18500, progress: 65, status: 'in-progress', due: '2024-02-15' },
-  { id: 'j2', title: 'Warehouse Electrical', client: 'Metro Logistics Inc.', value: 24000, progress: 30, status: 'in-progress', due: '2024-03-01' },
-  { id: 'j3', title: 'Retail Lighting Install', client: 'Fashion District Co.', value: 8200, progress: 90, status: 'in-progress', due: '2024-01-30' },
-];
 
 const REVENUE_MONTHS = [
   { month: 'Jul', amount: 32000 }, { month: 'Aug', amount: 38000 }, { month: 'Sep', amount: 35000 },
@@ -109,20 +81,67 @@ export default function SubcontractorPortal() {
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [logo, setLogo] = useState(LOGO_URL);
   const [companyName, setCompanyName] = useState(subCompany);
+  const [myOrgIds, setMyOrgIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bids`, { headers: { Authorization: `Bearer ${session.access_token}` } });
-        const payload = await response.json().catch(() => ({}));
-        if (active && response.ok && payload.success) setSubmittedBids(payload.bids || []);
-      } catch { /* Keep the portal usable if history is temporarily unavailable. */ }
-    })();
-    return () => { active = false; };
+  /**
+   * The jobs this subcontractor has actually been invited to price.
+   *
+   * WHAT THIS REPLACES
+   *
+   * `BID_ROOM_JOBS` — three jobs typed into this file. A subcontractor signed in
+   * and saw "Master Bathroom Renovation, Dallas TX" and "Office HVAC
+   * Installation, due 2024-02-15", could bid on them, and the bid was stored for
+   * real against a job that does not exist.
+   *
+   * WHY IT READS THE DATABASE DIRECTLY
+   *
+   * `bid_requests` has row-level security that already answers exactly the
+   * question this screen asks: a request is visible to the org that posted it
+   * and to any org invited to it, once it has left draft. Signing in with the
+   * subcontractor's own session means the database does the scoping, and there
+   * is no route to write that could get it wrong.
+   *
+   * WHY IT MOVED OFF `/subcontractor/bids`
+   *
+   * That endpoint takes a `jobId` the subcontractor types themselves, stores the
+   * bid in the key-value store — and **nothing on the office side reads it**.
+   * Its only reader is this screen. So every bid submitted through it went
+   * somewhere no one at Black Phoenix would ever look. Bids now go into the
+   * `bids` table, which is what the Bid Room reads and what awards run on.
+   */
+  const [openJobs, setOpenJobs] = useState<any[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+
+  const loadBidRoom = useCallback(async () => {
+    setJobsLoading(true);
+    setJobsError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setOpenJobs([]); setSubmittedBids([]); return; }
+
+      const [reqRes, bidRes, memRes] = await Promise.all([
+        supabase.from('bid_requests')
+          .select('id, title, trade, description, site_address, due_at, status, created_at')
+          .order('created_at', { ascending: false }),
+        supabase.from('bids').select('id, bid_request_id, amount, status, notes, submitted_at'),
+        supabase.from('organization_members').select('org_id, status').eq('status', 'active'),
+      ]);
+
+      if (reqRes.error) throw new Error(reqRes.error.message);
+      setOpenJobs(reqRes.data || []);
+      setSubmittedBids(bidRes.data || []);
+      // Kept so a bid can name the org it comes from; RLS checks it again.
+      setMyOrgIds((memRes.data || []).map((m: any) => m.org_id));
+    } catch (e: any) {
+      setJobsError(e?.message || 'Could not load the bid room.');
+      setOpenJobs([]);
+    } finally {
+      setJobsLoading(false);
+    }
   }, []);
+
+  useEffect(() => { void loadBidRoom(); }, [loadBidRoom]);
 
   useEffect(() => {
     try {
@@ -139,8 +158,28 @@ export default function SubcontractorPortal() {
     } catch {}
   }, []);
 
-  const requestedJobs = BID_ROOM_JOBS.filter(j => j.requestedFromMe);
-  const openBidRoomJobs = BID_ROOM_JOBS.filter(j => !j.requestedFromMe);
+  // Everything RLS returned is a job this subcontractor may price: the policy
+  // only shows a request to the org that posted it or an org invited to it,
+  // once it has left draft. "Waiting on you" is simply the ones not yet bid.
+  const bidByRequest = new Map(submittedBids.map((b: any) => [b.bid_request_id, b]));
+
+  // Work actually won. `OPEN_JOBS` used to be three invented projects with 2024
+  // due dates; a subcontractor's real active work is the bids marked won.
+  const wonJobs = submittedBids
+    .filter((b: any) => b.status === 'won')
+    .map((b: any) => {
+      const req = openJobs.find((j: any) => j.id === b.bid_request_id);
+      return {
+        id: b.bid_request_id,
+        title: req?.title || 'Awarded job',
+        client: req?.site_address || '',
+        value: Number(b.amount) || 0,
+        status: 'in-progress',
+        due: req?.due_at || '',
+      };
+    });
+  const requestedJobs = openJobs.filter((j: any) => !bidByRequest.has(j.id));
+  const openBidRoomJobs = openJobs.filter((j: any) => bidByRequest.has(j.id));
   const maxRevenue = Math.max(...REVENUE_MONTHS.map(r => r.amount));
 
   function openBid(job: any) { setSelectedJob(job); setShowModal(true); }
@@ -193,20 +232,48 @@ export default function SubcontractorPortal() {
     } catch (error: any) { toast.error(error.message || 'Could not open attachment.'); }
   }
 
+  /**
+   * Submit a bid into the bid room the office actually reads.
+   *
+   * This used to POST to `/subcontractor/bids`, which stores a bid in the
+   * key-value store under a job id the subcontractor typed themselves — and
+   * which nothing on the office side has ever read. Bids submitted that way
+   * went somewhere nobody would look.
+   *
+   * The insert is checked by row-level security twice over: the org must be
+   * one this person belongs to, and the request must be open to them. So a
+   * bid cannot be filed under another company's name, or against a job they
+   * were never invited to, whatever this screen sends.
+   */
   async function submitBid() {
     if (!bidAmount || !selectedJob) { toast.error('Please enter a bid amount.'); return; }
+    const orgId = myOrgIds[0];
+    if (!orgId) { toast.error('Your account is not linked to a company yet, so a bid cannot be filed.'); return; }
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Sign in before submitting a bid.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/subcontractor/bids`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ jobId: selectedJob.id, jobTitle: selectedJob.title, amount: Number(bidAmount), notes: bidNotes, duration: bidDuration, attachments: bidMedia.map((item) => ({ id: item.id })) }) });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not submit your bid.');
-      setSubmittedBids((current) => [payload.bid, ...current]);
-      toast.success(`Bid submitted${bidMedia.length ? ` with ${bidMedia.length} attachment${bidMedia.length > 1 ? 's' : ''}` : ''}! The owner will review it shortly.`);
+      const amount = Number(bidAmount);
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a bid amount greater than zero.');
+
+      // The duration and any attachment names ride along in the notes: `bids`
+      // has no column for either, and losing what the subcontractor wrote
+      // would be worse than putting it somewhere plain.
+      const extra = [
+        bidDuration ? `Duration: ${bidDuration}` : '',
+        bidMedia.length ? `Attachments held by the bidder: ${bidMedia.map(m => m.name).join(', ')}` : '',
+      ].filter(Boolean).join('\n');
+
+      const { data, error } = await supabase.from('bids').insert({
+        bid_request_id: selectedJob.id,
+        org_id: orgId,
+        amount,
+        notes: [bidNotes, extra].filter(Boolean).join('\n\n'),
+      }).select().single();
+      if (error) throw new Error(error.message);
+
+      setSubmittedBids((current) => [data, ...current]);
+      toast.success('Bid submitted. Black Phoenix can see it in the bid room.');
       closeModal();
     } catch (error: any) { toast.error(error.message || 'Could not submit your bid.'); }
   }
-
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'jobs', label: 'Active Jobs', icon: Briefcase },
@@ -300,17 +367,17 @@ export default function SubcontractorPortal() {
                       <span className="px-2 py-0.5 bg-red-500 text-white text-xs rounded-full font-black animate-pulse">{requestedJobs.length} for you</span>
                     )}
                   </h3>
-                  <span className="text-xs text-gray-500">{BID_ROOM_JOBS.length} open project{BID_ROOM_JOBS.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs text-gray-500">{openJobs.length} open project{openJobs.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div className="divide-y divide-[#2A2A2A]">
-                  {BID_ROOM_JOBS.map(job => (
-                    <div key={job.id} className={`flex flex-wrap items-center justify-between gap-3 p-4 ${job.requestedFromMe ? 'bg-red-500/5' : ''}`}>
+                  {openJobs.map((job: any) => (
+                    <div key={job.id} className={`flex flex-wrap items-center justify-between gap-3 p-4 ${!bidByRequest.has(job.id) ? 'bg-red-500/5' : ''}`}>
                       <div className="flex items-start gap-3 flex-1 min-w-0">
-                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${job.requestedFromMe ? 'bg-red-400' : 'bg-gray-600'}`} />
+                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${!bidByRequest.has(job.id) ? 'bg-red-400' : 'bg-gray-600'}`} />
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-0.5">
                             <p className="font-semibold text-sm text-white truncate">{job.title}</p>
-                            {job.requestedFromMe && <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded font-bold border border-red-500/20 flex-shrink-0">Requested from you</span>}
+                            {!bidByRequest.has(job.id) && <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded font-bold border border-red-500/20 flex-shrink-0">Requested from you</span>}
                             <span className={`text-xs px-1.5 py-0.5 rounded font-bold flex-shrink-0 ${job.priority === 'urgent' ? 'bg-red-500/20 text-red-400' : job.priority === 'high' ? 'bg-orange-500/20 text-orange-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{job.priority}</span>
                           </div>
                           <p className="text-gray-500 text-xs">{job.category} · {job.location} · ${job.budget.min.toLocaleString()}–${job.budget.max.toLocaleString()} · Deadline {job.deadline}</p>
@@ -337,7 +404,7 @@ export default function SubcontractorPortal() {
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: 'Active Jobs', value: String(OPEN_JOBS.length), change: 'In progress', icon: Briefcase },
+                { label: 'Active Jobs', value: String(wonJobs.length), change: 'In progress', icon: Briefcase },
                 { label: 'Monthly Revenue', value: '$52,000', change: '+18% this month', icon: DollarSign },
                 { label: 'Bids Submitted', value: String(submittedBids.length + 3), change: 'Awaiting response', icon: FileText },
                 { label: 'Avg Rating', value: '4.9 ★', change: '127 jobs completed', icon: Star },
@@ -395,7 +462,7 @@ export default function SubcontractorPortal() {
                   </button>
                 </div>
                 <div className="space-y-4">
-                  {OPEN_JOBS.map(job => (
+                  {wonJobs.map(job => (
                     <div key={job.id} className="bg-[#0A0A0A] rounded-lg p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div>
@@ -407,9 +474,9 @@ export default function SubcontractorPortal() {
                       <div className="flex items-center gap-3">
                         <div className="flex-1 bg-[#2A2A2A] rounded-full h-1.5">
                           <div className="bg-gradient-to-r from-orange-500 to-orange-600 h-1.5 rounded-full transition-all"
-                            style={{ width: `${job.progress}%` }} />
+                            style={{ width: `${0}%` }} />
                         </div>
-                        <span className="text-xs text-gray-400 flex-shrink-0">{job.progress}%</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">{0}%</span>
                       </div>
                     </div>
                   ))}
@@ -452,7 +519,7 @@ export default function SubcontractorPortal() {
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Active Jobs</h2>
             <div className="space-y-4">
-              {OPEN_JOBS.map(job => (
+              {wonJobs.map(job => (
                 <div key={job.id} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 hover:border-orange-500/30 transition">
                   <div className="flex items-start justify-between mb-4">
                     <div>
@@ -466,9 +533,9 @@ export default function SubcontractorPortal() {
                   </div>
                   <div className="flex items-center gap-3 mb-2">
                     <div className="flex-1 bg-[#2A2A2A] rounded-full h-2">
-                      <div className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full" style={{ width: `${job.progress}%` }} />
+                      <div className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full" style={{ width: `${0}%` }} />
                     </div>
-                    <span className="text-sm text-gray-400 font-medium">{job.progress}%</span>
+                    <span className="text-sm text-gray-400 font-medium">{0}%</span>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-lg font-semibold border ${badge(job.status)}`}>{job.status}</span>
                 </div>
