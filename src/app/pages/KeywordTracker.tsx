@@ -30,21 +30,16 @@ async function persist(k: Keyword[]) {
   }
 }
 
-// Positions are entered manually (or pasted from Google Search Console / a rank
-// tool) and stored per keyword as a dated history. No values are fabricated —
-// a keyword shows "not ranked" until a real position is recorded for it.
-const DEFAULTS: Keyword[] = [
-  { id: 'kw-1', keyword: 'roofing contractor new hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Primary keyword', addedAt: '2026-05-01', searchVolume: 1600, difficulty: 'high', priority: 'high', history: [] },
-  { id: 'kw-2', keyword: 'roof replacement NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-01', searchVolume: 880, difficulty: 'medium', priority: 'high', history: [] },
-  { id: 'kw-3', keyword: 'siding contractor Nashua NH', location: 'Nashua, NH', device: 'mobile', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Local intent', addedAt: '2026-05-15', searchVolume: 320, difficulty: 'low', priority: 'high', history: [] },
-  { id: 'kw-4', keyword: 'deck builder New Hampshire', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-05-20', searchVolume: 590, difficulty: 'medium', priority: 'medium', history: [] },
-  { id: 'kw-5', keyword: 'Black Phoenix Builds', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: 'Brand term', addedAt: '2026-04-01', searchVolume: 110, difficulty: 'low', priority: 'high', history: [] },
-  { id: 'kw-6', keyword: 'gutter installation NH', location: 'New Hampshire', device: 'desktop', targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: '2026-06-01', searchVolume: 480, difficulty: 'low', priority: 'medium', history: [] },
-];
+// Nothing is seeded here. An empty tracker is the truthful starting state: a
+// keyword exists because somebody chose to track it, and a search volume is a
+// real figure off a real tool or it is not a figure at all. Positions are
+// entered by hand (or pasted from Search Console) and kept per keyword as a
+// dated history, so a keyword reads "not ranked" until a real position is
+// recorded against it.
 
 const BLANK = (): Keyword => ({
   id: `kw-${Date.now()}`, keyword: '', location: 'New Hampshire', device: 'desktop',
-  targetUrl: 'https://www.blackphoenixbuilds.com', notes: '', addedAt: new Date().toISOString().split('T')[0],
+  targetUrl: 'https://www.theblackphoenixcompany.com', notes: '', addedAt: new Date().toISOString().split('T')[0],
   searchVolume: 0, difficulty: 'medium', priority: 'medium', history: [],
 });
 
@@ -107,21 +102,23 @@ export default function KeywordTracker() {
   const [sortBy, setSortBy] = useState<'position' | 'volume' | 'keyword' | 'priority'>('priority');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [posInput, setPosInput] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(`${SERVER}/keywords`, { headers: authHeaders });
         const json = await res.json();
-        if (json.success && Array.isArray(json.keywords) && json.keywords.length) {
+        if (json.success && Array.isArray(json.keywords)) {
           setKeywords(json.keywords);
         } else {
-          setKeywords(DEFAULTS);
-          persist(DEFAULTS);
+          setLoadError(res.status === 403
+            ? 'Keyword tracking is company staff only.'
+            : (json.error || 'Could not load keywords.'));
         }
       } catch (err) {
         console.error('Network error loading keywords:', err);
-        setKeywords(DEFAULTS);
+        setLoadError('Could not reach the server.');
       }
     })();
   }, []);
@@ -365,7 +362,13 @@ export default function KeywordTracker() {
             </div>
           );
         })}
-        {sorted.length === 0 && <div className="text-center py-10 text-gray-600 text-sm">No keywords found.</div>}
+        {sorted.length === 0 && (
+          <div className="text-center py-10 text-sm text-gray-600">
+            {loadError
+              ? <span className="text-amber-500">{loadError}</span>
+              : 'No keywords tracked yet. Add the first one above.'}
+          </div>
+        )}
       </div>
     </div>
   );

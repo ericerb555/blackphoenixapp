@@ -192,11 +192,11 @@ const RetargetingPixelSetup = lazy(() => import("./pages/RetargetingPixelSetup")
 const BlogManager = lazy(() => import("./pages/BlogManager"));
 const ReviewSurveyManager = lazy(() => import("./pages/ReviewSurveyManager"));
 const InfluencerTracker = lazy(() => import("./pages/InfluencerTracker"));
-// KeywordTracker is no longer routed anywhere: it called GET /keywords, which
-// does not exist on the server, so the screen could only ever show an error.
-// Its address now resolves to the AI SEO Engine. The file is left in place
-// rather than deleted in the same change as the rewiring, so that reverting
-// this is a one-line edit if any of it turns out to be wanted.
+// Routed again. It was unrouted because GET /keywords did not exist on the
+// server — the route was sitting in an unmounted router — so the page could
+// only ever fall back to its sample data. That router is mounted now and the
+// route answers, which was the whole reason for the detour.
+const KeywordTracker = lazy(() => import("./pages/KeywordTracker"));
 const CustomerPortal = lazy(() => import("./pages/CustomerPortal"));
 const SubscriptionMaintenancePlans = lazy(() => import("./pages/SubscriptionMaintenancePlans"));
 const MaintenancePlanAdmin = lazy(() => import("./pages/MaintenancePlanAdmin"));
@@ -310,12 +310,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "blog-manager":         BlogManager,
   "review-surveys":       ReviewSurveyManager,
   "influencer-tracker":   InfluencerTracker,
-  // Keyword tracking lives in the AI SEO Engine's Keywords tab now. The screen
-  // that used to answer here called GET /keywords — a route that does not exist
-  // and never did — so it could only ever show an error. Nothing working is
-  // being taken away. The old address still resolves so existing links and
-  // bookmarks land somewhere useful rather than nowhere.
-  "keyword-tracker":      AiSeoEngine,
+  "keyword-tracker":      KeywordTracker,
   "customer-portal":      CustomerPortal,
   "ai-ranking-engine":    AIRankingEngine,
   "ai-seo-engine":        AiSeoEngine,
