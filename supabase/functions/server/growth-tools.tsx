@@ -1,3 +1,25 @@
+/**
+ * Marketing automation and keyword tracking.
+ *
+ * WHAT THIS FILE USED TO BE
+ *
+ * It also carried `/flash-sales`, `/loyalty/:email` and `/referrals`. All three
+ * already existed elsewhere — flash sales in `flash-sales.tsx`, the other two
+ * inline in `index.tsx` behind `intakeIsAdmin` — and this router's copies were
+ * older and unguarded. Because it mounts at `/`, ahead of those inline
+ * definitions, mounting it with them still in place would not have added
+ * anything: it would have replaced working admin-only routes with open ones.
+ * They are gone, and the live copies are untouched.
+ *
+ * What is left is the half that exists nowhere else, and that a real page calls.
+ * The `marketing-automation` page is routed and has been asking for
+ * `/automation/workflows` against a server that never had it, so it has simply
+ * been failing. That is what mounting this fixes.
+ *
+ * `/keywords` is kept for the same reason in reverse: `KeywordTracker` was
+ * unrouted precisely because this route 404'd. The route works now, so that page
+ * can be put back whenever it is wanted.
+ */
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import { requireStaffOn } from "./requireStaff.ts";
@@ -5,32 +27,20 @@ import { requireStaffOn } from "./requireStaff.ts";
 const router = new Hono();
 
 /**
- * NOT MOUNTED, and it should stay that way until somebody reconciles it.
+ * Company marketing machinery — not a customer's, so staff only.
  *
- * `/referrals`, `/flash-sales` and `/loyalty/:email` already exist elsewhere in
- * the server as live, guarded routes. Because this router would be mounted at
- * `/` — ahead of the inline definitions in index.tsx — mounting it would not add
- * those routes, it would quietly replace working ones with these older copies.
- *
- * The guard below is here so that if it ever is mounted, it is not mounted open.
- * It is scoped to this router's own paths deliberately: a bare `use("*")` on a
- * router mounted at `/` runs on every request the whole server receives.
+ * Scoped to this router's own paths rather than `use("*")`. This router mounts
+ * at `/`, and Hono resolves middleware by mount path, so a bare wildcard here
+ * would run on every request the whole server receives. That is not theoretical:
+ * doing it took `/health` and `/public/branding` down for one deploy.
  */
 router.use("*", requireStaffOn([
   "/make-server-3eae23a6/automation/workflows",
   "/make-server-3eae23a6/keywords",
-  "/make-server-3eae23a6/flash-sales",
-  "/make-server-3eae23a6/loyalty",
-  "/make-server-3eae23a6/referrals",
 ]));
 
-// ─── Key constants ──────────────────────────────────────────────────────────
 const WORKFLOWS_KEY = "automation_workflows:default";
 const KEYWORDS_KEY = "keyword_tracker:default";
-const FLASH_KEY = "flash_sales:default";
-const REFERRALS_KEY = "referrals:list";
-const PROGRAMS_KEY = "referral_programs:list";
-const LOYALTY = (email: string) => `loyalty:${email.toLowerCase()}`;
 
 function ok(data: Record<string, unknown> = {}) {
   return { success: true, ...data };
@@ -107,82 +117,6 @@ router.post("/make-server-3eae23a6/keywords", async (c) => {
     return c.json(ok({ keywords }));
   } catch (err) {
     console.log("Error saving keywords:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-// ─── Flash Sales ──────────────────────────────────────────────────────────────
-router.get("/make-server-3eae23a6/flash-sales", async (c) => {
-  try {
-    const sales = (await kv.get(FLASH_KEY)) || [];
-    return c.json(ok({ sales }));
-  } catch (err) {
-    console.log("Error loading flash sales:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-router.post("/make-server-3eae23a6/flash-sales", async (c) => {
-  try {
-    const { sales } = await c.req.json();
-    if (!Array.isArray(sales)) {
-      return c.json({ success: false, error: "sales must be an array" }, 400);
-    }
-    await kv.set(FLASH_KEY, sales);
-    return c.json(ok({ sales }));
-  } catch (err) {
-    console.log("Error saving flash sales:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-// ─── Loyalty Program (per-email accounts) ─────────────────────────────────────
-router.get("/make-server-3eae23a6/loyalty/:email", async (c) => {
-  try {
-    const email = c.req.param("email");
-    const account = (await kv.get(LOYALTY(email))) || null;
-    return c.json(ok({ account }));
-  } catch (err) {
-    console.log("Error loading loyalty account:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-router.post("/make-server-3eae23a6/loyalty/:email", async (c) => {
-  try {
-    const email = c.req.param("email");
-    const { account } = await c.req.json();
-    if (!account || typeof account !== "object") {
-      return c.json({ success: false, error: "account object is required" }, 400);
-    }
-    await kv.set(LOYALTY(email), account);
-    return c.json(ok({ account }));
-  } catch (err) {
-    console.log("Error saving loyalty account:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-// ─── Referral Rewards ─────────────────────────────────────────────────────────
-router.get("/make-server-3eae23a6/referrals", async (c) => {
-  try {
-    const referrals = (await kv.get(REFERRALS_KEY)) || null;
-    const programs = (await kv.get(PROGRAMS_KEY)) || null;
-    return c.json(ok({ referrals, programs }));
-  } catch (err) {
-    console.log("Error loading referrals:", err);
-    return c.json({ success: false, error: String(err) }, 500);
-  }
-});
-
-router.post("/make-server-3eae23a6/referrals", async (c) => {
-  try {
-    const { referrals, programs } = await c.req.json();
-    if (Array.isArray(referrals)) await kv.set(REFERRALS_KEY, referrals);
-    if (Array.isArray(programs)) await kv.set(PROGRAMS_KEY, programs);
-    return c.json(ok({ referrals, programs }));
-  } catch (err) {
-    console.log("Error saving referrals:", err);
     return c.json({ success: false, error: String(err) }, 500);
   }
 });

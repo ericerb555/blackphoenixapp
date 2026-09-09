@@ -3462,3 +3462,43 @@ had nothing to run — no source change reaches a page. `npm run e2e` 29/29.
 Verified against production, signed in as an ordinary customer: the five new
 routes all answer 403, and `/health`, `/public/branding`, `/flash-sales` and the
 admin-only `/crm/contacts` all behave as they did before.
+
+## Reconciling the duplicate growth-tools routers
+
+Asked to delete the three duplicates. Only one of them turned out to be safe to
+delete, and the check that found this is worth keeping: before removing a file,
+compare its routes against every other router, not just against `index.tsx`, and
+then look for client callers of whatever is unique to it.
+
+- [x] `growth-tools4` deleted outright. Every route was either a duplicate of a
+      live one in `index.tsx` or an orphan — `/media-library`, `/qr-codes`,
+      `/branding-profile` — that no page calls.
+- [x] `growth-tools` and `growth-tools2` had their duplicate routes stripped
+      (`/crm/contacts`, `/referrals`, `/flash-sales`, `/loyalty/:email`,
+      `/affiliates/:email`, `/maintenance-draft/:email`) and the remainder
+      mounted behind the scoped staff guard.
+
+Deleting those two would have been a mistake. Between them they hold the only
+server code for `/automation/workflows`, `/keywords`, `/surveys` and
+`/influencers`, and three pages that are routed and live in the app today —
+`marketing-automation`, `review-surveys`, `influencer-tracker` — call exactly
+those routes. They have been failing against a server that never had them.
+Deleting the files would have made that permanent.
+
+`KeywordTracker` is the same story one step further on: it was deliberately
+unrouted, with a comment saying it was because `/keywords` 404'd. That route
+answers now, so the page can be restored whenever it is wanted.
+
+### Checks
+
+Server typecheck 84, app 324, both unchanged. Nothing reaches a page, so smoke
+had nothing to run. `npm run e2e` 29/29.
+
+Verified against production: `/automation/workflows`, `/keywords`, `/surveys`
+and `/influencers` all answer 403 to an ordinary customer, which means they are
+mounted and guarded rather than missing. `/crm/contacts` is still admin-only and
+`/flash-sales`, `/public/branding` and `/health` are unchanged — the duplicates
+are gone without disturbing the live routes they would have shadowed.
+
+Not yet verified: that a signed-in staff account gets a 200 and the three pages
+populate. That needs a real staff session in the browser.

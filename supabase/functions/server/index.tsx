@@ -165,6 +165,8 @@ import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jo
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
 import jobFinancialsRouter from "./job-financials.tsx";
 import designStandardsRouter from "./design-standards.tsx";
+import growthToolsRouter from "./growth-tools.tsx";
+import growthTools2Router from "./growth-tools2.tsx";
 import growthTools3Router from "./growth-tools3.tsx";
 import imageUploadRouter from "./image-upload.tsx";
 import bigBoxProductsRouter from "./bigBoxProducts.tsx";
@@ -799,14 +801,23 @@ app.route("/", designStandardsRouter);
  *
  * The rest are not mountable as they stand, for two different reasons.
  *
- * `growth-tools`, `growth-tools2` and `growth-tools4` are older duplicates of
- * routes that already live in this file — `/crm/contacts`, `/payment-gateways`,
- * `/referrals`, `/access-requests` and `/flash-sales` among them. The live
- * copies are properly guarded with `intakeIsAdmin`. Because `app.route` here
- * registers ahead of the inline `app.get` definitions further down, mounting
- * those routers would not add anything — it would silently shadow working,
- * admin-guarded routes with unguarded older ones. The fix for them is deletion
- * or reconciliation, not mounting, and that is a decision to take deliberately.
+ * `growth-tools` and `growth-tools2` were half duplicate and half orphan. The
+ * duplicated half — `/crm/contacts`, `/referrals`, `/flash-sales`,
+ * `/affiliates/:email` and the rest — already lives in this file behind
+ * `intakeIsAdmin`, and because `app.route` registers ahead of the inline
+ * `app.get` definitions further down, mounting those routers as they stood would
+ * have shadowed working admin-guarded routes with unguarded older copies. Those
+ * duplicate routes have been deleted from the routers; the live ones here are
+ * untouched. What is mounted is only the half that exists nowhere else.
+ *
+ * That half matters: `marketing-automation`, `review-surveys` and
+ * `influencer-tracker` are all routed pages calling routes the server did not
+ * have, so they were failing rather than merely showing nothing. Mounting is
+ * what fixes them. (`KeywordTracker` was unrouted for exactly this reason and
+ * can be put back now that `/keywords` answers.)
+ *
+ * `growth-tools4` was deleted outright: every route in it was either a duplicate
+ * of one here or an orphan nothing called.
  *
  * The remaining sixteen carry other people's data — `property-management`,
  * `tenants`, `cohorts`, `providerBids`, `serviceProviders`. A staff gate is the
@@ -815,6 +826,8 @@ app.route("/", designStandardsRouter);
  * (`/my-opportunities/:providerId`), so any signed-in caller could read another
  * provider's opportunities by changing a number. They stay unmounted.
  */
+app.route("/", growthToolsRouter);
+app.route("/", growthTools2Router);
 app.route("/", growthTools3Router);
 app.route("/", imageUploadRouter);
 app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
