@@ -1,7 +1,20 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 const router = new Hono();
+
+// Retargeting pixels and auto-product rules are company configuration. A pixel
+// is third-party script identity, so write access to it is not a small thing.
+//
+// Scoped to this router's own paths, never `use("*")` — this router is mounted
+// at `/`, where a wildcard middleware would run on every request the server
+// gets. See the note on `requireStaffOn`.
+router.use("*", requireStaffOn([
+  "/make-server-3eae23a6/retargeting-pixels",
+  "/make-server-3eae23a6/auto-products",
+  "/make-server-3eae23a6/social/custom-accounts",
+]));
 
 const PIXELS_KEY = "retargeting_pixels:default";
 const AUTO_PRODUCTS_KEY = "auto_products:default";

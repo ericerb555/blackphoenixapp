@@ -4,8 +4,15 @@
  */
 
 import { Hono } from 'npm:hono';
+import { requireStaff } from './requireStaff.ts';
 
 const app = new Hono();
+
+// These routes proxy paid retail APIs on the company's account, so an open door
+// here is somebody else spending our quota. Staff-only for now — if the design
+// centre later needs live retail pricing in front of customers, that is a
+// deliberate decision to relax this, with rate limiting attached to it.
+app.use('*', requireStaff);
 
 /**
  * Search products across big box stores

@@ -165,6 +165,9 @@ import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jo
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
 import jobFinancialsRouter from "./job-financials.tsx";
 import designStandardsRouter from "./design-standards.tsx";
+import growthTools3Router from "./growth-tools3.tsx";
+import imageUploadRouter from "./image-upload.tsx";
+import bigBoxProductsRouter from "./bigBoxProducts.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
@@ -779,6 +782,42 @@ app.route("/make-server-3eae23a6", companyConfigRouter);
 app.route("/make-server-3eae23a6/quotes", quoteFromBlueprintRouter);
 app.route("/", jobFinancialsRouter);
 app.route("/", designStandardsRouter);
+
+/**
+ * Three routers that were written, never mounted, and therefore never reviewed.
+ *
+ * Being unmounted is not a security control — it is only an accident that has
+ * held so far. All three arrived with no authorisation of their own, so mounting
+ * them as they were would have put them on the wall's signed-in default, which
+ * every customer, tenant, vendor and subcontractor satisfies. `image-upload`
+ * writes to storage under the service role, so that default would have let any
+ * account created from the public signup page fill the project's storage under
+ * our name. Each now carries `requireStaff` as router middleware, so the guard
+ * covers routes added later rather than being remembered one route at a time.
+ *
+ * WHY ONLY THREE, OUT OF TWENTY-TWO
+ *
+ * The rest are not mountable as they stand, for two different reasons.
+ *
+ * `growth-tools`, `growth-tools2` and `growth-tools4` are older duplicates of
+ * routes that already live in this file — `/crm/contacts`, `/payment-gateways`,
+ * `/referrals`, `/access-requests` and `/flash-sales` among them. The live
+ * copies are properly guarded with `intakeIsAdmin`. Because `app.route` here
+ * registers ahead of the inline `app.get` definitions further down, mounting
+ * those routers would not add anything — it would silently shadow working,
+ * admin-guarded routes with unguarded older ones. The fix for them is deletion
+ * or reconciliation, not mounting, and that is a decision to take deliberately.
+ *
+ * The remaining sixteen carry other people's data — `property-management`,
+ * `tenants`, `cohorts`, `providerBids`, `serviceProviders`. A staff gate is the
+ * wrong shape for those: they need per-record ownership checks. `providerBids`
+ * shows why, taking the provider's identity from the URL
+ * (`/my-opportunities/:providerId`), so any signed-in caller could read another
+ * provider's opportunities by changing a number. They stay unmounted.
+ */
+app.route("/", growthTools3Router);
+app.route("/", imageUploadRouter);
+app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
 
 // Health check
 // Resolve a human-friendly company name. The COMPANY_NAME secret was set to a

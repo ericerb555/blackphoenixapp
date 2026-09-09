@@ -1,7 +1,31 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 const router = new Hono();
+
+/**
+ * NOT MOUNTED. `/access-requests`, `/payment-gateways` and `/public/branding`
+ * already exist in index.tsx as live routes, and mounting this at `/` would put
+ * these unguarded copies in front of them.
+ *
+ * Guarded anyway so a future mount fails safe. `/public/branding` is left out of
+ * the list on purpose — it is the company's logo and colours, read by the
+ * landing page before anybody signs in, and it returns nothing that is not
+ * already visible on the site.
+ *
+ * `/payment-gateways` is worth a note: its POST strips secret material before
+ * storing, so nothing leaks on read, but it still decides which gateway is
+ * active. That is a decision about how the business takes money, and it is not
+ * a customer's to make.
+ */
+router.use("*", requireStaffOn([
+  "/make-server-3eae23a6/media-library",
+  "/make-server-3eae23a6/qr-codes",
+  "/make-server-3eae23a6/access-requests",
+  "/make-server-3eae23a6/payment-gateways",
+  "/make-server-3eae23a6/branding-profile",
+]));
 
 const MEDIA_KEY = "media_library:default";
 const QR_KEY = "qr_codes:default";

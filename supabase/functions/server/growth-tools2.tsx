@@ -1,7 +1,26 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 const router = new Hono();
+
+/**
+ * NOT MOUNTED. `/crm/contacts`, `/affiliates/:email` and `/maintenance-draft`
+ * already exist in index.tsx, guarded with `intakeIsAdmin`. This router's copies
+ * have no guard of their own, and mounting it at `/` would put them ahead of the
+ * live ones — replacing an admin-only contact book with an open one.
+ *
+ * Guarded anyway, scoped to its own paths, so a future mount fails safe rather
+ * than open. Never widen this to a bare `use("*")`: mounted at `/`, that runs on
+ * every request the server receives, which once took the whole API offline.
+ */
+router.use("*", requireStaffOn([
+  "/make-server-3eae23a6/crm/contacts",
+  "/make-server-3eae23a6/surveys",
+  "/make-server-3eae23a6/influencers",
+  "/make-server-3eae23a6/affiliates",
+  "/make-server-3eae23a6/maintenance-draft",
+]));
 
 // ─── Key constants ──────────────────────────────────────────────────────────
 const CRM_CONTACTS_KEY = "crm_contacts:default";

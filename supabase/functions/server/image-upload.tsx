@@ -13,8 +13,24 @@
  */
 import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireStaffOn } from "./requireStaff.ts";
 
 const imageUploadRouter = new Hono();
+
+// Uploads run under the service role, which means this router can write into
+// storage with no restriction at all. Left on the signed-in default, any account
+// that can be created from the public signup page could fill the project's
+// storage with anything it liked, under our name. Staff-only.
+//
+// Nothing customer-facing is affected: the client uploads through `/media/upload`
+// and `/gallery/upload`, never through this router, which is why it could sit
+// unmounted this long without anybody noticing it was missing.
+// Scoped to this router's own paths, never `use("*")` — mounted at `/`, a
+// wildcard here runs on every request the server gets. See `requireStaffOn`.
+imageUploadRouter.use("*", requireStaffOn([
+  "/make-server-3eae23a6/images/upload",
+  "/make-server-3eae23a6/images/upload-file",
+]));
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

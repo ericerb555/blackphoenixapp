@@ -3406,3 +3406,59 @@ graph, not from regular expressions over source text.
 ### Checks
 
 App typecheck 324, unchanged. Smoke: 6 pages, 0 threw. `npm run e2e`: 29/29.
+
+## Mounting the unmounted routers
+
+### What was asked
+
+Mount the remaining 22 routers — 261 routes that exist in the repository and
+that nothing can reach.
+
+### What was actually mountable: three of them
+
+- [x] `growth-tools3` — retargeting pixels, auto-product rules, custom social
+      accounts. Six routes, none of which exist anywhere else.
+- [x] `image-upload` — two routes that write to storage under the service role.
+- [x] `bigBoxProducts` — proxies paid retail APIs on the company's account.
+
+All three arrived with no authorisation of any kind, which is what being
+unmounted lets you get away with. Each is now behind a staff check.
+
+### Why the other nineteen are still unmounted
+
+**Three are duplicates of live code.** `growth-tools`, `growth-tools2` and
+`growth-tools4` re-define `/crm/contacts`, `/payment-gateways`, `/referrals`,
+`/access-requests`, `/flash-sales` and others that already exist in `index.tsx`,
+properly guarded with `intakeIsAdmin`. Mounting registers ahead of those inline
+definitions, so it would not have added routes — it would have replaced working
+admin-only ones with open copies. They are guarded in place and marked
+do-not-mount; reconciling or deleting them is a separate decision.
+
+**Sixteen need ownership checks, not a staff gate.** `property-management`,
+`tenants`, `cohorts`, `providerBids`, `serviceProviders` and the rest hold other
+people's data. `providerBids` takes the provider's identity from the URL
+(`/my-opportunities/:providerId`), so any signed-in caller could read another
+provider's opportunities by editing a number. A staff gate does not fix that
+shape of bug. These stay unmounted until per-record checks exist.
+
+### The mistake, and what it cost
+
+The first deploy guarded each router with `router.use("*", requireStaff)`. That
+is wrong for a router mounted at `/`: Hono resolves middleware by mount path, so
+the wildcard ran on **every request the server received**. `/health` and
+`/public/branding` both started answering "Company access is required for this."
+The whole API was staff-only for one deploy.
+
+Caught by probing production immediately after deploying rather than by the
+build, which was perfectly happy. Replaced with `requireStaffOn(paths)`, which
+guards only the paths a router owns and passes everything else through, and the
+reason is written into `requireStaff.ts` so the next person does not repeat it.
+
+### Checks
+
+Server typecheck 84 and app typecheck 324, both unchanged from baseline. Smoke
+had nothing to run — no source change reaches a page. `npm run e2e` 29/29.
+
+Verified against production, signed in as an ordinary customer: the five new
+routes all answer 403, and `/health`, `/public/branding`, `/flash-sales` and the
+admin-only `/crm/contacts` all behave as they did before.

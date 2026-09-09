@@ -1,7 +1,28 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 const router = new Hono();
+
+/**
+ * NOT MOUNTED, and it should stay that way until somebody reconciles it.
+ *
+ * `/referrals`, `/flash-sales` and `/loyalty/:email` already exist elsewhere in
+ * the server as live, guarded routes. Because this router would be mounted at
+ * `/` — ahead of the inline definitions in index.tsx — mounting it would not add
+ * those routes, it would quietly replace working ones with these older copies.
+ *
+ * The guard below is here so that if it ever is mounted, it is not mounted open.
+ * It is scoped to this router's own paths deliberately: a bare `use("*")` on a
+ * router mounted at `/` runs on every request the whole server receives.
+ */
+router.use("*", requireStaffOn([
+  "/make-server-3eae23a6/automation/workflows",
+  "/make-server-3eae23a6/keywords",
+  "/make-server-3eae23a6/flash-sales",
+  "/make-server-3eae23a6/loyalty",
+  "/make-server-3eae23a6/referrals",
+]));
 
 // ─── Key constants ──────────────────────────────────────────────────────────
 const WORKFLOWS_KEY = "automation_workflows:default";
