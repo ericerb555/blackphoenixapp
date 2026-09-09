@@ -27,22 +27,8 @@ class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   render() { return this.state.err ? null : this.props.children; }
 }
 
-const WORK_REQUESTS = [
-  { id: 'wr1', title: 'Pool heater malfunction', unit: 'Common Area', priority: 'high', status: 'open' },
-  { id: 'wr2', title: 'Water leak Unit 305', unit: 'Unit 305', priority: 'urgent', status: 'open' },
-  { id: 'wr3', title: 'Elevator inspection', unit: 'Building B', priority: 'medium', status: 'pending' },
-];
 
-const PROPERTIES = [
-  { id: 'p1', name: 'Harborview Condos', units: 240, occupied: 228, address: '100 Harbor Blvd' },
-  { id: 'p2', name: 'Sunset Towers', units: 180, occupied: 171, address: '500 Sunset Ave' },
-];
 
-const PAYMENTS = [
-  { id: 'PMT-001', property: 'Harborview Condos', amount: 24000, date: '2026-06-01', status: 'paid' },
-  { id: 'PMT-002', property: 'Sunset Towers', amount: 18200, date: '2026-06-01', status: 'paid' },
-  { id: 'PMT-003', property: 'Harborview Condos', amount: 3000, date: '2026-06-15', status: 'pending' },
-];
 
 function priorityBadge(p: string) {
   if (p === 'urgent') return 'bg-red-500/10 text-red-400 border-red-500/20';

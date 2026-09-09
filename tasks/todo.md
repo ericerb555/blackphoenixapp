@@ -3372,3 +3372,37 @@ twice simply fails and it signs in instead.
 `BuildingCodeChecker` — the only consumer of `design-standards`, one of the three
 routers mounted earlier this week — is not rendered anywhere in the app. The
 route is live and correct; nothing puts it on a screen.
+
+## The last of the invented portal data
+
+**Condo manager dues** rendered three made-up owners paying $850, one marked
+overdue — while the real payments sat unused in state, already fetched from
+`/condo-manager/financials`. The panel now shows the five most recent real
+payments, or says there are none. Field names are read the several ways this
+codebase records them rather than assuming one spelling.
+
+**Property manager** carried `WORK_REQUESTS`, `PROPERTIES` and `PAYMENTS` —
+invented pool heaters, Harborview Condos, 240 units — declared and never
+rendered. Deleted before somebody wired them up believing they were real.
+
+That is every hardcoded array across the portals accounted for: subcontractor
+jobs, payments and revenue; the sample investment listings; the materials hub's
+demo catalogue; condo dues; and these three.
+
+### A sweep I abandoned
+
+I tried to find every unreachable component programmatically and the tool was
+wrong three times running — first because page components are registered in
+`routes.tsx` rather than rendered as JSX tags, then because `path.join` produced
+Windows separators so the lookup of `routes.tsx` silently returned an empty
+string, and after fixing both it still reported components that a direct grep
+shows being rendered.
+
+Three wrong answers in a row is the tool telling you it is not fit for the
+question. I stopped rather than spend more on it; the targeted checks have been
+right every time. If a sweep is wanted later it should be built from the import
+graph, not from regular expressions over source text.
+
+### Checks
+
+App typecheck 324, unchanged. Smoke: 6 pages, 0 threw. `npm run e2e`: 29/29.

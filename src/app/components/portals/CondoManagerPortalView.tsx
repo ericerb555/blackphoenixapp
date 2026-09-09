@@ -41,12 +41,6 @@ const UNITS = [
   { id: 'u4', number: '410', owner: 'Vacant', status: 'vacant', dues: 'n/a' },
 ];
 
-const DUES = [
-  { id: 'D-001', unit: 'Unit 101', owner: 'James Park', amount: 850, date: '2026-06-01', status: 'paid' },
-  { id: 'D-002', unit: 'Unit 202', owner: 'Sandra Lee', amount: 850, date: '2026-06-01', status: 'paid' },
-  { id: 'D-003', unit: 'Unit 305', owner: 'Tom Rivera', amount: 850, date: '2026-05-01', status: 'overdue' },
-];
-
 function priorityBadge(p: string) {
   if (p === 'urgent') return 'bg-red-500/10 text-red-400 border-red-500/20';
   if (p === 'high') return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
@@ -108,6 +102,27 @@ export default function CondoManagerPortalView() {
   const [decisionId, setDecisionId] = useState<string | null>(null);
   const [financials, setFinancials] = useState({ paidTotal: 0, pendingTotal: 0, openInvoiceTotal: 0, payments: [] as any[], invoices: [] as any[] });
   const [financialsLoading, setFinancialsLoading] = useState(false);
+
+  /**
+   * Recent dues, from the payments this portal already fetches.
+   *
+   * The panel used to render `DUES` — three invented owners paying $850, one of
+   * them marked overdue. The real payments were sitting in state and unused.
+   * Field names vary by how a payment was recorded, so each is read the way the
+   * rest of this codebase reads them rather than assuming one spelling.
+   */
+  const recentDues = (financials.payments || [])
+    .slice()
+    .sort((a: any, b: any) => String(b.paidAt || b.createdAt || "").localeCompare(String(a.paidAt || a.createdAt || "")))
+    .slice(0, 5)
+    .map((p: any) => ({
+      id: String(p.id || ""),
+      unit: String(p.unit || p.unitNumber || p.description || "Payment"),
+      owner: String(p.customerName || p.payerName || p.customerEmail || ""),
+      date: String(p.paidAt || p.createdAt || "").slice(0, 10),
+      amount: Number(p.amount || 0).toLocaleString(),
+      status: String(p.status || "pending"),
+    }));
   const [units, setUnits] = useState<any[]>([]);
   const [unitsLoading, setUnitsLoading] = useState(true);
   const [showUnitForm, setShowUnitForm] = useState(false);
@@ -272,8 +287,17 @@ export default function CondoManagerPortalView() {
                     View All <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
+                {/* Real payments, from /condo-manager/financials — which this
+                    portal already loads and this panel was not using. It
+                    listed three invented owners paying $850, one of them
+                    marked overdue. */}
                 <div className="space-y-3">
-                  {DUES.map(d => (
+                  {recentDues.length === 0 && (
+                    <div className="rounded-lg bg-[#0A0A0A] p-6 text-center">
+                      <p className="text-sm text-gray-400">No dues recorded yet.</p>
+                    </div>
+                  )}
+                  {recentDues.map(d => (
                     <div key={d.id} className="bg-[#0A0A0A] rounded-lg p-4 flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold text-sm">{d.unit} · {d.owner}</p>
