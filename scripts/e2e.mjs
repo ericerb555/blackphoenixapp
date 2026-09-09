@@ -182,6 +182,30 @@ console.log('\n── A real customer, signed up through the front door ──')
     });
     ok('cannot save into the shared staff namespace', save.payload?.success === false,
        JSON.stringify(save.payload)?.slice(0, 90));
+
+    // The cohorts router is the company's own pricing and revenue — what each
+    // tier earns, who is behind on payment, whose account gets shut off. Being
+    // signed in is not the same as working here, and every vendor, tenant and
+    // portal customer is signed in.
+    const cohorts = await call('/cohorts', { token });
+    ok('is not shown the company pricing and revenue', cohorts.status === 403,
+       `status ${cohorts.status}`);
+
+    // Asked separately because a 404 here would mean the guard is not
+    // covering the whole router. It does NOT prove the route order is right:
+    // the staff check fires before routing, so /cohorts/health and
+    // /cohorts/:id are indistinguishable from out here. Route order is proven
+    // by replaying the file's registrations through Hono, not by this.
+    const cohortHealth = await call('/cohorts/health', { token });
+    ok('and /cohorts/health is the health route, not an id lookup',
+       cohortHealth.status === 403, `status ${cohortHealth.status}`);
+
+    // Seeding wrote a fabricated million dollars of revenue onto the money
+    // screen. It is refused now, and refused before the staff check even
+    // matters — but a customer should never reach it either.
+    const seed = await call('/cohorts/initialize', { method: 'POST', token });
+    ok('cannot seed the revenue figures', seed.status === 403 || seed.status === 410,
+       `status ${seed.status}`);
   }
 }
 
@@ -205,6 +229,14 @@ console.log('\n── Reference data the design tools need ──');
 
   const health = await call('/health');
   ok('the server reports healthy', health.payload?.status === 'ok');
+
+  // Mounting a router at or near the root has twice risked taking the whole API
+  // staff-only, because Hono resolves middleware by mount path and a wildcard
+  // there covers every request. These two are the canaries: both are meant to
+  // answer somebody holding nothing but the publishable key.
+  const branding = await call('/public/branding');
+  ok('public branding still answers an anonymous caller', branding.status === 200,
+     `status ${branding.status}`);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);
