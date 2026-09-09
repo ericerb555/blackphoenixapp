@@ -4,8 +4,35 @@
  */
 
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../supabase';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/**
+ * The signed-in user's token, not the public anon key.
+ *
+ * Every call in this file used to send `Bearer <publicAnonKey>` — a value baked
+ * into the shipped bundle that identifies nobody. These routes read the
+ * company's own pricing, revenue and who is behind on payment, and they are
+ * staff-only, so the server needs something it can actually check.
+ *
+ * Falls back to the anon key when signed out so the request still reaches the
+ * function, which then refuses it. The refusal belongs on the server, where it
+ * cannot be edited out, rather than here.
+ */
+const authHeaders = async (): Promise<Record<string, string>> => {
+  let token = publicAnonKey;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) token = data.session.access_token;
+  } catch {
+    // No session available; the anon key below will be refused by the server.
+  }
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+};
 
 interface RevenueAnalytics {
   overview: {
@@ -86,10 +113,7 @@ export async function getRevenueAnalytics(): Promise<RevenueAnalytics | null> {
   try {
     const response = await fetch(`${API_BASE}/cohorts/revenue/analytics`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {
@@ -112,10 +136,7 @@ export async function getCategoryRevenue(category: string): Promise<CategoryReve
   try {
     const response = await fetch(`${API_BASE}/cohorts/revenue/category/${category}`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {
@@ -138,10 +159,7 @@ export async function getRevenueTrends(): Promise<RevenueTrends | null> {
   try {
     const response = await fetch(`${API_BASE}/cohorts/revenue/trends`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {
@@ -164,10 +182,7 @@ export async function getCohortsHealth(): Promise<HealthStats | null> {
   try {
     const response = await fetch(`${API_BASE}/cohorts/health`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {
@@ -194,10 +209,7 @@ export async function updateCohortSubscribers(
   try {
     const response = await fetch(`${API_BASE}/cohorts/${cohortId}/update-subscribers`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
       body: JSON.stringify({
         activeSubscribers,
         foundingMemberCount: foundingMemberCount || 0
@@ -225,10 +237,7 @@ export async function getAllCohorts(): Promise<any[]> {
   try {
     const response = await fetch(`${API_BASE}/cohorts`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {
@@ -308,10 +317,7 @@ export async function initializeCohorts(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/cohorts/initialize`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: await authHeaders(),
     });
 
     if (!response.ok) {

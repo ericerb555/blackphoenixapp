@@ -3502,3 +3502,150 @@ are gone without disturbing the live routes they would have shadowed.
 
 Not yet verified: that a signed-in staff account gets a 200 and the three pages
 populate. That needs a real staff session in the browser.
+
+## Restoring the keyword tracker, and what it was seeding
+
+The route was put back — `/keywords` answers now, so the page has a server
+again. Two things came out of reading it before shipping it.
+
+- [x] `keyword-tracker` resolves to `KeywordTracker` again rather than to the AI
+      SEO Engine.
+- [x] Deleted the six seeded keywords. On first load the page wrote them to the
+      server: fabricated search volumes (1600, 880, 320…) that would have sat in
+      production KV looking like figures somebody had pulled off a real tool.
+      An empty tracker is the honest starting state.
+- [x] Target URLs pointed at `blackphoenixbuilds.com`, the marketing site being
+      retired. They point at `theblackphoenixcompany.com` now.
+- [x] A refused read is no longer indistinguishable from an empty tracker. The
+      route is staff-only, so a non-staff visitor used to see the seeded rows;
+      now they are told it is staff-only.
+
+### Checks
+
+Typecheck 324, baseline unchanged, nothing in this file. Smoke 332/332, zero
+throws, `keyword-tracker` renders.
+
+Not verified: that a real staff session loads and saves keywords through the
+route. That needs a browser signed in as staff.
+
+## The remaining sixteen unmounted routers — what they actually are
+
+Audited before proposing anything, because the growth-tools reconciliation
+showed the shape of the trap: an unmounted router that looks like missing
+functionality is often a duplicate that would *shadow* a guarded live route.
+
+| router | routes | also in `index.tsx` | called by a page |
+| --- | --- | --- | --- |
+| `property-management` | 22 | **21** | yes — but the live inline ones answer |
+| `cohorts` | 18 | 0 | **yes — `revenueService.ts`** |
+| `tenants` | 14 | 7 | partly, and see the name clash below |
+| `api-gateway` | 14 | 0 | no |
+| `serviceProviders` | 9 | 2 | partly |
+| `providerBids` | 8 | 2 | partly |
+| `data-backup` | 5 | 4 | mostly duplicate |
+| `materials-api` | 4 | 1 | `/search` |
+| `cohort-settings` | 3 | 2 | yes |
+| `unifiedProductSearch` | 3 | 0 | yes |
+| `kitchen-cabinet-schedule` | 3 | 1 | `/generate` |
+| `aiBidRouter` | 3 | 2 | yes |
+| `plan-builder` | 2 | 2 | duplicate |
+| `portalSettings`, `weather`, `analytics-summary` | 0 | — | not routers in the usual shape |
+
+Three findings worth having before deciding anything:
+
+1. **`property-management` is a duplicate, and a dangerous one.** Twenty-one of
+   its twenty-two routes already exist inline in `index.tsx`, where they carry
+   the ownership checks added when `/property-management/condos` was found
+   returning every association to anyone who asked. Mounting the file would
+   register ahead of those and replace them with copies that check nothing.
+   This is `growth-tools4` again, with real tenant data behind it.
+
+2. **`cohorts` is the opposite case and the one with actual value.** Eighteen
+   routes, none of them anywhere else, and `revenueService.ts` calls them from
+   the revenue hub today. That screen is talking to a server that has never had
+   those routes — the same story as `marketing-automation` before last session.
+
+3. **`tenants` means two different things.** `tenants.tsx` is platform
+   multi-tenancy — territories, platform users, role changes. The landlord
+   portal's "tenants" are people renting a flat. One word, two systems, and
+   wiring the portal to this router would be a serious mistake.
+
+### Proposed order
+
+- [ ] 1. `cohorts` — reconcile against the client, mount behind the scoped staff
+      guard, and check whether the revenue hub then populates.
+- [ ] 2. `property-management` — confirm the one unique route, then delete the
+      file rather than mounting it, the way `growth-tools4` was handled.
+- [ ] 3. The small ones that already have callers — `cohort-settings`,
+      `unifiedProductSearch`, `materials-api`, `kitchen-cabinet-schedule` —
+      each checked for duplicates first.
+- [ ] 4. Leave `api-gateway`, `providerBids`, `serviceProviders` and `tenants`
+      unmounted. They take identity from the URL and need per-record checks,
+      which is a separate piece of work, and unmounted means unreachable.
+
+Not started — waiting on sign-off.
+
+## Cohorts — mounted, and the fictional business that was in it
+
+- [x] `cohortsRouter` mounted at `/make-server-3eae23a6`, behind
+      `requireStaffOn(['/make-server-3eae23a6/cohorts'])`.
+- [x] `revenueService.ts` sends the signed-in user's token instead of the public
+      anon key, or nothing it asks for would be answered.
+- [x] `POST /cohorts/initialize` no longer seeds. It returns 410 and says why.
+
+### What mounting it fixes
+
+`revenueService.ts` calls `/cohorts`, `/cohorts/health`,
+`/cohorts/revenue/analytics`, `/cohorts/revenue/category/:category` and
+`/cohorts/revenue/trends` from the Revenue & Monetization Hub, on load and then
+every sixty seconds. None of those routes existed on the server. Eighteen routes
+that live nowhere else, called by a live screen — the same failure as
+`marketing-automation`, on the money screen this time.
+
+### The seeder is the finding
+
+`POST /cohorts/initialize` wrote twelve invented cohorts straight into
+production KV. Not placeholders — a complete fictional business: *Vendor
+Starter*, 1,247 subscribers, $61,103 a month; *Home Service Essentials*, 847 and
+$126,203; *Premium Property Care*, 412 and $123,188. Close to a million dollars
+of monthly revenue in total, with churn rates, conversion rates and overdue
+counts to match.
+
+The Revenue & Monetization Hub reads exactly those fields. One call to that
+route would have put a fabricated P&L on the company's own money screen,
+refreshing every minute so it looked live, and nothing on the page would have
+distinguished it from real revenue.
+
+It is refused now rather than deleted quietly: the route answers 410 and the
+comment says what it used to do. Cohorts are created through `POST /cohorts`,
+which is the real path. The old fixture is in git history — but if any of that
+price list is genuinely our pricing, it should be retyped as a decision rather
+than restored as data. **That is a question for Eric, not something to guess.**
+
+### Why a staff gate is the right shape here
+
+Unlike `providerBids` or `tenants`, a cohort is not somebody else's record. It
+is our pricing, our revenue and who is behind on payment — including
+`/cohorts/accounts/shutoff`. The distinction that matters is between a customer
+and the company, and every vendor, subcontractor and portal customer is signed
+in, so "signed in" was never enough.
+
+The guard is `requireStaffOn`, not `use('*', requireStaff)`. This router is
+mounted at the function prefix, and in Hono a sub-router's wildcard middleware
+is registered against the mount path — so `use('*')` here would run on every
+request in the whole API. That is the mistake that took the API staff-only for
+a deploy last session, one level further down.
+
+### Client-side authority
+
+Every call in `revenueService.ts` sent `Bearer <publicAnonKey>` — a value baked
+into the shipped bundle that identifies nobody. Behind a staff gate that means
+403 on everything, so the token had to be fixed in the same change. It falls
+back to the anon key when signed out, deliberately, so the refusal comes from
+the server rather than from a client check somebody could edit out. Same pattern
+`propertyManagementService.ts` already uses.
+
+### Still to verify
+
+That a real staff session loads the hub and sees cohorts (currently none, which
+is correct — the fiction is gone and nothing real has been entered yet).

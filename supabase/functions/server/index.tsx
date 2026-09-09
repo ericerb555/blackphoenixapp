@@ -170,6 +170,7 @@ import growthTools2Router from "./growth-tools2.tsx";
 import growthTools3Router from "./growth-tools3.tsx";
 import imageUploadRouter from "./image-upload.tsx";
 import bigBoxProductsRouter from "./bigBoxProducts.tsx";
+import { cohortsRouter } from "./cohorts.tsx";
 import { ensureProviderOrg, isProviderType, makeUserFinder, providerName, providerEmail } from "./provider-orgs.tsx";
 import { vendorRecordFrom, vendorIdForApplication, conflictingVendor } from "./vendorRecord.ts";
 import { mintShareToken, hashToken, shareTokenRecord, shareTokenUsable, alreadyDecided, QUOTE_LINK_DAYS } from "./shareToken.ts";
@@ -819,18 +820,34 @@ app.route("/", designStandardsRouter);
  * `growth-tools4` was deleted outright: every route in it was either a duplicate
  * of one here or an orphan nothing called.
  *
- * The remaining sixteen carry other people's data — `property-management`,
- * `tenants`, `cohorts`, `providerBids`, `serviceProviders`. A staff gate is the
- * wrong shape for those: they need per-record ownership checks. `providerBids`
- * shows why, taking the provider's identity from the URL
- * (`/my-opportunities/:providerId`), so any signed-in caller could read another
- * provider's opportunities by changing a number. They stay unmounted.
+ * `cohorts` was the other real one and is mounted below. Nothing else in the
+ * server had its eighteen routes, and the Revenue & Monetization Hub calls them
+ * today. A staff gate IS the right shape there: a cohort is the company's own
+ * pricing and revenue, not a customer's record.
+ *
+ * The rest carry other people's data — `property-management`, `tenants`,
+ * `providerBids`, `serviceProviders`. A staff gate is the wrong shape for those:
+ * they need per-record ownership checks. `providerBids` shows why, taking the
+ * provider's identity from the URL (`/my-opportunities/:providerId`), so any
+ * signed-in caller could read another provider's opportunities by changing a
+ * number. They stay unmounted. `property-management` is a different case again:
+ * twenty-one of its twenty-two routes are duplicates of the guarded ones in this
+ * file, so mounting it would shadow them with unguarded copies.
  */
 app.route("/", growthToolsRouter);
 app.route("/", growthTools2Router);
 app.route("/", growthTools3Router);
 app.route("/", imageUploadRouter);
 app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
+
+// Cohorts — the subscription tiers, their pricing and what they earn. Mounted
+// at the function prefix because this router spells its paths as `/cohorts`
+// rather than in full. It guards itself; see the note at the top of the file.
+//
+// It is mounted because `revenueService.ts` has been calling these routes from
+// the Revenue & Monetization Hub against a server that never had them — the
+// same failure as `marketing-automation`, and on the money screen.
+app.route("/make-server-3eae23a6", cohortsRouter);
 
 // Health check
 // Resolve a human-friendly company name. The COMPANY_NAME secret was set to a
