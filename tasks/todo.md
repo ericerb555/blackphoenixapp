@@ -4173,3 +4173,88 @@ changed.
   writes on a 500-row batch. Not measured against a real large import.
 - **Backfill has not been run.** It is deployed-but-unrun until somebody with
   staff access calls it, and it should be run once and its counts checked.
+
+## Getting a real catalogue in — the three gaps closed
+
+Eric: *"lets get a real catalog in first"*, and then *"nothing yet but a
+building supply"* — no file in hand, and the supplier will be a building supply
+house. So the work is removing the friction before the file arrives.
+
+- [x] 1. Find the header row instead of assuming it is the first.
+- [x] 2. A template and a written spec to send the supplier.
+- [x] 3. Excel (`.xlsx`) support.
+
+### 1. The header row was the real blocker
+
+`buildRows` did `data.slice(1)` and mapped columns from `data[0]`. A price list
+is a document before it is a data file: an ERP export opens with the company
+name, an effective date and a blank line, and only then the column headings. So
+`guessMapping` read "SMITH BUILDING SUPPLY" as the column names, found nothing,
+and every row was rejected for having no product name.
+
+Measured against a realistic export — title block, effective date, blank row,
+then `Item # / Description / UOM / Your Price / Category / Stock`:
+
+| | imported | rejected |
+| --- | --- | --- |
+| assuming row 1 is the header | **0** | 7 |
+| finding the header | **3** | 1 |
+
+The one rejection is `DIMENSIONAL LUMBER`, a section heading in the middle of
+the file, refused with a stated reason. That is correct — it is not a product.
+`$1,024.50` came through as `1024.5`, and `"2x4 Pressure Treated, 8ft"` kept its
+comma.
+
+The header is a **guess that is shown**: the row it picked appears in a
+dropdown with its first few cells, and the operator can move it. A guess
+somebody can see and correct beats a rule that is right more often and silent
+when it is wrong.
+
+### 2. The template carries a header row and nothing else
+
+A template with example rows is a template somebody imports unchanged, and then
+the catalogue holds two products nobody sells. What each column means is
+written on the screen beside the download button, where it cannot be imported.
+It also says plainly that their own export works too and does not have to match.
+
+### 3. Excel, and why not SheetJS
+
+npm's `xlsx` is frozen at **0.18.5** — SheetJS stopped publishing there, and the
+fixes for its prototype-pollution (CVE-2023-30533) and ReDoS advisories exist
+only in later versions distributed from their own CDN. This code parses files
+supplied by people outside the company, which is exactly what those advisories
+describe. So `exceljs@4.4.0`, which is current on npm.
+
+**It is dynamically imported.** The build confirms it: `exceljs.min-*.js` is its
+own 940 kB chunk (271 kB gzipped), not part of the main bundle, so a vendor
+uploading a CSV never downloads it.
+
+Cell values are not `String(...)`-ed. A real supplier file has rich text, formula
+results, dates and hyperlinks, all of which arrive as objects and would import as
+a product literally named `[object Object]`. Each shape is handled, and an error
+cell (`#N/A`, `#REF!`) becomes empty rather than a value.
+
+`.xls` and `.pdf` are refused **by name** with something useful to say, rather
+than attempted and silently failing.
+
+### The repo is a pnpm project
+
+`npm install` cannot run here at all: package.json carries 60 versioned alias
+keys from the Figma Make export — `"lucide-react@0.487.0": "npm:lucide-react@0.487.0"` —
+and npm rejects the key as an invalid package name. pnpm tolerates them, and
+`pnpm-lock.yaml` is the lockfile. 59 of the 60 duplicate a normal entry; only
+`openai@4` is alias-only, and nothing in `src/` imports it. **Use `pnpm add`, not
+`npm install`.** Adding the dependency touched package.json and the lockfile and
+nothing else.
+
+### Checks
+
+App typecheck 324, unchanged from baseline. `vite build` succeeds. The header
+detection was run against a realistic supplier export, above.
+
+### Not verified
+
+No real `.xlsx` has been through it. The cell-shape handling is reasoned from
+what ExcelJS returns, not observed against a supplier's actual workbook — the
+first real file is the test, and the screen shows what it will import before it
+imports it, which is what that preview is for.

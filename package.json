@@ -96,6 +96,7 @@
     "date-fns@3.6.0": "npm:date-fns@3.6.0",
     "embla-carousel-react": "8.6.0",
     "embla-carousel-react@8.6.0": "npm:embla-carousel-react@8.6.0",
+    "exceljs": "4.4.0",
     "hono": "^4.12.14",
     "hono@3": "npm:hono@3",
     "hono@4": "npm:hono@4",

@@ -225,18 +225,70 @@ export interface ParsedCatalog {
  * Nothing is dropped quietly: a price list that imports 1,830 of 1,842 lines
  * without saying so becomes twelve quotes with a missing material.
  */
+/**
+ * Which row is the header.
+ *
+ * WHY THIS IS NOT ALWAYS ROW ONE
+ *
+ * Because a price list is a document before it is a data file. A building
+ * supply's export from their ERP opens with the company name, an effective
+ * date, sometimes a customer number and a blank line, and only then the column
+ * headings. Assuming row one means `guessMapping` reads "SMITH BUILDING SUPPLY"
+ * as the column names, finds nothing, and every single line is then rejected
+ * for having no product name — a file that is perfectly good, refused in full.
+ *
+ * HOW IT DECIDES
+ *
+ * The header is the row that looks most like column headings, scored by how
+ * many of our fields `guessMapping` can recognise in it. A row naming both a
+ * product and a price beats a row naming neither, which is the whole test.
+ * Ties go to the earliest row, because a data row can coincidentally score as
+ * well as a header and the header comes first.
+ *
+ * It is a guess, and it is shown to the operator with the row it picked so
+ * they can move it. A guess somebody can see and correct is worth far more
+ * than a rule that is right more often and silent when it is wrong.
+ */
+export function findHeaderRow(data: string[][], maxScan = 15): number {
+  let best = 0;
+  let bestScore = -1;
+  const limit = Math.min(data.length, maxScan);
+
+  for (let i = 0; i < limit; i++) {
+    const row = data[i] || [];
+    // A row of one filled cell is a title, not a heading, however it scores.
+    if (row.filter((c) => String(c ?? '').trim() !== '').length < 2) continue;
+
+    const mapping = guessMapping(row);
+    const found = Object.keys(mapping).length;
+    // Required fields carry the decision: a header that names neither a product
+    // nor a price is not the header, whatever else it happens to match.
+    const required = REQUIRED_FIELDS.filter((f) => mapping[f] !== undefined).length;
+    const score = required * 10 + found;
+
+    if (score > bestScore) { bestScore = score; best = i; }
+  }
+
+  return bestScore <= 0 ? 0 : best;
+}
+
 export function buildRows(
   data: string[][],
   mapping: Partial<Record<CatalogField, number>>,
   hasHeader = true,
+  headerRow = 0,
 ): ParsedCatalog {
   const rows: CatalogRow[] = [];
   const rejected: RejectedRow[] = [];
   const seenSku = new Set<string>();
   let duplicates = 0;
 
-  const body = hasHeader ? data.slice(1) : data;
-  const offset = hasHeader ? 2 : 1; // 1-based, and past the header
+  // Everything above the header is preamble — a supplier's title block, an
+  // effective date, a blank row — and is neither data nor a rejection worth
+  // reporting. `headerRow` is 0 for a file whose first line is the header,
+  // which is what every caller did before this existed.
+  const body = hasHeader ? data.slice(headerRow + 1) : data.slice(headerRow);
+  const offset = (hasHeader ? headerRow + 2 : headerRow + 1); // 1-based, past the header
 
   const at = (r: string[], f: CatalogField) => {
     const i = mapping[f];

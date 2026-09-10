@@ -20,10 +20,10 @@
  * line numbers match the vendor's spreadsheet so they can go and look.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
+import { Download, Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  parseDelimited, guessMapping, buildRows, missingRequired,
+  parseDelimited, guessMapping, buildRows, missingRequired, findHeaderRow,
   FIELD_LABELS, REQUIRED_FIELDS,
   type CatalogField, type ParsedCatalog,
 } from '../../lib/catalogImport';
@@ -40,6 +40,11 @@ interface Props {
   onImported: () => void | Promise<void>;
 }
 
+import {
+  isSpreadsheet, unreadableReason, readWorkbookGrid, catalogTemplateCsv,
+  SPREADSHEET_EXTENSIONS,
+} from '../../lib/catalogWorkbook';
+
 const FIELDS: CatalogField[] = ['name', 'sku', 'price', 'unit', 'category', 'availability', 'leadTimeDays'];
 
 export default function CatalogImport({ vendorId, headers, apiBase, onImported }: Props) {
@@ -47,37 +52,83 @@ export default function CatalogImport({ vendorId, headers, apiBase, onImported }
   const [grid, setGrid] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Partial<Record<CatalogField, number>>>({});
   const [hasHeader, setHasHeader] = useState(true);
+  // Which row holds the column names. Guessed, then shown, because a supplier's
+  // export usually opens with a title block and an effective date.
+  const [headerRow, setHeaderRow] = useState(0);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [sheetName, setSheetName] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [reading, setReading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<{ added: number; updated: number; rejected: Array<{ line: number; reason: string }> } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const header = grid[0] || [];
+  const header = grid[headerRow] || [];
 
   const parsed: ParsedCatalog | null = useMemo(
     () => (grid.length && missingRequired(mapping).length === 0
-      ? buildRows(grid, mapping, hasHeader)
+      ? buildRows(grid, mapping, hasHeader, headerRow)
       : null),
-    [grid, mapping, hasHeader],
+    [grid, mapping, hasHeader, headerRow],
   );
 
-  const take = useCallback(async (file: File) => {
+  /** Apply a grid however it was produced, and guess where its header is. */
+  const useGrid = useCallback((rows: string[][], name: string) => {
+    const at = findHeaderRow(rows);
+    setFileName(name);
+    setGrid(rows);
+    setHeaderRow(at);
+    setMapping(guessMapping(rows[at] || []));
+    setHasHeader(true);
+  }, []);
+
+  const take = useCallback(async (file: File, pickSheet?: string) => {
     setResult(null);
+    const refusal = unreadableReason(file.name);
+    if (refusal) { toast.error(refusal); return; }
+
+    setReading(true);
     try {
-      const text = await file.text();
-      const rows = parseDelimited(text);
-      if (!rows.length) { toast.error('That file has no rows in it.'); return; }
-      setFileName(file.name);
-      setGrid(rows);
-      setMapping(guessMapping(rows[0]));
-      setHasHeader(true);
-    } catch {
-      toast.error('That file could not be read.');
+      if (isSpreadsheet(file.name)) {
+        const wb = await readWorkbookGrid(file, pickSheet);
+        if (!wb.grid.length) { toast.error('That sheet has no rows in it.'); return; }
+        setPendingFile(file);
+        setSheetNames(wb.sheetNames);
+        setSheetName(wb.sheetName);
+        if (wb.truncated) toast.warning('Only the first 25,000 rows were read.');
+        useGrid(wb.grid, file.name);
+      } else {
+        const rows = parseDelimited(await file.text());
+        if (!rows.length) { toast.error('That file has no rows in it.'); return; }
+        setPendingFile(null);
+        setSheetNames([]);
+        setSheetName('');
+        useGrid(rows, file.name);
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'That file could not be read.');
+    } finally {
+      setReading(false);
     }
+  }, [useGrid]);
+
+  /** Download the file to send a supplier who has not sent one yet. */
+  const downloadTemplate = useCallback(() => {
+    const blob = new Blob([catalogTemplateCsv()], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'catalogue-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }, []);
 
   const reset = () => {
     setGrid([]); setMapping({}); setFileName(''); setResult(null); setProgress(0);
+    setHeaderRow(0); setSheetNames([]); setSheetName(''); setPendingFile(null);
   };
 
   const run = useCallback(async () => {
@@ -146,15 +197,54 @@ export default function CatalogImport({ vendorId, headers, apiBase, onImported }
         <>
           <button
             onClick={() => fileInput.current?.click()}
-            disabled={!vendorId}
+            disabled={!vendorId || reading}
             className="mt-3 flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-[#2A2A2A] px-4 py-8 text-sm text-gray-400 transition hover:border-orange-500/40 hover:text-white disabled:opacity-40"
           >
             <Upload className="h-6 w-6 text-[#ea580c]" />
-            Choose a file
+            {reading ? 'Reading the file…' : 'Choose a file'}
+            <span className="text-[11px] text-gray-600">
+              Excel (.xlsx) or CSV. Whatever their system exports.
+            </span>
           </button>
+
+          {/* What to ask a supplier for, when there is no file yet.
+              The template carries the header row and nothing else — a template
+              with example rows is a template somebody imports unchanged, and
+              then the catalogue holds two products nobody sells. What each
+              column means is written here instead, where it cannot be
+              imported. */}
+          <div className="mt-3 rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+            <p className="text-xs font-semibold text-white">Haven't got their price list yet?</p>
+            <p className="mt-1 text-xs text-gray-400">
+              Send them this and ask them to fill it in from their system. Only <span className="text-white">Name</span>{' '}
+              and <span className="text-white">Price</span> are required — everything else improves the quote and
+              nothing is refused for missing it.
+            </p>
+            <ul className="mt-2 space-y-0.5 text-[11px] text-gray-500">
+              <li><span className="text-gray-300">Name</span> — what the product is called on their invoice</li>
+              <li><span className="text-gray-300">SKU</span> — their own item number, exactly as it appears on a purchase order</li>
+              <li><span className="text-gray-300">Category</span> — lumber, fasteners, roofing, and so on</li>
+              <li><span className="text-gray-300">Unit</span> — each, LF, sheet, box: what the price is per</li>
+              <li><span className="text-gray-300">Price</span> — our price, not list</li>
+              <li><span className="text-gray-300">Availability</span> — stocked, special order, discontinued</li>
+              <li><span className="text-gray-300">Lead time</span> — days, for anything not on the shelf</li>
+            </ul>
+            <button
+              onClick={downloadTemplate}
+              className="mt-3 flex items-center gap-2 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download the template
+            </button>
+            <p className="mt-2 text-[11px] text-gray-600">
+              Their own export works too — it does not have to match this. Column names are matched on the way in,
+              and you confirm the match before anything is saved.
+            </p>
+          </div>
           <input
             ref={fileInput} type="file" className="hidden"
-            accept=".csv,.tsv,.txt,text/csv,text/plain,text/tab-separated-values"
+            accept={['.csv', '.tsv', '.txt', ...SPREADSHEET_EXTENSIONS,
+                     'text/csv', 'text/plain', 'text/tab-separated-values'].join(',')}
             onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void take(f); }}
           />
         </>
@@ -162,18 +252,68 @@ export default function CatalogImport({ vendorId, headers, apiBase, onImported }
         <div className="mt-3 space-y-4">
           <p className="text-xs text-gray-400">
             <span className="font-semibold text-white">{fileName}</span>
-            {' · '}{grid.length - (hasHeader ? 1 : 0)} row{grid.length - (hasHeader ? 1 : 0) === 1 ? '' : 's'}
+            {' · '}{Math.max(0, grid.length - headerRow - (hasHeader ? 1 : 0))} row
+            {Math.max(0, grid.length - headerRow - (hasHeader ? 1 : 0)) === 1 ? '' : 's'}
           </p>
 
-          <label className="flex items-center gap-2 text-xs text-gray-400">
-            <input type="checkbox" checked={hasHeader} onChange={e => {
-              setHasHeader(e.target.checked);
-              // Re-guess against whichever row is now the header, or clear the
-              // guess when there is no header to guess from.
-              setMapping(e.target.checked ? guessMapping(grid[0] || []) : {});
-            }} />
-            The first row is column headings
-          </label>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs text-gray-400">
+              <input type="checkbox" checked={hasHeader} onChange={e => {
+                setHasHeader(e.target.checked);
+                // Re-guess against whichever row is now the header, or clear the
+                // guess when there is no header to guess from.
+                setMapping(e.target.checked ? guessMapping(grid[headerRow] || []) : {});
+              }} />
+              The file has column headings
+            </label>
+
+            {/* Which row they are on.
+                A supplier's export opens with a title block and an effective
+                date, so this is a guess. It is shown with the row it picked
+                because a guess somebody can see and move is worth more than a
+                rule that is silent when it is wrong. */}
+            {hasHeader && grid.length > 1 && (
+              <label className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span>Headings are on row</span>
+                <select
+                  className="rounded border border-[#2A2A2A] bg-[#0A0A0A] px-2 py-1 text-xs text-white"
+                  value={String(headerRow)}
+                  onChange={e => {
+                    const at = Number(e.target.value);
+                    setHeaderRow(at);
+                    setMapping(guessMapping(grid[at] || []));
+                  }}
+                >
+                  {grid.slice(0, 15).map((row, i) => (
+                    <option key={i} value={String(i)}>
+                      {i + 1}: {row.filter(Boolean).slice(0, 4).join(' | ').slice(0, 60) || '(blank)'}
+                    </option>
+                  ))}
+                </select>
+                {headerRow > 0 && (
+                  <span className="text-gray-500">
+                    — the {headerRow} row{headerRow === 1 ? '' : 's'} above are ignored
+                  </span>
+                )}
+              </label>
+            )}
+
+            {/* Which sheet, when the workbook has more than one. A supplier's
+                file often opens on a cover sheet. */}
+            {sheetNames.length > 1 && pendingFile && (
+              <label className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span>Sheet</span>
+                <select
+                  className="rounded border border-[#2A2A2A] bg-[#0A0A0A] px-2 py-1 text-xs text-white"
+                  value={sheetName}
+                  disabled={reading}
+                  onChange={e => { void take(pendingFile, e.target.value); }}
+                >
+                  {sheetNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
 
           {/* ── The mapping ────────────────────────────────────────────────
               Shown rather than applied. Getting the price column wrong is not
