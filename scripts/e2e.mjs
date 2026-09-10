@@ -287,6 +287,13 @@ console.log('\n── A real customer, signed up through the front door ──')
     ok('cannot read what the company pays per line', priceLines.status === 403,
        `status ${priceLines.status}`);
 
+    // Drafting a quote spends a model call and answers with the cost basis.
+    // Staff only, and asked from outside the company. This one is free to probe
+    // because it refuses BEFORE it spends anything.
+    const draft = await call('/quote-draft/wr_probe', { method: 'POST', token, body: {} });
+    ok('cannot draft a quote for a work request', draft.status === 403,
+       `status ${draft.status}`);
+
     const priceBook = await call('/deck-price-book', { token });
     ok('cannot read the deck price book', priceBook.status === 403,
        `status ${priceBook.status}`);

@@ -4990,3 +4990,55 @@ anybody clears them.
 ### Checks
 
 App typecheck 324 and server typecheck 84, both unchanged from baseline.
+
+## Generate-on-open
+
+- [x] `POST /quote-draft/:workRequestId` — staff only, cached, metered.
+- [x] One estimator setup, shared with `/auto-generate-quote` (50 lines of
+      duplication removed rather than a second copy added).
+- [x] `WorkRequestQuoteDraft`, rendered in the work-request detail modal.
+
+### Opening twice is free, and the screen says so
+
+The draft is stored under `quote_draft:{workRequestId}` and returned unchanged on
+every later open. The reply carries `spent: true` the first time and `spent: false`
+afterwards, and the component prints which — *"generated just now"* or *"from the
+saved draft — no new cost"*.
+
+That label is not decoration. A screen that silently re-generates is how a bill
+appears without anybody deciding anything, so which one happened is visible on
+the screen rather than only in a log. React mounting the component twice costs one
+cached read.
+
+`Redraft` forces a fresh one, for when the request itself has changed. Its tooltip
+says it costs another model call, because it does.
+
+### One setup, not two
+
+The new route needed the same catalogue projection, labour rates and pricing
+settings as the existing one. Copying them would have meant two places loading the
+catalogue, two places building the projection that carries `offerId`, and two ideas
+about which rates apply — and the one that drifted would be the one nobody was
+watching. `estimateForWorkRequest` is now shared, and `/auto-generate-quote` lost
+50 lines to it.
+
+### Metered, though staff are waived
+
+`/quote-draft/` is in `AI_METERED_PREFIXES`. Staff are waived by `aiSpend`, so it
+changes nothing today — it is the backstop for the day somebody loosens the guard
+above it.
+
+### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline. Smoke 8
+affected pages, 0 threw. e2e **49/49**, including that a customer cannot draft a
+quote — free to probe, because the route refuses before it spends.
+
+### Not verified
+
+The positive path. Nobody has opened a work request as staff, so the cache has
+never been exercised and no `quote_draft:` key exists yet. That is a 30-second
+check in the browser and it verifies the whole thing at once: open a request, note
+"generated just now", close it, open it again, and it should say "from the saved
+draft — no new cost". If the second open says "generated just now", the cache is
+not working and it is costing money per open.

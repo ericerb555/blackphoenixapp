@@ -22,6 +22,7 @@ import {
   ChevronDown, Ban, ThumbsUp, ThumbsDown, AlertOctagon, Home
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import WorkRequestQuoteDraft from './quotes/WorkRequestQuoteDraft';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { DangerButton } from './ui/button/DangerButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
@@ -1523,6 +1524,15 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
             </div>
 
             <div className="space-y-4 mb-6">
+              {/* A draft quote, made the first time this request is opened.
+                  Nothing is generated when a customer submits any more — that
+                  spent a full takeoff on every arrival and wrote it where nothing
+                  read it. Opening this twice is free; the component says which
+                  happened. */}
+              {(selectedAlert as any).data?.workRequestId && (
+                <WorkRequestQuoteDraft workRequestId={(selectedAlert as any).data.workRequestId} />
+              )}
+
               <div>
                 <label className="text-gray-400 text-sm">Description</label>
                 <p className="text-white mt-1">{selectedAlert.description}</p>

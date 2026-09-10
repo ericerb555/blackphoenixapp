@@ -477,6 +477,9 @@ const AI_METERED_PREFIXES = [
   '/ai-guide-chat',
   '/ai-floorplan/',
   '/auto-generate-quote',
+  // Spends a full takeoff. Staff are waived by aiSpend, so this is the backstop
+  // for the day the guard above is loosened rather than a limit staff will meet.
+  '/quote-draft/',
   '/generate-quote',
   '/bid-intake/',
   '/bid-router/',
@@ -3079,6 +3082,139 @@ IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIEL
 });
 
 // Auto-generate comprehensive quote from work request - EVERY SCREW, SHIM, FASTENER
+/**
+ * Run the estimator over a work request and reprice it with the company's own
+ * numbers.
+ *
+ * WHY IT IS A FUNCTION AND NOT COPIED INTO THE SECOND CALLER
+ *
+ * Two routes need this now — the staff quote button, and generating a draft when
+ * staff first open a request. Copying the setup would mean two places loading the
+ * catalogue, two places building the projection that carries `offerId`, and two
+ * ideas about which rates apply. The one that drifted would be the one nobody was
+ * watching, which is the same reason `matchCatalogItem` is shared rather than
+ * reimplemented per screen.
+ */
+async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any; usedAI: boolean }> {
+  const extraParts: string[] = [];
+  const b = workRequest?.blueprintAnalysis || workRequest?.aiVideoAnalysis;
+  if (b) {
+    extraParts.push('Prior AI analysis available:');
+    if (b.rooms?.length) extraParts.push(`- Rooms: ${b.rooms.length} (${b.rooms.map((r: any) => r.name || r.type).filter(Boolean).join(', ')})`);
+    if (b.squareFootage || b.totalSquareFootage) extraParts.push(`- Square footage: ${b.squareFootage || b.totalSquareFootage}`);
+    if (Array.isArray(b.materials) && b.materials.length) extraParts.push(`- AI-suggested material groups: ${b.materials.length}`);
+    if (b.estimatedCosts?.total || b.costEstimates?.total) extraParts.push(`- Prior cost estimate: ${Number(b.estimatedCosts?.total || b.costEstimates?.total).toLocaleString()}`);
+  }
+
+  const [catalogRaw, ratesRaw, pricingRaw] = await Promise.all([
+    kv.getByPrefix('vendor_catalog:').catch(() => []),
+    kv.get('labor_rates:global').catch(() => null),
+    kv.get('pricing_config:global').catch(() => null),
+  ]);
+
+  const vendors = ((await kv.getByPrefix('vendor:').catch(() => [])) as any[] || []).filter(Boolean);
+  const vendorNames = new Map(vendors.map((v: any) => [String(v?.id || ''), String(v?.name || '')]));
+  const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
+    offerId: String(i?.id || ''),
+    productId: String(i?.productId || ''),
+    vendorId: i?.vendorId,
+    vendorName: vendorNames.get(String(i?.vendorId)) || '',
+    name: i?.name, sku: i?.sku, unit: i?.unit,
+    price: Number(i?.price) || 0,
+    updatedAt: i?.updatedAt, isActive: i?.isActive,
+  }));
+
+  const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
+  const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw);
+
+  return await runEstimator({
+    title: workRequest?.title,
+    serviceType: workRequest?.serviceType,
+    description: workRequest?.description,
+    location: workRequest?.location || workRequest?.address,
+    estimatedValue: workRequest?.estimatedValue,
+    extra: extraParts.join('\n'),
+  }, (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }));
+}
+
+/**
+ * A draft quote for a work request, generated the first time staff open it.
+ *
+ * WHY ON OPEN AND NOT ON SUBMIT
+ *
+ * Generating on submit spent a full gpt-4o takeoff for every request that
+ * arrived, including the duplicates and the merely curious, and wrote it to a key
+ * nothing read. Generating when somebody actually looks costs the same per quote
+ * that matters and nothing at all for the ones that never get opened.
+ *
+ * WHY IT IS CACHED, AND WHY THAT IS THE WHOLE POINT
+ *
+ * Opening a request twice must not cost twice. The draft is stored under
+ * `quote_draft:{id}` and returned as-is on every later open, with `spent` saying
+ * which happened — so a screen that polls, a double click, or somebody going
+ * back and forth between requests cannot quietly run up a bill.
+ *
+ * `force` regenerates deliberately, for when the request has been edited and the
+ * draft is genuinely stale. It is a decision somebody makes, not a default.
+ *
+ * Staff only. It answers with the company's cost basis, and it spends money.
+ */
+app.post('/make-server-3eae23a6/quote-draft/:workRequestId', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const wrId = String(c.req.param('workRequestId') || '').trim();
+    if (!wrId) return c.json({ success: false, error: 'Which work request?' }, 400);
+
+    const body = await c.req.json().catch(() => ({}));
+    const force = (body as any)?.force === true;
+
+    const cacheKey = `quote_draft:${wrId}`;
+    if (!force) {
+      const cached = (await kv.get(cacheKey).catch(() => null)) as any;
+      if (cached?.quote) {
+        return c.json({ success: true, spent: false, cached: true, ...cached });
+      }
+    }
+
+    const all = await readWorkRequests();
+    const workRequest = (all || []).find((r: any) => String(r?.id || '') === wrId);
+    if (!workRequest) return c.json({ success: false, error: 'No such work request.' }, 404);
+
+    const { estimate, usedAI } = await estimateForWorkRequest(workRequest);
+    const now = new Date().toISOString();
+
+    const draft = {
+      workRequestId: wrId,
+      generatedAt: now,
+      generatedBy: user.email || '',
+      usedAI,
+      quote: {
+        laborItems: estimate.labor,
+        materialItems: estimate.materials,
+        processSteps: estimate.processSteps,
+        subtotals: {
+          materials: estimate.materialsSubtotal,
+          labor: estimate.laborSubtotal,
+          tax: estimate.taxAmount,
+        },
+        total: estimate.totalCost,
+        status: 'draft',
+      },
+      priceSummary: (estimate as any).priceSummary || null,
+      confidence: estimate.confidence,
+      assumptions: estimate.assumptions,
+    };
+
+    await kv.set(cacheKey, draft);
+    return c.json({ success: true, spent: true, cached: false, ...draft });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not draft a quote.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
   try {
     const body = await c.req.json();
@@ -3087,56 +3223,10 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
 
     console.log('[Auto-Quote] Estimator generating quote for:', workRequest.title || workRequest.serviceType || 'project');
 
-    // Fold any blueprint / video analysis into the estimator context so the
-    // model can ground its takeoff in real rooms, square footage, and materials.
-    const extraParts: string[] = [];
-    const b = workRequest.blueprintAnalysis || workRequest.aiVideoAnalysis;
-    if (b) {
-      extraParts.push('Prior AI analysis available:');
-      if (b.rooms?.length) extraParts.push(`- Rooms: ${b.rooms.length} (${b.rooms.map((r: any) => r.name || r.type).filter(Boolean).join(', ')})`);
-      if (b.squareFootage || b.totalSquareFootage) extraParts.push(`- Square footage: ${b.squareFootage || b.totalSquareFootage}`);
-      if (Array.isArray(b.materials) && b.materials.length) extraParts.push(`- AI-suggested material groups: ${b.materials.length}`);
-      if (b.estimatedCosts?.total || b.costEstimates?.total) extraParts.push(`- Prior cost estimate: $${Number(b.estimatedCosts?.total || b.costEstimates?.total).toLocaleString()}`);
-    }
-
-    // Load what the company actually charges, so the model's guesses can be
-    // replaced before anything is totalled. Each is optional: a missing
-    // catalogue or an unsaved rate simply leaves those lines marked estimated
-    // rather than failing the quote.
-    const [catalogRaw, ratesRaw, pricingRaw] = await Promise.all([
-      kv.getByPrefix('vendor_catalog:').catch(() => []),
-      kv.get('labor_rates:global').catch(() => null),
-      kv.get('pricing_config:global').catch(() => null),
-    ]);
-
-    const vendors = ((await kv.getByPrefix('vendor:').catch(() => [])) as any[] || []).filter(Boolean);
-    const vendorNames = new Map(vendors.map((v: any) => [String(v?.id || ''), String(v?.name || '')]));
-    const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
-      // Carried so a generated quote can record which offer priced each line,
-      // the same way the deck quote does. Without them a quote names a vendor
-      // and nothing that can be checked once their catalogue has moved on.
-      offerId: String(i?.id || ''),
-      productId: String(i?.productId || ''),
-      vendorId: i?.vendorId,
-      vendorName: vendorNames.get(String(i?.vendorId)) || '',
-      name: i?.name, sku: i?.sku, unit: i?.unit,
-      price: Number(i?.price) || 0,
-      updatedAt: i?.updatedAt, isActive: i?.isActive,
-    }));
-    // Standards until the company saves its own, so a quote is defensible from
-    // day one instead of falling back to the model's recollection. Which of the
-    // two was used is carried through and reported, never disguised.
-    const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
-    const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw);
-
-    const { estimate, usedAI } = await runEstimator({
-      title: workRequest.title,
-      serviceType: workRequest.serviceType,
-      description: workRequest.description,
-      location: workRequest.location || workRequest.address,
-      estimatedValue: workRequest.estimatedValue,
-      extra: extraParts.join('\n'),
-    }, (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }));
+    // One setup, shared with the on-open draft route. Two copies would mean two
+    // places loading the catalogue and two ideas about which rates apply, and
+    // the one that drifted would be the one nobody was watching.
+    const { estimate, usedAI } = await estimateForWorkRequest(workRequest);
 
     console.log('[Auto-Quote] Estimator result:', {
       usedAI,
