@@ -3777,7 +3777,8 @@ a field.
 - [ ] 4. **Connect the design centre to the catalogue.** The actual prize, and
       the largest step: a trade tab offers real products, a selection records a
       product id, and the takeoff and quote read through to it.
-- [ ] 5. **Decide the two product systems.** Either the storefront reads the
+- [x] 5. **Decide the two product systems.** DECIDED: they stay separate — see
+      the storefront answer below. Superseded text: Either the storefront reads the
       vendor catalogue, or the bridge is explicit and one-directional. Not
       before 1–4, because the answer depends on what step 4 needs.
 
@@ -3862,7 +3863,12 @@ show it and leave it off.
 - [ ] 4. **Show it** in the picker and on the quote line.
 - [ ] 5. **The design centre reads products**, records a product id on
       selection, and the takeoff and quote resolve the supplier at quote time.
-- [ ] 6. Then the storefront question.
+- [x] 6. The storefront question — **answered, and it is a no.** Eric: "no i
+      dont want them into the store" and "they are in materials hub only." The
+      two product systems stay apart. A vendor supplying decking for a deck job
+      is not thereby listing decking for sale in the shop; those are different
+      commercial relationships. If a bridge is ever wanted it has to be built
+      deliberately, never fall out of where a record happens to be stored.
 
 Step 1 is now the foundation and it is bigger than the original step 1. It is
 also the step that stops us building the picture onto the wrong record.
@@ -4088,3 +4094,82 @@ shadowed. Smoke green.
   for whoever writes the vendor terms.
 - **Not deployed.** These routes do not exist in production until the function
   is deployed.
+
+### Built — step 1, the product record and offers
+
+- [x] `hub_product:{productId}` — the thing a customer chooses.
+- [x] Every catalogue line gains `productId`, making it an offer against one.
+      Linked on write, in both the single-line route and the bulk importer, so
+      there is never a line without one.
+- [x] `GET /catalog-products`, `GET /catalog-products/:productId`.
+- [x] `POST /catalog-products/backfill` — staff only, idempotent, for the lines
+      that predate the record.
+
+#### The prefix is the finding
+
+`product:` was the obvious name and it is **already the storefront's**.
+`ecommerce-products` writes there and the api-gateway reads it, so a hub product
+under that key would have appeared in the shop as merchandise — every vendor's
+material line published for sale.
+
+Eric, asked: *"no i dont want them into the store."* So `hub_product:`.
+
+The separation is real rather than a naming convention: `kv.getByPrefix` matches
+with `like(key, prefix + '%')`, anchored at the start, so `hub_product:…` does
+not match a query for `product:%`. Worth re-checking if that helper ever becomes
+an unanchored match, because the two systems would silently merge.
+
+This also settles what was an open question in the plan — whether the two
+product systems eventually merge. They do not.
+
+#### Nothing is merged, and that is the point
+
+Every line gets its own product, one offer each. Deciding that two vendors'
+lines are the same product needs the human confirmation step in step 3, because
+SKUs do not match across suppliers and a wrong match prices a customer's job
+against a different item, silently. Guessing it here would bury the guess under
+everything built on top.
+
+`brand` and `mpn` are declared now and left empty. Manufacturer plus part number
+is the only key two suppliers can be expected to agree on, so it is what
+matching will use — better present and empty than bolted on after there are
+records without them.
+
+#### A sole offer keeps its name in step; a shared product freezes
+
+While a product has one offer it *is* that line, so a vendor fixing a typo is
+seen. The moment a second offer attaches, the name freezes: one supplier
+renaming their line must not rewrite what every other supplier is offering.
+Building the frozen behaviour now means merging does not change how this
+behaves later, it just stops the sync.
+
+#### Who is told what
+
+Offers carry a vendor's price, which is commercial information, so every read
+runs them through `visibleTo` — the same rule the catalogue search uses.
+
+A vendor is told **no cheapest price at all**. They see only their own offer, so
+a cheapest computed from what they can see is their own price dressed as a
+comparison, and one computed from all offers hands them a competitor's number.
+Neither is acceptable.
+
+The supplier's identity goes to staff only. The customer picks the product, not
+the supplier, and naming the vendor invites a conversation that is not theirs to
+have — the resolution happens at quote time.
+
+#### Checks
+
+Server typecheck 84, unchanged from baseline. Route shadowing on
+`vendor-catalog.tsx`: 15 routes, 0 shadowed. Smoke green — no page source
+changed.
+
+#### Honest limits
+
+- **Nothing reads products yet.** The picker and the quote still read catalogue
+  lines directly. Pointing them at products is step 4, and doing it in the same
+  change would have mixed a data-model change with a UI change.
+- **The importer does more KV work per row.** A new line costs one extra write,
+  an updated line a read and sometimes a write. Worst case roughly doubles the
+  writes on a 500-row batch. Not measured against a real large import.
+- **Backfill has not been run.** It is deployed-but-unrun until somebody with
+  staff access calls it, and it should be run once and its counts checked.

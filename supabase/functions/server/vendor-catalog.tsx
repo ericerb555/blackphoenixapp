@@ -133,6 +133,116 @@ vendorCatalogRouter.get("/vendor-catalog/:vendorId", async (c) => {
   }
 });
 
+// ─── Products, and the offers against them ──────────────────────────────
+//
+// THE RULE THIS IMPLEMENTS
+//
+// The customer picks the product, not the supplier. So the product has to be
+// its own record, and a vendor's catalogue line becomes an OFFER against it —
+// one supplier's price, availability and lead time for a thing that exists
+// independently of them. Which vendor supplies it is resolved later, and can
+// change without the customer's choice changing.
+//
+// WHY THE PREFIX IS NOT `product:`
+//
+// Because `product:` is the STOREFRONT's. `ecommerce-products` writes there and
+// the api-gateway reads it, so a hub product written under that prefix would
+// appear in the shop as merchandise. Two different things called a product,
+// and only the key tells them apart.
+//
+// WHAT THIS STEP DELIBERATELY DOES NOT DO
+//
+// It does not merge anything. Every catalogue line gets its OWN product, one
+// offer each. Deciding that two vendors' lines are the same product is a
+// separate piece of work with a human confirmation step, because SKUs do not
+// match across suppliers and a wrong match prices a customer's job against a
+// different item — silently. Guessing that here would bury the guess under
+// everything built on top of it.
+
+const PRODUCT = (productId: string) => `hub_product:${productId}`;
+
+/**
+ * The product a catalogue line belongs to, created if it does not exist yet.
+ *
+ * WHY A ONE-OFFER PRODUCT STILL FOLLOWS ITS LINE
+ *
+ * While a product has a single offer it is that line and nothing else, so a
+ * vendor fixing a typo in their own product name should be seen. The moment a
+ * second offer is attached the name freezes, because one supplier renaming
+ * their line must not rewrite what every other supplier is offering. Building
+ * the frozen behaviour in now means merging does not change how this behaves
+ * later — it just stops the sync.
+ */
+async function ensureProductForLine(item: any, now: string): Promise<string> {
+  const existingId = String(item.productId || '').trim();
+  if (existingId) {
+    const product = (await kv.get(PRODUCT(existingId))) as any;
+    if (product) {
+      const soleOffer =
+        Number(product.offerCount || 1) <= 1 &&
+        product.origin?.vendorId === item.vendorId &&
+        product.origin?.itemId === item.id;
+      if (soleOffer) {
+        const moved =
+          product.name !== item.name ||
+          product.category !== item.category ||
+          product.unit !== item.unit;
+        if (moved) {
+          await kv.set(PRODUCT(existingId), {
+            ...product,
+            name: item.name,
+            category: item.category,
+            unit: item.unit,
+            updatedAt: now,
+          });
+        }
+      }
+      return existingId;
+    }
+    // The pointer outlived the record. Fall through and make a new one rather
+    // than leaving a line pointing at nothing.
+  }
+
+  const productId = `prd_${crypto.randomUUID()}`;
+  await kv.set(PRODUCT(productId), {
+    id: productId,
+    name: item.name,
+    category: item.category,
+    unit: item.unit,
+    // Reserved for the merge step. Manufacturer and part number are the only
+    // fields two suppliers can be expected to agree on, so they are the key
+    // matching will use — declared now, empty, rather than bolted on after
+    // there are records without them.
+    brand: '',
+    mpn: '',
+    // Filled by the image import, gated on the vendor's display consent.
+    images: [] as string[],
+    offerCount: 1,
+    // Which line brought this product into existence. Not an ownership claim —
+    // it is what lets a sole offer keep its name in step with its line.
+    origin: { vendorId: item.vendorId, itemId: item.id },
+    createdAt: now,
+    updatedAt: now,
+  });
+  return productId;
+}
+
+/**
+ * The cheapest offer, and why a vendor is not told one.
+ *
+ * Staff and customers see every offer — that is the point of the hub, and it is
+ * what makes a comparison mean anything. A vendor sees only their own, so a
+ * "cheapest" computed from what they can see would always be their own price
+ * and would read as a claim that they are the cheapest. Computing it from all
+ * offers instead would hand them a competitor's number. Neither is acceptable,
+ * so a vendor is told nothing.
+ */
+function cheapestOf(offers: any[]): any | null {
+  const live = offers.filter((o) => o && o.isActive !== false && Number.isFinite(Number(o.price)));
+  if (!live.length) return null;
+  return live.reduce((best, o) => (Number(o.price) < Number(best.price) ? o : best));
+}
+
 vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
@@ -172,6 +282,9 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
+    // A line is an offer, and an offer is against a product. Linking here rather
+    // than in a later pass means there is never a catalogue line without one.
+    item.productId = await ensureProductForLine(item, now);
     await kv.set(ITEM(vendorId, id), item);
     return c.json({ success: true, item });
   } catch (error: any) {
@@ -293,6 +406,7 @@ async function importCatalogRows(
       importedAt: now,
     };
 
+    (item as any).productId = await ensureProductForLine(item, now);
     await kv.set(ITEM(vendorId, id), item);
     if (existing) updated++; else added++;
     // So a duplicate SKU later in the same batch updates the row this one just
@@ -855,6 +969,148 @@ vendorCatalogRouter.put("/vendor-settings/:vendorId", async (c) => {
     return c.json({ success: true, settings: next, termsVersion: IMAGE_TERMS_VERSION });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Could not save the settings." }, 500);
+  }
+});
+
+// ─── Reading products, and the offers under them ────────────────────────
+//
+// Offers carry a vendor's price, which is commercial information: one vendor
+// reading another's cost base is what tenant isolation exists to prevent. So
+// every route here runs the offers through `visibleTo`, the same rule the
+// catalogue search uses, rather than inventing a second answer to the same
+// question.
+//
+// The supplier's identity is returned to STAFF only. The customer picks the
+// product, not the supplier — naming the vendor on a product they are choosing
+// invites a conversation about suppliers that is not theirs to have, and the
+// resolution happens at quote time anyway.
+
+/** Load every offer once, grouped by the product it is against. */
+async function offersByProduct(): Promise<Map<string, any[]>> {
+  const all = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
+  const byProduct = new Map<string, any[]>();
+  for (const offer of all) {
+    const key = String(offer?.productId || '');
+    if (!key) continue;
+    const list = byProduct.get(key);
+    if (list) list.push(offer); else byProduct.set(key, [offer]);
+  }
+  return byProduct;
+}
+
+/** What a caller is allowed to be told about the cheapest way to buy this. */
+function cheapestFor(who: any, offers: any[]) {
+  // A vendor sees only their own offer, so any 'cheapest' shown to them is
+  // either their own price dressed as a comparison or somebody else's price
+  // leaked. See the note on cheapestOf.
+  if (!who.isAdmin && who.isVendor) return null;
+  const best = cheapestOf(offers);
+  if (!best) return null;
+  return {
+    price: best.price,
+    unit: best.unit,
+    leadTimeDays: best.leadTimeDays ?? null,
+    availability: best.availability || '',
+    ...(who.isAdmin ? { vendorId: best.vendorId, sku: best.sku } : {}),
+  };
+}
+
+vendorCatalogRouter.get('/catalog-products', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in to browse products.' }, 401);
+  try {
+    const q = String(c.req.query('q') || '').trim().toLowerCase();
+    const category = String(c.req.query('category') || '').trim().toLowerCase();
+    const limit = Math.min(Math.max(Number(c.req.query('limit')) || 200, 1), 1000);
+
+    const products = ((await kv.getByPrefix('hub_product:')) as any[] || []).filter(Boolean);
+    const byProduct = await offersByProduct();
+
+    const rows = [];
+    for (const product of products) {
+      if (q && !String(product.name || '').toLowerCase().includes(q)) continue;
+      if (category && String(product.category || '').toLowerCase() !== category) continue;
+      const mine = visibleTo(who, byProduct.get(String(product.id)) || []);
+      rows.push({
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        unit: product.unit,
+        brand: product.brand || '',
+        images: Array.isArray(product.images) ? product.images : [],
+        offerCount: mine.length,
+        cheapest: cheapestFor(who, mine),
+      });
+    }
+    rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return c.json({ success: true, products: rows.slice(0, limit), count: rows.length });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not load products.' }, 500);
+  }
+});
+
+/**
+ * Link every catalogue line that predates the product record.
+ *
+ * Idempotent on purpose: a line that already has a product is skipped, so
+ * running it twice does not produce two products for one line. Staff only —
+ * it walks every vendor's catalogue, which is not a vendor's business.
+ *
+ * Each line gets its OWN product. Nothing is merged, because nothing here is
+ * in a position to know that two lines are the same thing.
+ */
+vendorCatalogRouter.post('/catalog-products/backfill', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+  if (!who.isAdmin) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  try {
+    const all = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
+    const lines = all.filter((x) => x && x.id && x.vendorId && x.name !== undefined);
+    const now = new Date().toISOString();
+    let linked = 0;
+    let alreadyLinked = 0;
+    for (const line of lines) {
+      if (String(line.productId || '').trim()) { alreadyLinked++; continue; }
+      const productId = await ensureProductForLine(line, now);
+      await kv.set(ITEM(String(line.vendorId), String(line.id)), { ...line, productId, updatedAt: now });
+      linked++;
+    }
+    return c.json({ success: true, scanned: lines.length, linked, alreadyLinked });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Backfill failed.' }, 500);
+  }
+});
+
+vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in to view a product.' }, 401);
+  const productId = c.req.param('productId');
+  try {
+    const product = (await kv.get(PRODUCT(productId))) as any;
+    if (!product) return c.json({ success: false, error: 'No such product.' }, 404);
+    const all = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
+    const mine = visibleTo(who, all.filter((o) => String(o?.productId || '') === productId));
+    // Staff get the offers themselves. Everybody else gets the count and the
+    // cheapest way to buy it, which is what a product page is actually for.
+    return c.json({
+      success: true,
+      product: {
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        unit: product.unit,
+        brand: product.brand || '',
+        mpn: product.mpn || '',
+        images: Array.isArray(product.images) ? product.images : [],
+      },
+      offerCount: mine.length,
+      cheapest: cheapestFor(who, mine),
+      offers: who.isAdmin || who.isVendor ? mine : undefined,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not load the product.' }, 500);
   }
 });
 
