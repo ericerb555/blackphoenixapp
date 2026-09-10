@@ -3131,6 +3131,36 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       confidence: estimate.confidence,
     });
 
+    /**
+     * WHICH OFFER PRICED A LINE IS FOR STAFF ONLY.
+     *
+     * This route has no authorisation check of its own, and the auth wall
+     * defaults an unlisted route to "signed in" — so every portal customer,
+     * vendor and subcontractor can call it. `ClientWorkRequestForm` does exactly
+     * that: a customer submitting a work request triggers a quote and receives
+     * the result in their own browser.
+     *
+     * `pricedFrom` was added so a quote can say what it was priced against, and
+     * it names the vendor id, the offer id and the product. Returning that to
+     * the customer being quoted would hand them our supply chain, so it is
+     * stripped for anybody who does not work here.
+     *
+     * This is NOT the whole problem, and the rest is recorded in tasks/todo.md
+     * rather than fixed quietly: the same response already carries per-line
+     * material costs and vendor names, and the customer's browser is then
+     * trusted to write the quote into the pipeline. Both predate this change and
+     * both need a decision. What is fixed here is that this change did not make
+     * either of them worse.
+     */
+    const quoteActor = await intakeActor(c);
+    const quoteForStaff = quoteActor?.email ? await intakeIsAdmin(quoteActor) : false;
+    const materialsOut = quoteForStaff
+      ? estimate.materials
+      : (Array.isArray(estimate.materials) ? estimate.materials : []).map((m: any) => {
+          const { pricedFrom, ...rest } = m || {};
+          return rest;
+        });
+
     // Return a SUPERSET response so every caller keeps working:
     //  - StartQuoteModal reads success/materials/labor/totalCost/usedAI/confidence
     //  - AdminAlertsPanel & ClientWorkRequestForm read materialItems/laborItems/subtotals/total
@@ -3142,7 +3172,7 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       // with the same confidence.
       priceSummary: (estimate as any).priceSummary || null,
       // New-style fields
-      materials: estimate.materials,
+      materials: materialsOut,
       labor: estimate.labor,
       processSteps: estimate.processSteps,
       additionalCosts: estimate.additionalCosts,
@@ -3165,7 +3195,7 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       confidence: estimate.confidence,
       assumptions: estimate.assumptions,
       // Backward-compatible fields (old template shape)
-      materialItems: estimate.materials,
+      materialItems: materialsOut,
       laborItems: estimate.labor,
       subtotals: {
         materials: estimate.materialsSubtotal,

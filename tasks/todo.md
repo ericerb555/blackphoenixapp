@@ -4768,3 +4768,50 @@ App typecheck 324 and server typecheck 84, both unchanged from baseline.
 Neither path has been driven with a catalogue containing two competing offers,
 because production has one catalogue line. The cheapest-wins behaviour is proven
 against the function directly, not through a real quote.
+
+## Found while probing: `/auto-generate-quote` has no authorisation check
+
+Adding e2e assertions for the cost-basis routes turned up a real hole. Two of the
+three pass — `/quote/price-lines` and `/deck-price-book` both refuse a customer
+with 403. The third does not.
+
+**`POST /auto-generate-quote` answers a signed-in customer with 200.** It checks
+that a body was sent and nothing else, and the auth wall defaults an unlisted
+route to "signed in" — which every portal customer, vendor, subcontractor and
+tenant is.
+
+### Three separate problems, and only one is fixed
+
+1. **It spends money.** Each call runs the estimator against OpenAI. Anyone with
+   an account can spend it, as often as they like.
+2. **It returns the cost basis.** The response carries per-line material
+   `unitCost` after markup, `modelUnitCost`, the vendor name, and the pricing
+   settings' overhead and profit percentages. To the customer being quoted.
+3. **The customer's browser is the courier.** `ClientWorkRequestForm` takes the
+   response and writes `laborItems`, `materialItems`, `subtotals` and `total`
+   into the pipeline item. So the pipeline's quote is written from data that
+   passed through the browser of the person being quoted, who could alter it.
+
+**Fixed now: `pricedFrom` is stripped for anybody who does not work here.** That
+field is new today — it names the vendor id, the offer id and the product — and
+returning it to the customer being quoted would hand them the supply chain. What
+is fixed is that today's change did not make an existing leak worse.
+
+**Not fixed, because each needs a decision:**
+
+- (1) and (2) cannot be closed by requiring staff, because a customer-facing form
+  legitimately calls this route. The shape of the fix is that the server
+  generates and stores the quote itself and returns a confirmation to a customer
+  rather than the quote — which is a real change to a customer-facing flow.
+- (3) is the same fix. The pipeline write belongs on the server.
+
+### Why it is not asserted in e2e
+
+Calling it spends an OpenAI call, and a test that costs money on every run is a
+test somebody eventually stops running. The probe was removed and the reason
+written where the probe was. The two free assertions stayed.
+
+### Checks
+
+Server typecheck 84, unchanged from baseline. e2e 45/45 with the two cost-basis
+assertions added.

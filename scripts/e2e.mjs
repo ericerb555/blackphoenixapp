@@ -275,6 +275,29 @@ console.log('\n── A real customer, signed up through the front door ──')
       body: { keep: 'prd_one', absorb: 'prd_two' },
     });
     ok('cannot merge two products', merge.status === 403, `status ${merge.status}`);
+
+    // What the company PAYS for material. These three answer with the cost
+    // basis a customer is quoted against — the vendor catalogue price, the typed
+    // price book, and now which offer priced which line. Handing a customer a
+    // list of SKUs and getting back what we pay for them is a commercial leak,
+    // not an untidy edge case, and every portal customer is signed in.
+    const priceLines = await call('/quote/price-lines', {
+      method: 'POST', token, body: { lines: [{ sku: 'lumber:2x10:12', description: '2x10 joist' }] },
+    });
+    ok('cannot read what the company pays per line', priceLines.status === 403,
+       `status ${priceLines.status}`);
+
+    const priceBook = await call('/deck-price-book', { token });
+    ok('cannot read the deck price book', priceBook.status === 403,
+       `status ${priceBook.status}`);
+
+    // /auto-generate-quote is deliberately NOT probed here.
+    //
+    // It has no authorisation check and answers a signed-in customer with 200,
+    // which this suite found. It is not asserted because calling it SPENDS AN
+    // OPENAI CALL — a test that costs money on every run is a test somebody
+    // eventually stops running. The finding is recorded in tasks/todo.md, where
+    // it needs a decision rather than an assertion.
   }
 
   {
