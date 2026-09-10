@@ -291,6 +291,33 @@ console.log('\n── A real customer, signed up through the front door ──')
     ok('cannot read the deck price book', priceBook.status === 403,
        `status ${priceBook.status}`);
 
+    // The pipeline is the record the business works from: the stage, the contact,
+    // the quote total. A customer used to be able to write ANY `pipeline:*` key
+    // through /kv/set, because the allowance was a prefix match rather than an
+    // ownership check — so one customer could overwrite another's item. The
+    // record is written on the server now and the prefix is gone.
+    //
+    // The id here is deliberately somebody else's.
+    const foreignPipeline = await call('/kv/set', {
+      method: 'POST', token,
+      body: { key: 'pipeline:wr_belonging_to_someone_else', value: { stage: 'won', total: 1 } },
+    });
+    ok('cannot write another party\'s pipeline record', foreignPipeline.status === 403,
+       `status ${foreignPipeline.status}`);
+
+    const readPipeline = await call('/kv/get?key=pipeline:wr_belonging_to_someone_else', { token });
+    ok('cannot read another party\'s pipeline record', readPipeline.status === 403,
+       `status ${readPipeline.status}`);
+
+    // The generic store is not a back door either. A key that is not theirs is
+    // refused whatever it is called.
+    const foreignKey = await call('/kv/set', {
+      method: 'POST', token,
+      body: { key: 'pricing_config:global', value: { materialMarkup: 0 } },
+    });
+    ok('cannot overwrite the company pricing config', foreignKey.status === 403,
+       `status ${foreignKey.status}`);
+
     // /auto-generate-quote is deliberately NOT probed here.
     //
     // It has no authorisation check and answers a signed-in customer with 200,

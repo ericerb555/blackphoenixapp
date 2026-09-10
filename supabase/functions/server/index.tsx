@@ -2808,10 +2808,25 @@ app.post('/make-server-3eae23a6/doba/disconnect', async (c) => {
  * ever called either from a portal, so nothing is lost — a bulk scan and a
  * destructive write are not things a portal guest needs.
  */
-const KV_GUEST_PREFIXES = [
-  // The work-request handoff. ClientWorkRequestForm writes one of these as a
-  // customer submits, and AdminAlertsPanel reads them back.
-  'pipeline:', 'pipeline_',
+const KV_GUEST_PREFIXES: string[] = [
+  // `pipeline:` and `pipeline_` USED to be here, for the work-request handoff:
+  // ClientWorkRequestForm wrote one as a customer submitted, and AdminAlertsPanel
+  // read it back.
+  //
+  // They are gone because that allowance was not scoped to the caller's own row.
+  // A prefix match lets a guest write ANY `pipeline:*` key, so one customer could
+  // overwrite another customer's pipeline item — its stage, its contact details,
+  // its quote total. Nothing in the app did that; nothing had to.
+  //
+  // `/auto-generate-quote` writes the record on the server now, which is where it
+  // belonged: the number the business works from should not pass through the
+  // browser of the party being quoted. Staff are unaffected — they never went
+  // through this list.
+  //
+  // If a server write fails, the pipeline record is not written at all rather
+  // than falling back to the browser. The work request itself is already saved
+  // by then, so the cost is that staff generate the quote themselves instead of
+  // finding one waiting — recoverable, and a better trade than a writable key.
 ];
 
 function kvOwnKey(key: string, userId: string, email: string): boolean {
@@ -3132,34 +3147,102 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     });
 
     /**
-     * WHICH OFFER PRICED A LINE IS FOR STAFF ONLY.
+     * A CUSTOMER GETS A CONFIRMATION. STAFF GET THE QUOTE.
      *
      * This route has no authorisation check of its own, and the auth wall
-     * defaults an unlisted route to "signed in" — so every portal customer,
-     * vendor and subcontractor can call it. `ClientWorkRequestForm` does exactly
-     * that: a customer submitting a work request triggers a quote and receives
-     * the result in their own browser.
+     * defaults an unlisted route to "signed in" — which every portal customer,
+     * vendor and subcontractor is. That is not an oversight to close by
+     * demanding staff, because a customer-facing form legitimately calls it:
+     * `ClientWorkRequestForm` triggers a quote as somebody submits a work
+     * request. The question is what comes BACK.
      *
-     * `pricedFrom` was added so a quote can say what it was priced against, and
-     * it names the vendor id, the offer id and the product. Returning that to
-     * the customer being quoted would hand them our supply chain, so it is
-     * stripped for anybody who does not work here.
+     * What used to come back was the whole quote: per-line material cost after
+     * markup, the model's original guess, the vendor's name, the overhead and
+     * profit percentages — to the person being quoted. And the customer's
+     * browser was then trusted to write that quote into the pipeline under
+     * `pipeline:{id}`, so the number the business worked from had passed through
+     * the hands of the party with the most reason to change it.
      *
-     * This is NOT the whole problem, and the rest is recorded in tasks/todo.md
-     * rather than fixed quietly: the same response already carries per-line
-     * material costs and vendor names, and the customer's browser is then
-     * trusted to write the quote into the pipeline. Both predate this change and
-     * both need a decision. What is fixed here is that this change did not make
-     * either of them worse.
+     * So the split is by what each caller legitimately needs:
+     *
+     *   staff     the quote, to review, adjust and send
+     *   everyone  that a quote was generated, and how many lines it has
+     *
+     * and the record is written HERE either way, which is what stops the
+     * browser being the courier.
      */
     const quoteActor = await intakeActor(c);
     const quoteForStaff = quoteActor?.email ? await intakeIsAdmin(quoteActor) : false;
-    const materialsOut = quoteForStaff
-      ? estimate.materials
-      : (Array.isArray(estimate.materials) ? estimate.materials : []).map((m: any) => {
-          const { pricedFrom, ...rest } = m || {};
-          return rest;
-        });
+
+    if (!quoteForStaff) {
+      // The customer's own facts about their request are theirs to state. The
+      // QUOTE is not, so it is taken from what was just generated rather than
+      // from anything the caller sent.
+      const wrId = String(workRequest?.id || '').trim();
+      const now = new Date().toISOString();
+      let pipelineWritten = false;
+
+      if (wrId) {
+        try {
+          const existing = (await kv.get(`pipeline:${wrId}`).catch(() => null)) as any;
+          await kv.set(`pipeline:${wrId}`, {
+            ...(existing || {}),
+            id: wrId,
+            title: workRequest?.title || existing?.title || 'Work request',
+            customer: workRequest?.clientInfo?.name || existing?.customer || '',
+            stage: existing?.stage || 'quote_pending',
+            serviceType: workRequest?.serviceType || existing?.serviceType || '',
+            priority: workRequest?.priority || existing?.priority || 'medium',
+            estimatedValue: workRequest?.estimatedValue ?? existing?.estimatedValue ?? null,
+            description: workRequest?.description || existing?.description || '',
+            location: workRequest?.location || existing?.location || '',
+            contact: {
+              email: workRequest?.clientInfo?.email || existing?.contact?.email || '',
+              phone: workRequest?.clientInfo?.phone || existing?.contact?.phone || '',
+            },
+            media: workRequest?.media || existing?.media || {},
+            timeline: workRequest?.timeline || existing?.timeline || '',
+            quote: {
+              laborItems: estimate.labor,
+              materialItems: estimate.materials,
+              processSteps: estimate.processSteps,
+              subtotals: {
+                materials: estimate.materialsSubtotal,
+                labor: estimate.laborSubtotal,
+                tax: estimate.taxAmount,
+              },
+              total: estimate.totalCost,
+              generatedAt: now,
+              status: 'draft',
+            },
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+          });
+          pipelineWritten = true;
+        } catch (err) {
+          // The work request itself is already saved. A pipeline write that
+          // fails is worth reporting and is not worth losing the request over.
+          console.log('[Auto-Quote] pipeline write failed:', err);
+        }
+      }
+
+      return c.json({
+        success: true,
+        usedAI,
+        generated: true,
+        // So the caller knows not to write the record itself.
+        pipelineWritten,
+        workRequestId: wrId,
+        // Counts, so the screen can say something true without being told what
+        // anything costs.
+        counts: {
+          materials: Array.isArray(estimate.materials) ? estimate.materials.length : 0,
+          labor: Array.isArray(estimate.labor) ? estimate.labor.length : 0,
+        },
+      });
+    }
+
+    const materialsOut = estimate.materials;
 
     // Return a SUPERSET response so every caller keeps working:
     //  - StartQuoteModal reads success/materials/labor/totalCost/usedAI/confidence

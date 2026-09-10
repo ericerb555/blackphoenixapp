@@ -1521,6 +1521,19 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             budget: {
               min: formData.budgetMin,
               max: formData.budgetMax
+            },
+            // The customer's own account of their job, sent so the SERVER can
+            // write the pipeline record. These are facts about their request and
+            // theirs to state; the quote is not, which is why it no longer comes
+            // back here to be written from the browser.
+            priority: formData.priorityLevel || 'medium',
+            timeline: formData.timeline,
+            media: {
+              videos: uploadedVideoUrls,
+              photos: uploadedPhotoUrls,
+              blueprints: uploadedBlueprintUrls,
+              blueprintAnalysis: blueprintAnalysis,
+              aiVideoAnalysis: formData.aiVideoAnalysis
             }
           };
 
@@ -1542,13 +1555,32 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             const autoQuoteData = await autoQuoteResponse.json();
             console.log('✅ Auto-quote generated successfully:', autoQuoteData);
             
+            // Counts, not costs. The server answers a customer with how many
+            // lines the quote has and nothing about what any of them cost, so
+            // this reads `counts` and falls back to the old shape only for a
+            // server that has not been deployed yet.
             toast.success('Quote auto-generated!', {
               id: 'auto-quote-gen',
-              description: `${autoQuoteData.laborItems?.length || 0} labor tasks, ${autoQuoteData.materialItems?.length || 0} materials`
+              description: `${autoQuoteData.counts?.labor ?? autoQuoteData.laborItems?.length ?? 0} labor tasks, ${autoQuoteData.counts?.materials ?? autoQuoteData.materialItems?.length ?? 0} materials`
             });
 
-            // Store the auto-generated quote in the unified project pipeline
+            // THE SERVER WRITES THIS RECORD NOW.
+            //
+            // It used to be written here, from the quote this browser had just
+            // been handed — so the number the business worked from had passed
+            // through the browser of the party with the most reason to change it.
+            // It also required every signed-in customer to hold write access to
+            // `pipeline:*`, and that access is not scoped to their own row, so
+            // one customer could overwrite another's.
+            //
+            // What is below runs only against a server that has not been
+            // deployed yet. Once `pipelineWritten` comes back true it is skipped,
+            // and it can be deleted a deploy later.
             try {
+              if (autoQuoteData.pipelineWritten) {
+                console.log('✅ Pipeline record written by the server');
+                throw { handled: true };
+              }
               const pipelineItem = {
                 id: workRequest.id,
                 title: formData.projectName,
@@ -1601,8 +1633,11 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
               );
 
               console.log('✅ Quote stored in unified project pipeline');
-            } catch (storageError) {
-              console.error('Failed to store quote in pipeline:', storageError);
+            } catch (storageError: any) {
+              // `handled` is the server having already written it, not a failure.
+              if (!storageError?.handled) {
+                console.error('Failed to store quote in pipeline:', storageError);
+              }
             }
           } else {
             const errorData = await autoQuoteResponse.json();

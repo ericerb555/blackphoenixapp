@@ -4815,3 +4815,69 @@ written where the probe was. The two free assertions stayed.
 
 Server typecheck 84, unchanged from baseline. e2e 45/45 with the two cost-basis
 assertions added.
+
+## Fixed properly: the customer's browser is no longer the courier
+
+Eric: *"yes fix it properly."*
+
+- [x] `/auto-generate-quote` answers a customer with a **confirmation**, not the
+      quote.
+- [x] The pipeline record is written **on the server**.
+- [x] `pipeline:` and `pipeline_` removed from the KV guest allowlist.
+
+### The split, by what each caller legitimately needs
+
+    staff      the quote — to review, adjust and send
+    everyone   that a quote was generated, and how many lines it has
+
+Requiring staff outright was not available: a customer-facing form legitimately
+calls this route as somebody submits a work request. The question was never who
+may call it, it was **what comes back**.
+
+What used to come back was the whole quote — per-line material cost after markup,
+the model's original guess, the vendor's name, the overhead and profit
+percentages — to the person being quoted. A customer now gets
+`{ generated, pipelineWritten, counts: { materials, labor } }` and nothing about
+what anything costs.
+
+### The bigger half: who writes the record
+
+The browser did. It took the quote it had just been handed and wrote
+`pipeline:{id}` through `/kv/set`, so **the number the business works from had
+passed through the hands of the party with the most reason to change it.**
+
+The server writes it now, from the estimate it just produced rather than from
+anything the caller sent. The customer's own account of their job — title,
+location, priority, timeline, media — is still theirs to state and is sent along,
+because those are facts about their request. The quote is not.
+
+### And the allowlist entry that made it possible
+
+`kvOwnKey` let a guest write any key starting `pipeline:`. That is a prefix, not
+an ownership check, so **one customer could overwrite another customer's pipeline
+item** — its stage, its contact details, its quote total. Nothing in the app did
+that. Nothing had to.
+
+Both prefixes are gone. Staff never went through that list, so nothing internal
+changes.
+
+### The trade, stated
+
+If the server's pipeline write fails, the record is not written at all rather than
+falling back to the browser. The work request itself is already saved by then, so
+the cost is that staff generate the quote themselves instead of finding one
+waiting. Recoverable, and a better trade than a key any customer can write.
+
+The client keeps its old write path behind `if (!autoQuoteData.pipelineWritten)`
+so the two can be deployed in either order. It can be deleted a deploy later.
+
+### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline.
+
+### Not verified
+
+No work request has been submitted through this end to end. It needs a real
+customer submission to prove the server writes the record and the form still
+reports sensibly — and that is the one flow where a mistake is visible to a
+customer, so it is worth doing deliberately rather than assuming.
