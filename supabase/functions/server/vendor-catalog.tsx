@@ -681,4 +681,181 @@ async function fetchVendorFeed(feed: any) {
   return await safeFetch(url, { headers });
 }
 
+// ─── A vendor's own settings: what they permit, and what they prefer ────
+//
+// WHY THIS IS NOT ONE SETTINGS OBJECT OF BOOLEANS
+//
+// Three different kinds of thing get called a "setting" and only one of them
+// belongs to the vendor to choose freely.
+//
+//   RULES    the platform sets and a vendor cannot change, because they protect
+//            somebody else: file types, size caps, the SSRF guard on a URL they
+//            supply, tenant isolation, content filtering. Those are not in this
+//            record at all. A setting a vendor can use to affect another party
+//            is a vulnerability with a friendly label.
+//
+//   CONSENTS the vendor grants explicitly. The default is NOT GRANTED and it is
+//            stamped by the server with who granted it, when, and against which
+//            version of the terms. Permission that defaulted to yes is not
+//            permission, and a consent with no record of what was agreed cannot
+//            be produced later, which is the entire reason to keep one.
+//
+//   OPTIONS  the vendor chooses, each with a safe default, because most vendors
+//            will import a catalogue once and never open this screen again.
+//
+// KV key: vendor_settings:{vendorId} — per tenant by nature, which is why it is
+// not part of portal_global_settings:default.
+
+const SETTINGS = (vendorId: string) => `vendor_settings:${vendorId}`;
+
+/**
+ * The version of the display terms a consent is recorded against.
+ *
+ * Bump this when the wording of what the vendor is agreeing to changes. Existing
+ * consents keep the version they were granted under, so it stays answerable
+ * which text somebody actually accepted rather than which text is current.
+ */
+const IMAGE_TERMS_VERSION = "2026-09-09";
+
+/**
+ * Permission is asked per surface because these are genuinely different asks.
+ * A photograph on a quote sent to one customer is not the same as one on a
+ * public storefront, and a vendor may reasonably permit one and refuse the
+ * other.
+ */
+const IMAGE_SURFACES = ["designCentre", "quotes", "storefront"] as const;
+
+/** Options, with their permitted values. Anything else is refused, not coerced. */
+const OPTION_VALUES: Record<string, readonly string[]> = {
+  // How often a vendor's product images are re-fetched from their feed.
+  imageResync: ["url-change", "every-sync", "never"],
+  // What a product with no image does in the customer's product picker.
+  productsWithoutImages: ["placeholder", "hide"],
+};
+
+const OPTION_DEFAULTS: Record<string, string> = {
+  imageResync: "url-change",
+  productsWithoutImages: "placeholder",
+};
+
+interface ConsentRecord {
+  granted: boolean;
+  grantedAt: string | null;
+  grantedBy: string | null;
+  termsVersion: string | null;
+  revokedAt: string | null;
+}
+
+const blankConsent = (): ConsentRecord => ({
+  granted: false, grantedAt: null, grantedBy: null, termsVersion: null, revokedAt: null,
+});
+
+function defaultSettings(vendorId: string) {
+  const imageDisplay: Record<string, ConsentRecord> = {};
+  for (const surface of IMAGE_SURFACES) imageDisplay[surface] = blankConsent();
+  return {
+    vendorId,
+    imageDisplay,
+    options: { ...OPTION_DEFAULTS },
+    updatedAt: null as string | null,
+    updatedBy: null as string | null,
+  };
+}
+
+/** Fill in anything a stored record predates, so a new field is never undefined. */
+function withDefaults(vendorId: string, stored: any) {
+  const base = defaultSettings(vendorId);
+  if (!stored || typeof stored !== "object") return base;
+  const imageDisplay: Record<string, ConsentRecord> = {};
+  for (const surface of IMAGE_SURFACES) {
+    const c = stored.imageDisplay?.[surface];
+    imageDisplay[surface] = c && typeof c === "object" ? { ...blankConsent(), ...c } : blankConsent();
+  }
+  const options: Record<string, string> = { ...OPTION_DEFAULTS };
+  for (const [key, allowed] of Object.entries(OPTION_VALUES)) {
+    const v = stored.options?.[key];
+    if (typeof v === "string" && allowed.includes(v)) options[key] = v;
+  }
+  return { ...base, ...stored, vendorId, imageDisplay, options };
+}
+
+vendorCatalogRouter.get("/vendor-settings/:vendorId", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in to view these settings." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "Those settings belong to another vendor." }, 403);
+  }
+  try {
+    const stored = await kv.get(SETTINGS(vendorId));
+    return c.json({
+      success: true,
+      settings: withDefaults(vendorId, stored),
+      termsVersion: IMAGE_TERMS_VERSION,
+      surfaces: IMAGE_SURFACES,
+      optionValues: OPTION_VALUES,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not load the settings." }, 500);
+  }
+});
+
+/**
+ * Record consents and options.
+ *
+ * The client sends only what it is allowed to decide: a boolean per surface and
+ * a chosen value per option. Everything that makes the record evidence — who,
+ * when, and which terms version — is stamped HERE from the resolved caller and
+ * the server clock. A consent whose timestamp and signatory arrived in the
+ * request body is a consent the signatory wrote themselves.
+ */
+vendorCatalogRouter.put("/vendor-settings/:vendorId", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  const vendorId = c.req.param("vendorId");
+  if (!mayTouch(who, vendorId)) {
+    return c.json({ success: false, error: "Those settings belong to another vendor." }, 403);
+  }
+
+  let body: any;
+  try { body = await c.req.json(); }
+  catch { return c.json({ success: false, error: "Send a JSON body." }, 400); }
+
+  const now = new Date().toISOString();
+  const current = withDefaults(vendorId, await kv.get(SETTINGS(vendorId)));
+
+  // Consents. Only a change is stamped, so re-saving the form does not rewrite
+  // the date somebody actually agreed on.
+  const imageDisplay: Record<string, ConsentRecord> = { ...current.imageDisplay };
+  for (const surface of IMAGE_SURFACES) {
+    const asked = body?.imageDisplay?.[surface];
+    if (typeof asked !== "boolean") continue;
+    const was = imageDisplay[surface];
+    if (asked === was.granted) continue;
+    imageDisplay[surface] = asked
+      ? { granted: true, grantedAt: now, grantedBy: who.email, termsVersion: IMAGE_TERMS_VERSION, revokedAt: null }
+      : { ...was, granted: false, revokedAt: now };
+  }
+
+  // Options. An unrecognised value is refused rather than quietly replaced with
+  // the default, because silently ignoring a choice is worse than rejecting it.
+  const options: Record<string, string> = { ...current.options };
+  for (const [key, allowed] of Object.entries(OPTION_VALUES)) {
+    const asked = body?.options?.[key];
+    if (asked === undefined) continue;
+    if (typeof asked !== "string" || !allowed.includes(asked)) {
+      return c.json({ success: false, error: `${key} must be one of: ${allowed.join(", ")}.` }, 400);
+    }
+    options[key] = asked;
+  }
+
+  const next = { ...current, vendorId, imageDisplay, options, updatedAt: now, updatedBy: who.email };
+  try {
+    await kv.set(SETTINGS(vendorId), next);
+    return c.json({ success: true, settings: next, termsVersion: IMAGE_TERMS_VERSION });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not save the settings." }, 500);
+  }
+});
+
 export default vendorCatalogRouter;

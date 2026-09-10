@@ -3649,3 +3649,442 @@ the server rather than from a client check somebody could edit out. Same pattern
 
 That a real staff session loads the hub and sees cohorts (currently none, which
 is correct — the fiction is gone and nothing real has been entered yet).
+
+# Architecture plan — a vendor product with images, end to end
+
+**Status: proposed, not started. Needs sign-off before any code.**
+
+## What this is for
+
+A customer choosing siding, a cabinet door or a railing should see the product.
+Today they see a name, a unit and a price, because the vendor catalogue captures
+seven fields and none of them is a picture. Adding a field is four lines; the
+reason this needs a plan is that the picture is the smallest part of it.
+
+## The shape of what exists
+
+Three ways a vendor gets products in, all converging on one importer:
+
+| route | what it is |
+| --- | --- |
+| manual | one line at a time in the vendor portal |
+| CSV | a mapping the vendor confirms, not a guess we apply |
+| API feed | `PUT /vendor-catalog/:id/feed`, `/feed/test`, `/feed/sync` |
+
+They share one field list — `name, sku, category, unit, price, availability,
+leadTimeDays` — one set of validation rules, one update-by-SKU behaviour and one
+rejection report. **That shared importer is the asset.** Images should arrive
+through it rather than beside it, or there will be three ways to attach a
+picture and they will disagree.
+
+Storage today is `vendor_catalog:{vendorId}:{itemId}` in KV, 20,000 items per
+vendor, 500 rows per manual/CSV request.
+
+### The two product systems, and why that is the real problem
+
+`ecommerce-products` already carries `images: string[]` and `primaryImage`, keyed
+by `vendorId`. `vendor_catalog` carries none. So the same vendor has pictures
+when they sell on the storefront and no pictures when they supply materials —
+two product systems, one word, no bridge.
+
+### And the gap underneath that
+
+**The design centre does not read the vendor catalogue at all.** Nothing in the
+design components imports `materialsHubService` or the catalogue routes. The
+catalogue currently reaches exactly two places: `VendorProductPicker` in the
+customer portal, and `materialsHubService`, which the quote, the contract editor
+and the invoice builder read.
+
+So "the customer picks a real product in the design centre" is not one field
+away. It is a connection that has never been made, and it is the thing that
+makes the picture worth having.
+
+## What owns what
+
+- **The vendor owns the product record.** It is tenant data. A vendor reads and
+  writes only their own catalogue; their cost base is commercial information.
+- **We own the stored image**, not the vendor's URL. A mirrored copy under our
+  bucket, referenced by the catalogue item. The vendor grants the right to
+  display it; we hold the file.
+- **The design project references a product by id**, and never copies its price
+  or its picture into itself. A quote that has been sent freezes what it quoted;
+  a design in progress reads through.
+
+## Decision 1 — mirror, do not hotlink
+
+Storing the vendor's URL is free and breaks the day they reorganise their site,
+which for a picture on a customer's quote is the wrong kind of free. It also
+lets a vendor swap the image out from under a quote after it was sent.
+
+So: fetch once at import, store in our bucket, keep the source URL alongside for
+provenance and re-sync.
+
+The fetch is a request made by us to an address a stranger chose, which is
+server-side request forgery — and `outboundGuard.ts` already solves exactly
+that for the catalogue feed: https only, port allowlist, every private and
+metadata range in v4 and v6, DNS resolution where the runtime allows, and
+redirects followed by hand and re-validated at every hop. **Reuse it. Do not
+write a second fetcher.**
+
+## Decision 2 — what a picture is allowed to be
+
+- An allowlist of `image/jpeg`, `image/png`, `image/webp`. Checked against the
+  actual bytes, not the header the server claimed.
+- **No SVG.** `image-upload.tsx` accepts `image/svg+xml` today, which is
+  defensible for a logo somebody on staff uploaded and not for a file a vendor
+  supplied: an SVG is a document that can carry script, served from a public
+  bucket. This is a real hole to close in the same change rather than to inherit.
+- A size cap, and a stored path namespaced by vendor so one vendor cannot
+  overwrite another's file.
+- The adult-content filter that already guards every store write path should
+  guard vendor catalogue writes too. It does not today.
+
+## Decision 3 — how far the record grows
+
+An image implies a product page, and a product page is what makes the materials
+hub worth a subscription rather than a price list. Proposed minimum:
+
+    images: string[]        mirrored, first is primary
+    imageSource: string[]   where each came from, for re-sync and provenance
+    description: string
+    brand: string
+
+Deliberately **not** in the first pass: dimensions, spec sheets, variants,
+finishes. Each is a real feature and each wants its own thinking. Variants in
+particular are a trap — "same door, six finishes" is a data model decision, not
+a field.
+
+## What reads it, once it exists
+
+| surface | reads | state today |
+| --- | --- | --- |
+| `VendorProductPicker` (customer portal) | image, name, price | exists, no image |
+| `materialsHubService` → quote, contract, invoice | image on the line | exists, no image |
+| purchase order / stock list to the vendor | sku, qty | exists |
+| **design centre product selection** | image, name, price, id | **does not exist** |
+| storefront (`ecommerce-products`) | already has its own images | separate system |
+
+## Proposed order
+
+- [ ] 1. **Images through the existing importer.** One `image` field in the
+      shared mapping, so manual, CSV and feed all gain it at once. Mirror on
+      import behind `outboundGuard`, with the type, size and namespace rules
+      above. Close the SVG hole while in there.
+- [ ] 2. **Show it where the catalogue is already read** — the picker, then the
+      quote line. This is the cheap proof that the data is real, and it is
+      visible to a customer immediately.
+- [ ] 3. **Description and brand**, same route, once the image path is proven.
+- [ ] 4. **Connect the design centre to the catalogue.** The actual prize, and
+      the largest step: a trade tab offers real products, a selection records a
+      product id, and the takeoff and quote read through to it.
+- [ ] 5. **Decide the two product systems.** Either the storefront reads the
+      vendor catalogue, or the bridge is explicit and one-directional. Not
+      before 1–4, because the answer depends on what step 4 needs.
+
+## Open questions — for Eric, not for me to assume
+
+1. **Do vendors grant display rights today?** If the vendor terms do not cover
+   us displaying their product photography, that is a document change and it
+   gates step 1. I do not know what the current terms say.
+2. **Re-sync cadence.** A feed sync re-reads prices. Should it re-fetch images
+   every time, only when the source URL changes, or never after the first?
+   Cheapest correct answer is "when the URL changes", but it means a vendor who
+   replaces a photo at the same URL never updates.
+3. **What happens to a product with no picture?** A neutral placeholder, or
+   hidden from the picker? Hiding it is cleaner for the customer and punishes
+   vendors with incomplete feeds, which may be the point or may lose real stock.
+4. **Step 4 shape**: does a design selection pin a specific vendor's product, or
+   a generic product that resolves to whichever vendor is cheapest at quote
+   time? This changes the data model and it is a business decision about whether
+   the customer is choosing a product or a supplier.
+
+## Revision — the customer picks the product, not the supplier
+
+Eric's answer to open question 4, and it inverts the plan above rather than
+filling in a blank in it. Worth writing down what it changes before building to
+the old shape.
+
+### What it decides
+
+A design selection stores a **product**. Which vendor supplies that product is
+resolved later — at quote time or at ordering — and can change without the
+customer's selection changing or the design being edited.
+
+So the product has to exist as its own record, and a vendor's catalogue line
+becomes an **offer** against it: one supplier's price, availability, lead time
+and SKU for a thing that exists independently of them.
+
+That is the opposite of what the hub was built with. `vendor_catalog:{vendorId}:{itemId}`
+is currently the only product record there is.
+
+    before   design ─────────────────────────► vendor_catalog line
+    after    design ──► product ◄── offer ──── vendor A
+                                ◄── offer ──── vendor B
+
+### What moves where
+
+| belongs to the product | stays on the offer |
+| --- | --- |
+| the name a customer sees | price |
+| the photograph | availability |
+| description, specification | lead time |
+| brand, model | the vendor's own SKU |
+
+**This relocates the images.** The plan above put them on the catalogue item,
+which is now the wrong place: two vendors supplying the same decking board
+should not produce two products with two photographs. A vendor's supplied image
+becomes a *candidate* for the product's photograph, not the photograph itself.
+
+### The hard part, said plainly
+
+Knowing that vendor A's line and vendor B's line are the same product. SKUs do
+not match across suppliers and names are written by whoever typed the feed.
+Matching is the whole difficulty of this model and it cannot be hand-waved: a
+wrong match prices a customer's job against a different item, and it does it
+silently.
+
+The honest approach is the one this codebase already uses for the bid intake
+reader and the CSV mapping — **propose, never apply.** Match on manufacturer
+plus part number where both exist, show the proposal with its confidence, and
+require a human tick before two lines become one product. Below a threshold,
+show it and leave it off.
+
+### Revised order
+
+- [ ] 1. **A product record**, with the vendor catalogue line pointing at it as
+      an offer. Every existing line becomes its own product initially — one
+      offer each, nothing merged. Nothing is guessed, and nothing breaks.
+- [ ] 2. **Images on the product**, arriving through the shared importer as
+      candidates, with the mirror, type, size, namespace and no-SVG rules from
+      the plan above unchanged.
+- [ ] 3. **Merging** — the proposed-match screen that lets two offers become one
+      product, ticked by a person.
+- [ ] 4. **Show it** in the picker and on the quote line.
+- [ ] 5. **The design centre reads products**, records a product id on
+      selection, and the takeoff and quote resolve the supplier at quote time.
+- [ ] 6. Then the storefront question.
+
+Step 1 is now the foundation and it is bigger than the original step 1. It is
+also the step that stops us building the picture onto the wrong record.
+
+### Still open
+
+- **Which supplier wins at quote time** — cheapest, a preferred-vendor order, or
+  whoever can meet the date? Cheapest is the obvious default and it is not
+  obviously right when a lead time blows the schedule.
+- **A quote that has been sent must freeze what it priced**, including which
+  vendor. Confirming that is a small decision with a large consequence if it is
+  missed.
+- Questions 1–3 from the plan above are unchanged and still need answers:
+  vendor display rights, re-sync cadence, and what a product with no picture
+  does in the picker.
+
+### Supplier resolution — decided
+
+Eric: *"cheapest supplier wins, and a sent quote freezes it unless customer
+chooses a specific product."*
+
+**1. Resolution happens at quote time, not at selection time.** While a design is
+in progress the product carries no supplier at all; the cheapest live offer is
+shown so the customer sees a real price, and it is free to change as vendors
+update their catalogues. Only building the quote fixes it.
+
+**2. Cheapest offer wins** among the offers for that product. Cheapest is a
+default and not a law of nature — an offer that is cheapest with a lead time that
+misses the schedule is a real case, so the resolver should surface that rather
+than silently pick the slow one. Proposed: pick cheapest, and warn on the line
+when a cheaper offer was chosen whose lead time falls outside the phase it sits
+in. It stays the operator's call, not a hidden substitution.
+
+**3. A sent quote is immutable.** Product, supplier and price are frozen when it
+goes out, and nothing may recompute any of them afterwards. This is not a new
+mechanism: `change-orders` already exists with its own send and decide flow. A
+change after sending is a change order against the frozen document, never an
+edit to it, and the change order carries its own resolution.
+
+**4. A specific product the customer named is pinned.** Cheapest-wins applies to
+resolving a *supplier* for a chosen product, never to substituting a *different
+product* because it is cheaper. If the customer said Trex Enhance Basics in
+Beach Dune, that is the product, and the only thing resolved beneath it is who
+supplies it.
+
+#### Settled: the sent quote is immutable
+
+Eric: *"sent quote is immutable, changes go through change orders."* The earlier
+reading here allowed a customer's own later choice to reopen a sent quote. It is
+struck.
+
+So there is **no re-run path on the resolver for a sent quote**, and that is a
+constraint on the code rather than a note in a document: nothing may recompute a
+supplier or a price against a quote that has gone out. A later change produces a
+change order — a second document, with its own send and decide flow, which
+already exists — and the change order carries its own resolution.
+
+The reason is worth keeping with the rule. A document the customer has been
+given is a record of what they were promised. The mechanism for changing the
+deal has to be a second document, not a mutation of the first, or there is no
+answer to "what did I agree to".
+
+#### What this adds to the data model
+
+    product        the thing the customer chose; pinned if they named it
+    offer          a vendor's price, availability, lead time, SKU
+    resolution     which offer a quote picked, and when — stored ON the quote,
+                   not on the design, because the design keeps moving and the
+                   quote must not
+
+That third record is the part worth naming. Without it, a quote sent in March
+cannot answer "who was this priced against" once April's catalogue lands, and
+the purchase order that eventually goes out has nothing authoritative to read.
+
+## The vendor answers, from their own portal
+
+Eric: *"i believe the vendors will need to answer these questions how do we build
+it to give them the most options from the portal?"*
+
+He is right, and it removes three platform-wide guesses. But "give them options"
+needs one distinction made first, or it becomes a settings screen that quietly
+lets a vendor turn off something protecting somebody else.
+
+### Three kinds of thing, and only one of them is an option
+
+**Rules — we set them, a vendor cannot change them.** No SVG from a vendor
+feed. Type checked against the bytes rather than the claimed header. Size cap.
+Storage namespaced per vendor. The SSRF guard on any URL they supply. The
+adult-content filter. These exist to protect other people — other vendors,
+customers, us — so they are not on the settings screen at all. A setting a
+vendor can use to hurt somebody else is a vulnerability with a nice label.
+
+**Consents — the vendor grants them explicitly, and the default is no.** May we
+display your product photography, and where? This is not a preference with a
+sensible default; it is permission, and permission that was defaulted to "yes"
+is not permission. Recorded with who granted it, when, and against which version
+of the terms — so it can be shown later, which is the entire point of having it.
+
+**Options — the vendor chooses, and a safe default applies if they never look.**
+Everything else. The platform has to work for a vendor who signs up, uploads a
+CSV and never opens the settings screen again, because most of them will.
+
+### Where these live
+
+There is already a per-vendor record for feed behaviour — `vendor_feed:{vendorId}`,
+holding `endpoint`, `authStyle`, `authName`, `mapping`. Feed options belong
+there rather than in a new record.
+
+What is missing is the presentation-and-permission half. Proposed:
+`vendor_settings:{vendorId}`, read by the catalogue and the picker, written only
+by that vendor or an admin — the same actor rule `catalogActor` already applies.
+
+`portal_global_settings:default` is deliberately not the home for any of this: it
+is one global object, and this is per-tenant by nature.
+
+### The three open questions, answered by the vendor
+
+| question | becomes | default |
+| --- | --- | --- |
+| display rights | a **consent**, per surface: design centre, quotes, storefront | **not granted** |
+| image re-sync | an **option**: every sync / when the URL changes / never after first | when the URL changes |
+| product with no picture | an **option**: show with a placeholder / hide from the picker | show with a placeholder |
+
+Two notes on that table. Display rights are per surface because they are
+genuinely different asks — a photograph on a quote sent to one customer is not
+the same as one on a public storefront, and a vendor may reasonably say yes to
+one and no to the other. And "hide from the picker" is offered rather than
+imposed because a vendor with a thin feed may prefer to be found; imposing it
+would quietly delist real stock.
+
+### What else a supplier would actually want to control
+
+If the screen is being built, these are the ones a real supplier asks for, and
+each has an obvious safe default:
+
+- which categories they supply, so they are not offered for work they do not do
+- delivery radius, or pickup only
+- minimum order value
+- lead time, defaulted per category and overridable per line
+- volume price breaks
+- whether their prices are visible to customers or used only inside our quotes
+- how often the feed syncs, and a "sync now" button
+- who gets notified when a purchase order lands
+
+Not all of that belongs in the first pass. The point is that the settings record
+should be shaped to hold them rather than being a three-field object that has to
+be rebuilt when the fourth question arrives.
+
+### What this changes in the build order
+
+Step 2 (images) now depends on a consent existing to check. So:
+
+- [ ] 1. The product record and offers, as before.
+- [ ] 1b. **`vendor_settings:{vendorId}` and the portal screen** — consents and
+      options, with defaults, written by the vendor.
+- [ ] 2. Images on the product, gated on the display consent for the surface
+      being rendered. No consent means no image, which is the fail-closed
+      behaviour rather than a bug.
+- [ ] 3–6. Unchanged.
+
+### The one thing this does not solve
+
+A vendor granting display rights is a vendor asserting they hold those rights.
+Most product photography belongs to the manufacturer rather than the supplier.
+The consent record makes it *their* assertion rather than our assumption, which
+is the honest position and worth stating in the wording of the consent itself
+rather than burying.
+
+### Built — step 1b, the consent form
+
+- [x] `vendor_settings:{vendorId}` on the server, with `GET` and `PUT
+      /vendor-settings/:vendorId` added to `vendor-catalog.tsx`.
+- [x] `VendorImageConsent.tsx`, in the vendor portal's Products tab.
+
+**Why it went in `vendor-catalog.tsx` rather than a new router.** The
+authorisation rules it needs already exist there — `catalogActor` resolves who
+is calling and which vendor they are, including the unlinked case, and
+`mayTouch` decides whether they may touch that vendor's records. A second file
+would have meant a second actor resolver, and the comments in that file record
+what it cost to get the first one right: the unlinked-vendor hole where
+`vendorId: null` fell into the see-all branch and handed over a competitor's
+catalogue.
+
+**What the client is allowed to send.** A boolean per surface and a chosen value
+per option. Everything that makes the record evidence — who agreed, when, and
+which terms version — is stamped on the server from the resolved caller and the
+server clock. A consent whose signatory and timestamp arrived in the request
+body is a consent the signatory wrote themselves.
+
+**Re-saving does not rewrite the date.** Only a change of state is stamped, so a
+vendor who opens the form and saves it again still has the date they actually
+agreed on. Withdrawing records `revokedAt` rather than clearing the grant, so
+the history stays answerable.
+
+**An unrecognised option value is refused, not defaulted.** Quietly replacing a
+choice we do not recognise with our default is how a vendor ends up with a
+setting they did not pick and cannot see they did not pick.
+
+**A failed read does not render the form.** Showing defaults after a failed load
+would present them as the vendor's saved answers, and one save from that state
+would overwrite real consents with whatever was on screen. It shows the error
+and a retry instead.
+
+**`IMAGE_TERMS_VERSION` is a constant to bump.** Existing consents keep the
+version they were granted under, so it stays answerable which wording somebody
+actually accepted rather than which wording is current.
+
+#### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline, nothing
+in the new files. Route shadowing checked on `vendor-catalog.tsx`: 12 routes, 0
+shadowed. Smoke green.
+
+#### Not done yet, and worth being clear about
+
+- **Nothing reads these consents.** There are no product images to gate, so the
+  record is currently written and never consulted. Enforcement lands with step 2
+  and the plan says the rule there: no consent means no image, fail closed.
+- **The terms wording is mine, not a lawyer's.** The form says turning a consent
+  on confirms the vendor holds the right to let us display the images, and that
+  photography often belongs to the manufacturer rather than the supplier. That
+  is the honest shape of the ask; whether it is the right *wording* is a question
+  for whoever writes the vendor terms.
+- **Not deployed.** These routes do not exist in production until the function
+  is deployed.

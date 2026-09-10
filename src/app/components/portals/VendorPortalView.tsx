@@ -33,6 +33,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
 import CatalogImport from './CatalogImport';
 import VendorApiFeed from './VendorApiFeed';
+import VendorImageConsent from './VendorImageConsent';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 import NotificationBell from './NotificationBell';
@@ -975,6 +976,19 @@ export default function VendorPortalView() {
                   )}
                 </>
               )}
+            </div>
+
+            {/* Their images, and how their catalogue is presented.
+                Outside the linked/unlinked branch on purpose: the component says
+                what an unlinked account needs, and a vendor waiting on approval
+                should be able to see what will be asked of them. */}
+            <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
+              <h2 className="text-lg font-bold text-white">Images and presentation</h2>
+              <p className="mt-1 mb-5 text-sm text-gray-400">
+                Permission is asked separately for each place a photograph can appear, and nothing of
+                yours is shown until you grant it.
+              </p>
+              <VendorImageConsent vendorId={vendorId || ''} apiBase={VENDOR_API} headers={authHeadersV} />
             </div>
           </div>
         )}
