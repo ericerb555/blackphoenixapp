@@ -1216,6 +1216,13 @@ async function permittedImages(
 vendorCatalogRouter.post('/catalog-products/mirror-images', async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+  // Neither staff nor a vendor has anything to process here. Without this they
+  // fall through to an empty batch and get `success: true`, which is harmless
+  // and still the wrong answer — a caller with no business calling a route
+  // should be refused rather than quietly handed a no-op.
+  if (!who.isAdmin && !who.isVendor) {
+    return c.json({ success: false, error: 'Only a vendor or company staff can do this.' }, 403);
+  }
 
   const body = await c.req.json().catch(() => ({}));
   const limit = Math.min(Math.max(Number((body as any).limit) || 10, 1), 25);
