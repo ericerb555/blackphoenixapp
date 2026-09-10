@@ -16,3 +16,7 @@ supabase/.temp/
 
 # Written by scripts/smoke.mjs on every run. A build artefact, not source.
 smoke.html
+
+# Ad-hoc verification scripts written during a session, never part of the build.
+*.tmp.mjs
+*.tmp.mts
