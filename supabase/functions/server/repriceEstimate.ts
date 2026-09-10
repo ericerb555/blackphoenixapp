@@ -115,6 +115,22 @@ const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g
  * item's name must appear in the material — deliberately strict, because a
  * loose match here does not produce a slightly-off quote, it produces a quote
  * priced from the wrong product. A miss is fine; it is simply marked estimated.
+ *
+ * WHERE TWO LINES MATCH EQUALLY WELL, THE CHEAPEST WINS
+ *
+ * This used to take whichever matched FIRST, and first meant first in the array
+ * — which is whatever order the KV read happened to return. So when two vendors
+ * published the same SKU, the price a customer was quoted depended on the order
+ * rows came back in, and could change between two identical requests.
+ *
+ * That is not a tie-break detail. The rule this platform runs on is that the
+ * customer picks the product and the platform resolves the supplier, and the
+ * resolution is the cheapest offer. A matcher that resolved arbitrarily made
+ * that rule untrue everywhere it was used.
+ *
+ * Cheapest applies only among candidates that match EQUALLY WELL. A better match
+ * still beats a cheaper one, because pricing the wrong product cheaply is worse
+ * than pricing the right one dearly.
  */
 export function matchCatalogItem(
   material: { name?: string; description?: string; sku?: string },
@@ -123,9 +139,18 @@ export function matchCatalogItem(
   const active = catalog.filter(c => c?.isActive !== false && Number(c?.price) > 0);
   if (!active.length) return null;
 
+  /** The cheaper of two candidates, treating a missing price as infinite. */
+  const cheaper = (a: CatalogItem | null, b: CatalogItem) => {
+    if (!a) return b;
+    return (Number(b.price) || Infinity) < (Number(a.price) || Infinity) ? b : a;
+  };
+
   const sku = String(material?.sku ?? '').trim().toLowerCase();
   if (sku) {
-    const bySku = active.find(c => String(c.sku ?? '').trim().toLowerCase() === sku);
+    let bySku: CatalogItem | null = null;
+    for (const c of active) {
+      if (String(c.sku ?? '').trim().toLowerCase() === sku) bySku = cheaper(bySku, c);
+    }
     if (bySku) return bySku;
   }
 
@@ -142,7 +167,10 @@ export function matchCatalogItem(
     // Every significant word must be present, and a single-word catalogue name
     // like "Screws" is too weak to price a line from on its own.
     if (hits !== words.length || words.length < 2) continue;
+    // A longer name matched in full is a more specific match and wins outright.
+    // Equal specificity is where price decides.
     if (words.length > bestScore) { bestScore = words.length; best = item; }
+    else if (words.length === bestScore) { best = cheaper(best, item); }
   }
   return best;
 }
@@ -154,6 +182,17 @@ export interface RepricedMaterial {
   priceAsOf: string | null;
   /** What the model had guessed, kept so the difference can be shown. */
   modelUnitCost: number;
+  /**
+   * WHICH offer this price came from, when it came from the catalogue.
+   *
+   * A quote naming only the vendor cannot be checked against anything once their
+   * catalogue has moved on — which is exactly when somebody asks what the number
+   * was based on. Empty when the price came from the model rather than a real
+   * offer, which is itself the honest answer.
+   */
+  offerId: string;
+  productId: string;
+  vendorId: string;
 }
 
 export function repriceMaterial(
@@ -177,6 +216,9 @@ export function repriceMaterial(
       vendor: String(hit.vendorName || material?.vendor || ''),
       priceAsOf: hit.updatedAt || null,
       modelUnitCost,
+      offerId: String(hit.offerId || ''),
+      productId: String(hit.productId || ''),
+      vendorId: String(hit.vendorId || ''),
     };
   }
 
@@ -189,6 +231,11 @@ export function repriceMaterial(
     vendor: String(material?.vendor || ''),
     priceAsOf: null,
     modelUnitCost,
+    // No offer behind this number. Left empty rather than omitted, so a line
+    // priced from the model is visibly not priced from a vendor.
+    offerId: '',
+    productId: '',
+    vendorId: '',
   };
 }
 
@@ -289,6 +336,18 @@ export function repriceEstimate(
       priceSource: priced.source,
       priceAsOf: priced.priceAsOf,
       modelUnitCost: priced.modelUnitCost,
+      // Frozen with the line: which offer, product and vendor the money was
+      // based on. The same record the deck quote writes, so both quote paths
+      // can answer what they were priced against rather than only one.
+      pricedFrom: {
+        source: priced.source,
+        vendor: priced.vendor || '',
+        vendorId: priced.vendorId,
+        offerId: priced.offerId,
+        productId: priced.productId,
+        priceAsOf: priced.priceAsOf,
+        at: new Date().toISOString(),
+      },
     };
   });
 

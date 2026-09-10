@@ -3097,6 +3097,11 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     const vendors = ((await kv.getByPrefix('vendor:').catch(() => [])) as any[] || []).filter(Boolean);
     const vendorNames = new Map(vendors.map((v: any) => [String(v?.id || ''), String(v?.name || '')]));
     const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
+      // Carried so a generated quote can record which offer priced each line,
+      // the same way the deck quote does. Without them a quote names a vendor
+      // and nothing that can be checked once their catalogue has moved on.
+      offerId: String(i?.id || ''),
+      productId: String(i?.productId || ''),
       vendorId: i?.vendorId,
       vendorName: vendorNames.get(String(i?.vendorId)) || '',
       name: i?.name, sku: i?.sku, unit: i?.unit,
@@ -4322,13 +4327,16 @@ app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
     }));
     // CHEAPEST OFFER WINS, AND THAT IS WHY THIS IS SORTED.
     //
-    // Both lookups below use `.find`, which returns the FIRST match in array
-    // order — and the array order is whatever the KV read handed back. So where
-    // two vendors publish the same SKU, the price a customer was quoted depended
-    // on which row came back first. Sorting ascending by price once makes both
-    // `find` calls return the cheapest match instead, which is the rule: the
-    // customer picks the product and the platform resolves the supplier, and the
-    // resolution is the cheapest offer.
+    // The exact-SKU lookup just below is a local `.find`, which returns the
+    // first match in array order — and the array order is whatever the KV read
+    // handed back. So where two vendors publish the same SKU, the price a
+    // customer was quoted depended on which row came back first, and could
+    // differ between two identical requests. Sorting ascending by price once
+    // makes that `find` return the cheapest match.
+    //
+    // `matchCatalogItem` no longer depends on this: it resolves ties by price
+    // itself, for every caller rather than only this one. The sort stays because
+    // the SKU lookup here is separate from it.
     catalog.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
 
     const book: Record<string, number> = (bookRaw as any)?.prices || {};

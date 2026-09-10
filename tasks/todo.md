@@ -4716,3 +4716,55 @@ worth checking before it is trusted.
 Not fixed here on purpose: 5b was scoped to the deck quote, and quietly changing
 a second quote-generating route in the same commit is how a change nobody asked
 for ships.
+
+### The shared matcher, and the second quote path — both done
+
+Eric: *"yes fix the shared matcher and do both."*
+
+- [x] `matchCatalogItem` resolves ties by price, for every caller.
+- [x] `/auto-generate-quote` records which offer priced each line, the same way
+      the deck quote now does.
+
+#### What the matcher was doing
+
+It took whichever line matched **first**, and first meant first in the array —
+whatever order the KV read happened to return. So when two vendors published the
+same SKU, the price a customer was quoted depended on row order and **could
+differ between two identical requests**.
+
+That is not a tie-break detail. The rule the platform runs on is that the
+customer picks the product and the platform resolves the cheapest supplier, and a
+matcher resolving arbitrarily made that rule untrue everywhere it was used —
+which is both quote paths and anything added later.
+
+**Cheapest applies only among candidates that match equally well.** A more
+specific match still beats a cheaper vaguer one, because pricing the wrong
+product cheaply is worse than pricing the right one dearly. 11/11 asserts both
+halves, including that the answer no longer depends on array order and that an
+exact SKU still wins outright however cheap a name match is.
+
+Four assertions cover behaviour that must **not** have changed: a zero price is
+not a match, an inactive line is not a match, a one-word catalogue name is too
+weak to price from, and a partial word match is refused.
+
+#### The second quote path
+
+`repriceMaterial` now returns `offerId`, `productId` and `vendorId`, and every
+repriced material line carries the same `pricedFrom` record the deck quote
+writes. Both quote paths can now say what they were priced against instead of
+only one.
+
+Where a price came from the model rather than a vendor, the ids are **empty
+rather than omitted** — a line priced from a guess is visibly not priced from an
+offer.
+
+#### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline.
+`matchCatalogItem` 11/11.
+
+#### Not verified
+
+Neither path has been driven with a catalogue containing two competing offers,
+because production has one catalogue line. The cheapest-wins behaviour is proven
+against the function directly, not through a real quote.
