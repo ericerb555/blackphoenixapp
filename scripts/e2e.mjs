@@ -244,6 +244,24 @@ console.log('\n── A real customer, signed up through the front door ──')
     const named = (prods.payload?.products || []).filter((x) => x?.cheapest?.vendorId);
     ok('products do not name the supplier to a customer', named.length === 0,
        `${named.length} named a vendor`);
+
+    // Mirroring fetches vendor-supplied URLs from our own network and writes to
+    // storage under the service role. A customer is neither a vendor nor staff
+    // and has nothing to process, so they are refused rather than handed an
+    // empty batch and success: true — a no-op is what makes a missing check
+    // invisible.
+    const mirror = await call('/catalog-products/mirror-images', { method: 'POST', token });
+    ok('cannot run the vendor image mirror', mirror.status === 403,
+       `status ${mirror.status}`);
+
+    // An unrecognised surface withholds every image rather than falling back to
+    // showing them all. Vacuous while no product carries an image, and written
+    // so it stays true once one does.
+    const bogus = await call('/catalog-products?surface=not-a-real-surface', { token });
+    const leaked = (bogus.payload?.products || []).filter((x) => (x?.images || []).length);
+    ok('an unrecognised image surface shows nothing',
+       bogus.status === 200 && leaked.length === 0,
+       `status ${bogus.status}, ${leaked.length} with images`);
   }
 
   {
