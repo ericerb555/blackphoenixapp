@@ -4346,3 +4346,36 @@ production and **nothing reads them**, while the code reads
 to working defaults. Wiring the set ones in without knowing what they contain
 would risk replacing two endpoints that demonstrably work — so that needs Eric
 to say what is in them.
+
+### Deployed and verified
+
+Function deployed. e2e 39/39 against production — nothing else regressed.
+
+The parcel path itself is reached only from `POST /investments/ai-property-analysis`,
+which spends an OpenAI call, so it was **not** driven end to end. Two probes
+instead, neither of which costs anything:
+
+- That route answers `401 Sign in required` to an anonymous caller, so it is
+  live and gated.
+- The logic was re-run against the live Census geocoder, MassGIS and NH GRANIT
+  — the actual services the deployed code calls — over a wider sample of real
+  parcels pulled out of the layers themselves:
+
+| 20 real parcels | correct | wrong parcel | miss |
+| --- | --- | --- | --- |
+| after the fix | **17** | 1 | 2 |
+
+The one "wrong" is still `5 MEDFORD ST #1` resolving to `5 MEDFORD ST` — the
+right building, a unit number the parcel layer does not carry. Real records are
+coming back: `160 PARKER ST, LAWRENCE` returns 160 Parker St Realty Trust,
+$937,500, built 1900.
+
+One thing worth noting: `78 WALTON ST, LOWELL` was correct in the first run and
+a miss in this one, with no code change between them. So there is some
+flakiness in either the Census geocoder or the MassGIS query. A miss is the safe
+failure and the code falls through to paid Regrid, but it means the hit rate is
+approximate rather than fixed.
+
+**Still not driven end to end**: an actual feasibility study, which would prove
+the parcel block reaches the prompt. That costs an OpenAI call and a free-study
+slot, so it is Eric's to spend.
