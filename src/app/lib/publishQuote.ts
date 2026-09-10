@@ -42,11 +42,47 @@ async function authed() {
   };
 }
 
+/**
+ * Which offer priced a line, captured when the quote is written.
+ *
+ * WHY THIS IS STORED RATHER THAN RECOMPUTED
+ *
+ * A sent quote is immutable: product, supplier and price are frozen when it goes
+ * out, and a change afterwards is a change order rather than an edit. That rule
+ * is unenforceable without a record of what was frozen. Recomputing the price
+ * later answers "what would this cost today", which is a different question from
+ * "what did we promise", and the second is the one a customer holds us to.
+ *
+ * It is also what a purchase order needs. Ordering the material means knowing
+ * which vendor's offer the money was based on — a vendor's NAME is not enough
+ * once their catalogue has moved on.
+ */
+export interface LineResolution {
+  /** 'catalogue' | 'your-price' | 'unpriced' — where the number came from. */
+  source: string;
+  /** Empty unless it came from the catalogue. */
+  vendorId?: string;
+  vendor?: string;
+  offerId?: string;
+  productId?: string;
+  /** 'sku' | 'name' | 'price-book' | 'none' — how it was matched. */
+  matchedOn?: string;
+  /** When the vendor last published that price. */
+  priceAsOf?: string | null;
+}
+
 export interface PublishInput {
   link: DesignLink;
   lines: QuoteLine[];
   totals: QuoteTotals;
   unpricedCount: number;
+  /**
+   * Keyed by the line's sku. Absent entries are not an error — a labour line has
+   * no offer behind it — but a materials line without one means the quote cannot
+   * say what it was priced against, so it is recorded as such rather than
+   * guessed at later.
+   */
+  resolution?: Record<string, LineResolution>;
   designId: string | null;
   /** Bumped every save, so a quote can say which design it was made from. */
   designVersion: number | null;
@@ -115,9 +151,16 @@ export async function publishDeckQuote(input: PublishInput): Promise<PublishResu
 
   // Materials and labour kept apart, because that is how the pipeline's quote
   // editor and the customer's portal both present a quote.
+  const resolution = input.resolution || {};
   const materials = lines.filter(l => l.category !== 'Labour').map(l => ({
     sku: l.sku, name: l.description, quantity: l.qty, unit: l.unit,
     unitPrice: l.unitPrice, total: l.total,
+    // Frozen at the moment of writing. See LineResolution: a sent quote has to
+    // be able to say what it was priced against, and recomputing later answers
+    // a different question.
+    pricedFrom: resolution[l.sku]
+      ? { ...resolution[l.sku], at: now }
+      : { source: 'unrecorded', at: now },
   }));
   const labor = lines.filter(l => l.category === 'Labour').map(l => ({
     sku: l.sku, name: l.description, quantity: l.qty, unit: l.unit,

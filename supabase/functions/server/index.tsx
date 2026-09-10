@@ -4308,6 +4308,12 @@ app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
       ((vendorsRaw as any[]) || []).filter(Boolean).map((v: any) => [String(v?.id || ''), String(v?.name || '')]),
     );
     const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
+      // `offerId` and `productId` are carried so the caller can record WHICH
+      // offer priced a line, not merely that a vendor did. A quote naming only
+      // "Smith Building Supply, $8.74" cannot be checked against anything once
+      // their catalogue has moved on — which is exactly when somebody asks.
+      offerId: String(i?.id || ''),
+      productId: String(i?.productId || ''),
       vendorId: i?.vendorId,
       vendorName: vendorNames.get(String(i?.vendorId)) || '',
       name: i?.name, sku: i?.sku, unit: i?.unit,
@@ -4347,15 +4353,29 @@ app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
           source: 'catalogue',
           vendor: hit.vendorName || '',
           priceAsOf: hit.updatedAt || null,
+          // The resolution. Which offer, from which vendor, against which
+          // product — enough for a sent quote to answer what it was priced
+          // against, and for a purchase order to have something authoritative
+          // to read rather than a vendor's name and a hope.
+          offerId: hit.offerId || '',
+          productId: hit.productId || '',
+          vendorId: String(hit.vendorId || ''),
+          matchedOn: bySku ? 'sku' : 'name',
         };
       }
 
       const typed = Number(book[sku]);
       if (Number.isFinite(typed) && typed > 0) {
-        return { sku, unitPrice: Math.round(typed * 100) / 100, source: 'your-price', vendor: '', priceAsOf: null };
+        return {
+          sku, unitPrice: Math.round(typed * 100) / 100, source: 'your-price',
+          vendor: '', priceAsOf: null, offerId: '', productId: '', vendorId: '', matchedOn: 'price-book',
+        };
       }
 
-      return { sku, unitPrice: 0, source: 'unpriced', vendor: '', priceAsOf: null };
+      return {
+        sku, unitPrice: 0, source: 'unpriced',
+        vendor: '', priceAsOf: null, offerId: '', productId: '', vendorId: '', matchedOn: 'none',
+      };
     });
 
     return c.json({

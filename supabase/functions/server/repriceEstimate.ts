@@ -38,6 +38,18 @@ export interface CatalogItem {
   price?: number;
   updatedAt?: string;
   isActive?: boolean;
+  /**
+   * Which offer and which product this line is, when the caller supplied them.
+   *
+   * The matcher does not use either: it decides whether a line corresponds to
+   * something a vendor sells, from the name and the SKU. They are declared here
+   * because the matcher RETURNS the object it was given, and a caller recording
+   * what priced a quote needs to read them off the result — a quote that names
+   * only the vendor cannot be checked against anything once their catalogue has
+   * moved on.
+   */
+  offerId?: string;
+  productId?: string;
 }
 
 export interface LaborRate { id?: string; category?: string; hourlyRate?: number }

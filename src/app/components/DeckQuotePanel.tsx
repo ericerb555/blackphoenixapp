@@ -192,10 +192,21 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
         const json = await res.json().catch(() => ({}));
         if (cancelled || !json?.success) return;
         const next: PriceBook = {};
-        const src: Record<string, { source: string; vendor: string; priceAsOf: string | null }> = {};
+        const src: Record<string, {
+          source: string; vendor: string; priceAsOf: string | null;
+          vendorId?: string; offerId?: string; productId?: string; matchedOn?: string;
+        }> = {};
         for (const p of json.priced || []) {
           if (Number(p.unitPrice) > 0) next[p.sku] = Number(p.unitPrice);
-          src[p.sku] = { source: p.source, vendor: p.vendor || '', priceAsOf: p.priceAsOf || null };
+          // Everything the server said about where the number came from, kept
+          // whole. The screen shows the source and the vendor; publishing needs
+          // the offer and the product as well, and dropping them here would mean
+          // the quote could not say what it was priced against.
+          src[p.sku] = {
+            source: p.source, vendor: p.vendor || '', priceAsOf: p.priceAsOf || null,
+            vendorId: p.vendorId || '', offerId: p.offerId || '',
+            productId: p.productId || '', matchedOn: p.matchedOn || '',
+          };
         }
         setPrices(next);
         setSources(src);
@@ -237,6 +248,9 @@ export default function DeckQuotePanel({ model, link, designId, designVersion, p
       const result = await publishDeckQuote({
         link, lines, totals, unpricedCount, designId, designVersion, projectName,
         existingQuoteId: quoteId,
+        // Which offer priced each line, frozen onto the quote as it is written.
+        // A sent quote has to be able to say what it was priced against.
+        resolution: sources,
       });
       if (!result.ok) { toast.error(result.error || 'Could not create the quote.'); return; }
       setQuoteId(result.quoteId || null);

@@ -4649,3 +4649,70 @@ decided rule true where it was not.
 
 Not started beyond the defect fix. 5b is the one worth doing first: it is what
 makes a sent quote answerable, and it does not depend on 5a.
+
+### 5b — the resolution is frozen onto the quote
+
+- [x] `/quote/price-lines` reports which offer priced each line: `offerId`,
+      `productId`, `vendorId`, and `matchedOn`.
+- [x] `DeckQuotePanel` keeps all of it rather than only what the screen shows.
+- [x] `publishDeckQuote` writes it onto each materials line as `pricedFrom`,
+      stamped with the time the quote was written.
+
+#### Why store it rather than recompute it
+
+A sent quote is immutable — product, supplier and price frozen when it goes out,
+with a change order for anything after. That rule is unenforceable without a
+record of what was frozen.
+
+Recomputing later answers *"what would this cost today"*, which is a different
+question from *"what did we promise"*, and the second is the one a customer holds
+us to.
+
+It is also what a purchase order needs. Ordering the material means knowing which
+vendor's **offer** the money was based on. A vendor's name is not enough once
+their catalogue has moved on, which is exactly when somebody asks.
+
+#### What a line now carries
+
+    pricedFrom: {
+      source:     'catalogue' | 'your-price' | 'unpriced' | 'unrecorded'
+      vendorId, vendor, offerId, productId
+      matchedOn:  'sku' | 'name' | 'price-book' | 'none'
+      priceAsOf:  when the vendor last published that price
+      at:         when this quote froze it
+    }
+
+`matchedOn` is there because *how* a line was matched is part of how much to
+trust it: an exact SKU match and a name match are both matches and are not the
+same claim. `unrecorded` is used rather than omitting the field, so a line priced
+before this existed is visibly unrecorded instead of looking like it had no
+vendor.
+
+#### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline.
+
+#### Not verified
+
+No quote has been published through this. The fields are carried end to end in
+code and typecheck clean; whether a real published quote comes out with a
+populated `pricedFrom` needs a deck priced against a catalogue that has a
+matching line — and production has one catalogue line, so that is a real test
+once the building supply's list is in.
+
+#### A second quote path has the same gap, and is not fixed
+
+While applying this I put the change on the wrong catalogue projection: there are
+two in `index.tsx`, and `/auto-generate-quote` has one of its own. Reverted from
+there and applied to `/quote/price-lines`, which is the deck path 5b is about.
+
+But the mistake surfaced something real. **`/auto-generate-quote` prices from the
+catalogue too, and its quotes also cannot say what they were priced against.** It
+is the same gap, in a path this pass did not touch, and it should not be left
+unrecorded just because it was found by accident. It also predates the
+cheapest-wins fix, so it may still take the first match rather than the cheapest —
+worth checking before it is trusted.
+
+Not fixed here on purpose: 5b was scoped to the deck quote, and quietly changing
+a second quote-generating route in the same commit is how a change nobody asked
+for ships.
