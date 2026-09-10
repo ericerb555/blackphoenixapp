@@ -4379,3 +4379,91 @@ approximate rather than fixed.
 **Still not driven end to end**: an actual feasibility study, which would prove
 the parcel block reaches the prompt. That costs an OpenAI call and a free-study
 slot, so it is Eric's to spend.
+
+## Step 2 — images on the product, gated on consent
+
+- [x] `image` in the shared field list, so the CSV importer, the API feed mapper
+      and the manual form all gain it at once.
+- [x] Mirrored into our own storage rather than hotlinked, behind the existing
+      SSRF guard.
+- [x] Stored on the **product** with provenance, not on the offer.
+- [x] Display gated on the supplying vendor's consent, per surface.
+- [x] A batched mirror route, because a 500-line price list is 500 fetches.
+
+### Mirror, never hotlink — and the reason is not only broken links
+
+Their URL breaks the day they reorganise their site. Worse, it leaves the image
+**mutable by them after the fact**: a vendor could change what a customer sees
+on a quote that has already been sent, and nothing on our side would know. A
+sent quote has to stay what it was.
+
+### The fetch reuses the guard rather than adding one
+
+`safeFetch` already does https-only, a port allowlist, every private and
+metadata range in v4 and v6, DNS resolution where the runtime allows, and
+redirects followed by hand and revalidated per hop. It needed one change: it
+decoded every response as text, which turns an image into U+FFFD confetti. It now
+takes `wantBytes` and returns the bytes undecoded. One guard, one redirect loop.
+
+### What counts as an image is decided by the bytes
+
+`imageSniff.ts` is its own dependency-free module precisely so it can be tested,
+because it is the check standing between a vendor's URL and a public bucket our
+customers load. **16/16** on the files that actually turn up:
+
+| accepted | refused |
+| --- | --- |
+| JPEG (JFIF and Exif), PNG, WebP | SVG, SVG with an XML prolog, an HTML login page served 200, a PDF spec sheet, GIF, TIFF, a ZIP/xlsx, a JSON error body, empty, too-short, RIFF/WAVE, and JPEG bytes not at offset 0 |
+
+**SVG is refused deliberately.** `image-upload.tsx` accepts `image/svg+xml`,
+which is defensible for a logo a staff member uploaded and not for a file a
+vendor supplied: an SVG is a document that can carry script and these are served
+from a public bucket to customers. That is stored cross-site scripting with
+extra steps.
+
+The Content-Type header is logged and not trusted — it is the one part of the
+response its sender controls completely.
+
+### Fetching happens in batches, not during the import
+
+A 500-line price list carries up to 500 image addresses. Fetching them inside the
+import means 500 outbound requests and 500 storage writes in one invocation,
+which is how an import times out half-done and leaves nobody able to say what
+landed. So the address is queued on the product and
+`POST /catalog-products/mirror-images` works through them, at most 25 at a time,
+reporting how many remain. Same shape as the importer already posting in batches.
+
+A failing address is **cleared and recorded**, not retried forever — otherwise
+every later run burns its budget on the same broken URL and never reaches the
+rest. The reason is kept on the product so a missing picture is diagnosable.
+
+### The vendor's own settings now do something
+
+`imageResync` is honoured: `never` keeps the first image, `url-change` re-fetches
+only when the address differs, `every-sync` re-fetches each time. Read once per
+import rather than once per row.
+
+The honest caveat, which is why the vendor chooses rather than us: on
+`url-change`, a vendor who replaces a photograph at the **same** address never
+gets the new one.
+
+### Display is gated, and it fails closed
+
+Each stored image remembers which vendor supplied it, because permission belongs
+to that vendor and a product can eventually carry offers from several. Reads take
+a `surface` — `designCentre`, `quotes`, `storefront` — and withhold any image
+whose vendor has not granted that surface. No settings record, no consent, an
+unrecognised surface: withheld. The single-product read also returns
+`imagesWithheld`, so a missing picture is diagnosable rather than a mystery.
+
+### Checks
+
+Server typecheck 84 and app typecheck 324, both unchanged from baseline. Route
+shadowing on `vendor-catalog.tsx`: 16 routes, 0 shadowed. `imageSniff` 16/16.
+
+### Not verified
+
+No image has actually been mirrored. The sniffing, the gating and the queueing
+are tested or reasoned; the storage write, the bucket creation and a real fetch
+through the guard have not been run. That wants one real product URL, and it is
+the sort of thing the first real supplier catalogue will exercise.

@@ -45,7 +45,7 @@ import {
   SPREADSHEET_EXTENSIONS,
 } from '../../lib/catalogWorkbook';
 
-const FIELDS: CatalogField[] = ['name', 'sku', 'price', 'unit', 'category', 'availability', 'leadTimeDays'];
+const FIELDS: CatalogField[] = ['name', 'sku', 'price', 'unit', 'category', 'availability', 'leadTimeDays', 'image'];
 
 export default function CatalogImport({ vendorId, headers, apiBase, onImported }: Props) {
   const [fileName, setFileName] = useState('');

@@ -19,7 +19,7 @@
  */
 
 /** Our fields, same names the CSV importer uses. */
-export type FeedField = 'name' | 'sku' | 'category' | 'unit' | 'price' | 'availability' | 'leadTimeDays';
+export type FeedField = 'name' | 'sku' | 'category' | 'unit' | 'price' | 'availability' | 'leadTimeDays' | 'image';
 
 export const REQUIRED_FEED_FIELDS: FeedField[] = ['name', 'price'];
 
@@ -75,6 +75,9 @@ const FIELD_ALIASES: Array<[FeedField, string[]]> = [
   ['category', ['category', 'productcategory', 'group', 'productgroup', 'class', 'department', 'type', 'family']],
   ['availability', ['availability', 'available', 'stock', 'stockstatus', 'instock', 'status', 'inventory']],
   ['leadTimeDays', ['leadtime', 'leadtimedays', 'leaddays', 'daystoship', 'shipsin', 'lead']],
+  // A picture is a URL in the feed, not the picture. The server fetches it,
+  // checks it and keeps its own copy — see productImages.tsx for why.
+  ['image', ['image', 'imageurl', 'imagelink', 'imagehref', 'photo', 'photourl', 'picture', 'pictureurl', 'img', 'imgurl', 'thumbnail', 'thumbnailurl', 'productimage', 'imageaddress']],
 ];
 
 const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -149,6 +152,8 @@ export function feedPrice(raw: any): number | null {
 export interface FeedRow {
   name: string; sku: string; category: string; unit: string;
   price: number; availability: string; leadTimeDays: number | null;
+  /** The supplier's address for the product photograph. Never the image itself. */
+  image: string;
   /** 1-based position in the feed, so a rejection can be pointed at something. */
   line: number;
 }
@@ -215,6 +220,7 @@ export function buildFeedRows(
       price,
       availability: text(at(row, 'availability'), 80),
       leadTimeDays: lead !== null && lead >= 0 && lead <= 3650 ? lead : null,
+      image: text(at(row, 'image'), 2000),
       line,
     });
   });

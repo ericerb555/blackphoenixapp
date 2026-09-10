@@ -206,6 +206,19 @@ export interface SafeFetchResult {
   status?: number;
   body?: string;
   error?: string;
+  /**
+   * The raw bytes, when the caller asked for them.
+   *
+   * A catalogue feed is text and `body` is right for it. An image is not: running
+   * it through TextDecoder replaces every byte that is not valid UTF-8 with
+   * U+FFFD, so the file that comes out is corrupt and no longer an image. The
+   * caller says which it wants; the guard, the redirect revalidation and the
+   * size ceiling are the same either way, which is the reason this is a flag
+   * here rather than a second fetcher somewhere else.
+   */
+  bytes?: Uint8Array;
+  /** What the server claimed it sent. Worth logging; not worth trusting. */
+  contentType?: string;
   /** False when DNS could not be checked, so the caller can be honest about it. */
   dnsChecked?: boolean;
 }
@@ -225,7 +238,13 @@ const TIMEOUT_MS = 20_000;
  */
 export async function safeFetch(
   raw: string,
-  init: { headers?: Record<string, string>; method?: string; body?: string } = {},
+  init: {
+    headers?: Record<string, string>;
+    method?: string;
+    body?: string;
+    /** Return `bytes` undecoded instead of `body` as text. See SafeFetchResult. */
+    wantBytes?: boolean;
+  } = {},
 ): Promise<SafeFetchResult> {
   let target = raw;
   let dnsChecked = true;
@@ -282,8 +301,13 @@ export async function safeFetch(
 
     // Read with a ceiling rather than trusting content-length, which a hostile
     // server can understate.
+    const contentType = res.headers.get('content-type') || '';
     const reader = res.body?.getReader();
-    if (!reader) return { ok: res.ok, status: res.status, body: '', dnsChecked };
+    if (!reader) {
+      return init.wantBytes
+        ? { ok: res.ok, status: res.status, bytes: new Uint8Array(0), contentType, dnsChecked }
+        : { ok: res.ok, status: res.status, body: '', contentType, dnsChecked };
+    }
     const chunks: Uint8Array[] = [];
     let total = 0;
     while (true) {
@@ -292,7 +316,12 @@ export async function safeFetch(
       total += value.byteLength;
       if (total > MAX_RESPONSE_BYTES) {
         await reader.cancel().catch(() => {});
-        return { ok: false, error: 'That feed is larger than 8MB.', status: res.status, dnsChecked };
+        return {
+          ok: false,
+          error: init.wantBytes ? 'That file is larger than 8MB.' : 'That feed is larger than 8MB.',
+          status: res.status,
+          dnsChecked,
+        };
       }
       chunks.push(value);
     }
@@ -300,7 +329,9 @@ export async function safeFetch(
     let at = 0;
     for (const c of chunks) { merged.set(c, at); at += c.byteLength; }
 
-    return { ok: res.ok, status: res.status, body: new TextDecoder().decode(merged), dnsChecked };
+    return init.wantBytes
+      ? { ok: res.ok, status: res.status, bytes: merged, contentType, dnsChecked }
+      : { ok: res.ok, status: res.status, body: new TextDecoder().decode(merged), contentType, dnsChecked };
   }
 
   return { ok: false, error: 'That endpoint redirected too many times.', dnsChecked };

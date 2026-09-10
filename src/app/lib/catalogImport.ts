@@ -27,6 +27,8 @@ export interface CatalogRow {
   price: number;
   availability: string;
   leadTimeDays: number | null;
+  /** The supplier's address for the product photograph. Never the image itself. */
+  image: string;
 }
 
 /** A row that could not be used, and why — reported, never dropped in silence. */
@@ -38,7 +40,7 @@ export interface RejectedRow {
 }
 
 /** Our columns, and what a supplier might plausibly call each one. */
-export type CatalogField = 'name' | 'sku' | 'category' | 'unit' | 'price' | 'availability' | 'leadTimeDays';
+export type CatalogField = 'name' | 'sku' | 'category' | 'unit' | 'price' | 'availability' | 'leadTimeDays' | 'image';
 
 export const REQUIRED_FIELDS: CatalogField[] = ['name', 'price'];
 
@@ -50,6 +52,7 @@ export const FIELD_LABELS: Record<CatalogField, string> = {
   price: 'Price',
   availability: 'Availability',
   leadTimeDays: 'Lead time (days)',
+  image: 'Image address',
 };
 
 /**
@@ -67,6 +70,9 @@ const FIELD_ALIASES: Array<[CatalogField, string[]]> = [
   ['category', ['category', 'productcategory', 'group', 'productgroup', 'class', 'department', 'type']],
   ['availability', ['availability', 'available', 'stock', 'stockstatus', 'instock', 'status']],
   ['leadTimeDays', ['leadtime', 'leadtimedays', 'leaddays', 'daystoship', 'shipsin', 'lead']],
+  // A picture is a URL in the file, not the picture. The server fetches it,
+  // checks it and keeps its own copy — see productImages.tsx for why.
+  ['image', ['image', 'imageurl', 'imagelink', 'imagehref', 'photo', 'photourl', 'picture', 'pictureurl', 'img', 'imgurl', 'thumbnail', 'thumbnailurl', 'productimage', 'imageaddress']],
 ];
 
 const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -330,6 +336,8 @@ export function buildRows(
       price,
       availability: at(raw, 'availability').slice(0, 80),
       leadTimeDays: parseLeadTime(at(raw, 'leadTimeDays')),
+      // Capped generously: a real product URL with a signed query string is long.
+      image: at(raw, 'image').slice(0, 2000),
     });
   });
 

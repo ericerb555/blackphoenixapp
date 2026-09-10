@@ -27,6 +27,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { inspectUrl, safeFetch } from "./outboundGuard.ts";
 import { findProductArray, guessFeedMapping, buildFeedRows, missingFeedFields } from "./vendorFeed.ts";
+import { mirrorVendorImage } from "./productImages.tsx";
 
 export const vendorCatalogRouter = new Hono();
 
@@ -173,7 +174,15 @@ const PRODUCT = (productId: string) => `hub_product:${productId}`;
  * the frozen behaviour in now means merging does not change how this behaves
  * later — it just stops the sync.
  */
-async function ensureProductForLine(item: any, now: string): Promise<string> {
+async function ensureProductForLine(
+  item: any,
+  now: string,
+  /**
+   * The vendor's `imageResync` choice, read once per request rather than per
+   * row. Their setting, not our policy — see vendor_settings.
+   */
+  resync: string = "url-change",
+): Promise<string> {
   const existingId = String(item.productId || '').trim();
   if (existingId) {
     const product = (await kv.get(PRODUCT(existingId))) as any;
@@ -197,6 +206,7 @@ async function ensureProductForLine(item: any, now: string): Promise<string> {
           });
         }
       }
+      await queueImage(existingId, item, resync, now);
       return existingId;
     }
     // The pointer outlived the record. Fall through and make a new one rather
@@ -215,8 +225,17 @@ async function ensureProductForLine(item: any, now: string): Promise<string> {
     // there are records without them.
     brand: '',
     mpn: '',
-    // Filled by the image import, gated on the vendor's display consent.
-    images: [] as string[],
+    // Mirrored copies, each remembering whose image it is — because display is
+    // gated on THAT vendor's consent, and a product can eventually carry offers
+    // from several vendors.
+    images: [] as any[],
+    // An address waiting to be fetched. Kept on the product rather than fetched
+    // during the import: a 500-line price list would otherwise mean 500
+    // outbound requests and 500 storage writes inside one invocation, which is
+    // how an import times out half-done. `POST /catalog-products/mirror-images`
+    // works through these in bounded batches, the same shape as the importer
+    // itself posting in batches of 500.
+    imagePending: null as any,
     offerCount: 1,
     // Which line brought this product into existence. Not an ownership claim —
     // it is what lets a sole offer keep its name in step with its line.
@@ -224,7 +243,49 @@ async function ensureProductForLine(item: any, now: string): Promise<string> {
     createdAt: now,
     updatedAt: now,
   });
+  await queueImage(productId, item, resync, now);
   return productId;
+}
+
+/**
+ * Decide whether this line's image address is worth fetching, and queue it.
+ *
+ * The three answers come from the vendor's own settings screen:
+ *
+ *   never        the first image imported is kept; later ones are ignored
+ *   url-change   re-fetch only when the address is different from last time
+ *   every-sync   re-fetch on every import
+ *
+ * "url-change" is the default and the honest caveat is that a vendor who
+ * replaces a photograph at the SAME address never gets the new one — which is
+ * exactly why the other two options exist and why the vendor picks.
+ */
+async function queueImage(productId: string, item: any, resync: string, now: string): Promise<void> {
+  const source = String(item.image || "").trim();
+  if (!source) return;
+
+  const product = (await kv.get(PRODUCT(productId))) as any;
+  if (!product) return;
+
+  const stored: any[] = Array.isArray(product.images) ? product.images : [];
+  const already = stored.find((i) => i && i.sourceUrl === source);
+
+  if (resync === "never" && stored.length) return;
+  if (resync === "url-change" && already) return;
+  if (product.imagePending?.sourceUrl === source) return; // already waiting
+
+  await kv.set(PRODUCT(productId), {
+    ...product,
+    imagePending: { sourceUrl: source, vendorId: item.vendorId, queuedAt: now },
+    updatedAt: now,
+  });
+}
+
+/** A vendor's chosen re-sync behaviour, defaulted the same way the settings do. */
+async function resyncSettingFor(vendorId: string): Promise<string> {
+  const settings = (await kv.get(`vendor_settings:${vendorId}`)) as any;
+  const v = String(settings?.options?.imageResync || "");
+  return ["url-change", "every-sync", "never"].includes(v) ? v : "url-change";
 }
 
 /**
@@ -278,13 +339,16 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
       price: Math.round(price * 100) / 100,
       availability: String(body.availability ?? existing?.availability ?? "").slice(0, 80),
       leadTimeDays: Number.isFinite(Number(body.leadTimeDays)) ? Number(body.leadTimeDays) : (existing?.leadTimeDays ?? null),
+      // The vendor's address for the photograph. Never the photograph — the
+      // server fetches it, checks the bytes and keeps its own copy.
+      image: String(body.image ?? existing?.image ?? "").trim().slice(0, 2000),
       isActive: body.isActive === undefined ? (existing?.isActive ?? true) : Boolean(body.isActive),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
     // A line is an offer, and an offer is against a product. Linking here rather
     // than in a later pass means there is never a catalogue line without one.
-    item.productId = await ensureProductForLine(item, now);
+    item.productId = await ensureProductForLine(item, now, await resyncSettingFor(vendorId));
     await kv.set(ITEM(vendorId, id), item);
     return c.json({ success: true, item });
   } catch (error: any) {
@@ -364,6 +428,8 @@ async function importCatalogRows(
   }
 
   const now = new Date().toISOString();
+  // Once per import rather than once per row: it is the same vendor throughout.
+  const resync = await resyncSettingFor(vendorId);
   let added = 0;
   let updated = 0;
   const rejected: Array<{ line: number; reason: string }> = [];
@@ -400,13 +466,14 @@ async function importCatalogRows(
       leadTimeDays: Number.isFinite(Number(row.leadTimeDays))
         ? Number(row.leadTimeDays)
         : (existing?.leadTimeDays ?? null),
+      image: String(row.image ?? existing?.image ?? "").trim().slice(0, 2000),
       isActive: existing?.isActive ?? true,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
       importedAt: now,
     };
 
-    (item as any).productId = await ensureProductForLine(item, now);
+    (item as any).productId = await ensureProductForLine(item, now, resync);
     await kv.set(ITEM(vendorId, id), item);
     if (existing) updated++; else added++;
     // So a duplicate SKU later in the same batch updates the row this one just
@@ -1023,6 +1090,12 @@ vendorCatalogRouter.get('/catalog-products', async (c) => {
     const category = String(c.req.query('category') || '').trim().toLowerCase();
     const limit = Math.min(Math.max(Number(c.req.query('limit')) || 200, 1), 1000);
 
+    // Which surface the images are being asked for. Defaulted to the design
+    // centre, the screen that reads this; an unrecognised value shows nothing,
+    // which is the fail-closed answer rather than a silent fall back to "all".
+    const surface = String(c.req.query('surface') || 'designCentre');
+    const may = await consentCache();
+
     const products = ((await kv.getByPrefix('hub_product:')) as any[] || []).filter(Boolean);
     const byProduct = await offersByProduct();
 
@@ -1037,7 +1110,7 @@ vendorCatalogRouter.get('/catalog-products', async (c) => {
         category: product.category,
         unit: product.unit,
         brand: product.brand || '',
-        images: Array.isArray(product.images) ? product.images : [],
+        images: await permittedImages(product, surface, may),
         offerCount: mine.length,
         cheapest: cheapestFor(who, mine),
       });
@@ -1083,6 +1156,130 @@ vendorCatalogRouter.post('/catalog-products/backfill', async (c) => {
   }
 });
 
+/**
+ * Which images a caller may be shown, and where.
+ *
+ * Display is gated on the CONSENT THE SUPPLYING VENDOR GRANTED, per surface.
+ * A vendor who permitted their photography on quotes and refused it on the
+ * public storefront gets exactly that, and the check happens on the server
+ * where it cannot be skipped by a screen that forgot to ask.
+ *
+ * It fails closed. No settings record, no consent recorded, an unrecognised
+ * surface — all of those mean the image is withheld. A picture shown without
+ * permission is not a cosmetic mistake; it is somebody else's property on our
+ * customer's document.
+ */
+const IMAGE_SURFACE_NAMES = ["designCentre", "quotes", "storefront"];
+
+async function consentCache(): Promise<(vendorId: string, surface: string) => Promise<boolean>> {
+  const seen = new Map<string, any>();
+  return async (vendorId: string, surface: string) => {
+    if (!IMAGE_SURFACE_NAMES.includes(surface)) return false;
+    if (!vendorId) return false;
+    if (!seen.has(vendorId)) {
+      seen.set(vendorId, (await kv.get(`vendor_settings:${vendorId}`)) || null);
+    }
+    const settings = seen.get(vendorId);
+    return settings?.imageDisplay?.[surface]?.granted === true;
+  };
+}
+
+/** Strip any image the supplying vendor has not permitted on this surface. */
+async function permittedImages(
+  product: any,
+  surface: string,
+  may: (vendorId: string, surface: string) => Promise<boolean>,
+): Promise<string[]> {
+  const stored: any[] = Array.isArray(product?.images) ? product.images : [];
+  const out: string[] = [];
+  for (const image of stored) {
+    if (!image?.url) continue;
+    if (await may(String(image.vendorId || ''), surface)) out.push(String(image.url));
+  }
+  return out;
+}
+
+/**
+ * Fetch the queued images, a bounded batch at a time.
+ *
+ * WHY THIS IS A ROUTE AND NOT PART OF THE IMPORT
+ *
+ * A 500-line price list carries up to 500 image addresses. Fetching them during
+ * the import means 500 outbound requests and 500 storage writes inside one
+ * function invocation, which is how an import times out half-done and leaves
+ * nobody able to say what landed. The importer already posts in batches; this
+ * is the same idea for the slow half of the work.
+ *
+ * A vendor may process their own; staff may process anyone's. The reply says how
+ * many remain, so a caller knows to come back.
+ */
+vendorCatalogRouter.post('/catalog-products/mirror-images', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+
+  const body = await c.req.json().catch(() => ({}));
+  const limit = Math.min(Math.max(Number((body as any).limit) || 10, 1), 25);
+
+  try {
+    const products = ((await kv.getByPrefix('hub_product:')) as any[] || []).filter(Boolean);
+    const waiting = products.filter((p) => p?.imagePending?.sourceUrl && p?.imagePending?.vendorId);
+
+    // A vendor works only through their own images. Their catalogue, their
+    // supplied addresses, their storage namespace.
+    const mine = who.isAdmin
+      ? waiting
+      : waiting.filter((p) => who.vendorId && p.imagePending.vendorId === who.vendorId);
+
+    const batch = mine.slice(0, limit);
+    let stored = 0;
+    const failed: Array<{ productId: string; reason: string }> = [];
+
+    for (const product of batch) {
+      const { sourceUrl, vendorId } = product.imagePending;
+      const result = await mirrorVendorImage(String(vendorId), String(sourceUrl));
+      const now = new Date().toISOString();
+
+      if (result.error || !result.image) {
+        // The address is cleared either way. Leaving a failing one queued means
+        // every later run retries it forever and never reaches the rest.
+        // What went wrong is kept ON the product so somebody can see why a
+        // picture is missing rather than guessing.
+        failed.push({ productId: String(product.id), reason: result.error || 'Unknown failure.' });
+        await kv.set(PRODUCT(String(product.id)), {
+          ...product,
+          imagePending: null,
+          imageError: { sourceUrl, reason: result.error || 'Unknown failure.', at: now },
+          updatedAt: now,
+        });
+        continue;
+      }
+
+      // Replace any earlier copy from the same source, so a re-sync updates
+      // rather than accumulating near-duplicates of one photograph.
+      const kept: any[] = (Array.isArray(product.images) ? product.images : [])
+        .filter((i: any) => i && i.sourceUrl !== sourceUrl);
+
+      await kv.set(PRODUCT(String(product.id)), {
+        ...product,
+        images: [...kept, result.image],
+        imagePending: null,
+        imageError: null,
+        updatedAt: now,
+      });
+      stored++;
+    }
+
+    return c.json({
+      success: true,
+      stored,
+      failed,
+      remaining: Math.max(0, mine.length - batch.length),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not fetch the images.' }, 500);
+  }
+});
+
 vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: 'Sign in to view a product.' }, 401);
@@ -1090,6 +1287,9 @@ vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
   try {
     const product = (await kv.get(PRODUCT(productId))) as any;
     if (!product) return c.json({ success: false, error: 'No such product.' }, 404);
+    const surface = String(c.req.query('surface') || 'designCentre');
+    const may = await consentCache();
+    const images = await permittedImages(product, surface, may);
     const all = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
     const mine = visibleTo(who, all.filter((o) => String(o?.productId || '') === productId));
     // Staff get the offers themselves. Everybody else gets the count and the
@@ -1103,7 +1303,10 @@ vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
         unit: product.unit,
         brand: product.brand || '',
         mpn: product.mpn || '',
-        images: Array.isArray(product.images) ? product.images : [],
+        images,
+        // Said out loud so a missing picture is diagnosable rather than a
+        // mystery: there is an image, and this surface may not show it.
+        imagesWithheld: Math.max(0, (Array.isArray(product.images) ? product.images.length : 0) - images.length),
       },
       offerCount: mine.length,
       cheapest: cheapestFor(who, mine),
