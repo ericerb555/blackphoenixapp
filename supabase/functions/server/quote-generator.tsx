@@ -150,6 +150,13 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
       priceSource: m.priceSource || 'estimated',
       priceAsOf: m.priceAsOf ?? null,
       modelUnitCost: m.modelUnitCost ?? round2(unitCost),
+      // Which offer priced this line, for the same reason and found the hard
+      // way: it was added in `repriceEstimate` and then silently dropped here,
+      // because this rebuild lists the fields it keeps. A stored quote came out
+      // with no record of what it was priced against, and only submitting a real
+      // work request showed it. Anything added to a repriced material has to be
+      // added here too.
+      pricedFrom: m.pricedFrom ?? null,
       visible: true,
     };
   });

@@ -4881,3 +4881,49 @@ No work request has been submitted through this end to end. It needs a real
 customer submission to prove the server writes the record and the form still
 reports sensibly — and that is the one flow where a mistake is visible to a
 customer, so it is worth doing deliberately rather than assuming.
+
+### Tested as a real customer, and it found a bug
+
+Signed up through the public signup route, signed in as that account, and drove
+`/auto-generate-quote` exactly as `ClientWorkRequestForm` does. No privileged
+credentials anywhere in the probe.
+
+| check | result |
+| --- | --- |
+| public signup, role | 200, `client` |
+| `/auto-generate-quote` as the customer | 200, `generated: true`, `pipelineWritten: true` |
+| counts returned | 8 materials, 4 labour |
+| cost-basis fields in the response | **none** — checked 14 of them by name |
+| customer writing `pipeline:{id}` | **403** |
+| pipeline record written server-side | yes — `quote_pending`, quote attached, total $20,385.22 |
+
+#### The bug only the end-to-end test could find
+
+The first run stored a quote whose lines had **no `pricedFrom` at all**. Everything
+typechecked, every unit was correct, and the field was simply missing from the
+stored record.
+
+`quote-generator.tsx` **rebuilds** each material line after repricing, listing the
+fields it keeps — and its own comment warns about exactly this hazard: *"Rebuilding
+the line without these would drop the very labels that let a quote show which
+figures are real."* `pricedFrom` was added in `repriceEstimate` and silently
+dropped one function later.
+
+Nothing short of submitting a real work request and reading the stored row would
+have caught it. Typecheck cannot see a field that is deliberately not copied.
+
+Fixed, redeployed, and re-run: `pricedFrom` now lands with `source: estimated`,
+empty vendor and offer ids, and a frozen timestamp — which is the correct answer
+here, because production's single catalogue line does not match "Pressure-Treated
+Lumber" and the model's figure was used. The line says so rather than implying a
+vendor.
+
+**The comment in `quote-generator.tsx` now names this**, so the next field added
+to a repriced material has a chance of being carried through.
+
+#### Cleaned up
+
+Both probe pipeline records and both probe user profiles were deleted from KV.
+They would otherwise have sat on the pipeline board as real `quote_pending` jobs
+with five-figure totals. The two auth accounts remain, as the e2e suite creates
+one on every run and that is existing practice.
