@@ -4314,6 +4314,17 @@ app.post('/make-server-3eae23a6/quote/price-lines', async (c) => {
       price: Number(i?.price) || 0,
       updatedAt: i?.updatedAt, isActive: i?.isActive,
     }));
+    // CHEAPEST OFFER WINS, AND THAT IS WHY THIS IS SORTED.
+    //
+    // Both lookups below use `.find`, which returns the FIRST match in array
+    // order — and the array order is whatever the KV read handed back. So where
+    // two vendors publish the same SKU, the price a customer was quoted depended
+    // on which row came back first. Sorting ascending by price once makes both
+    // `find` calls return the cheapest match instead, which is the rule: the
+    // customer picks the product and the platform resolves the supplier, and the
+    // resolution is the cheapest offer.
+    catalog.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+
     const book: Record<string, number> = (bookRaw as any)?.prices || {};
 
     const priced = lines.map((line: any) => {

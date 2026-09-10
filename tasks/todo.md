@@ -4589,3 +4589,63 @@ App typecheck 324 and server typecheck 84, both unchanged from baseline.
 Nothing has a picture yet, so the picker looks exactly as it did. The thumbnail
 has never been rendered with a real image — the first mirrored image will be the
 first time anybody sees it.
+
+## Step 5, revised — most of it already exists
+
+Before planning "connect the design centre to the catalogue", I read what is
+there. It is already connected, and the plan was about to duplicate it.
+
+### What already works
+
+`DeckQuotePanel` prices a deck takeoff through `POST /quote/price-lines`, which
+is admin-only and documents its own order: the **vendor catalogue** first
+(matched on SKU, then by name through `matchCatalogItem`), then the **typed deck
+price book** for the recurring lumber and hardware lines no vendor publishes,
+then **unpriced** and marked as such. Every line reports which of the three it
+came from, so a typed figure and a vendor's published price are never presented
+as the same kind of number.
+
+Quantities come from `buildMembers` — the same function the 3D view and the
+framing plan draw from — so there is no estimating step to disagree with.
+
+That is the substance of what step 5 was going to build. It should not be built
+twice.
+
+### The real gap, which is narrower and sharper
+
+1. **It prices against offers, not products.** So merging two vendors' lines into
+   one product has no effect on what a deck costs, and the work done in step 3
+   does not reach the quote.
+2. **The resolution is not frozen on the quote.** The response carries a vendor
+   name and a `priceAsOf`, and nothing stores which offer priced which line. A
+   quote sent in March cannot answer "who was this priced against" once April's
+   catalogue lands, and the purchase order has nothing authoritative to read.
+   This is the record the architecture plan named and nothing yet writes.
+
+### And one live defect, fixed now rather than planned
+
+Both catalogue lookups used `.find`, which returns the first match in **array
+order** — and the array order is whatever the KV read handed back. Where two
+vendors publish the same SKU, the price a customer was quoted depended on which
+row came back first.
+
+That contradicts a rule already decided — cheapest offer wins — so it is fixed
+rather than added to a plan: the catalogue is sorted ascending by price once, and
+both `find` calls then return the cheapest match. One line, and it makes the
+decided rule true where it was not.
+
+- [x] Cheapest match, not first match, in `/quote/price-lines`.
+
+### Proposed for the rest, needing sign-off
+
+- [ ] 5a. Price through the **product**: resolve a takeoff line to a product,
+      then take the cheapest offer against it. Merging then reaches the quote.
+- [ ] 5b. Write the **resolution** onto the quote when it is built — product,
+      offer, vendor, price, and when — so a sent quote can say what it was priced
+      against and the purchase order has something authoritative.
+- [ ] 5c. Leave the typed price book exactly where it is, second and marked. It
+      exists because a deck takeoff has two dozen recurring lines no catalogue
+      covers, and waiting for one that does means no deck can be quoted at all.
+
+Not started beyond the defect fix. 5b is the one worth doing first: it is what
+makes a sent quote answerable, and it does not depend on 5a.
