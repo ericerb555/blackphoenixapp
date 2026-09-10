@@ -262,6 +262,19 @@ console.log('\n── A real customer, signed up through the front door ──')
     ok('an unrecognised image surface shows nothing',
        bogus.status === 200 && leaked.length === 0,
        `status ${bogus.status}, ${leaked.length} with images`);
+
+    // Merging decides that two suppliers sell the same thing, which changes what
+    // every customer is offered and what their job is priced from. Reading the
+    // proposals also means reading every vendor's catalogue to build the pairs.
+    const proposals = await call('/catalog-products/merge-proposals', { token });
+    ok('cannot see which products might be merged', proposals.status === 403,
+       `status ${proposals.status}`);
+
+    const merge = await call('/catalog-products/merge', {
+      method: 'POST', token,
+      body: { keep: 'prd_one', absorb: 'prd_two' },
+    });
+    ok('cannot merge two products', merge.status === 403, `status ${merge.status}`);
   }
 
   {
