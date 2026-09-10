@@ -4467,3 +4467,80 @@ No image has actually been mirrored. The sniffing, the gating and the queueing
 are tested or reasoned; the storage write, the bucket creation and a real fetch
 through the guard have not been run. That wants one real product URL, and it is
 the sort of thing the first real supplier catalogue will exercise.
+
+## Step 3 — merging, proposed and never applied
+
+- [x] `productMatch.ts` — the pure scoring, 17/17.
+- [x] `GET /catalog-products/merge-proposals` and `POST /catalog-products/merge`,
+      both staff only.
+- [x] A review screen: **Materials Hub → Duplicate Products**.
+
+### Why nothing decides this automatically
+
+A wrong merge puts one supplier's price against another supplier's product, so
+the customer's job is quoted from an item nobody will deliver — and the number
+looks exactly like a right one. That is the same reason the returned-bid reader
+proposes rather than applies. Below 0.7 a proposal arrives **unticked**: hiding
+it would drop real work, pre-ticking it would price a job wrong.
+
+### What it matches on, and what it refuses to guess
+
+| signal | confidence |
+| --- | --- |
+| identical description **and** a shared item number | 0.97 |
+| identical description once form is normalised | 0.90 |
+| a shared item number across two suppliers | 0.85 |
+| 80%+ shared words **and** same category | 0.72 |
+| 80%+ shared words, categories differ | 0.60 — shown, unticked |
+| 60%+ shared words | 0.50 — shown, unticked |
+
+Two refusals come before any scoring, and neither is a judgement call:
+
+- **Different units are different products.** A board priced each and one priced
+  per thousand board feet cannot be merged; doing it would put a per-piece price
+  against a per-MBF quantity.
+- **The same vendor on both sides is not a merge.** Two lines one supplier chose
+  to list separately are two products as far as they are concerned, and the
+  importer already collapses their genuine duplicates by SKU.
+
+**Abbreviations are deliberately not expanded**, and there is a test asserting
+that `2x4-8 PT` and `2x4 Pressure Treated 8ft` are *missed*. Teaching it that PT
+means pressure treated invites it to decide GALV means galvanized and then that
+4/4 means 1x, and each is a guess that produces confident nonsense. Form is
+normalised — case, spacing, punctuation, inch and foot marks, `2 X 4` → `2x4` —
+and meaning is left alone. A miss is a merge somebody does by hand; a wrong
+guess is a mispriced job.
+
+A short shared code is not treated as a part number: fewer than four characters
+and `A12` appearing on two unrelated lines would pair them.
+
+**A product appears in only its strongest proposal.** Asking "is A the same as
+B?" and then "is A the same as C?" invites somebody to tick both, and A cannot
+be two products.
+
+### Merging is reversible, and the screen says so
+
+The absorbed product is not deleted. It becomes a record of what it was and what
+it went into, so a mistake can be undone and an old reference still resolves. A
+merge is a judgement about the world, judgements are sometimes wrong, and the
+difference between a mistake and a disaster is whether the original is still
+there.
+
+Offers are **repointed, not copied**, so no price is duplicated and nothing has
+to be kept in step. Images combine while keeping each one's provenance — after a
+merge a product genuinely carries pictures from more than one vendor, and display
+is still gated on the consent of whichever vendor supplied each.
+
+A tombstone is excluded from the product list and answers 410 with `mergedInto`
+on a direct read, rather than being served as a live product with no offers.
+
+### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline. Route
+shadowing on `vendor-catalog.tsx`: 18 routes, 0 shadowed. `productMatch` 17/17.
+
+### Not verified
+
+No merge has been run against real data — there is one catalogue line in
+production, so there is nothing to merge yet and the proposal list is correctly
+empty. The screen's empty state says so rather than looking broken.

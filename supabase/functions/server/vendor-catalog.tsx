@@ -28,6 +28,7 @@ import * as kv from "./kv_store.tsx";
 import { inspectUrl, safeFetch } from "./outboundGuard.ts";
 import { findProductArray, guessFeedMapping, buildFeedRows, missingFeedFields } from "./vendorFeed.ts";
 import { mirrorVendorImage } from "./productImages.tsx";
+import { proposeMerges, type MatchCandidate } from "./productMatch.ts";
 
 export const vendorCatalogRouter = new Hono();
 
@@ -151,14 +152,14 @@ vendorCatalogRouter.get("/vendor-catalog/:vendorId", async (c) => {
 // appear in the shop as merchandise. Two different things called a product,
 // and only the key tells them apart.
 //
-// WHAT THIS STEP DELIBERATELY DOES NOT DO
+// IMPORTING NEVER MERGES
 //
-// It does not merge anything. Every catalogue line gets its OWN product, one
-// offer each. Deciding that two vendors' lines are the same product is a
-// separate piece of work with a human confirmation step, because SKUs do not
-// match across suppliers and a wrong match prices a customer's job against a
-// different item — silently. Guessing that here would bury the guess under
-// everything built on top of it.
+// Every catalogue line gets its OWN product, one offer each. Deciding that two
+// vendors' lines are the same product happens later and only with a person's
+// tick — see the merge routes below and `productMatch.ts`. SKUs do not match
+// across suppliers, and a wrong match prices a customer's job against a
+// different item, silently. A guess made here would be buried under everything
+// built on top of it.
 
 const PRODUCT = (productId: string) => `hub_product:${productId}`;
 
@@ -1101,6 +1102,7 @@ vendorCatalogRouter.get('/catalog-products', async (c) => {
 
     const rows = [];
     for (const product of products) {
+      if (product?.mergedInto) continue; // absorbed; its offers live on the survivor
       if (q && !String(product.name || '').toLowerCase().includes(q)) continue;
       if (category && String(product.category || '').toLowerCase() !== category) continue;
       const mine = visibleTo(who, byProduct.get(String(product.id)) || []);
@@ -1287,6 +1289,152 @@ vendorCatalogRouter.post('/catalog-products/mirror-images', async (c) => {
   }
 });
 
+// ─── Merging two suppliers' lines into one product ───────────────────────
+//
+// The whole point of the hub is that a customer picks a product and the cheapest
+// supplier is resolved underneath, and that only means anything once two
+// vendors' lines can be recognised as the same product.
+//
+// Nothing here decides that. `productMatch` proposes with a confidence and a
+// reason; a person ticks it; this applies what was ticked. A wrong merge puts
+// one supplier's price against another supplier's product, so the job is quoted
+// from an item nobody will deliver — and the number looks exactly like a right
+// one, which is why no amount of confidence justifies applying it unasked.
+
+/** Products a person may usefully be asked about, with their offers' SKUs. */
+async function mergeCandidates(): Promise<MatchCandidate[]> {
+  const products = ((await kv.getByPrefix('hub_product:')) as any[] || []).filter(Boolean);
+  const byProduct = await offersByProduct();
+  const out: MatchCandidate[] = [];
+  for (const product of products) {
+    // A tombstone is a product that has already been absorbed. It is kept so the
+    // merge stays reversible and so old references still resolve, and it is not
+    // a thing to merge again.
+    if (product?.mergedInto) continue;
+    const offers = byProduct.get(String(product.id)) || [];
+    out.push({
+      productId: String(product.id),
+      name: String(product.name || ''),
+      unit: String(product.unit || ''),
+      category: String(product.category || ''),
+      skus: offers.map((o: any) => String(o?.sku || '')).filter(Boolean),
+      vendorIds: [...new Set(offers.map((o: any) => String(o?.vendorId || '')).filter(Boolean))],
+    });
+  }
+  return out;
+}
+
+/**
+ * What a person should be asked about, strongest first.
+ *
+ * Staff only. It reads every vendor's catalogue to build the pairs, which is not
+ * a vendor's business, and merging changes what every customer sees.
+ */
+vendorCatalogRouter.get('/catalog-products/merge-proposals', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+  if (!who.isAdmin) return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+
+  try {
+    const candidates = await mergeCandidates();
+    const byId = new Map(candidates.map((x) => [x.productId, x]));
+    const proposals = proposeMerges(candidates);
+
+    // Each side is returned in full, because the reviewer is being asked to
+    // judge whether these are the same thing and cannot do that from two ids.
+    return c.json({
+      success: true,
+      productCount: candidates.length,
+      proposals: proposals.map((prop) => ({
+        ...prop,
+        left: byId.get(prop.a) || null,
+        right: byId.get(prop.b) || null,
+      })),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not work out the proposals.' }, 500);
+  }
+});
+
+/**
+ * Apply one merge that a person ticked.
+ *
+ * `keep` survives and `absorb` becomes a tombstone pointing at it. The offers
+ * are repointed rather than copied, so no price is duplicated and nothing has to
+ * be kept in step afterwards.
+ *
+ * IT IS REVERSIBLE ON PURPOSE
+ *
+ * The absorbed product is not deleted: the record stays, holding what it was and
+ * what it was merged into. A merge is a judgement about the world, judgements
+ * are sometimes wrong, and the difference between a mistake and a disaster is
+ * whether the original is still there.
+ */
+vendorCatalogRouter.post('/catalog-products/merge', async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ success: false, error: 'Sign in first.' }, 401);
+  if (!who.isAdmin) return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const keepId = String((body as any).keep || '').trim();
+  const absorbId = String((body as any).absorb || '').trim();
+  if (!keepId || !absorbId) return c.json({ success: false, error: 'Send both keep and absorb.' }, 400);
+  if (keepId === absorbId) return c.json({ success: false, error: 'Those are the same product.' }, 400);
+
+  try {
+    const keep = (await kv.get(PRODUCT(keepId))) as any;
+    const absorb = (await kv.get(PRODUCT(absorbId))) as any;
+    if (!keep || !absorb) return c.json({ success: false, error: 'One of those products no longer exists.' }, 404);
+    if (keep.mergedInto || absorb.mergedInto) {
+      return c.json({ success: false, error: 'One of those has already been merged.' }, 409);
+    }
+
+    const now = new Date().toISOString();
+
+    // Repoint the absorbed product's offers.
+    const all = ((await kv.getByPrefix('vendor_catalog:')) as any[] || []).filter(Boolean);
+    const moving = all.filter((o) => String(o?.productId || '') === absorbId);
+    for (const offer of moving) {
+      await kv.set(ITEM(String(offer.vendorId), String(offer.id)), {
+        ...offer, productId: keepId, updatedAt: now,
+      });
+    }
+
+    // Combine the pictures, keeping each one's provenance — display is gated on
+    // the consent of whichever vendor supplied it, and after a merge that is
+    // genuinely more than one vendor.
+    const keepImages: any[] = Array.isArray(keep.images) ? keep.images : [];
+    const extraImages: any[] = (Array.isArray(absorb.images) ? absorb.images : [])
+      .filter((i: any) => i?.url && !keepImages.some((k: any) => k?.sourceUrl === i.sourceUrl));
+
+    const staying = all.filter((o) => String(o?.productId || '') === keepId).length + moving.length;
+
+    await kv.set(PRODUCT(keepId), {
+      ...keep,
+      images: [...keepImages, ...extraImages],
+      offerCount: staying,
+      mergedFrom: [
+        ...(Array.isArray(keep.mergedFrom) ? keep.mergedFrom : []),
+        { productId: absorbId, name: absorb.name, offersMoved: moving.length, at: now, by: who.email },
+      ],
+      updatedAt: now,
+    });
+
+    // The tombstone. Keeps what it was, so this can be undone.
+    await kv.set(PRODUCT(absorbId), {
+      id: absorbId,
+      mergedInto: keepId,
+      mergedAt: now,
+      mergedBy: who.email,
+      wasProduct: absorb,
+    });
+
+    return c.json({ success: true, keep: keepId, absorbed: absorbId, offersMoved: moving.length, offerCount: staying });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not merge those products.' }, 500);
+  }
+});
+
 vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
   const who = await catalogActor(c);
   if (!who) return c.json({ success: false, error: 'Sign in to view a product.' }, 401);
@@ -1294,6 +1442,11 @@ vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
   try {
     const product = (await kv.get(PRODUCT(productId))) as any;
     if (!product) return c.json({ success: false, error: 'No such product.' }, 404);
+    // A merged product is not gone, and it is not this product either. Say where
+    // it went rather than serving a record with no offers under it.
+    if (product.mergedInto) {
+      return c.json({ success: false, error: 'That product was merged.', mergedInto: product.mergedInto }, 410);
+    }
     const surface = String(c.req.query('surface') || 'designCentre');
     const may = await consentCache();
     const images = await permittedImages(product, surface, may);

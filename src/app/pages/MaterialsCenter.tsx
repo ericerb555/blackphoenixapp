@@ -27,7 +27,8 @@ import {
   Download, Edit2, Trash2, AlertTriangle, Receipt, FileText,
   Database, ChevronRight, Upload, Store, Users, TrendingDown,
   ArrowLeft, ExternalLink, Copy, Link as LinkIcon, Crown,
-  Medal, Trophy, Archive, RefreshCw, Calculator, ClipboardList, Send
+  Medal, Trophy, Archive, RefreshCw, Calculator, ClipboardList, Send,
+  GitMerge,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useNavigate } from '../hooks/useNavigate';
@@ -38,8 +39,9 @@ import {
   AISearchRequest
 } from '../lib/services/materialsHubService';
 import { productDataSourceManager } from '../lib/services/productDataSourceManager';
+import ProductMergeReview from '../components/materials/ProductMergeReview';
 
-type TabType = 'catalog' | 'vendor-portal' | 'quote-builder' | 'database' | 'procurement' | 'analytics';
+type TabType = 'catalog' | 'vendor-portal' | 'quote-builder' | 'duplicates' | 'database' | 'procurement' | 'analytics';
 type ViewMode = 'grid' | 'list';
 
 interface VendorMaterialSubmission {
@@ -516,6 +518,7 @@ export default function MaterialsCenter() {
             {[
               { id: 'catalog', label: 'Catalog', icon: Store, badge: materials.length },
               { id: 'vendor-portal', label: 'Vendor Portal', icon: Building2, badge: 'NEW' },
+              { id: 'duplicates', label: 'Duplicate Products', icon: GitMerge, badge: 'NEW' },
               { id: 'quote-builder', label: 'Quote Builder', icon: ShoppingCart, badge: quoteMaterials.length || null },
               { id: 'database', label: 'Database', icon: Database },
               { id: 'procurement', label: 'Procurement', icon: Receipt },
@@ -581,6 +584,10 @@ export default function MaterialsCenter() {
         {activeTab === 'catalog' && <CatalogTab materials={materials} categories={categories} selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} filters={filters} setFilters={setFilters} viewMode={viewMode} setViewMode={setViewMode} quickAddToQuote={quickAddToQuote} navigate={navigate} />}
         
         {activeTab === 'vendor-portal' && <VendorPortalTab />}
+
+        {/* Two suppliers selling one item should be one product with two prices.
+            Nothing is merged without somebody ticking it — see the component. */}
+        {activeTab === 'duplicates' && <ProductMergeReview />}
         
         {activeTab === 'quote-builder' && <QuoteBuilderTab quoteMaterials={quoteMaterials} removeMaterialFromQuote={removeMaterialFromQuote} updateQuoteMaterial={updateQuoteMaterial} returnToQuote={returnToQuote} isQuoteMode={isQuoteMode} customerSelections={customerSelections} loadingCustomerSelections={loadingCustomerSelections} loadCustomerSelections={loadCustomerSelections} importCustomerSelections={importCustomerSelections} />}
         
