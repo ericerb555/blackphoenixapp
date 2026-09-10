@@ -223,6 +223,27 @@ console.log('\n── A real customer, signed up through the front door ──')
     });
     ok('cannot grant image consent on a vendor\'s behalf', vsGrant.status === 403,
        `status ${vsGrant.status}`);
+
+    // Materials-hub products. A customer is MEANT to browse these — that is the
+    // point of the hub — so this asks for 200 rather than a refusal, and the
+    // refusal being asserted is the one below it.
+    const prods = await call('/catalog-products', { token });
+    ok('a customer can browse materials-hub products',
+       prods.status === 200 && Array.isArray(prods.payload?.products),
+       `status ${prods.status}`);
+
+    // Backfill walks every vendor's catalogue and writes to all of it. Staff
+    // only, and asked from outside the company.
+    const backfill = await call('/catalog-products/backfill', { method: 'POST', token });
+    ok('cannot run the product backfill over every vendor', backfill.status === 403,
+       `status ${backfill.status}`);
+
+    // The supplier's identity is staff-only: the customer picks the product, not
+    // the supplier. With no products in the catalogue this passes vacuously, so
+    // it is written to stay true once there are some.
+    const named = (prods.payload?.products || []).filter((x) => x?.cheapest?.vendorId);
+    ok('products do not name the supplier to a customer', named.length === 0,
+       `${named.length} named a vendor`);
   }
 
   {
