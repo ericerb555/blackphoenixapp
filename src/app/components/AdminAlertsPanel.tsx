@@ -587,36 +587,43 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
         }
       } catch { /* skip */ }
 
-      // 2. Try to generate quote
+      // 2. The draft quote — from the cache when it exists, generated otherwise.
+      //
+      // This used to call /auto-generate-quote with a FIFTEEN SECOND timeout. A
+      // gpt-4o takeoff over a whole job does not finish in fifteen seconds, so
+      // the call was abandoned most times it ran: the model was paid for, the
+      // answer was thrown away, and the pipeline item arrived with no quote and
+      // no explanation. That is the worst of both — the cost without the result.
+      //
+      // /quote-draft returns the stored draft instantly when there is one, so the
+      // common path is fast and free. The timeout only matters on a first
+      // generation, and is now long enough for one to actually finish.
       try {
-        const quoteRes = await fetch(`${SERVER}/auto-generate-quote`, {
+        const quoteRes = await fetch(`${SERVER}/quote-draft/${encodeURIComponent(wrId)}`, {
           method: 'POST', headers,
-          body: JSON.stringify({ workRequest: {
-            id: wrId, title, serviceType,
-            estimatedValue: baseItem.estimatedValue,
-            blueprintAnalysis: wr?.aiVideoAnalysis || null,
-          }}),
-          signal: AbortSignal.timeout(15000),
+          body: JSON.stringify({}),
+          signal: AbortSignal.timeout(90000),
         });
         if (quoteRes.ok) {
-          const quoteData = await quoteRes.json();
+          const draft = await quoteRes.json();
+          const q = draft?.quote || {};
           baseItem.quote = {
             id: `qt-${wrId}`,
             quoteNumber: `Q-${new Date().getFullYear()}-001`,
-            materials: quoteData.materialItems || [],
-            labor: quoteData.laborItems || [],
-            processSteps: quoteData.processSteps || [],
-            materialsSubtotal: quoteData.subtotals?.materials || 0,
-            laborSubtotal: quoteData.subtotals?.labor || 0,
+            materials: q.materialItems || [],
+            labor: q.laborItems || [],
+            processSteps: q.processSteps || [],
+            materialsSubtotal: q.subtotals?.materials || 0,
+            laborSubtotal: q.subtotals?.labor || 0,
             taxRate: 0.08,
-            taxAmount: quoteData.subtotals?.tax || 0,
-            totalCost: quoteData.total || 0,
-            generatedAt: new Date().toISOString(),
+            taxAmount: q.subtotals?.tax || 0,
+            totalCost: q.total || 0,
+            generatedAt: draft?.generatedAt || new Date().toISOString(),
             approvalStatus: 'pending',
           };
-          baseItem.estimatedValue = quoteData.total || baseItem.estimatedValue;
+          baseItem.estimatedValue = q.total || baseItem.estimatedValue;
         }
-      } catch { /* skip */ }
+      } catch { /* skip — the item still opens, just without a draft */ }
 
       // 3. Try server KV save (fire-and-forget)
       fetch(`${SERVER}/kv/set`, {

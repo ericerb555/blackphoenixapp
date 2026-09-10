@@ -5042,3 +5042,72 @@ check in the browser and it verifies the whole thing at once: open a request, no
 "generated just now", close it, open it again, and it should say "from the saved
 draft — no new cost". If the second open says "generated just now", the cache is
 not working and it is costing money per open.
+
+## Eric could not open a work request into the pipeline
+
+Reported while using the app. Diagnosed from production logs rather than guessed
+at, and it was **not** caused by the day's changes.
+
+### What the evidence said
+
+Smoke: **332 pages render, 0 throw**, including `unified-project-pipeline` and
+`admin-alerts`. So nothing was crashing.
+
+`function_edge_logs` for his session:
+
+| time | request | status |
+| --- | --- | --- |
+| 23:53–23:55 | `work-requests?userId=1a9f3ae4…` | 200 |
+| 23:57:09 | `auto-generate-quote` | 204 — **preflight only, the POST never completed** |
+| 23:57:26 | `pipeline/items` | 200 |
+| 00:00:13–00:00:41 | `/user` | **403 × 14** |
+
+`auth_logs` gave the cause outright: `403: invalid claim: missing sub claim`.
+
+### The cause
+
+Around eighty call sites fetch with `session?.access_token || publicAnonKey`. The
+fallback is right for public routes. When a session has quietly expired it means
+every authenticated call sends the **publishable key**, which identifies nobody —
+so the auth server answers "missing sub claim", the API turns it into 401, and the
+screen shows a generic failure while the whole application sits there looking
+healthy. The reasonable conclusion is that the feature is broken.
+
+Nothing anywhere said the words "signed out".
+
+**Not the day's changes**: there is no `/quote-draft/` request in his session at
+all, so the component added an hour earlier never ran.
+
+### Fix 1 — one listener, not eighty edits
+
+`sessionExpiryNotice.ts` watches responses from our own API. A 401 is reported
+**only when there is genuinely no session**, because a 401 with a valid session
+means something quite different — that the account may not do this — and calling
+that an expiry would send somebody to sign in again for no reason.
+
+It does not sign anybody out, redirect or retry. Losing a half-filled form
+because a token expired is worse than the confusion it replaces. Installed in
+`main.tsx` before render, so a 401 on the first call is explained too.
+
+Changing every call site would have touched every screen to fix a message.
+
+### Fix 2 — the fifteen-second timeout
+
+`openInPipeline` called `/auto-generate-quote` with `AbortSignal.timeout(15000)`.
+A gpt-4o takeoff over a whole job does not finish in fifteen seconds, so the call
+was abandoned most times it ran: **the model was paid for and the answer thrown
+away**, and the pipeline item arrived with no quote and no explanation. The cost
+without the result.
+
+It now calls `/quote-draft/:id`, which returns the stored draft instantly when
+there is one — so the common path is fast and free, and the timeout only matters
+on a first generation. Raised to 90 seconds, which is long enough for one to
+finish.
+
+### Checks
+
+App typecheck 324, unchanged from baseline. Smoke green.
+
+### What Eric should do
+
+Sign out and back in, or hard-refresh. The 401s were his session, not the code.
