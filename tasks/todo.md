@@ -4544,3 +4544,48 @@ shadowing on `vendor-catalog.tsx`: 18 routes, 0 shadowed. `productMatch` 17/17.
 No merge has been run against real data — there is one catalogue line in
 production, so there is nothing to merge yet and the proposal list is correctly
 empty. The screen's empty state says so rather than looking broken.
+
+## Step 4 — the picture appears in the picker, and nothing else moves
+
+Eric: *"minimal, keep the picker layout as is."*
+
+- [x] `/vendor-catalog-search` carries each line's `productId` and, when
+      permitted, the product's image.
+- [x] `VendorProductPicker` shows a 44px thumbnail in the row that already
+      exists.
+
+### Why the server attaches it rather than the picker fetching it
+
+The picture lives on the **product** and the picker reads **offers**, so
+something has to bridge them. Doing it on the server keeps it at one call in,
+one call out, and — more importantly — keeps the consent check in the one place
+it cannot be forgotten. A picker that fetched images itself would be a second
+place where somebody could omit the gate.
+
+The gating is the same as the product routes: per supplying vendor, per surface,
+defaulting to `designCentre`, failing closed.
+
+### A product with no picture looks exactly as it did
+
+No placeholder. In a list of real products a placeholder reads as *"we have no
+picture of this one"* rather than *"not yet"*, and today every product is the
+second thing. A mirrored image that 404s — storage purged, say — hides its own
+element rather than leaving a broken-image icon on a customer's screen.
+
+### The quote line is deliberately not done
+
+Step 4 as planned said "the picker and the quote line". The picker is done. Putting
+a photograph on a quote changes the layout of a document a customer receives,
+which is a different kind of decision from adding a thumbnail to an internal
+list, so it is not being folded in quietly. The `quotes` consent surface already
+exists for when it is wanted.
+
+### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline.
+
+### Not verified
+
+Nothing has a picture yet, so the picker looks exactly as it did. The thumbnail
+has never been rendered with a real image — the first mirrored image will be the
+first time anybody sees it.

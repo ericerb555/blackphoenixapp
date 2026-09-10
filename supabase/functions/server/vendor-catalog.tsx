@@ -571,8 +571,42 @@ vendorCatalogRouter.get("/vendor-catalog-search", async (c) => {
         price: Number(i.price || 0),
         availability: i.availability || "",
         leadTimeDays: i.leadTimeDays ?? null,
+        // Which product this offer is against. The picker does not use it yet;
+        // the image lookup below does, and step 5 will.
+        productId: i.productId || "",
       }))
       .sort((a, b) => a.price - b.price);
+
+    // The picture lives on the PRODUCT, not on the offer, so it is looked up per
+    // matched line and gated on the supplying vendor's consent exactly as the
+    // product routes do. Attached here rather than making the picker fetch a
+    // second time: one call in, one call out.
+    //
+    // A line with no product, no image, or a vendor who has not granted this
+    // surface simply has no `image` — the picker shows what it always showed.
+    const surface = String(c.req.query("surface") || "designCentre");
+    const may = await consentCache();
+    const productIds = new Set(matches.map((m: any) => String(m.productId || "")).filter(Boolean));
+
+    // One read for every product, not one read per matched product. A broad
+    // search over a large catalogue matches thousands of lines, and a `kv.get`
+    // each would be thousands of sequential round trips inside one request —
+    // the route already reads the whole catalogue in a single getByPrefix, so
+    // this is the same shape rather than a new cost.
+    const allProducts = productIds.size
+      ? ((await kv.getByPrefix("hub_product:")) as any[] || []).filter(Boolean)
+      : [];
+    const imageOf = new Map<string, string>();
+    for (const product of allProducts) {
+      const id = String(product?.id || "");
+      if (!id || !productIds.has(id) || product.mergedInto) continue;
+      const allowed = await permittedImages(product, surface, may);
+      if (allowed.length) imageOf.set(id, allowed[0]);
+    }
+    for (const m of matches as any[]) {
+      const url = m.productId ? imageOf.get(String(m.productId)) : undefined;
+      if (url) m.image = url;
+    }
 
     return c.json({ success: true, matches, count: matches.length });
   } catch (error: any) {

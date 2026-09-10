@@ -35,6 +35,15 @@ export interface CatalogProduct {
   category?: string;
   availability?: string;
   leadTimeDays?: number | null;
+  /** Which product this offer prices. Sent by the server; used for its image. */
+  productId?: string;
+  /**
+   * The product photograph, present only when the supplying vendor has granted
+   * permission for this surface. Absent is the normal case and means show
+   * nothing — never a placeholder, because a placeholder in a list of real
+   * products reads as "we have no picture of this one" rather than "not yet".
+   */
+  image?: string;
 }
 
 export interface PickedProduct extends CatalogProduct {
@@ -204,6 +213,27 @@ export function VendorProductPicker({ onAdd, chosenSkus = [], accent = '#f97316'
                 background: c.surface,
               }}
             >
+              {/* The product photograph, when the supplying vendor has permitted
+                  it on this surface. Deliberately just a thumbnail in the row
+                  that already exists: the layout is unchanged, and a product
+                  without a picture looks exactly as it did before. */}
+              {product.image && (
+                <img
+                  src={product.image}
+                  alt=""
+                  loading="lazy"
+                  width={44}
+                  height={44}
+                  style={{
+                    width: 44, height: 44, flex: '0 0 auto', borderRadius: 8,
+                    objectFit: 'cover', border: `1px solid ${c.border}`, background: c.surface,
+                  }}
+                  // A mirrored image can still 404 if storage is purged. Hiding
+                  // the element beats a broken-image icon on a customer's screen.
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+              )}
+
               <div style={{ flex: '1 1 220px', minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: c.text }}>{product.name}</div>
                 <div style={{ fontSize: 13, color: c.muted, marginTop: 2 }}>
