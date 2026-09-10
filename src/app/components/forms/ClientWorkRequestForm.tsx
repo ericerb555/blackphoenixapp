@@ -1499,161 +1499,22 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           }
         }
 
-        // 🚀 NEW: Auto-generate quote for ALL work requests (not just blueprints)
-        console.log('🤖 Auto-generating comprehensive quote for work request...');
-        toast.loading('AI is creating your quote...', { id: 'auto-quote-gen' });
-        
-        try {
-          const workRequestData = {
-            id: workRequest.id,
-            title: formData.projectName,
-            serviceType: formData.serviceType || formData.projectType,
-            description: formData.additionalNotes || `${formData.serviceType} project for ${formData.clientName}`,
-            location: `${formData.siteAddress}, ${formData.city}, ${formData.state} ${formData.zipCode}`,
-            estimatedValue: formData.budgetMax,
-            clientInfo: {
-              name: formData.clientName,
-              email: formData.clientEmail,
-              phone: formData.clientPhone
-            },
-            blueprintAnalysis: blueprintAnalysis || null,
-            aiVideoAnalysis: formData.aiVideoAnalysis || null,
-            budget: {
-              min: formData.budgetMin,
-              max: formData.budgetMax
-            },
-            // The customer's own account of their job, sent so the SERVER can
-            // write the pipeline record. These are facts about their request and
-            // theirs to state; the quote is not, which is why it no longer comes
-            // back here to be written from the browser.
-            priority: formData.priorityLevel || 'medium',
-            timeline: formData.timeline,
-            media: {
-              videos: uploadedVideoUrls,
-              photos: uploadedPhotoUrls,
-              blueprints: uploadedBlueprintUrls,
-              blueprintAnalysis: blueprintAnalysis,
-              aiVideoAnalysis: formData.aiVideoAnalysis
-            }
-          };
-
-          const autoQuoteResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auto-generate-quote`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-              },
-              body: JSON.stringify({
-                workRequest: workRequestData
-              })
-            }
-          );
-
-          if (autoQuoteResponse.ok) {
-            const autoQuoteData = await autoQuoteResponse.json();
-            console.log('✅ Auto-quote generated successfully:', autoQuoteData);
-            
-            // Counts, not costs. The server answers a customer with how many
-            // lines the quote has and nothing about what any of them cost, so
-            // this reads `counts` and falls back to the old shape only for a
-            // server that has not been deployed yet.
-            toast.success('Quote auto-generated!', {
-              id: 'auto-quote-gen',
-              description: `${autoQuoteData.counts?.labor ?? autoQuoteData.laborItems?.length ?? 0} labor tasks, ${autoQuoteData.counts?.materials ?? autoQuoteData.materialItems?.length ?? 0} materials`
-            });
-
-            // THE SERVER WRITES THIS RECORD NOW.
-            //
-            // It used to be written here, from the quote this browser had just
-            // been handed — so the number the business worked from had passed
-            // through the browser of the party with the most reason to change it.
-            // It also required every signed-in customer to hold write access to
-            // `pipeline:*`, and that access is not scoped to their own row, so
-            // one customer could overwrite another's.
-            //
-            // What is below runs only against a server that has not been
-            // deployed yet. Once `pipelineWritten` comes back true it is skipped,
-            // and it can be deleted a deploy later.
-            try {
-              if (autoQuoteData.pipelineWritten) {
-                console.log('✅ Pipeline record written by the server');
-                throw { handled: true };
-              }
-              const pipelineItem = {
-                id: workRequest.id,
-                title: formData.projectName,
-                customer: formData.clientName,
-                stage: 'quote_pending', // Start at quote_pending with quote already generated
-                serviceType: formData.serviceType || formData.projectType,
-                priority: formData.priorityLevel || 'medium',
-                estimatedValue: formData.budgetMax,
-                description: formData.additionalNotes || '',
-                location: `${formData.siteAddress}, ${formData.city}, ${formData.state}`,
-                contact: {
-                  email: formData.clientEmail,
-                  phone: formData.clientPhone
-                },
-                media: {
-                  videos: uploadedVideoUrls,
-                  photos: uploadedPhotoUrls,
-                  blueprints: uploadedBlueprintUrls,
-                  blueprintAnalysis: blueprintAnalysis,
-                  aiVideoAnalysis: formData.aiVideoAnalysis
-                },
-                quote: {
-                  laborItems: autoQuoteData.laborItems || [],
-                  materialItems: autoQuoteData.materialItems || [],
-                  processSteps: autoQuoteData.processSteps || [],
-                  subtotals: autoQuoteData.subtotals || {},
-                  total: autoQuoteData.total || 0,
-                  generatedAt: new Date().toISOString(),
-                  status: 'draft'
-                },
-                timeline: formData.timeline,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              };
-
-              // Store in KV store for unified pipeline
-              await fetch(
-                `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/kv/set`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authToken}`
-                  },
-                  body: JSON.stringify({
-                    key: `pipeline:${workRequest.id}`,
-                    value: pipelineItem
-                  })
-                }
-              );
-
-              console.log('✅ Quote stored in unified project pipeline');
-            } catch (storageError: any) {
-              // `handled` is the server having already written it, not a failure.
-              if (!storageError?.handled) {
-                console.error('Failed to store quote in pipeline:', storageError);
-              }
-            }
-          } else {
-            const errorData = await autoQuoteResponse.json();
-            console.error('Failed to auto-generate quote:', errorData);
-            toast.error('Could not auto-generate quote', {
-              id: 'auto-quote-gen',
-              description: 'Quote can be created manually in the pipeline'
-            });
-          }
-        } catch (autoQuoteError) {
-          console.error('Auto-quote generation error:', autoQuoteError);
-          toast.warning('Quote will be created manually', {
-            id: 'auto-quote-gen',
-            description: 'Your work request was submitted successfully'
-          });
-        }
+        // QUOTES ARE NOT GENERATED HERE ANY MORE.
+        //
+        // Submitting used to fire the AI estimator — a full gpt-4o takeoff — on
+        // every work request, whether or not anybody ever looked at it. That was
+        // paid for per submission, including the duplicates and the curious.
+        //
+        // It bought nothing. The generated quote was written to "pipeline:{id}"
+        // and the pipeline board reads "pipeline_{id}" — a different key. There
+        // are 433 records under the one the board reads and 3 under the one this
+        // wrote, so the draft that was supposedly waiting for staff was never
+        // visible to anyone.
+        //
+        // Staff generate a quote when they decide to, from the existing button in
+        // StartQuoteModal. The work request itself is already saved by the POST to
+        // /work-requests above, which is what the admin screens read, so nothing
+        // about the customer reaching us depends on this.
 
         // Clear draft after successful submission
         if (autoSaveRef.current) {

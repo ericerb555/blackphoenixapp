@@ -4927,3 +4927,66 @@ Both probe pipeline records and both probe user profiles were deleted from KV.
 They would otherwise have sat on the pipeline board as real `quote_pending` jobs
 with five-figure totals. The two auth accounts remain, as the e2e suite creates
 one on every run and that is existing practice.
+
+## Quotes are no longer generated when a customer submits
+
+Eric asked whether he would have to generate quotes himself to keep the cost
+down. The answer turned out to be better than that, and the investigation found
+something worse.
+
+### What was already protecting him
+
+`/auto-generate-quote` is in `AI_METERED_PREFIXES`, so it goes through
+`aiSpend`: **300 model calls per account**, then 429. Counted server-side against
+the verified token, reserved before the call and refunded on failure so a burst
+of parallel requests cannot slip past one check, staff waived, and the ceiling can
+be lifted per account.
+
+One detail worth knowing: the key is `ai_budget:{userId}` with **no date in it**,
+so 300 is a **lifetime** total rather than monthly. It never resets, which is
+deliberate — but a long-standing customer will eventually need the override.
+
+### The discovery: the automatic call bought nothing
+
+The generated quote was written to `pipeline:{id}`. **The pipeline board reads
+`pipeline_{id}`** — a different key. Production holds **433** records under the
+one the board reads and **3** under the one this wrote.
+
+So the draft that was supposedly waiting for staff was never visible to anybody.
+The platform has been paying for a full gpt-4o takeoff on every customer
+submission and putting the result somewhere nothing looks.
+
+Worse: this afternoon's fix moved that write to the server and **faithfully
+reproduced the wrong key**. The commit said the server writes the record. It did
+— to a dead key. Only counting the two prefixes in production showed it.
+
+### What changed
+
+- **The customer's submit no longer generates anything.** 155 lines removed. The
+  work request is still saved by `POST /work-requests`, which is what the admin
+  screens read, so nothing about a customer reaching us depends on it.
+- **The server no longer writes the dead key either.** A non-staff caller gets
+  `{ generated, counts }` and nothing else. That branch stays because the route is
+  reachable by anybody signed in, and what comes back to them should not be the
+  cost basis.
+- **Staff generate when they decide to**, from the button that already exists in
+  `StartQuoteModal`.
+
+### What this means for the middle option
+
+Eric picked "generate on first staff open" over "staff button only", to keep a
+draft ready without a click. That draft never existed, and there is already an
+explicit staff button — so what is shipped is the cost saving without the
+behaviour change. Generate-on-open is still available as an addition if the click
+is worth removing, and it would now write to the key the board actually reads.
+
+### Loose ends
+
+Three `pipeline:` records remain in production from real customer submissions.
+Nothing reads them and nothing ever did. They are left alone rather than deleted,
+because they are the only copy of those generated quotes — worth a look before
+anybody clears them.
+
+### Checks
+
+App typecheck 324 and server typecheck 84, both unchanged from baseline.

@@ -3175,65 +3175,28 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     const quoteForStaff = quoteActor?.email ? await intakeIsAdmin(quoteActor) : false;
 
     if (!quoteForStaff) {
-      // The customer's own facts about their request are theirs to state. The
-      // QUOTE is not, so it is taken from what was just generated rather than
-      // from anything the caller sent.
-      const wrId = String(workRequest?.id || '').trim();
-      const now = new Date().toISOString();
-      let pipelineWritten = false;
-
-      if (wrId) {
-        try {
-          const existing = (await kv.get(`pipeline:${wrId}`).catch(() => null)) as any;
-          await kv.set(`pipeline:${wrId}`, {
-            ...(existing || {}),
-            id: wrId,
-            title: workRequest?.title || existing?.title || 'Work request',
-            customer: workRequest?.clientInfo?.name || existing?.customer || '',
-            stage: existing?.stage || 'quote_pending',
-            serviceType: workRequest?.serviceType || existing?.serviceType || '',
-            priority: workRequest?.priority || existing?.priority || 'medium',
-            estimatedValue: workRequest?.estimatedValue ?? existing?.estimatedValue ?? null,
-            description: workRequest?.description || existing?.description || '',
-            location: workRequest?.location || existing?.location || '',
-            contact: {
-              email: workRequest?.clientInfo?.email || existing?.contact?.email || '',
-              phone: workRequest?.clientInfo?.phone || existing?.contact?.phone || '',
-            },
-            media: workRequest?.media || existing?.media || {},
-            timeline: workRequest?.timeline || existing?.timeline || '',
-            quote: {
-              laborItems: estimate.labor,
-              materialItems: estimate.materials,
-              processSteps: estimate.processSteps,
-              subtotals: {
-                materials: estimate.materialsSubtotal,
-                labor: estimate.laborSubtotal,
-                tax: estimate.taxAmount,
-              },
-              total: estimate.totalCost,
-              generatedAt: now,
-              status: 'draft',
-            },
-            createdAt: existing?.createdAt || now,
-            updatedAt: now,
-          });
-          pipelineWritten = true;
-        } catch (err) {
-          // The work request itself is already saved. A pipeline write that
-          // fails is worth reporting and is not worth losing the request over.
-          console.log('[Auto-Quote] pipeline write failed:', err);
-        }
-      }
-
+      /**
+       * A non-staff caller gets a confirmation and nothing else — and no longer
+       * has a record written on their behalf.
+       *
+       * An earlier version of this wrote the generated quote to `pipeline:{id}`,
+       * faithfully reproducing what the customer's browser used to do. Both were
+       * writing to a key nothing reads: the pipeline board reads `pipeline_{id}`,
+       * with an underscore, and production holds 433 records under that and 3
+       * under this. The draft supposedly waiting for staff was never visible.
+       *
+       * So nothing is written here. The work request itself is saved by
+       * `POST /work-requests`, which is what the admin screens read, and staff
+       * generate a quote when they decide to. Our own customer form no longer
+       * calls this route at all; this branch remains because the route is
+       * reachable by anybody signed in, and what comes back to them should not
+       * be the company's cost basis.
+       */
       return c.json({
         success: true,
         usedAI,
         generated: true,
-        // So the caller knows not to write the record itself.
-        pipelineWritten,
-        workRequestId: wrId,
-        // Counts, so the screen can say something true without being told what
+        // Counts, so a caller can say something true without being told what
         // anything costs.
         counts: {
           materials: Array.isArray(estimate.materials) ? estimate.materials.length : 0,
