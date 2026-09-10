@@ -4258,3 +4258,91 @@ No real `.xlsx` has been through it. The cell-shape handling is reasoned from
 what ExcelJS returns, not observed against a supplier's actual workbook — the
 first real file is the test, and the screen shows what it will import before it
 imports it, which is what that preview is for.
+
+## The parcel lookup returned a different house's records
+
+- [x] Read the house number from `matchedAddress` instead of `fromAddress`.
+- [x] Verify the parcel we get back is actually the address we asked about,
+      and discard it when it is not.
+- [x] Stop the NH address pattern matching a different street.
+
+### The original bug
+
+`geocodeCensus` took the house number from `comp.fromAddress`. That field is the
+**start of the TIGER block range** the address falls in, not the address.
+Measured against the live geocoder, four of six real addresses came back with a
+different number: 24 Pine St as 2, 88 Elm St as 68, 155 Central St as 113,
+45 School St as 1.
+
+It mattered because the address-string query is the path that does the work. The
+point query misses on ordinary addresses — the free geocoder interpolates along
+the street centreline and lands in the road, outside every parcel polygon — so
+the fallback is what answers, and with the wrong number it looked up a different
+house on the same street and returned its owner, assessed value, lot size and
+year built as ours. Confidently, silently, into a property valuation.
+
+### Fixing that alone was not enough
+
+Two more ways to get a confidently wrong parcel turned up when the fix was
+measured rather than assumed.
+
+**The point query can land in the neighbour's lot.** A point a few metres off
+is inside the wrong polygon, and the wrong polygon is returned correctly for the
+wrong house. `45 School St, Chelsea MA` came back as `106 Winnisimmet St`.
+
+**The NH pattern matched a different street.** `'24 %PINE ST%'` had a wildcard
+between the number and the street to tolerate a directional prefix. It also
+matches `24 ALPINE ST`.
+
+So `parcelIsTheAddress` now checks both halves of what came back — the house
+number equal, and the street present **as whole words**, because a substring
+test passes ALPINE for PINE. A parcel that fails is discarded, the address query
+is tried, and if that also disagrees the lookup returns nothing.
+
+Failing closed is the right trade here. The caller wants an owner, an assessed
+value and a year built, and those feed a valuation. A wrong parcel is not a
+slightly worse answer than no parcel — it is a confident answer about somebody
+else's house, and everything downstream treats it as fact.
+
+### My first test was wrong, and that is worth recording
+
+The first six addresses I measured against were **invented**. They geocoded
+happily, because the Census geocoder interpolates a house number along a block
+range whether or not the house exists, and then missed in the parcel layer
+because there is no such parcel. That made the fix look like it had dropped the
+hit rate to 1 in 6.
+
+The honest test is a **round trip**: take addresses that really exist out of the
+parcel layers, geocode them, and see whether the lookup finds the same parcel
+again.
+
+| 14 real parcels, looked up by their own address | correct | **wrong parcel** | miss |
+| --- | --- | --- | --- |
+| before | 3 | **1** | 10 |
+| after | **11** | 1 | 2 |
+
+Two notes on that table, so it is not read as better than it is:
+
+- The remaining "wrong" is `5 MEDFORD ST #1` resolving to `5 MEDFORD ST`. That is
+  the right building and the wrong unit, and parcels are buildings — the unit
+  number is not in the layer. It is a grading artefact rather than a defect.
+- One address regressed: `78 80 ST ANDREW RD, BOSTON` was found before and is
+  missed now. It is a range address, where the first number is the house and the
+  rest reads as street. One loss against eight gains, and a miss rather than a
+  wrong answer.
+
+### Checks
+
+Server typecheck 84, unchanged from baseline. No client file changed, so smoke
+has nothing to run. The before/after numbers above are from the live Census
+geocoder, MassGIS and NH GRANIT.
+
+### Not done
+
+Not deployed. And the ArcGIS env override question that started this is still
+open: `ARCGIS_PARCEL_SERVICES` and `ARCGIS_BUILDING_SERVICES` are set in
+production and **nothing reads them**, while the code reads
+`MASSGIS_PARCELS_URL` and `NH_GRANIT_PARCELS_URL`, which are unset and fall back
+to working defaults. Wiring the set ones in without knowing what they contain
+would risk replacing two endpoints that demonstrably work — so that needs Eric
+to say what is in them.

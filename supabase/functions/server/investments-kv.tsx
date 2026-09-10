@@ -282,13 +282,42 @@ async function geocodeCensus(address: string): Promise<GeoResult | null> {
     const match = data?.result?.addressMatches?.[0];
     if (!match?.coordinates) return null;
     const comp = match.addressComponents || {};
-    const street = [comp.streetName, comp.suffixType].filter(Boolean).join(' ').trim();
+
+    // THE HOUSE NUMBER COMES FROM matchedAddress, NOT FROM comp.fromAddress.
+    //
+    // fromAddress is the START OF THE TIGER BLOCK RANGE the address falls in.
+    // It is not the address. Measured against the live Census geocoder, four of
+    // six real addresses came back with a different number:
+    //
+    //     24 Pine St, Nashua      -> fromAddress 2
+    //     88 Elm St, Manchester   -> fromAddress 68
+    //     155 Central St, Hudson  -> fromAddress 113
+    //     45 School St, Chelsea   -> fromAddress 1
+    //
+    // Only matchedAddress carries the number that was actually matched.
+    //
+    // This mattered because the address-string query is the path that does the
+    // work. The point query misses on ordinary addresses — the free geocoder
+    // interpolates along the street centreline and lands in the road, outside
+    // every parcel polygon — so the fallback is what answers, and with the
+    // wrong number it was looking up a DIFFERENT HOUSE on the same street and
+    // returning its owner, assessed value, lot size and year built as ours.
+    //
+    // Confidently wrong, silently, into a property valuation.
+    const matched = String(match.matchedAddress || '');
+    const numbered = matched.split(',')[0].trim().match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+
     return {
       lat: Number(match.coordinates.y),
       lon: Number(match.coordinates.x),
       state: comp.state,
-      number: comp.fromAddress,
-      street,
+      // Undefined rather than wrong when it cannot be read: every caller guards
+      // on `geo.number` before using it, so a miss skips the address query and
+      // returns nothing, which is the right answer when we do not know.
+      number: numbered ? numbered[1] : undefined,
+      street: numbered
+        ? numbered[2].trim()
+        : [comp.streetName, comp.suffixType].filter(Boolean).join(' ').trim(),
       city: comp.city,
       matched: match.matchedAddress,
     };
@@ -335,6 +364,55 @@ async function arcgisQuery(
 
 // Escape single quotes for an ArcGIS SQL literal.
 const sqlLit = (v: string) => v.replace(/'/g, "''");
+
+/**
+ * Is this parcel actually the address we asked about?
+ *
+ * WHY A LOOKUP NEEDS CHECKING AT ALL
+ *
+ * Because both routes to a parcel can return the wrong one, and neither says so.
+ *
+ * The POINT query is only as good as the geocode. The free Census geocoder
+ * interpolates along the street centreline, so its point can land in the road or
+ * a few metres into the neighbour's lot — and a point inside the neighbour's
+ * polygon returns the neighbour's parcel, correctly, for the wrong house.
+ * Measured: "45 School St, Chelsea MA" came back as 106 Winnisimmet St.
+ *
+ * The ADDRESS query is only as good as its LIKE pattern. `'24 %PINE ST%'` was
+ * meant to tolerate a directional prefix and also matches "24 ALPINE ST", which
+ * is a different building on a different street.
+ *
+ * WHY IT FAILS CLOSED
+ *
+ * The caller wants an owner, an assessed value, a lot size and a year built, and
+ * those feed a valuation. A wrong parcel is not a slightly worse answer than no
+ * parcel — it is a confident answer about somebody else's house, and every step
+ * downstream treats it as fact. Returning nothing lets the next source be tried
+ * and lets the operator see there is nothing.
+ *
+ * Returns null when it cannot tell, which is treated as "do not use it".
+ */
+function parcelIsTheAddress(
+  geo: GeoResult,
+  parcelAddress: any,
+): boolean | null {
+  const got = String(parcelAddress || '').trim().toUpperCase();
+  const wantNumber = String(geo.number || '').trim().toUpperCase();
+  const wantStreet = String(geo.street || '').trim().toUpperCase();
+  if (!got || !wantNumber || !wantStreet) return null;
+
+  // The number the parcel itself carries, which may be "24" or "24A" or a
+  // range like "1-3" — a range starts with its own first number and that is
+  // what is compared.
+  const firstNumber = got.match(/^(\d+[A-Z]?)/);
+  if (!firstNumber) return null;
+  if (firstNumber[1] !== wantNumber) return false;
+
+  // The street, as whole words. A substring test passes ALPINE for PINE, which
+  // is exactly the match that has to be refused.
+  const escaped = wantStreet.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`);
+  return new RegExp(`\\b${escaped}\\b`).test(got);
+}
 
 // Read a value from an attributes bag trying several possible field names.
 function pick(attrs: Record<string, any>, keys: string[]): any {
@@ -398,19 +476,36 @@ async function fetchFreeParcel(address: string): Promise<ParcelFacts | null> {
   const state = (geo.state || '').toUpperCase();
   try {
     if (state === 'MA' || /\bMA\b/i.test(address)) {
-      // Point-in-parcel first, then fall back to an address-string match.
+      // Point-in-parcel first, then fall back to an address-string match. A
+      // point result that is not this address is DISCARDED rather than returned
+      // — see `parcelIsTheAddress`.
       let attrs = await arcgisQuery(MASSGIS_PARCELS_URL, { point: geo });
+      if (attrs && parcelIsTheAddress(geo, attrs.SITE_ADDR) === false) {
+        console.log(`[free-data] point hit a different parcel for "${address}": ${attrs.SITE_ADDR}`);
+        attrs = null;
+      }
       if (!attrs && geo.number && geo.street && geo.city) {
         const where = `ADDR_NUM='${sqlLit(geo.number)}' AND UPPER(FULL_STR) LIKE '%${sqlLit(geo.street.toUpperCase())}%' AND UPPER(CITY)='${sqlLit(geo.city.toUpperCase())}'`;
         attrs = await arcgisQuery(MASSGIS_PARCELS_URL, { where });
+        if (attrs && parcelIsTheAddress(geo, attrs.SITE_ADDR) === false) attrs = null;
       }
       if (attrs) return mapMassGis(attrs, geo);
     }
     if (state === 'NH' || /\bNH\b/i.test(address)) {
       let attrs = await arcgisQuery(NH_GRANIT_PARCELS_URL, { point: geo });
+      if (attrs && parcelIsTheAddress(geo, attrs.StreetAddress) === false) {
+        console.log(`[free-data] point hit a different parcel for "${address}": ${attrs.StreetAddress}`);
+        attrs = null;
+      }
       if (!attrs && geo.number && geo.street && geo.city) {
-        const where = `UPPER(StreetAddress) LIKE '${sqlLit(geo.number.toUpperCase())} %${sqlLit(geo.street.toUpperCase())}%' AND UPPER(Town)='${sqlLit(geo.city.toUpperCase())}'`;
+        // The street follows the number directly. The old pattern put a wildcard
+        // between them to tolerate a directional prefix, and '24 %PINE ST%' also
+        // matched "24 ALPINE ST" — a different building on a different street.
+        // Anything the tighter pattern misses is caught by the verification
+        // below rather than by loosening this again.
+        const where = `UPPER(StreetAddress) LIKE '${sqlLit(geo.number.toUpperCase())} ${sqlLit(geo.street.toUpperCase())}%' AND UPPER(Town)='${sqlLit(geo.city.toUpperCase())}'`;
         attrs = await arcgisQuery(NH_GRANIT_PARCELS_URL, { where });
+        if (attrs && parcelIsTheAddress(geo, attrs.StreetAddress) === false) attrs = null;
       }
       if (attrs) return mapNhGranit(attrs, geo);
     }
