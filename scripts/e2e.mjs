@@ -206,6 +206,31 @@ console.log('\n── A real customer, signed up through the front door ──')
     const seed = await call('/cohorts/initialize', { method: 'POST', token });
     ok('cannot seed the revenue figures', seed.status === 403 || seed.status === 410,
        `status ${seed.status}`);
+
+    // Vendor settings hold consents — what a vendor permits us to do with their
+    // product photography. Two things are being checked, and the second is the
+    // one that matters: not merely that an outsider cannot READ them, but that
+    // an outsider cannot GRANT one. A consent recorded against a vendor by
+    // somebody who is not that vendor is worse than no consent at all, because
+    // it looks like evidence.
+    const vsRead = await call('/vendor-settings/vendor-001', { token });
+    ok('cannot read another party\'s vendor settings', vsRead.status === 403,
+       `status ${vsRead.status}`);
+
+    const vsGrant = await call('/vendor-settings/vendor-001', {
+      method: 'PUT', token,
+      body: { imageDisplay: { designCentre: true, quotes: true, storefront: true } },
+    });
+    ok('cannot grant image consent on a vendor\'s behalf', vsGrant.status === 403,
+       `status ${vsGrant.status}`);
+  }
+
+  {
+    // Holding nothing but the publishable key, which identifies nobody. The
+    // catalogue actor fails closed on a token it cannot resolve to a user.
+    const anon = await call('/vendor-settings/vendor-001');
+    ok('an unidentified caller is refused vendor settings',
+       anon.status === 401 || anon.status === 403, `status ${anon.status}`);
   }
 }
 
