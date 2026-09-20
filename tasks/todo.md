@@ -5706,3 +5706,62 @@ permissions records.
 - F — Auth SMTP (dashboard's own reset button only), signup routes you to the
   login page after signing you in, served `/media/upload` validates neither file
   type nor size.
+
+---
+
+## Tracing the advertiser, vendor and condo-association portals — 2026-09-20
+
+These three looked like they made no server calls. They do — through shared
+child components rather than directly, which is why a grep of the portal file
+alone found nothing. Followed every local import three levels deep: 41 modules
+for advertiser, 42 for vendor, 28 for condo association.
+
+### Where their data actually comes from
+
+All three share the same set, reached through common children:
+
+| Endpoint | Reached via |
+|---|---|
+| `/me/permissions` | AuthContext |
+| `/referrals/mine`, `/referrals/my-code` | ReferralRewards |
+| `/advertising/serve`, `/advertising/events` | adTracking, behind the marquees |
+| `/investments/opportunities` | InvestmentTab |
+| `/plan-builder/generate`, `/price-custom` | PlanBuilderTab (advertiser, vendor) |
+| `/social/submit-reel` | SubmitReelForApproval (advertiser, vendor) |
+| `/property-management/condos` | CondoService (condo association) |
+
+### Result: all three are clean
+
+Signed in as each role against production and called every endpoint its tree
+reaches. `/auth/me` returned `advertiser`, `vendor` and `condo_association`
+respectively, and **every endpoint answered 200**.
+
+One 403 appeared and is correct, not a fault: `/property-management/stats`
+belongs to `PropertyManagerService` (line 261-351 of the service file), not to
+`CondoService` (44-143). The condo portal only ever calls `CondoService.update`.
+Its on-screen `stats` at line 467 is a local `getStatsForRole()`, nothing to do
+with the endpoint. My test was broad; the app is right.
+
+### The condo `localStorage` role hole is closed
+
+Worth recording because it was a known security finding. The portal used to read
+`localStorage.getItem('condo_user_role')` and gate the financials, vendors,
+units, team and approvals tabs on it, defaulting to `board_president` when
+nothing was stored — so a stranger arrived with the most privileged role.
+
+It is now fixed. The role comes from a grant the association issues and can
+withdraw, fetched from the server; the stored value survives only as a role
+*preview* gated behind `isOwner || isMasterAdmin || isAdmin`, so Eric can still
+test each portal from his own account and nobody else is affected by a stale
+value in their browser.
+
+### Loose end
+
+`PropertyManagerService.getStats()` calls `/property-management/stats`, which is
+administrator-only. Any non-admin screen wired to that method will get a 403.
+Nothing in the portals traced so far calls it, so this is a note rather than a
+fault.
+
+### Cleanup
+
+Three probe accounts deleted; 7 accounts remain, all real.
