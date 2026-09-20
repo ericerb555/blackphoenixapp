@@ -5534,7 +5534,7 @@ approved application's `portalType`, and also returns `onboardingStatus` and
 
 #### Proposed fix — NOT APPLIED, needs approval
 
-- [ ] Delete `GET /auth/me` from `auth.tsx` so index.tsx's version serves — the
+- [x] DONE — deleted `GET /auth/me` from `auth.tsx` so index.tsx's version serves — the
       same one-line surgery as the password reset and `/applications`.
 
 Low risk to verify: **`/auth/me` has exactly one caller in the whole frontend**
@@ -5548,3 +5548,44 @@ The other five shadowed routes — `/quotes` (×3), `/cart` (×3), `/media/uploa
 Each needs the same read to decide whether the served copy or the dead one is
 the one that should win. `/quotes` touches the customer portal's approval flow
 and `/cart` the storefront, so neither is cosmetic.
+
+### The rest of the shadowed routes, assessed
+
+Two of the eight were harmful and are now fixed. The other six were read and are
+genuinely benign — noted here so nobody has to work it out again.
+
+**Fixed: `GET /auth/me`** (auth.tsx) — see above. Every invited user resolved to
+`client` and landed in the customer portal.
+
+**Fixed: `PUT /quotes/:id`** (quotes.tsx) — this one silently lost money. The
+handler was written for Design Studio to save a floor plan, merging only
+`floorPlanData` and `materials`, and filing `materials` under `designMaterials`
+so a design list could not clobber the customer-facing line items. Sound for
+that caller — but that caller no longer exists, and the handler was serving
+everybody.
+
+The only caller of `PUT /quotes/:id` in the whole frontend is the staff quote
+editor, `QuoteToContractEditor.tsx:763`, which sends `materials, labor,
+processSteps, materialsSubtotal, laborSubtotal, taxRate, taxAmount, totalCost`.
+Against that handler, `materials` went to the wrong field and **labor, the
+process steps, every subtotal, the tax and the total were dropped**. It returned
+`{success: true}`, so the editor said "Quote updated successfully" and staff had
+no way to know the figures had not saved. index.tsx:14270 is staff-only and
+merges the whole body, which is exactly right for that editor.
+
+**Benign, left alone:**
+
+- `GET /quotes` and `POST /quotes` — both copies read the same `quote:` store and
+  scope identically (staff see all, a customer sees only their own). The served
+  copy returns the `{success, quotes}` shape callers want; the dead one returns a
+  bare array.
+- `GET /cart/:sessionId`, `POST /cart/add`, `DELETE /cart/remove` — the served
+  cart router is internally consistent on the `cart_` key prefix. The dead
+  index.tsx copies use `cart:`, and nothing outside those three dead handlers
+  ever reads `cart:`, so there is no split-brain.
+- `POST /media/upload` — both are real implementations; the served one is the
+  media-library version that also records tags, description, project and client.
+
+**Worth a look later, not urgent:** the dead `/media/upload` validates file type
+and caps size at 100MB. The served one does neither, so the live upload route
+takes any file of any size.

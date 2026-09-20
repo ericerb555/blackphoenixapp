@@ -403,43 +403,45 @@ authRouter.post("/make-server-3eae23a6/auth/verify", async (c) => {
   }
 });
 
-// Get current user profile
-authRouter.get("/make-server-3eae23a6/auth/me", async (c) => {
-  try {
-    const authHeader = c.req.header("Authorization");
-    
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return c.json({ error: "No authorization token provided" }, 401);
-    }
-
-    const token = authHeader.substring(7);
-    const supabase = getSupabaseAdmin();
-
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-
-    if (error || !user) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    // Get full user profile + role (KV store)
-    const profile = await getProfile(user.id);
-    const role = await getPermissions(user.id);
-
-    return c.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: profile?.full_name || user.user_metadata?.full_name,
-        role: role?.role_name || "client",
-        permissions: role?.permissions || {},
-        onboarding_completed: profile?.onboarding_completed || false,
-      },
-    });
-  } catch (error) {
-    console.error("Get user error:", error);
-    return c.json({ error: "Failed to get user profile" }, 500);
-  }
-});
+/**
+ * `/auth/me` DOES NOT LIVE HERE — see index.tsx:11020.
+ *
+ * A `GET /auth/me` used to sit at this spot and, because
+ * `app.route("/", authRouter)` runs at index.tsx:674 while index.tsx declares
+ * its own at 11020, this was the one Hono matched. It decided which portal
+ * every signed-in person landed in, and it got it wrong for everybody who was
+ * invited.
+ *
+ * WHAT IT DID
+ *
+ * It resolved a role as `role?.role_name || "client"`, reading only the KV
+ * record `user_permissions:<userId>`. It never looked at `app_metadata.role`,
+ * which is the trustworthy bag and the only place an invitation records what
+ * somebody was invited as — `ensureAuthUser` sets it and writes no
+ * `user_permissions` record at all. Six such records exist across the whole
+ * project and every one says "client", because the only thing that ever writes
+ * one is `/auth/signup`.
+ *
+ * So every invited vendor, subcontractor, landlord, employee, investor,
+ * advertiser, tenant and property manager came back as a client. `Login.tsx`
+ * assigns that answer straight onto `profile.accountType`, overwriting the
+ * correct role it had already read from `app_metadata` a few lines earlier, and
+ * its `portalRoutes` map has no "client" key — so the lookup missed and
+ * everybody fell through to the customer portal. They could sign in. They just
+ * never reached the portal they were invited to.
+ *
+ * Confirmed against production on 2026-09-20 with a probe account carrying
+ * `app_metadata.role = "vendor"` and no permissions record: `/auth/me` answered
+ * `"role":"client"`.
+ *
+ * The handler in index.tsx reads `app_metadata.role` first, then permissions and
+ * company memberships, then the portal type on an approved application, and
+ * also returns the onboarding status the login page wants. It is the right one.
+ *
+ * Third instance of this shadowing bug found in a day — the others hid the
+ * password reset and every application form. A route added to a router in this
+ * directory is registered before most of index.tsx and silently wins.
+ */
 
 // Update user profile
 authRouter.patch("/make-server-3eae23a6/auth/profile", async (c) => {

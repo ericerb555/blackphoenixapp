@@ -245,37 +245,45 @@ quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
   }
 });
 
-// ── Partial update (used by Design Studio to save the floor plan back) ─────────
-// Design Studio sends { floorPlanData, materials, lastModified } — we merge those
-// onto the existing quote without clobbering the customer-facing line items.
-quotesRouter.put("/make-server-3eae23a6/quotes/:id", async (c) => {
-  const refused = await requireQuoteStaff(c);
-  if (refused) return refused;
-
-  try {
-    const id = c.req.param("id");
-    const body = await c.req.json();
-    const existing = await kv.get(`quote:${id}`);
-    if (!existing) {
-      return c.json({ success: false, error: `Quote ${id} not found` }, 404);
-    }
-    const merged = {
-      ...existing,
-      // Design Studio's "materials" are the design-extracted list — store them
-      // separately as designMaterials so manual line items stay intact.
-      designMaterials: Array.isArray(body.materials) ? body.materials
-        : (Array.isArray(body.designMaterials) ? body.designMaterials : existing.designMaterials),
-      floorPlanData: body.floorPlanData ?? existing.floorPlanData ?? null,
-    };
-    const doc = normalizeDoc(merged);
-    await kv.set(`quote:${id}`, doc);
-    console.log(`[Quotes] Updated quote ${id} from Design Studio (${doc.designMaterials.length} design materials)`);
-    return c.json({ success: true, quote: doc });
-  } catch (error) {
-    console.error("[Quotes] Error updating quote:", error);
-    return c.json({ success: false, error: "Failed to update quote", details: String(error) }, 500);
-  }
-});
+/**
+ * `PUT /quotes/:id` DOES NOT LIVE HERE — see index.tsx:14270.
+ *
+ * A partial-update handler used to sit here, written for Design Studio to save
+ * a floor plan back onto a quote. It merged exactly two things — `floorPlanData`
+ * and `materials`, and it filed `materials` under `designMaterials` so that a
+ * design list could not clobber the customer-facing line items. Sound reasoning
+ * for the caller it was written for.
+ *
+ * The trouble is that caller no longer exists, and because
+ * `app.route("/", quotesRouter)` runs at index.tsx:679 while index.tsx declares
+ * its own handler at 14270, this narrow one was the one Hono matched for
+ * EVERYBODY.
+ *
+ * WHAT THAT COST
+ *
+ * The only caller of `PUT /quotes/:id` in the whole frontend is the staff quote
+ * editor, `QuoteToContractEditor.tsx:763`, and it sends:
+ *
+ *     { materials, labor, processSteps, materialsSubtotal, laborSubtotal,
+ *       taxRate, taxAmount, totalCost }
+ *
+ * Against the handler that used to be here, `materials` was written to
+ * `designMaterials` rather than to the quote's line items, and `labor`,
+ * `processSteps`, every subtotal, the tax and **the total** were dropped on the
+ * floor. It then returned `{ success: true }`, so the editor showed "Quote
+ * updated successfully" and staff had no way to know the figures had not been
+ * saved. Silent loss of the numbers a customer is about to be billed.
+ *
+ * index.tsx's handler is staff-only and merges the whole body, which is what
+ * that editor needs. If a floor-plan save is ever wired up again it should send
+ * `designMaterials` explicitly rather than `materials`, so it cannot overwrite
+ * the line items — the ambiguity between those two field names is what made
+ * this worth getting wrong in the first place.
+ *
+ * Fourth instance of this shadowing bug found on 2026-09-20. The others hid the
+ * password reset, every application form, and the role that decides which portal
+ * somebody lands in.
+ */
 
 // ── Assign / reassign a customer to an existing quote ─────────────────────────
 quotesRouter.post("/make-server-3eae23a6/quotes/:id/assign", async (c) => {
