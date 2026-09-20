@@ -6516,3 +6516,59 @@ Three bucket initialisers (`deliverables.tsx`, `marketplace.tsx`,
 every isolate. They do not block the response — there is no top-level `await`
 anywhere in the server — so they cost work rather than latency, but they are
 network calls per boot that could run on first use instead.
+
+### Stripe too — the last SDK out of the boot path
+
+The previous pass left Stripe static because both factories were synchronous and
+used `Stripe` as a type as well as `Stripe.createFetchHttpClient()` as a value.
+
+`import Stripe` became **`import type Stripe`** in both files. TypeScript erases
+a type-only import, so every annotation keeps working while the SDK itself
+leaves the boot path; the value is pulled in inside the factory, when a route
+actually needs it.
+
+That made the factories async and rippled exactly as far as expected —
+`makeStripe`, `getStripeByEnv`, `getStripeForCompany`, `getStripe`, and eight
+call sites. All eight were already inside async functions, checked before
+starting rather than discovered by the compiler.
+
+### Final measurements
+
+| | Cold | Warm |
+|---|---|---|
+| `POST /auth/signup` before any of this | **16,289 ms** | 3,100 ms |
+| after deduping + lazy AI SDKs | 7,225 ms | ~4,200 ms |
+| after lazy Stripe as well | **5,578 ms** | ~5,000 ms |
+| `GET /health` on a freshly deployed isolate | **618 ms** | ~500 ms |
+
+Boot overhead — cold minus warm — went from roughly **13 seconds to under one**.
+The `/health` figure is the cleanest reading of it, since that route does almost
+no work of its own.
+
+Warm signup has drifted up across the day's runs (3.1 s → 5.0 s). That is not
+this change: each measurement creates an account, and the after-response CRM
+work scans every customer and invoice, so the store these runs are measured
+against keeps growing. Worth remembering when reading the warm column.
+
+### Stripe still constructs — verified
+
+`POST /investments/stripe-webhook` does:
+
+    const stripe = await getStripe();
+    if (!stripe) return 'Billing not configured…'
+    if (!webhookSecret) return 'Webhook not configured…'
+
+It answered with the **second** message, which means `await getStripe()` handed
+back a real client built through the dynamic import. A failed import would have
+thrown before either check, and a missing key would have produced the first.
+No side effects: it fails before touching anything.
+
+Noted in passing: `STRIPE_WEBHOOK_SECRET` is not set on this project, so that
+webhook cannot verify events. Pre-existing and separate.
+
+### Still there
+
+Three bucket initialisers (`deliverables.tsx`, `marketplace.tsx`,
+`media-library.tsx`) call `listBuckets`/`createBucket` at module scope on every
+isolate. There is no top-level `await` anywhere in the server, so they cost work
+rather than latency — but they are avoidable network calls per boot.
