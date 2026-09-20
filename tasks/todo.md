@@ -6023,3 +6023,43 @@ Also observed: the whole signup submit took about **21 seconds** from click to
 portal (account row created 22:10:26, session at 22:10:47). The
 `/auth/signup` call alone was measured at 8.5s earlier today. A spinner that
 long is its own risk — it is what made the original customer abandon the page.
+
+---
+
+## Self-signups can start the free trial — 2026-09-20
+
+Eric: "the free trial allows all features" → offer it to people who register
+themselves, rather than pointing them at paid plans before they have seen the
+product. His two decisions: **90 days**, and **once per account, ever**.
+
+### Server — `POST /me/trial/start`
+
+Writes the same `feature_grant:<email>` record the invitation flow writes, with
+`level: 'full'`, 90 days, `grantedBy: 'self-service'`.
+
+Two things it deliberately does not do:
+
+- **It takes nothing from the caller.** The length and the level are constants
+  in the file. This route hands out full access to every gated feature, and a
+  client that could name its own `trialMonths` or `level` could grant itself
+  anything. The account is whoever the bearer token says it is, resolved by
+  `intakeActor`, never a field in the body.
+- **It refuses anyone who already has a grant**, expired or not. The existence
+  of the record is the check, not whether it is still running — otherwise a
+  trial could be restarted by waiting for it to lapse, which would make the
+  product free. Invited users hold a grant already, so they are refused too,
+  which is right: they have their trial.
+
+The reply carries the new entitlements so the banner can switch to the countdown
+without a second round trip.
+
+### Banner
+
+The never-had-a-trial case now offers it instead of asking for money — teal
+rather than red, "Start your free 90-day trial / Full access to every feature in
+your portal. No card needed." with a Start free trial button. The expired-trial
+wording is unchanged and, because the new case returns before it, is now only
+ever shown to somebody who really did have one.
+
+App typecheck 324, server typecheck 84, both unchanged. Smoke 19 rendered, 0
+threw.

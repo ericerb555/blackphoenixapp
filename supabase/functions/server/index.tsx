@@ -11687,6 +11687,85 @@ app.get('/make-server-3eae23a6/me/entitlements', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load entitlements.' }, 500); }
 });
 
+/**
+ * Start the free trial yourself.
+ *
+ * Until now a trial could only be granted by an invitation, so somebody who
+ * registered on their own was shown a "choose a plan" banner on a portal they
+ * had not had a chance to evaluate. Eric's decision on 2026-09-20: offer them
+ * the free trial instead, ninety days, once per account ever.
+ *
+ * WHAT THIS ROUTE WILL NOT TAKE FROM THE CALLER
+ *
+ * The length and the level are constants below. Neither is read from the body,
+ * because this route hands out full access to every gated feature and a client
+ * that can name its own `trialMonths` or `level` can grant itself anything. The
+ * account is whoever the token says it is — `intakeActor` resolves it from the
+ * bearer token, never from a field.
+ *
+ * ONCE, EVER
+ *
+ * The existence of a `feature_grant` record is the check, not whether it is
+ * still running. An expired grant still blocks a new one, so a trial cannot be
+ * restarted by waiting for it to lapse — which would make the product free.
+ * Invited users already hold a grant, so this refuses them too, which is
+ * correct: they have their trial.
+ */
+const SELF_TRIAL_MONTHS = 3;          // 90 days.
+const SELF_TRIAL_DAYS = 90;
+
+app.post('/make-server-3eae23a6/me/trial/start', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to start your trial.' }, 401);
+    const email = String(user.email).toLowerCase();
+
+    const existing = await kv.get(`feature_grant:${email}`) as any;
+    if (existing) {
+      return c.json({
+        success: false,
+        alreadyUsed: true,
+        error: 'This account has already had its free trial.',
+      }, 409);
+    }
+
+    const now = new Date().toISOString();
+    const trialEnd = new Date(Date.now() + SELF_TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const grant = {
+      email,
+      portalType: 'customer',
+      level: 'full',
+      trialMonths: SELF_TRIAL_MONTHS,
+      trialStart: now,
+      trialEnd,
+      status: 'active',
+      grantedBy: 'self-service',
+      source: 'self-signup',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await kv.set(`feature_grant:${email}`, grant);
+    console.log(`✅ [Trial] Self-started ${SELF_TRIAL_DAYS}-day trial for ${email}`);
+
+    return c.json({
+      success: true,
+      entitlements: {
+        level: 'full',
+        trialActive: true,
+        needsPlan: false,
+        hasGrant: true,
+        daysLeft: SELF_TRIAL_DAYS,
+        trialEnd,
+        trialMonths: SELF_TRIAL_MONTHS,
+        portalType: 'customer',
+      },
+    });
+  } catch (error: any) {
+    console.error('Start trial error:', error);
+    return c.json({ success: false, error: error.message || 'Unable to start your trial.' }, 500);
+  }
+});
+
 // Exchange a one-time invite token for a set password. The recipient arrives on
 // the onboarding page from the invite link (which carries the token), creates a
 // password, and this endpoint sets it on their pre-provisioned account. No prior

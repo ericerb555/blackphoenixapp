@@ -40,7 +40,10 @@ export function useEntitlements() {
     return () => { active = false; };
   }, [session?.access_token]);
 
-  return { entitlements, loading };
+  // `setEntitlements` is returned so that starting a trial can apply the new
+  // grant immediately, from the answer the server already gave, rather than
+  // re-fetching and leaving the person looking at a stale banner in between.
+  return { entitlements, loading, setEntitlements };
 }
 
 function goToPlans() {
@@ -54,45 +57,94 @@ function goToPlans() {
  *  - a prominent "choose a plan" banner once the trial has ended
  */
 export default function PortalTrialBanner() {
-  const { entitlements, loading } = useEntitlements();
+  const { entitlements, loading, setEntitlements } = useEntitlements();
+  const { session } = useAuth();
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  /**
+   * Start the ninety-day trial for somebody who registered themselves.
+   *
+   * Sends nothing: the length and the level are the server's to decide, and a
+   * route that hands out full access must not take either from the browser.
+   * The reply carries the new entitlements, so the banner switches straight to
+   * the countdown without a round trip.
+   */
+  async function startTrial() {
+    if (starting || !session?.access_token) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      const res = await fetch(`${SERVER}/me/trial/start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok && payload?.success && payload.entitlements) {
+        setEntitlements(payload.entitlements);
+      } else {
+        setStartError(payload?.error || 'Could not start your trial. Please try again.');
+      }
+    } catch {
+      setStartError('Could not reach the server. Please try again.');
+    } finally {
+      setStarting(false);
+    }
+  }
+
   if (loading || !entitlements || entitlements.admin) return null;
+
+  /**
+   * Never had a trial — offer it rather than asking for money.
+   *
+   * The free trial is full access to everything, so somebody who registered on
+   * their own should be invited to take it, not shown a locked banner about
+   * plans before they have seen what the product does. Eric's call on
+   * 2026-09-20. Invited users already hold a grant, so they never reach here.
+   */
+  if (entitlements.needsPlan && !entitlements.hasGrant) {
+    return (
+      <div className="border-b border-teal-500/30 bg-gradient-to-r from-teal-600/15 to-emerald-600/10">
+        <div className="mx-auto flex max-w-7xl flex-col items-start gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-teal-500/20"><ShieldCheck className="h-5 w-5 text-teal-300" /></div>
+            <div>
+              <p className="text-sm font-bold text-teal-200">Start your free 90-day trial</p>
+              <p className="text-xs text-teal-100/80">
+                {startError || 'Full access to every feature in your portal. No card needed.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={startTrial}
+            disabled={starting}
+            className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-sm font-bold text-black transition hover:bg-teal-400 disabled:opacity-60"
+          >
+            {starting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Starting…</> : <>Start free trial <ArrowRight className="h-4 w-4" /></>}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (entitlements.needsPlan) {
     /**
-     * Only somebody who actually had a trial is told one ended.
-     *
-     * This used to say "Your full-access trial has ended" to everyone who
-     * needed a plan — including an account created seconds earlier, which is
-     * what a throwaway registration on the live site walked straight into on
-     * 2026-09-20. Trials come from the invitation flow, which writes a
-     * `feature_grant` record; self-registration writes none and is not meant
-     * to, so a self-signed-up customer has never had a trial to lose. Being
-     * told something expired that you never had reads as a fault in the
-     * product on the very first screen.
-     *
-     * `hasGrant` is the right thing to split on: the server sets it true
-     * whenever a grant record exists, and keeps it true after the trial runs
-     * out — so an expired trial still says so, and only a genuine
-     * never-had-one sees the neutral wording.
+     * A trial that genuinely ended. The never-had-one case returned above, so
+     * `hasGrant` is true by the time execution reaches here and this wording is
+     * only ever shown to somebody who really did have the full-access trial and
+     * has now run out of it.
      */
-    const trialExpired = Boolean(entitlements.hasGrant);
     return (
       <div className="border-b border-red-500/30 bg-gradient-to-r from-red-600/15 to-rose-600/10">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-red-500/20"><Lock className="h-5 w-5 text-red-400" /></div>
             <div>
-              <p className="text-sm font-bold text-red-300">
-                {trialExpired ? 'Your full-access trial has ended' : 'Choose a plan to unlock full access'}
-              </p>
-              <p className="text-xs text-red-200/80">
-                {trialExpired
-                  ? "Choose a plan to keep using all of your portal's features."
-                  : "Your account is active. A plan opens up the rest of your portal's features."}
-              </p>
+              <p className="text-sm font-bold text-red-300">Your full-access trial has ended</p>
+              <p className="text-xs text-red-200/80">Choose a plan to keep using all of your portal's features.</p>
             </div>
           </div>
-          <button onClick={goToPlans} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500">{trialExpired ? 'Choose a plan' : 'See plans'} <ArrowRight className="h-4 w-4" /></button>
+          <button onClick={goToPlans} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500">Choose a plan <ArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
     );
