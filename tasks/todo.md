@@ -6448,3 +6448,71 @@ mounts at index.tsx:771, so the version in `vendorPricing.tsx` — the one just
 fixed — is what serves. The dead copy reads only `vendor_catalog:` and so never
 carried negotiated prices, but it is another instance of the shadowing pattern
 found four times today.
+
+---
+
+## Cold start — 2026-09-20
+
+The first request after a deploy measured **16.3 seconds** against 3.1 s warm.
+Almost all of it was the isolate booting: 129 modules and their npm dependencies
+parsed and instantiated before a handler runs.
+
+### Two causes, both boot-time
+
+**Duplicate dependencies.** 32 files imported `npm:@supabase/supabase-js@2` and
+23 imported `npm:@supabase/supabase-js@2.39.7` — a floating specifier and a pin,
+which resolve to different copies, so the whole SDK was in the bundle twice.
+Hono was split the same way across `npm:hono`, `npm:hono@4` and unversioned
+`npm:hono/cors` subpaths. Now one specifier each across 99 files. Standardised
+UP to `@2` rather than down to the pin on purpose: the majority were already
+there, so nothing loses API surface it depends on.
+
+**Heavy SDKs loaded whether or not they were used.** Fifteen static imports of
+OpenAI and Anthropic across twelve modules meant every cold start — for a health
+check, a sign-up, a cart read — downloaded, parsed and instantiated both. They
+now load when a client is actually constructed, which is the pattern `qrcode`
+and `web-push` already used in index.tsx.
+
+Three needed more than a moved import:
+
+- `kitchen-cabinet-schedule.tsx` built an OpenAI client at module scope and
+  **never referenced it once** in the whole file. Deleted.
+- `plan-builder.tsx` and `quote-generator.tsx` built theirs at module scope with
+  a single use site each, inside async handlers. Both now build on first use and
+  cache.
+
+### Measured, same metric both times
+
+| | Cold | Warm |
+|---|---|---|
+| Before | **16,289 ms** | 3,100 ms |
+| After | **7,225 ms** | ~4,200 ms |
+
+Boot overhead — cold minus warm — went from about **13.2 s to about 3.0 s**.
+`GET /health` on a freshly deployed isolate now answers in **967 ms**, which is
+the clearest reading of pure boot cost.
+
+Both cold numbers are `POST /auth/signup` immediately after a deploy, because
+the 16.3 s baseline was that same call; comparing it to a `/health` figure would
+have flattered the result.
+
+### Verified honestly
+
+Server typecheck 84 before and 84 after, and the two error sets were **diffed**
+against a clean worktree rather than compared by count. Every apparent
+difference turned out to be the same error shifted one line by a removed import.
+No new findings.
+
+### Left deliberately
+
+`investments-kv.tsx` and `stripe-connect.tsx` construct Stripe inside
+**synchronous** factory functions that also use `Stripe.createFetchHttpClient()`
+as a value and `Stripe` as a type. Making those async would ripple through every
+caller for one more deferred SDK — worth doing, but not as a quiet rider on this
+change.
+
+Three bucket initialisers (`deliverables.tsx`, `marketplace.tsx`,
+`media-library.tsx`) still call `listBuckets`/`createBucket` at module scope on
+every isolate. They do not block the response — there is no top-level `await`
+anywhere in the server — so they cost work rather than latency, but they are
+network calls per boot that could run on first use instead.
