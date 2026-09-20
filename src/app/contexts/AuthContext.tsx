@@ -70,94 +70,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [companyContext, setCompanyContext] = useState<CompanySessionContext>(DEFAULT_COMPANY_CONTEXT);
 
-  const loadUserCompanies = async (userId: string): Promise<CompanyMembership[]> => {
-    try {
-      const { data: memberships, error } = await supabase
-        .from('company_members')
-        .select(`
-          company_id,
-          role,
-          can_switch_company,
-          companies:company_id (
-            id,
-            name,
-            is_primary
-          )
-        `)
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      if (error || !memberships) {
-        return [];
-      }
-
-      return memberships.map((m: Record<string, unknown>) => {
-        const company = m.companies as Record<string, unknown> | null;
-        return {
-          company_id: m.company_id as string,
-          company_name: company?.name as string || 'Unknown',
-          is_primary: company?.is_primary as boolean || false,
-          role: m.role as string || 'member',
-          can_switch: m.can_switch_company as boolean || false,
-        };
-      });
-    } catch (error) {
-      console.error('Error loading user companies:', error);
-      return [];
-    }
-  };
-
-  const loadCompanyContext = async (userId: string, ownershipData: boolean) => {
-    const memberships = await loadUserCompanies(userId);
-
-    let activeCompanyId: string | null = null;
-    let activeCompanyData: CompanyContext | null = null;
-    let isCompanyOwner = false;
-    let isCompanyAdmin = false;
-
-    if (memberships.length > 0) {
-      const primaryMembership = memberships.find(m => m.is_primary) || memberships[0];
-      activeCompanyId = primaryMembership.company_id;
-
-      activeCompanyData = {
-        company_id: primaryMembership.company_id,
-        company_name: primaryMembership.company_name,
-        is_primary: primaryMembership.is_primary,
-        role: primaryMembership.role,
-      };
-
-      isCompanyOwner = ownershipData || primaryMembership.role === 'owner';
-      isCompanyAdmin = isCompanyOwner || primaryMembership.role === 'admin';
-    }
-
-    const canSwitch = ownershipData || memberships.some(m => m.can_switch) || memberships.length > 1;
-
-    setCompanyContext({
-      activeCompany: activeCompanyData,
-      availableCompanies: memberships,
-      canSwitchCompany: canSwitch,
-      isCompanyOwner,
-      isCompanyAdmin,
-    });
-  };
+  /**
+   * `loadUserCompanies` and `loadCompanyContext` used to sit here.
+   *
+   * Both were built on `company_members`, joined to `companies`. That table
+   * does not exist in this project — verified against the database on
+   * 2026-09-20 — so the query returned an error, the helper swallowed it and
+   * answered with an empty list, and the context ended up exactly at
+   * DEFAULT_COMPANY_CONTEXT every single time. One more round trip on every
+   * sign-in whose only possible outcome was the value the state already held.
+   *
+   * Removed rather than left dormant: code that queries a table which is not
+   * there is an invitation for somebody to "re-enable" it and wonder why
+   * nothing loads. `companyContext` keeps its default, and `switchCompany`
+   * still reads it and still refuses when there is nothing to switch to —
+   * which is what it did before, only without the wait.
+   *
+   * The screens that genuinely show a company switcher do not use this at all;
+   * they use `useCompany()`, which is a different context with its own source.
+   */
 
   /**
    * Ask the server who this person is.
    *
-   * The queries below look up `user_permissions`, `company_members` and
-   * `user_profiles`. Two of those tables do not exist in this project, so the
-   * whole block throws, the catch runs, and everybody comes out as no-one —
-   * which is why every administrator-only control in the app was hidden from
-   * everybody, the platform owner included.
+   * This is now the ONLY source of authority on the client, and it always
+   * should have been.
+   *
+   * It used to run alongside queries against `user_permissions`,
+   * `company_members` and `user_profiles` — none of which exist in this
+   * project. Those queries came back with nothing, so everybody resolved as
+   * no-one, and every administrator-only control was hidden from everybody
+   * including the platform owner. They have since been removed; this is what
+   * answered the question even then.
    *
    * The server has always known better: it checks an owner allowlist and the
    * token's metadata before it goes near a table, and it is what actually
-   * refuses or permits every write. So this asks it rather than deriving a
-   * second answer from a different set of facts.
+   * refuses or permits every write. Asking it is therefore the real answer
+   * rather than a second opinion derived from a different set of facts.
    *
-   * It only ever grants. A failure leaves the flags as the queries left them,
-   * so a server that cannot be reached cannot lock somebody out of a screen
-   * they could otherwise use.
+   * It only ever grants. A failure leaves the flags where they were, so a
+   * server that cannot be reached cannot lock somebody out of a screen they
+   * could otherwise use.
    */
   const askServerForAuthority = async () => {
     try {
@@ -179,61 +132,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loadUserRole = async (userId: string) => {
-    try {
-      const [roleResult, ownerResult, profileResult] = await Promise.all([
-        supabase
-          .from('user_permissions')
-          .select('*')
-          .eq('user_id', userId)
-          .order('level', { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('company_members')
-          .select('role')
-          .eq('user_id', userId)
-          .eq('role', 'owner')
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from('user_profiles')
-          .select('onboarding_completed, first_login_at')
-          .eq('user_id', userId)
-          .maybeSingle(),
-      ]);
-
-      const ownershipData = !!ownerResult.data;
-      setUserRole(roleResult.data || null);
-      setIsOwner(ownershipData);
-      
-      // Check if user needs onboarding
-      const onboardingCompleted = profileResult.data?.onboarding_completed ?? false;
-      setNeedsOnboarding(!onboardingCompleted);
-      
-      // Track first login if not set
-      if (profileResult.data && !profileResult.data.first_login_at) {
-        await supabase
-          .from('user_profiles')
-          .update({ first_login_at: new Date().toISOString() })
-          .eq('user_id', userId);
-      }
-      
-      await loadCompanyContext(userId, ownershipData);
-    } catch (error) {
-      console.error('Error loading user role:', error);
-      setUserRole(null);
-      setIsOwner(false);
-      setCompanyContext(DEFAULT_COMPANY_CONTEXT);
-    } finally {
-      // In `finally`, and that placement is the whole fix. Two of the tables
-      // queried above do not exist in this project, so the block throws every
-      // time and the catch above is the path that actually runs. Asking the
-      // server from inside the `try` would therefore never have happened at
-      // all — which is exactly how this went unnoticed.
-      await askServerForAuthority();
-    }
+  /**
+   * Who this person is, asked of the one thing that knows.
+   *
+   * WHAT USED TO BE HERE
+   *
+   * Three parallel queries against `user_permissions`, `company_members` and
+   * `user_profiles`, plus a fourth inside `loadCompanyContext`. **None of those
+   * tables exists in this project** — checked against the database on
+   * 2026-09-20, where only `companies` of the four is present. So every sign-in
+   * made four round trips that could only ever come back empty, and then a
+   * fifth to `askServerForAuthority` for the answer that was actually used.
+   *
+   * The comment that used to sit here said as much and moved the server call
+   * into a `finally` so it would run regardless. That fixed the correctness and
+   * left the waste, and sign-in is the one moment where waiting is least
+   * forgivable — it is what somebody sits through before they can do anything
+   * at all.
+   *
+   * WHAT DEPENDED ON THEM: NOTHING
+   *
+   * Checked each before removing it. `isOwner` and `userRole` are set by
+   * `askServerForAuthority`, which reads the server's own allowlist and token
+   * metadata — the same check that actually refuses or permits every write, so
+   * it is the right source rather than a second opinion derived from different
+   * facts. `needsOnboarding` has no consumer anywhere outside this file. The
+   * company context has none either: the screens that show a company switcher
+   * use `useCompany()`, a different context entirely.
+   *
+   * `setNeedsOnboarding(false)` rather than leaving it: with the table missing
+   * the old code read `onboarding_completed` as false and so set this to TRUE
+   * for every user, forever. Nothing consumes it today, but a flag that is
+   * wrong for everybody is not a thing to leave lying around for somebody to
+   * start trusting.
+   */
+  const loadUserRole = async (_userId: string) => {
+    setNeedsOnboarding(false);
+    await askServerForAuthority();
   };
 
   useEffect(() => {
