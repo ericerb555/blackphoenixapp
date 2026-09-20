@@ -5407,3 +5407,74 @@ session looks deliberate and worth leaving alone.
 
 Current behaviour is not a crash: the three calls throw, are caught locally, and
 those sections render empty.
+
+---
+
+## C: every application form has been refused, by the same class of bug — 2026-09-20
+
+### The finding
+
+**Zero applications have ever been stored.** The `applications` key does not
+exist in the KV store at all.
+
+Probed production exactly as the public forms do — anon key, no session — for
+vendor, subcontractor, investor, service_provider and territory. All five came
+back identically:
+
+    404 {"success":false,"error":"No active territory found within 40 miles of
+         your location","waitlistAvailable":true}
+
+### Why
+
+Two handlers answer `POST /applications`:
+
+- `index.tsx:1862` — the real one. Calls `saveApplicationAndCrm`, which stores
+  the application **and creates the CRM record**, then replies "Application
+  received. Our team will review it and follow up soon."
+- `territory-cohorts.tsx:201` — a territory-cohort capacity check that refuses
+  anyone with no active territory inside 40 miles.
+
+`app.route("/make-server-3eae23a6", territoryCohortRouter)` runs at
+**index.tsx:754**, and `app.post('/make-server-3eae23a6/applications', …)` at
+**index.tsx:1862**. The router is registered first, so Hono matches it first and
+the real handler has never run.
+
+This is precisely the bug that broke the password reset: a router mounted early
+in the file shadowing the handler declared later. It is now the second instance,
+which makes it a pattern in this file rather than an accident.
+
+### What makes it total rather than partial
+
+`territory-cohorts.tsx:205` looks for a record under the `territory_` prefix
+with `active` true within 40 miles. **There are zero `territory_` records.** So
+the gate cannot pass for anybody, anywhere, ever — it is not that some
+applicants fall outside a service area, it is that no service area exists. Every
+vendor, subcontractor, investor, service-provider and advertiser who has ever
+filled in one of those forms was told to go away.
+
+### The forms themselves are fine
+
+All seven carry a credential correctly — `authedHeadersOrAnon` or the anon key
+directly — so none has the missing-header defect. `/applications` is correctly
+listed in `PUBLIC_POST_PATHS`, so the auth gate lets them through. The failure is
+entirely the shadowed handler. (AdvertiserApplication submits through
+`GenericApplicationForm`, which posts to the same endpoint, so it shares the
+fate.)
+
+### Proposed fix — NOT APPLIED, needs approval
+
+- [ ] Delete the `/applications` POST from `territory-cohorts.tsx` so the real
+      handler serves, mirroring exactly what was done to `auth.tsx` earlier
+      today. Applications would then save and reach the CRM.
+
+The open question is whether the territory capacity check is wanted at all. It
+cannot work as written with no territories configured, and leaving it in place
+means applications stay blocked until territories are set up. Removing the
+shadow is the smaller change and restores the behaviour the forms promise;
+territory gating can be added back deliberately, inside the real handler, once
+there are territories to gate on.
+
+### Still untested in C
+
+The portal logins themselves — customer, vendor, subcontractor, employee,
+landlord, tenant, condo, investor, advertiser, territory, property manager.
