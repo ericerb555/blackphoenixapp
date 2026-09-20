@@ -286,10 +286,17 @@ stripeConnectRouter.get(`${PREFIX}/stripe/webhook-endpoints`, async (c) => {
       out[envName] = {
         configured: true,
         count: list.data.length,
+        // `livemode` matters more than it looks. Stripe keeps entirely separate
+        // endpoint lists for test and live, and a key only ever sees its own
+        // mode's list. "Send test webhook" from the dashboard in test mode goes
+        // to test-mode endpoints — so an endpoint registered in live mode is
+        // invisible to it, and the delivery lands nowhere with no error
+        // anywhere to explain it.
         endpoints: list.data.map((e: any) => ({
           id: e.id,
           url: e.url,
           status: e.status,
+          livemode: e.livemode,
           enabledEvents: e.enabled_events,
           pointsAtThisProject: String(e.url || "").includes("plzsvzwwcdopnawtiwzm.supabase.co"),
         })),
