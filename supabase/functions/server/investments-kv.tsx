@@ -1467,20 +1467,56 @@ async function setSubActive(record: any, active: boolean, note: string) {
 // STRIPE_WEBHOOK_SECRET. Uses the raw request body for signature verification.
 investmentsRouter.post(`${PREFIX}/investments/stripe-webhook`, async (c) => {
   const stripe = await getStripe();
-  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
   if (!stripe) return c.json({ error: 'Billing not configured (missing STRIPE_SECRET_KEY).' }, 500);
-  if (!webhookSecret) return c.json({ error: 'Webhook not configured (missing STRIPE_WEBHOOK_SECRET).' }, 500);
+
+  /**
+   * Try every signing secret this project has, not just one name.
+   *
+   * Each Stripe endpoint gets its own signing secret, and this project already
+   * has some installed — the `stripe-webhooks` function reads
+   * STRIPE_WEBHOOK_SECRET_SERVICES, _STORE and the bare name, and verifies
+   * against whichever matches. This route read **only** the bare
+   * STRIPE_WEBHOOK_SECRET, so with the secrets stored under the other names it
+   * answered "Webhook not configured" and refused perfectly good events.
+   *
+   * That looked like a missing secret and was not: the secrets were there, this
+   * route was simply looking under one name. Supabase secrets are project-wide,
+   * so every function sees all of them.
+   *
+   * Trying each in turn is how the other function already does it, and it is
+   * safe: a signature only verifies against the secret of the endpoint that
+   * actually sent the event, so an unsigned or forged body still fails against
+   * all of them. _INVESTMENTS is listed first so a dedicated endpoint for this
+   * URL can be added later without touching code.
+   */
+  const candidateSecrets = [
+    Deno.env.get('STRIPE_WEBHOOK_SECRET_INVESTMENTS'),
+    Deno.env.get('STRIPE_WEBHOOK_SECRET'),
+    Deno.env.get('STRIPE_WEBHOOK_SECRET_SERVICES'),
+    Deno.env.get('STRIPE_WEBHOOK_SECRET_STORE'),
+  ].filter((s): s is string => !!s && s.trim().length > 0);
+
+  if (!candidateSecrets.length) {
+    return c.json({ error: 'Webhook not configured (no Stripe signing secret is set).' }, 500);
+  }
 
   const signature = c.req.header('stripe-signature') || '';
   const payload = await c.req.text();
 
-  let event: any;
-  try {
-    // Async variant is required under Deno's Web Crypto.
-    event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret);
-  } catch (err: any) {
-    console.log(`[ai-sub webhook] signature verification failed: ${err?.message || err}`);
-    return c.json({ error: `Webhook signature verification failed: ${err?.message || err}` }, 400);
+  let event: any = null;
+  let lastError = '';
+  for (const secret of candidateSecrets) {
+    try {
+      // Async variant is required under Deno's Web Crypto.
+      event = await stripe.webhooks.constructEventAsync(payload, signature, secret);
+      break;
+    } catch (err: any) {
+      lastError = err?.message || String(err);
+    }
+  }
+  if (!event) {
+    console.log(`[ai-sub webhook] signature verification failed against ${candidateSecrets.length} secret(s): ${lastError}`);
+    return c.json({ error: `Webhook signature verification failed: ${lastError}` }, 400);
   }
 
   try {
