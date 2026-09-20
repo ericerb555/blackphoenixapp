@@ -3739,6 +3739,7 @@ app.post('/make-server-3eae23a6/auth/forgot-password', async (c) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
     const { data: list } = await supabase.auth.admin.listUsers();
     const account = (list?.users || []).find((u: any) => String(u.email || '').toLowerCase() === email);
+    let sendFailed = false;
     if (account) {
       const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -3764,16 +3765,36 @@ app.post('/make-server-3eae23a6/auth/forgot-password', async (c) => {
               </div>`,
             }),
           });
-          if (!res.ok) console.error('[forgot-password] email error:', await res.text());
-        } catch (e) { console.error('[forgot-password] email exception:', e); }
+          if (!res.ok) { sendFailed = true; console.error('[forgot-password] email error:', await res.text()); }
+        } catch (e) { sendFailed = true; console.error('[forgot-password] email exception:', e); }
       } else {
         // Never log the link. It is a working account-takeover token for the
         // next hour, and logs are readable by anyone with dashboard access.
         // Drop the token too — we cannot deliver it, so leaving it live only
         // widens the window without helping anyone.
+        sendFailed = true;
         await kv.del(`pwreset:${token}`);
         console.error('[forgot-password] RESEND_API_KEY is not set — no reset email was sent.');
       }
+    }
+    /**
+     * A send that actually failed is reported as a failure.
+     *
+     * This used to answer `{ success: true }` no matter what, so a customer was
+     * told to check their inbox for a message that had not been sent. That is
+     * the worst possible reply to somebody locked out: it ends the conversation
+     * and starts them waiting. A customer hit exactly this on 2026-09-20.
+     *
+     * It still says nothing about whether the address has an account — the
+     * failure reported here is our mailer's, and it is only reachable once an
+     * account has already been found, which the identical success reply for a
+     * missing account keeps hidden.
+     */
+    if (sendFailed) {
+      return c.json({
+        success: false,
+        error: 'We could not send the reset email just now. Please try again in a moment, or contact us and we will reset it for you.',
+      }, 502);
     }
     return c.json({ success: true });
   } catch (error: any) { console.log('Forgot-password error:', error); return c.json({ success: false, error: error.message || 'Unable to send reset email.' }, 500); }

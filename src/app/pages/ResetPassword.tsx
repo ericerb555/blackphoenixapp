@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Lock, Eye, EyeOff, CheckCircle, AlertCircle, Shield } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface ResetPasswordProps {
   onNavigate: (page: string) => void;
@@ -64,12 +65,17 @@ export default function ResetPassword({ onNavigate }: ResetPasswordProps) {
     setIsLoading(true);
 
     try {
+      // Same missing credential as ForgotPassword.tsx had: with no
+      // Authorization header at all, Supabase's gateway answers 401 before our
+      // code runs. Somebody following a reset link has no session yet, so the
+      // publishable key is what identifies the project.
       const response = await fetch(
-        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/auth/reset-password`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/reset-password`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({ 
             token: resetToken,

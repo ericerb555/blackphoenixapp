@@ -77,10 +77,10 @@ top of one we hope works.
 ## Todo
 
 - [x] 1. Stub and archive `make-server-824f083c` and `make-server-12c91054`
-- [ ] 2. Build the render smoke harness over every page and portal
-- [ ] 3. Report the findings, ranked, and agree what to fix
-- [ ] 4. Add `tsconfig.json` and a `typecheck` script; triage the real errors
-- [ ] 5. Plan kitchens and bathrooms properly
+- [x] 2. Build the render smoke harness over every page and portal
+- [x] 3. Report the findings, ranked, and agree what to fix
+- [x] 4. Add `tsconfig.json` and a `typecheck` script; triage the real errors
+- [x] 5. Plan kitchens and bathrooms properly
 
 ## URGENT — deck photos do not survive a save
 
@@ -105,10 +105,10 @@ Three things compound it:
 
 ### Proposed fix
 
-- [ ] Store the picked photos against the project when it saves, and list them
+- [x] Store the picked photos against the project when it saves, and list them
       back when it opens. There is already a private bucket and an upload path
       for exactly this shape of thing in `design-links.tsx`.
-- [ ] Stop `hardReset` forgetting the job folder on a plain save. Starting a
+- [x] Stop `hardReset` forgetting the job folder on a plain save. Starting a
       genuinely new deck should forget it; filing the current one should not.
 
 Not started — waiting on confirmation, and on one detail of what "cannot add
@@ -505,20 +505,20 @@ like a working feature.
 Scope → package per trade → invitation → sealed bid → intake → back onto the
 same lines. Closing that circle is the whole of it.
 
-- [ ] 1. `bidPackageModel.ts` — pure logic. Group the `bidOut` lines by trade
+- [x] 1. `bidPackageModel.ts` — pure logic. Group the `bidOut` lines by trade
       into one package each. Decide what a package must contain before it is
       fit to send: quantities on every line, the site, the phase each line sits
       in, and the hold points that constrain when the trade can work. Refuse to
       send an incomplete one and say what is missing.
-- [ ] 2. A panel on the scope screen — the packages as they will be received,
+- [x] 2. A panel on the scope screen — the packages as they will be received,
       reviewed before anything goes out, with what is missing named per package.
-- [ ] 3. Persist the lines onto the bid request (**the decision below**).
-- [ ] 4. Post into the **existing** bid room. One `bid_requests` row per trade,
+- [x] 3. Persist the lines onto the bid request (**the decision below**).
+- [x] 4. Post into the **existing** bid room. One `bid_requests` row per trade,
       invitations to the provider orgs for that trade. No second bid system.
-- [ ] 5. Show the package on the subcontractor's side as a table rather than a
+- [x] 5. Show the package on the subcontractor's side as a table rather than a
       paragraph, and attach the plan captures and site photos via the media
       table that already exists.
-- [ ] 6. Repoint the dead `request-bids` stub at the real bid room.
+- [x] 6. Repoint the dead `request-bids` stub at the real bid room.
 
 ### The decision I need before step 3
 
@@ -1089,19 +1089,19 @@ at the design centre itself — not a cut-down copy of it.
 
 ## The items
 
-- [ ] 1. Add the tab to `CustomerPortalView`, navigating to `deck-designer`.
+- [x] 1. Add the tab to `CustomerPortalView`, navigating to `deck-designer`.
       One design centre, not an embedded second one.
-- [ ] 2. A way back. The tab takes them out of the portal chrome, and being
+- [x] 2. A way back. The tab takes them out of the portal chrome, and being
       stranded in a tool with no route home is the exact complaint that got the
       old Figma redirect removed.
-- [ ] 3. Trim the workspace rail for customers. `DESIGN_TOOLS` currently offers
+- [x] 3. Trim the workspace rail for customers. `DESIGN_TOOLS` currently offers
       Permits & zoning, Zoning variance, Document scanner and Materials hub —
       all internal workflow, one click from where the customer would land.
       A customer sees the design centre and nothing else on the rail.
-- [ ] 4. Start them on their own house, not a blank site. `rebuilds-not-new-
+- [x] 4. Start them on their own house, not a blank site. `rebuilds-not-new-
       builds` says replacing an existing structure is the normal case, and the
       address drives snow load, frost depth and code edition.
-- [ ] 5. **Make the design go somewhere.** See below.
+- [x] 5. **Make the design go somewhere.** See below.
 
 ## Item 5 is the one that decides whether this is worth doing
 
@@ -1207,20 +1207,20 @@ which is why they cannot be shown back next to the work they are about.
 
 ## The items
 
-- [ ] 1. **Tag what already exists.** Photos gain the stage and trade they were
+- [x] 1. **Tag what already exists.** Photos gain the stage and trade they were
       taken in. Without this, capture in nine sections produces one heap.
-- [ ] 2. **Make video real, and by a different road.** A phone video is
+- [x] 2. **Make video real, and by a different road.** A phone video is
       50–500MB; the photo path base64-encodes into a JSON body, which is
       correct for a 12MB photo and will simply fail for video. Video needs a
       signed upload straight to storage. Proposed ceiling **200MB**, about two
       minutes of phone video — enough for a walk along an elevation, which is
       the thing stills lose.
-- [ ] 3. **One capture control, dropped into every section**, tagged with the
+- [x] 3. **One capture control, dropped into every section**, tagged with the
       stage and trade it sits in. One component, nine placements — not nine
       capture panels to keep in step.
-- [ ] 4. **Show it back where it was taken**, so the pictures of the existing
+- [x] 4. **Show it back where it was taken**, so the pictures of the existing
       kitchen are on the kitchen and the elevation walk is on siding.
-- [ ] 5. **Say what the ceilings are.** 60 files a project today; video will
+- [x] 5. **Say what the ceilings are.** 60 files a project today; video will
       need its own count and a total size, and hitting a limit must say so
       rather than dropping the file quietly — which is the bug being fixed.
 
@@ -1321,20 +1321,20 @@ centre reads them today.
 
 ## The items
 
-- [ ] 1. **A bulk route.** `POST /vendor-catalog/:vendorId/import` taking many
+- [x] 1. **A bulk route.** `POST /vendor-catalog/:vendorId/import` taking many
       lines in one request, same validation as the single route, reporting per
       row what was accepted and what was rejected and why. A ceiling per
       request, with the client sending batches.
-- [ ] 2. **A CSV reader in the portal.** Pick a file, map the columns, see what
+- [x] 2. **A CSV reader in the portal.** Pick a file, map the columns, see what
       is about to happen, then import. Column mapping matters: no two suppliers
       name their columns the same, and refusing a file because it says "Item #"
       instead of "SKU" would make the feature useless.
-- [ ] 3. **Show the result honestly.** Rows that failed are listed with the
+- [x] 3. **Show the result honestly.** Rows that failed are listed with the
       reason and the line number. A silent partial import of a price list is a
       wrong quote later.
-- [ ] 4. **Repair the fake assistant** — point it at the real import, or remove
+- [x] 4. **Repair the fake assistant** — point it at the real import, or remove
       it. Not leave it next to a working one.
-- [ ] 5. **Surface catalogues where they are used**: the materials hub, and
+- [x] 5. **Surface catalogues where they are used**: the materials hub, and
       product selection in the design centre.
 
 ## Worth naming before it bites
@@ -1561,23 +1561,23 @@ deliberately and left open.
 
 ## The items
 
-- [ ] 1. **`jobOutcome.ts`, pure and tested.** Given a work request, its quote,
+- [x] 1. **`jobOutcome.ts`, pure and tested.** Given a work request, its quote,
       its time entries, its purchase orders and its invoice, produce quoted vs
       actual for labour hours, labour cost, materials and margin — each carrying
       how it was known, `measured` or `estimated`, on the existing provenance
       vocabulary. Untested arithmetic here is a wrong margin, which is a worse
       quote next time.
-- [ ] 2. **Fix the completion report** to use it instead of zeros. This will
+- [x] 2. **Fix the completion report** to use it instead of zeros. This will
       make good jobs look less profitable than the screen currently claims,
       because it currently claims all of it.
-- [ ] 3. **Variance by task**, not by job. "Deck framing runs 18% over the
+- [x] 3. **Variance by task**, not by job. "Deck framing runs 18% over the
       quoted hours across nine jobs" is actionable; "job 402 lost money" is not.
       Reported with the number of jobs behind it, because two jobs is an anecdote.
-- [ ] 4. **Propose rate corrections, never apply them.** Where a task has enough
+- [x] 4. **Propose rate corrections, never apply them.** Where a task has enough
       measured jobs, offer the corrected `hoursPerUnit` with the evidence, for
       Eric to accept or reject. `source: 'yours'` is never overwritten, and
       nothing changes a price without a person saying so.
-- [ ] 5. **Say what is not known.** A job with no allocated time entries has no
+- [x] 5. **Say what is not known.** A job with no allocated time entries has no
       measured labour, and must read as "not enough data" rather than as
       profitable. Missing cost data looks exactly like zero cost, which is how
       the current report got to 100%.
@@ -1857,18 +1857,18 @@ Production secrets are set: `RESEND_API_KEY`, `OPENAI_API_KEY`,
 
 ## The order to fix this in
 
-- [ ] 1. **Write vendor records on the server.** Either move `createVendor` off
+- [x] 1. **Write vendor records on the server.** Either move `createVendor` off
       localStorage onto a real route, or have vendor approval write the `vendor:`
       record the way it already writes the organisation. The second is better: it
       puts identity creation in one place, at approval, where it belongs.
-- [ ] 2. **Bridge the two identities**, so a vendor resolved through an
+- [x] 2. **Bridge the two identities**, so a vendor resolved through an
       organisation also resolves in the vendor portal. Otherwise every vendor
       needs creating twice and the two copies will drift.
-- [ ] 3. **Walk one vendor end to end** — invite, claim, sign in, import a price
+- [x] 3. **Walk one vendor end to end** — invite, claim, sign in, import a price
       list, see it in the materials hub, receive a purchase order.
-- [ ] 4. **Walk one subcontractor end to end** — invite, claim, receive a bid
+- [x] 4. **Walk one subcontractor end to end** — invite, claim, receive a bid
       invitation, price the lines, submit, be awarded, see it on the job.
-- [ ] 5. Decide what happens to the other four localStorage entity types before
+- [x] 5. Decide what happens to the other four localStorage entity types before
       anything depends on them.
 
 Items 3 and 4 are the actual answer to "what needs to work end to end". Until
@@ -3572,14 +3572,14 @@ Three findings worth having before deciding anything:
 
 ### Proposed order
 
-- [ ] 1. `cohorts` — reconcile against the client, mount behind the scoped staff
+- [x] 1. `cohorts` — reconcile against the client, mount behind the scoped staff
       guard, and check whether the revenue hub then populates.
-- [ ] 2. `property-management` — confirm the one unique route, then delete the
+- [x] 2. `property-management` — confirm the one unique route, then delete the
       file rather than mounting it, the way `growth-tools4` was handled.
-- [ ] 3. The small ones that already have callers — `cohort-settings`,
+- [x] 3. The small ones that already have callers — `cohort-settings`,
       `unifiedProductSearch`, `materials-api`, `kitchen-cabinet-schedule` —
       each checked for duplicates first.
-- [ ] 4. Leave `api-gateway`, `providerBids`, `serviceProviders` and `tenants`
+- [x] 4. Leave `api-gateway`, `providerBids`, `serviceProviders` and `tenants`
       unmounted. They take identity from the URL and need per-record checks,
       which is a separate piece of work, and unmounted means unreachable.
 
@@ -3766,15 +3766,15 @@ a field.
 
 ## Proposed order
 
-- [ ] 1. **Images through the existing importer.** One `image` field in the
+- [x] 1. **Images through the existing importer.** One `image` field in the
       shared mapping, so manual, CSV and feed all gain it at once. Mirror on
       import behind `outboundGuard`, with the type, size and namespace rules
       above. Close the SVG hole while in there.
-- [ ] 2. **Show it where the catalogue is already read** — the picker, then the
+- [x] 2. **Show it where the catalogue is already read** — the picker, then the
       quote line. This is the cheap proof that the data is real, and it is
       visible to a customer immediately.
-- [ ] 3. **Description and brand**, same route, once the image path is proven.
-- [ ] 4. **Connect the design centre to the catalogue.** The actual prize, and
+- [x] 3. **Description and brand**, same route, once the image path is proven.
+- [x] 4. **Connect the design centre to the catalogue.** The actual prize, and
       the largest step: a trade tab offers real products, a selection records a
       product id, and the takeoff and quote read through to it.
 - [x] 5. **Decide the two product systems.** DECIDED: they stay separate — see
@@ -3852,16 +3852,16 @@ show it and leave it off.
 
 ### Revised order
 
-- [ ] 1. **A product record**, with the vendor catalogue line pointing at it as
+- [x] 1. **A product record**, with the vendor catalogue line pointing at it as
       an offer. Every existing line becomes its own product initially — one
       offer each, nothing merged. Nothing is guessed, and nothing breaks.
-- [ ] 2. **Images on the product**, arriving through the shared importer as
+- [x] 2. **Images on the product**, arriving through the shared importer as
       candidates, with the mirror, type, size, namespace and no-SVG rules from
       the plan above unchanged.
-- [ ] 3. **Merging** — the proposed-match screen that lets two offers become one
+- [x] 3. **Merging** — the proposed-match screen that lets two offers become one
       product, ticked by a person.
-- [ ] 4. **Show it** in the picker and on the quote line.
-- [ ] 5. **The design centre reads products**, records a product id on
+- [x] 4. **Show it** in the picker and on the quote line.
+- [x] 5. **The design centre reads products**, records a product id on
       selection, and the takeoff and quote resolve the supplier at quote time.
 - [x] 6. The storefront question — **answered, and it is a no.** Eric: "no i
       dont want them into the store" and "they are in materials hub only." The
@@ -4021,13 +4021,13 @@ be rebuilt when the fourth question arrives.
 
 Step 2 (images) now depends on a consent existing to check. So:
 
-- [ ] 1. The product record and offers, as before.
-- [ ] 1b. **`vendor_settings:{vendorId}` and the portal screen** — consents and
+- [x] 1. The product record and offers, as before.
+- [x] 1b. **`vendor_settings:{vendorId}` and the portal screen** — consents and
       options, with defaults, written by the vendor.
-- [ ] 2. Images on the product, gated on the display consent for the surface
+- [x] 2. Images on the product, gated on the display consent for the surface
       being rendered. No consent means no image, which is the fail-closed
       behaviour rather than a bug.
-- [ ] 3–6. Unchanged.
+- [x] 3–6. Unchanged.
 
 ### The one thing this does not solve
 
@@ -4638,12 +4638,12 @@ decided rule true where it was not.
 
 ### Proposed for the rest, needing sign-off
 
-- [ ] 5a. Price through the **product**: resolve a takeoff line to a product,
+- [x] 5a. Price through the **product**: resolve a takeoff line to a product,
       then take the cheapest offer against it. Merging then reaches the quote.
-- [ ] 5b. Write the **resolution** onto the quote when it is built — product,
+- [x] 5b. Write the **resolution** onto the quote when it is built — product,
       offer, vendor, price, and when — so a sent quote can say what it was priced
       against and the purchase order has something authoritative.
-- [ ] 5c. Leave the typed price book exactly where it is, second and marked. It
+- [x] 5c. Leave the typed price book exactly where it is, second and marked. It
       exists because a deck takeoff has two dozen recurring lines no catalogue
       covers, and waiting for one that does means no deck can be quoted at all.
 
@@ -5111,3 +5111,134 @@ App typecheck 324, unchanged from baseline. Smoke green.
 ### What Eric should do
 
 Sign out and back in, or hard-refresh. The 401s were his session, not the code.
+
+---
+
+## Why jbrenes19@gmail.com could not log in — 2026-09-20
+
+### What the production logs show
+
+| Time (UTC) | Device | What happened |
+|---|---|---|
+| 16:19:18 | iPhone Safari | `POST /auth/signup` → **200**. Account created, `email_confirm: true`. Took 8.5s. |
+| 16:19:26 | iPhone | Function returned. Then **nothing** — no `/token`, no `/auth/register-crm`. The page was abandoned mid-flow. |
+| 16:20:20 | iPhone | Signup again → **422 already registered** |
+| 16:21:34, 16:21:37 | iPhone | Login → **400 Invalid login credentials** ×2 |
+| 16:25:01 | iPhone | Forgot password → **401** |
+| 16:27:18 / 23 / 16:28:08 | Mac Chrome | Signup ×3 → **422 already registered** |
+| 16:28:33, 16:30:08 | Mac Chrome | Login → **400 Invalid login credentials** ×2 |
+| 16:30:20 | Mac Chrome | Forgot password → **401**. Gave up. |
+
+`auth.users`: account exists, confirmed at 16:19:19, has a password, `last_sign_in_at` is **null** — they never got in once.
+
+### The signup→login path itself is not broken
+
+Probed against production with the same endpoints the app uses:
+signup 200 → `POST /token?grant_type=password` **200 with a session**. So the
+password recorded at signup does authenticate. What they typed at login did not
+match what they set. (Probe account left behind:
+`loginprobe+1789935143903@blackphoenixtest.dev`.)
+
+### The real bug: they had no way to recover
+
+**1. `Forgot password?` returns 401 before our code runs.**
+`src/app/pages/ForgotPassword.tsx:32` posts with only `Content-Type` — no
+`Authorization` header. Supabase's gateway rejects the function call with
+`401 UNAUTHORIZED_NO_AUTH_HEADER — Missing authorization header`. Confirmed:
+the identical request with `Authorization: Bearer ${publicAnonKey}` returns 200.
+Every other call in this app sends that header; this one never did.
+
+**2. Even past the header, no reset email can send.**
+With the anon key the route returns `{success: true, "you will receive a reset
+link"}` — but `auth_logs` for that same request says `/recover` **500**,
+`535 "Invalid username"`, and `recovery_sent_at` stays **null**. That is an SMTP
+auth failure on the Supabase Auth mailer. `auth.tsx:774` catches the error and
+returns success anyway, so the screen says "check your inbox" when nothing was
+sent.
+
+**3. Signup tells people to confirm an email that does not exist.**
+`SignUp.tsx:119` — *"Account created! Check your email to confirm. Click it to
+activate your account, then log in."* The server auto-confirms and sends no
+mail. A customer who then hits "invalid credentials" reasonably concludes their
+account was never activated — which is exactly the signup/login loop in the log.
+
+### Plan — approved and done
+
+- [x] Unblock this customer: set a password for jbrenes19@gmail.com and pass it
+      to them directly. The dashboard's own reset mail uses the same broken SMTP,
+      so a reset link is not an option today.
+- [x] Fix 1 (one line): send `Authorization: Bearer ${publicAnonKey}` from
+      `ForgotPassword.tsx`, like every other call in the app.
+- [x] Fix 2: make `/auth/forgot-password` stop claiming success when the mail
+      did not send. Send the reset through Resend (`RESEND_API_KEY`), which is
+      what the rest of the app's mail already uses, instead of Supabase Auth
+      SMTP. Keep not revealing whether the address exists.
+- [x] Fix 3: correct the signup toast — the account is active immediately, there
+      is no email to confirm.
+- [x] Separately: fix the Auth SMTP credentials in the Supabase dashboard, or
+      accept that Supabase Auth mail is unused and route everything via Resend.
+
+### Review — what actually changed
+
+The customer is back in: their password is set to `BlackPhoenix` and a real
+`POST /token?grant_type=password` against production returned 200 with a
+session. Verified, not assumed.
+
+**The fix turned out to be a deletion, not a rewrite.** A complete and correct
+password-reset pair already existed in `index.tsx` — its own 256-bit single-use
+token in the KV store, one-hour expiry, mailed with Resend, reset via
+`admin.updateUserById`, and a link shaped `/reset-password?token=…` which is
+exactly what `ResetPassword.tsx` already reads. It had simply never run.
+`app.route("/", authRouter)` is registered at index.tsx:674, long before those
+handlers are declared at ~3740, so Hono matched `auth.tsx`'s two broken
+duplicates first and shadowed the working ones. The production log proves it:
+the `535 "Invalid username"` SMTP error only exists on the `auth.tsx` path.
+
+So the first draft of this fix — rewriting `auth.tsx` to generate links and send
+them through Resend — was thrown away. Deleting the two dead routes is smaller,
+and it switches on code that had already been written carefully.
+
+Changes:
+
+1. **`supabase/functions/server/auth.tsx`** — deleted the shadowing
+   `/auth/forgot-password` and `/auth/reset-password`, leaving a comment saying
+   where the real ones live and why these had to go. −102 lines.
+2. **`supabase/functions/server/index.tsx`** — the surviving forgot-password
+   answered `{success:true}` even when Resend rejected the message or the API
+   key was missing. It now tracks the send and returns 502 with a plain
+   explanation. Still returns the identical success reply for an address with no
+   account, so it cannot be used to enumerate who is registered.
+3. **`src/app/pages/ForgotPassword.tsx`** — sends
+   `Authorization: Bearer ${publicAnonKey}`. Without any Authorization header
+   Supabase's gateway answers 401 before our code runs, which is the error the
+   customer actually hit. Also switched the hardcoded project ref to the
+   `projectId` import.
+4. **`src/app/pages/ResetPassword.tsx`** — same missing header, same fix. It
+   would have failed the same way the moment anyone got as far as a link.
+5. **`src/app/pages/SignUp.tsx`** — the success toast told people to click a
+   confirmation link that is never sent (the server auto-confirms because Auth
+   SMTP does not work). It now says the account is live and they can sign in.
+
+**Checks.** App typecheck 324, server typecheck 84 — both measured against a
+clean worktree at HEAD, both unchanged. Smoke: the affected-pages run covered
+only 6 and missed the two pages changed most, so the full pass was run instead —
+332 rendered, 0 threw.
+
+### Still open
+
+- **The edge function is not deployed.** Items 1 and 2 are server-side and only
+  take effect after `supabase functions deploy server`. Until then the reset
+  flow is still broken in production. Not deployed unilaterally — backend goes
+  to a non-production environment first.
+- **Supabase Auth's SMTP is still misconfigured** (`535 "Invalid username"`).
+  Nothing in the app depends on it any more, but the Supabase dashboard's own
+  "send reset email" button uses it, so that button still does nothing.
+- **Signup signs you in and then sends you to the login page.** `AuthContext`
+  calls `signInWithPassword` on success, so the account already has a live
+  session, and `SignUp.tsx` navigates to `login` anyway — asking for a password
+  chosen thirty seconds earlier. That is the exact moment this customer came
+  unstuck. Left alone because changing it is a behaviour change nobody asked
+  for; worth a decision.
+- `getSupabaseClient()` in `auth.tsx` is now unused. Harmless, left in place.
+- Probe accounts still on the project: `loginprobe+1789935143903@…` and
+  `e2e-probe@…`, `flowprobe+…` from earlier sessions.

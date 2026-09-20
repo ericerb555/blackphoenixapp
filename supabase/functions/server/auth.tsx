@@ -753,80 +753,32 @@ authRouter.delete("/make-server-3eae23a6/admin/users/:userId", async (c) => {
   }
 });
 
-// Password Reset: Request reset email
-authRouter.post("/make-server-3eae23a6/auth/forgot-password", async (c) => {
-  try {
-    const { email } = await c.req.json();
-
-    if (!email) {
-      return c.json({ error: "Email is required" }, 400);
-    }
-
-    const supabase = getSupabaseClient();
-
-    // Send password reset email
-    // Note: In production, you would configure email templates in Supabase
-    // Since email server isn't configured, we'll generate a reset token instead
-    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${Deno.env.get("APP_URL") || "http://localhost:5173"}/reset-password`,
-    });
-
-    if (error) {
-      console.error("Password reset request error:", error);
-      // Don't reveal if email exists for security
-      return c.json({ 
-        success: true, 
-        message: "If an account exists with this email, you will receive a password reset link." 
-      });
-    }
-
-    console.log(`✅ Password reset email requested for: ${email}`);
-
-    return c.json({
-      success: true,
-      message: "Password reset email sent successfully",
-    });
-  } catch (error) {
-    console.error("Forgot password error:", error);
-    return c.json({ error: "Failed to process password reset request" }, 500);
-  }
-});
-
-// Password Reset: Verify token and update password
-authRouter.post("/make-server-3eae23a6/auth/reset-password", async (c) => {
-  try {
-    const { token, password } = await c.req.json();
-
-    if (!token || !password) {
-      return c.json({ error: "Token and password are required" }, 400);
-    }
-
-    if (password.length < 8) {
-      return c.json({ error: "Password must be at least 8 characters" }, 400);
-    }
-
-    const supabase = getSupabaseClient();
-
-    // Update the user's password using the reset token
-    const { data, error } = await supabase.auth.updateUser({
-      password: password,
-    });
-
-    if (error) {
-      console.error("Password reset error:", error);
-      return c.json({ error: "Invalid or expired reset token" }, 400);
-    }
-
-    console.log(`✅ Password reset successfully for user: ${data.user?.email}`);
-
-    return c.json({
-      success: true,
-      message: "Password has been reset successfully",
-    });
-  } catch (error) {
-    console.error("Reset password error:", error);
-    return c.json({ error: "Failed to reset password" }, 500);
-  }
-});
+/**
+ * PASSWORD RESET LIVES IN index.tsx, NOT HERE.
+ *
+ * Two dead routes used to sit at this spot — `/auth/forgot-password` and
+ * `/auth/reset-password` — and because `app.route("/", authRouter)` is
+ * registered long before index.tsx declares its own handlers, these were the
+ * ones Hono actually matched. They shadowed a complete, working implementation
+ * with two that could not work:
+ *
+ *   forgot-password called `resetPasswordForEmail`, which sends over Supabase
+ *   Auth's own SMTP. That SMTP answers `535 "Invalid username"`, so no mail was
+ *   ever sent — and the error branch returned `success: true` regardless, so the
+ *   screen said "check your inbox" every single time.
+ *
+ *   reset-password called `supabase.auth.updateUser()` on an anonymous client
+ *   with no session, and never looked at the token it was given. It could not
+ *   have changed anybody's password under any circumstances.
+ *
+ * On 2026-09-20 a customer locked out of a brand-new account hit both of these
+ * and had no way back in. See tasks/todo.md.
+ *
+ * The real pair in index.tsx mints its own single-use token, stores it in the KV
+ * store with a one-hour expiry, mails it with Resend — the key the rest of this
+ * application sends with — and resets via `admin.updateUserById`. Its link shape
+ * is `/reset-password?token=…`, which is exactly what ResetPassword.tsx reads.
+ * Deleting these two is what lets that run.
+ */
 
 export default authRouter;

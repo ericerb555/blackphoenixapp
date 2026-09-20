@@ -121,8 +121,23 @@ export default function SignUp({ onNavigate }: SignUpProps) {
         });
       } else {
         console.log('💾 User profile saved to localStorage:', userProfile);
-        toast.success('Account created! Check your email to confirm.', {
-          description: 'We sent a confirmation link to ' + formData.email + '. Click it to activate your account, then log in.',
+        /**
+         * This used to say "Check your email to confirm — click the link to
+         * activate your account, then log in." No such email is ever sent:
+         * registration goes through /auth/signup, which creates the account
+         * server-side with `email_confirm: true` precisely because Supabase
+         * Auth's SMTP does not work here. The account is live the moment this
+         * toast appears.
+         *
+         * The wording was not a harmless leftover. A customer whose next login
+         * attempt failed on 2026-09-20 had been told their account still needed
+         * activating, so the reasonable conclusion was that the link had not
+         * arrived — and they spent ten minutes alternating between signing up
+         * again and trying to log in. Telling somebody to wait for a message
+         * that does not exist is worse than telling them nothing.
+         */
+        toast.success('Account created — you can sign in now.', {
+          description: `Use ${formData.email} and the password you just chose. There is no confirmation email to wait for.`,
           duration: 8000,
         });
       }

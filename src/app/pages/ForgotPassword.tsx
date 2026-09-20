@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Mail, ArrowLeft, ArrowRight, Shield, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface ForgotPasswordProps {
   onNavigate: (page: string) => void;
@@ -29,12 +30,29 @@ export default function ForgotPassword({ onNavigate }: ForgotPasswordProps) {
     setIsLoading(true);
 
     try {
+      /**
+       * The publishable key is not optional here.
+       *
+       * Supabase's gateway refuses a function call that carries no
+       * Authorization header at all — `401 UNAUTHORIZED_NO_AUTH_HEADER,
+       * "Missing authorization header"` — before a line of our own code runs.
+       * This page sent only Content-Type, so "Forgot password?" answered 401
+       * for everybody, and the one screen a locked-out customer depends on was
+       * the one screen that could never work. A customer hit it twice on
+       * 2026-09-20 and gave up.
+       *
+       * Somebody resetting a password has no session by definition, so the
+       * publishable key is the right credential: it says which project is being
+       * called, nothing about who is calling. Every other fetch in this
+       * application already sends it.
+       */
       const response = await fetch(
-        `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/auth/forgot-password`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/forgot-password`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({ email }),
         }
