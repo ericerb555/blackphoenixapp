@@ -6160,3 +6160,62 @@ noticing, and a chunk that is genuinely missing cannot spin their browser.
 
 The reload happens in place, on the same path, so somebody is returned to the
 screen they were on rather than the landing page.
+
+---
+
+## The 21-second signup — 2026-09-20
+
+### Where the time went
+
+`POST /auth/signup` measured **9.6 seconds** on the live site. `createUser`
+itself finishes in about half a second; the rest was work that had nothing to do
+with whether the account exists:
+
+- `ensureCrmCustomer` reads **every** customer with a prefix scan to dedupe,
+  then `linkInvoicesByEmail` scans **every** invoice. Two unbounded scans that
+  get slower as the business grows, both awaited before the route replied.
+- `AuthContext.signUp` then posted to `/auth/register-crm` — the same
+  `ensureCrmCustomer`, a second full pass over customers and invoices — **and
+  awaited it**. The comment immediately above it read "never block signup if
+  this fails". It blocked signup every time.
+
+By the time any of that runs the account is created, confirmed, and has its
+profile and role. Everybody signing up was watching a spinner for bookkeeping.
+
+### The fix
+
+Server: the CRM write now runs after the reply, through a small `afterResponse`
+helper that uses `EdgeRuntime.waitUntil` where it exists. A bare fire-and-forget
+promise can be torn down with the isolate — acceptable for a notification, not
+for a customer record.
+
+Client: `/auth/register-crm` is still sent, because it carries the phone number
+and account type `/auth/signup` never receives, but it is no longer awaited.
+
+### Measured after
+
+| | Before | After |
+|---|---|---|
+| `POST /auth/signup` (warm) | 9.6 s | **3.1–3.9 s** |
+| `POST /token` sign-in | — | 0.6–0.7 s |
+| Server time to a usable session | ~10 s | **~3.7–4.7 s** |
+| Click → portal, in a browser | ~21 s | **13.7 s** |
+
+The CRM records still land: all three timing probes had both their `customer:`
+record and their `user_profile:` afterwards, so nothing was lost by moving the
+work off the response path.
+
+### What is still slow, and why it is a separate job
+
+**~9 of the remaining 13.7 seconds are client-side** — the lazy chunk for the
+customer portal, the portal's own data fetches, and the `onAuthStateChange`
+work in `AuthContext`. That last one is worth a look on its own:
+`loadUserRole` queries `user_permissions`, `company_members` and `user_profiles`
+on every sign-in, and the comment in that file already records that two of those
+tables do not exist in this project. Three failing round trips on every sign-in.
+
+**Cold start adds about twelve seconds.** The first call after a deploy measured
+16.3 s against 3.1 s warm. That is the edge function booting, not this code, and
+it is what an unlucky first visitor of the day pays.
+
+Probe accounts and their CRM records deleted; 7 accounts remain.
