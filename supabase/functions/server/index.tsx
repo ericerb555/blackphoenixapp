@@ -11021,7 +11021,27 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
   try {
     const user = await intakeActor(c);
     if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
-    const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager']);
+    // `tenant` and `condo_association` belong here as much as the rest.
+    //
+    // Any role missing from this set is discarded and the person falls through
+    // to `customer` at the end of this handler — and Login.tsx assigns whatever
+    // comes back straight onto `profile.accountType`, which chooses the portal.
+    // Both of those roles have a portal of their own (`tenant-portal` and
+    // `condo-association-portal`, both in `portalRoutes` and both in pageMap),
+    // and both are handed out by the invite flow: `OWNER_PROVISION_PORTALS`
+    // includes `tenant`, and a landlord inviting a tenant sets exactly this
+    // role in `app_metadata`. Leaving them out meant an invited tenant and a
+    // condo association signed in successfully and landed in the customer
+    // portal, with no way to reach the screens built for them.
+    //
+    // Found by signing in as each of the twelve portal roles in turn against
+    // production on 2026-09-20; these two were the only ones that came back as
+    // something other than themselves.
+    //
+    // Widening this set grants nothing: the value is read from `app_metadata`,
+    // which the browser cannot write, and neither role appears in
+    // `INTAKE_ADMIN_ROLES`, so neither carries any administrative authority.
+    const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager', 'condo_association', 'tenant']);
     const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
     if (!role) {

@@ -5635,3 +5635,74 @@ was fixed.
       dead in auth.tsx; served `/media/upload` does not validate type or size
 - [ ] Portal *screens* beyond routing — each portal's own data loading is still
       untested
+
+---
+
+## The portal screens, tested as each role — 2026-09-20
+
+Signed in as all twelve portal roles in turn against production, one probe
+account per role with the role set in `app_metadata` exactly as the invite flow
+sets it, and called every endpoint that portal loads.
+
+### Routing is sound
+
+All fourteen entries in Login.tsx's `portalRoutes` resolve to a real key in
+`pageMap` (332 routes). `login`, `signup` and `forgot-password` are handled
+directly in App.tsx before pageMap, so they are fine too.
+
+### One real fault, now fixed
+
+`tenant` and `condo_association` were missing from the `allowedRoles` set in
+`/auth/me`. Any role not in that set is discarded and the person falls through
+to `customer` — so an invited tenant or condo association signed in
+successfully and landed in the **customer portal**, with no route to the screens
+built for them. Both have a portal (`tenant-portal`, `condo-association-portal`),
+both are in `portalRoutes`, both are in pageMap, and `tenant` is in
+`OWNER_PROVISION_PORTALS` — a landlord inviting a tenant sets exactly that role.
+Everything existed except the one line that lets the role through.
+
+Widening the set grants nothing: the value comes from `app_metadata`, which the
+browser cannot write, and neither role is in `INTAKE_ADMIN_ROLES`.
+
+After the fix, deployed and re-run: **all twelve roles resolve to themselves.**
+
+### Every portal's data endpoints answer for its own role
+
+| Portal | Result |
+|---|---|
+| customer | `/quotes`, `/invoices`, `/contracts`, `/subscriptions`, `/giveaways/entries` — all 200 |
+| investor | `/investments/opportunities` 200 |
+| employee | `/time-tracking/entries` 200 |
+| property manager | properties, work-requests, payments — all 200 |
+| condo manager | units, work-requests, financials — all 200 |
+| landlord | properties, tenants, work-requests, financials, stripe/status — all 200 |
+| tenant | leases, rent, work-requests — all 200 |
+| territory owner | customers, subcontractors, revenue, settings, subscriptions — all 200 |
+| advertiser, vendor, condo association | no direct server calls of their own |
+
+### Three "failures" that were my test being wrong, not the app
+
+Worth writing down so they are not re-investigated:
+
+- `/investments` and `/time-tracking` are **base URLs** the components append to
+  (`/investments/opportunities`, `/time-tracking/entries`). The bare paths have
+  no handler, correctly.
+- `/subcontractor/bid-attachments` exists as POST and DELETE only. There is no
+  GET, and the portal never issues one.
+- `/time-tracking/employees` answers 403 to an employee. That is right — it
+  lists all employees and is an administrator route.
+
+### Cleanup
+
+All twelve probe accounts deleted, along with their orphaned KV profile and
+permissions records.
+
+### Still open
+
+- Advertiser, vendor and condo-association portals make no direct server calls,
+  so their data must come from child components. Not yet traced.
+- B — `/api/products` and `/product-ads` are empty; publishing them would show
+  nothing.
+- F — Auth SMTP (dashboard's own reset button only), signup routes you to the
+  login page after signing you in, served `/media/upload` validates neither file
+  type nor size.
