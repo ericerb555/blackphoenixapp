@@ -9,6 +9,7 @@ import { X, Tag, Mail, ArrowRight, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
+import { useAuth } from '../contexts/AuthContext';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -82,10 +83,28 @@ export default function ExitIntentPopup() {
   const [captured, setCaptured] = useState(false);
   const [config, setConfig] = useState<ExitIntentConfig>(DEFAULT_CONFIG);
 
+  const { user } = useAuth();
+
   useEffect(() => {
     const cfg = getConfig();
     setConfig(cfg);
     if (!cfg.enabled || isSuppressed(cfg)) return;
+
+    /**
+     * Never to somebody who is signed in.
+     *
+     * This is a lead capture for anonymous visitors: it asks for an email
+     * address in exchange for a discount on a *first* service. Shown to a
+     * customer who already has an account it asks for the address they signed
+     * up with and offers a first-timer discount to somebody who has already
+     * arrived — and it does it as a full-screen interruption over their own
+     * portal.
+     *
+     * Seen doing exactly that on 2026-09-20: it appeared over the customer
+     * portal seconds after a registration, to an account that had just handed
+     * over its email address on the previous screen.
+     */
+    if (user) return;
 
     let triggered = false;
 
@@ -120,11 +139,30 @@ export default function ExitIntentPopup() {
       }
     }
 
-    // Mobile: trigger after 30s of inactivity — but typing/tapping counts as
-    // activity too, so filling a form keeps resetting the timer instead of
-    // getting interrupted by a popup.
+    /**
+     * The inactivity fallback, and it is for touch devices ONLY.
+     *
+     * The comment said "Mobile:" and nothing enforced it, so this ran
+     * everywhere. On a desktop that turns a popup labelled *exit* intent into
+     * an idle nag: `mouseleave` above is the real trigger there, and this fired
+     * thirty seconds later regardless of whether anybody was leaving.
+     *
+     * Worse, the activity that resets it is scroll, keydown, pointerdown and
+     * input — **not mouse movement**. So somebody reading a dashboard, moving
+     * their mouse the whole time, was counted as inactive and interrupted. That
+     * is how it appeared over a portal on 2026-09-20 with nobody going
+     * anywhere.
+     *
+     * A phone has no mouse and therefore no exit signal at all, which is why
+     * the fallback exists; a pointer that cannot hover is the standard way to
+     * ask. Desktops keep the genuine trigger and lose the nag.
+     */
+    const isTouchOnly = typeof window.matchMedia === 'function'
+      && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+
     let mobileTimer: ReturnType<typeof setTimeout>;
     function resetMobileTimer() {
+      if (!isTouchOnly) return;
       clearTimeout(mobileTimer);
       mobileTimer = setTimeout(() => {
         if (!triggered && !isBlocked()) {
@@ -150,7 +188,10 @@ export default function ExitIntentPopup() {
       document.removeEventListener('input', resetMobileTimer);
       clearTimeout(mobileTimer);
     };
-  }, []);
+    // `user` matters: somebody who signs in part-way through a visit should
+    // stop being a lead-capture target from that moment, and the cleanup above
+    // tears the listeners down when this re-runs.
+  }, [user]);
 
   function dismiss() {
     suppress();
@@ -193,7 +234,10 @@ export default function ExitIntentPopup() {
     setTimeout(() => setVisible(false), 2500);
   }
 
-  if (!visible) return null;
+  // Belt as well as braces: the effect above never opens this for a signed-in
+  // visitor, and this closes it on the spot if they sign in while it is already
+  // showing.
+  if (!visible || user) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
