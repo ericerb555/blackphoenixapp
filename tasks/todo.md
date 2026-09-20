@@ -6679,3 +6679,50 @@ dashboard against the two URLs this project exposes:
   invoice.payment_failed, customer.subscription.deleted)
 - `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/investments/stripe-webhook`
   (the AI Property Intelligence subscription)
+
+### Are the Stripe endpoints registered? Asked Stripe directly
+
+Added `GET /stripe/webhook-endpoints` (staff only) so this is answerable from
+the server instead of the Stripe dashboard. The secret key stays server-side and
+is never returned or logged; the endpoint's own signing secret is not in a list
+response and the fields are picked explicitly rather than spread.
+
+The answer:
+
+| Account | Endpoints |
+|---|---|
+| `STRIPE_SECRET_KEY` | **1, enabled** → `…/functions/v1/stripe-webhooks` |
+| `STRIPE_SECRET_KEY_2` | not configured |
+
+Events on it: `checkout.session.completed`, `invoice.payment_succeeded`,
+`invoice.payment_failed`, `customer.subscription.deleted` — exactly what that
+function handles.
+
+**Nothing is registered against
+`…/make-server-3eae23a6/investments/stripe-webhook`.** So the AI Property
+Intelligence subscription webhook has never received an event and cannot, no
+matter what the signing-secret code does.
+
+Worse than simply unreachable: the registered function has **no mention of
+`property_ai`** anywhere. It routes on metadata — `kind`, `planId` — for
+maintenance plans and store orders. An AI-subscription checkout therefore
+delivers to a function that ignores it, while the route written to handle it is
+never called.
+
+**How much this matters.** The comment on the investments webhook calls its
+activation "belt-and-suspenders (the confirm route usually handles this)", so a
+subscriber who returns from Stripe normally still gets activated by the confirm
+route. What is genuinely lost is everything that happens when nobody is
+watching: `customer.subscription.deleted` and `invoice.payment_failed` for AI
+subscriptions are never processed, so a cancellation or a failed renewal is
+never reflected. For a subscription product that is a real hole, just not a
+"payments are broken" one.
+
+**Two ways to close it — Eric's call:**
+
+1. Register a second Stripe endpoint pointing at the investments URL and store
+   its signing secret as `STRIPE_WEBHOOK_SECRET_INVESTMENTS`. No code needed —
+   the route already tries that name first.
+2. Teach `stripe-webhooks` to recognise `kind === 'property_ai'` so one endpoint
+   and one secret serve everything. Fewer moving parts, but it mixes the two
+   billing concerns in one function.
