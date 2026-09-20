@@ -255,10 +255,19 @@ export default function PortalSettings({
                       {entitlements.trialActive && (
                         <Row k="Trial" v={`Active${entitlements.daysLeft != null ? ` — ${entitlements.daysLeft} days left` : ''}`} tone="#34d399" />
                       )}
+                      {/*
+                        Same split as PortalTrialBanner: only an account that
+                        actually held a trial is told one ended. `hasGrant` is
+                        written by the invitation flow and stays true after the
+                        trial runs out, so a self-registered customer — who is
+                        deliberately given no trial — is not told they lost one.
+                      */}
                       {entitlements.needsPlan && (
                         <div className="bpset-warn">
                           <AlertTriangle size={16} />
-                          Your trial has ended. Choose a plan under Plans &amp; add-ons to keep full access.
+                          {entitlements.hasGrant
+                            ? 'Your trial has ended. Choose a plan under Plans & add-ons to keep full access.'
+                            : 'Choose a plan under Plans & add-ons to unlock full access.'}
                         </div>
                       )}
                       {entitlements.portalType && <Row k="Portal" v={String(entitlements.portalType).replace(/_/g, ' ')} />}

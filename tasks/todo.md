@@ -5944,3 +5944,37 @@ page where a stranger arrives.
 Probe account, its CRM contact and orphaned KV records deleted; browser tab
 closed. 7 accounts remain (the one `blackphoenixtest.dev` address left is
 `e2e-probe`, the fixture `scripts/e2e.mjs` depends on).
+
+---
+
+## No trial for self-signup — wording fixed, 2026-09-20
+
+Eric's decision: "no trial for self signup, fix the wording." So the grant
+behaviour stays exactly as it is — trials come from the invitation flow and
+self-registration gets none — and the only thing wrong was telling those people
+a trial had ended.
+
+`hasGrant` is the right thing to split on, and the server makes it reliable:
+`/me/entitlements` sets `hasGrant: true` whenever a `feature_grant` record
+exists and **keeps it true after the trial runs out** (`needsPlan: !trialActive
+&& !hasPlan`). So an expired trial still says it expired; only an account that
+never had one gets the neutral wording.
+
+Changed in both places that said it:
+
+- `PortalTrialBanner.tsx` — "Your full-access trial has ended" → "Choose a plan
+  to unlock full access" when there is no grant, with "Your account is active. A
+  plan opens up the rest of your portal's features." underneath and the button
+  reading "See plans" rather than "Choose a plan".
+- `PortalSettings.tsx` — the same split on the entitlements row.
+
+App typecheck 324, unchanged. Smoke reached 27 pages — every portal — and all
+27 rendered, 0 threw.
+
+### Left deliberately
+
+The banner keeps its red styling for both cases. Eric asked for the wording, and
+restyling a banner that appears on every portal is a bigger change than that.
+Worth revisiting: a red lock panel is still an alarm, and for somebody who has
+simply not bought anything yet a neutral or promotional treatment would read
+better than an error.
