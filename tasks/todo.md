@@ -5884,3 +5884,63 @@ localStorage claim only. The server grants every self-registration `client`, and
 Login.tsx discards a locally elevated `accountType` on the next sign-in, so
 nothing is actually escalated — but the branch is misleading and worth
 untangling separately.
+
+---
+
+## Registered a throwaway account on the live site — 2026-09-20
+
+Eric: "test it by registering a throwaway account." Drove Chrome against
+theblackphoenixcompany.com and filled the real form.
+
+### The redirect fix works
+
+Submitted, and landed on **`/customer-portal-app`**, signed in, with the new
+toast: *"Welcome, Redirect. Your account is ready and you are signed in."* The
+header showed Customer Portal App and a Sign Out button. That is the fix
+observed end to end, not inferred.
+
+### Two things the browser found that no amount of reading would have
+
+**1. The signup form still carried the false promise.** `SignUp.tsx:208` printed
+*"After signing up, check your email for a confirmation link. You must click it
+before you can log in."* — the same claim as the toast corrected earlier today,
+missed because it is static JSX further down the file rather than part of the
+submit path. There is no such email; `/auth/signup` creates the account already
+confirmed. Now reworded to say the account works straight away. **Fixed.**
+
+**2. A brand-new account is told its trial has ended.** The portal greeted a
+seconds-old signup with a red banner: *"Your full-access trial has ended —
+Choose a plan to keep using all of your portal's features."*
+
+Confirmed against the server rather than guessed:
+
+    GET /me/entitlements
+    {"level":"standard","trialActive":false,"needsPlan":true,"hasGrant":false,
+     "daysLeft":null,"trialEnd":null}
+
+`PortalTrialBanner` renders that banner whenever `needsPlan` is true. A trial
+grant is written by the invite flow (`feature_grant:<email>` — the four invited
+accounts all had one, running to 2027). **Self-registration writes none**, so a
+new customer has `hasGrant: false` and is told a trial ended that never started.
+
+Not fixed — it needs a decision, and there are two separate questions in it:
+
+- Should somebody who signs up themselves get a trial at all, or only invited
+  users? That is a pricing decision.
+- Either way the wording is wrong for someone who never had a trial. If the
+  answer is "no trial for self-signup", the banner should say "choose a plan",
+  not announce the end of something that never began.
+
+### Also seen
+
+The "Your session has expired" toast fired on the **signup page**, for a visitor
+with no session and no expired one. `sessionExpiryNotice` reports a 401 from our
+API when there is no session — which is exactly the state a signed-out visitor
+is in, so some call on that page trips it. Harmless but confusing on the one
+page where a stranger arrives.
+
+### Cleanup
+
+Probe account, its CRM contact and orphaned KV records deleted; browser tab
+closed. 7 accounts remain (the one `blackphoenixtest.dev` address left is
+`e2e-probe`, the fixture `scripts/e2e.mjs` depends on).

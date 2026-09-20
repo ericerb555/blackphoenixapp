@@ -201,11 +201,23 @@ export default function SignUp({ onNavigate }: SignUpProps) {
           <p className="text-gray-400">Join our enterprise platform</p>
         </div>
 
-        {/* Email confirmation notice */}
+        {/*
+          The same false promise the success toast used to make, printed on the
+          form itself — it said to check your email for a confirmation link and
+          that you must click it before you can log in. There is no such email.
+          Registration goes through `/auth/signup`, which creates the account
+          already confirmed because Supabase Auth's SMTP does not work here.
+
+          It was missed when the toast was corrected earlier today, and only
+          turned up by registering a throwaway account on the live site and
+          reading the page. Telling somebody to wait for a message that will
+          never arrive is what sent a customer round the signup/login loop on
+          2026-09-20.
+        */}
         <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-start gap-3">
           <Shield className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-gray-300">
-            After signing up, <strong className="text-white">check your email</strong> for a confirmation link. You must click it before you can log in.
+            Your account works <strong className="text-white">straight away</strong> — there is no confirmation email to wait for. You will be signed in as soon as you create it.
           </p>
         </div>
 
