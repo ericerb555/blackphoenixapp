@@ -6819,3 +6819,71 @@ Nothing in the data moves.
 test-mode endpoint registered against the same URL and its test signing secret
 added as a second env var. Worth doing eventually — testing billing against live
 mode is not a habit to build — but it is a decision, not a detail.
+
+---
+
+## Test mode — 2026-09-20
+
+Eric: "set up test mode so we arent testing on live." Half of this is code and
+is done; the other half is a decision and is not.
+
+### Done: test-mode webhooks that cannot touch live data
+
+Both consumers now also accept `STRIPE_WEBHOOK_SECRET_TEST`, so a test-mode
+endpoint can be registered against the same URLs with its own signing secret.
+
+**The guard is the point, not the extra secret.** Accepting a test signing
+secret on its own would be worse than the problem it solves. Stripe stamps every
+event with `livemode`, and a test event carries fabricated data — invented
+subscription ids, payments that never happened. Run through the handlers, a
+dashboard click could mark a real maintenance plan paid or revoke a real
+subscriber's access. Testing that can corrupt live records is not testing.
+
+So a verified test-mode event is acknowledged and goes no further, in both
+functions. It returns **200 rather than an error** deliberately: Stripe treats a
+non-2xx as a failed delivery and retries with backoff, so refusing would fill
+the dashboard with failures against an endpoint behaving exactly as intended.
+The body says what happened, so a test delivery still confirms the two things
+worth confirming — the endpoint is reachable, and the signature verified.
+
+### What Eric needs to do to use it
+
+1. Stripe dashboard → **Test mode** → Developers → Webhooks → add an endpoint at
+   `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/stripe-webhooks`
+   with the same four events (plus `customer.subscription.updated` if he wants
+   past_due and paused tracked).
+2. Copy that endpoint's signing secret and add it in Supabase as
+   **`STRIPE_WEBHOOK_SECRET_TEST`**. It must not pass through me.
+3. Send a test event from that screen. I can then read the logs and confirm it
+   verified and was correctly held back from live data.
+
+### Not done: test-mode checkouts, and why it is a decision
+
+This does **not** make the app create test-mode checkout sessions. Stripe secret
+keys are read in four places under five env names:
+
+| Where | Env var |
+|---|---|
+| stripe-connect.tsx | `STRIPE_SECRET_KEY`, `STRIPE_SECRET_KEY_2` (per company, via `stripeKeyEnv`) |
+| investments-kv.tsx | `STRIPE_SECRET_KEY` |
+| index.tsx:10338 | `STRIPE_SECRET_KEY_SERVICES`, `TBPCO_ECOMMERCE_STRIPE_SECRET_KEY` |
+| returns.tsx | chooses between those two |
+
+A genuine end-to-end test mode means a mode-selection design across all of it.
+Three shapes, and this is Eric's call:
+
+1. **A global switch** (`STRIPE_MODE=test`) — simplest, but the whole project
+   flips, so live payments cannot run while anyone is testing. Unusable on a
+   production project.
+2. **Per-request opt-in** — live stays default, a staff-only flag selects test
+   keys. Live traffic untouched, but the mode has to be threaded through every
+   payment path and every one is a place to get it wrong.
+3. **A separate environment** — a Supabase branch or second project holding test
+   keys and its own database. No mode logic in the app at all, and test data
+   cannot reach live records because it is not the same database. Heavier to
+   stand up.
+
+**3 is the one to want**, and it is what `test-before-production` already says:
+schema and backend changes go to a non-production environment first. The webhook
+guard above makes the current situation safe in the meantime; it does not make a
+production project a good place to test billing.
