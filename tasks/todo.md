@@ -6778,3 +6778,44 @@ The registered endpoint's events are `checkout.session.completed`,
 past_due or being paused rather than outright cancelled. Adding that event to
 the endpoint would make the entitlement track billing more closely. That is a
 change to Eric's Stripe configuration, so it is his to make.
+
+### The test webhook never arrived — and why
+
+Eric sent a test webhook. Checked the logs: **nothing from Stripe**. Every
+Stripe-related request in the window traces back to my own probes —
+
+    23:50:37  POST /stripe-webhooks                  400   (my re-probe)
+    23:46:22  GET  /stripe/webhook-endpoints         200   (my listing)
+    23:42:52  POST /investments/stripe-webhook       400   (my probe)
+    23:40:57  POST /stripe-webhooks                  400   (my probe)
+
+— and the log stream was current to 23:51:11, so this was absence, not lag.
+`function_logs` agrees: the only two entries are the two "signature verification
+failed" lines from my probes.
+
+**The cause, established rather than guessed.** Extended the endpoint report to
+include Stripe's `livemode` flag and re-read it:
+
+    STRIPE_SECRET_KEY: 1 endpoint
+      mode=LIVE  status=enabled  …/functions/v1/stripe-webhooks
+
+The registered endpoint is in **live mode**, so `STRIPE_SECRET_KEY` is a live
+key. Stripe keeps entirely separate endpoint lists for test and live, and a key
+only ever sees its own. A "Send test webhook" issued while the dashboard is in
+**Test mode** goes to the test-mode list — which has nothing registered — so the
+delivery lands nowhere and no error appears anywhere to explain it. That is
+exactly the shape of what happened: sent, never seen, nothing logged.
+
+**What to do:** switch the Stripe dashboard to **Live mode**, open the
+`stripe-webhooks` endpoint there, and send the test event from that screen. It
+will be signed with the live signing secret, which is the one configured.
+
+Safe to do: a `customer.subscription.deleted` test event carries a fabricated
+subscription id, so `findAiSub` matches nothing, returns null, and the event
+falls through to the plan handler which ignores it for want of a `plan_id`.
+Nothing in the data moves.
+
+**If Eric would rather work in test mode**, that is a different job: it needs a
+test-mode endpoint registered against the same URL and its test signing secret
+added as a second env var. Worth doing eventually — testing billing against live
+mode is not a habit to build — but it is a decision, not a detail.
