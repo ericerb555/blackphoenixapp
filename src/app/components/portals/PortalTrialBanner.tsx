@@ -136,7 +136,16 @@ export function FeatureGate({ children, feature }: { children: React.ReactNode; 
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-black/40 p-6 text-center backdrop-blur-sm">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20"><Lock className="h-6 w-6 text-red-400" /></div>
         <p className="text-sm font-bold text-white">{feature || 'This feature'} requires a plan</p>
-        <p className="max-w-xs text-xs text-gray-300">Your full-access trial has ended. Choose a plan to unlock it again.</p>
+        {/*
+          Third place that told everyone a trial had ended — the banner and the
+          settings row were the other two. Same split on `hasGrant`: only an
+          account that actually held a trial is told it expired.
+        */}
+        <p className="max-w-xs text-xs text-gray-300">
+          {entitlements.hasGrant
+            ? 'Your full-access trial has ended. Choose a plan to unlock it again.'
+            : 'Choose a plan to unlock it.'}
+        </p>
         <button onClick={goToPlans} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500">Choose a plan <ArrowRight className="h-4 w-4" /></button>
       </div>
     </div>
