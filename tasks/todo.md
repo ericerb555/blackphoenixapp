@@ -5765,3 +5765,71 @@ fault.
 ### Cleanup
 
 Three probe accounts deleted; 7 accounts remain, all real.
+
+---
+
+## Media upload — 2026-09-20
+
+### Correction first
+
+I had recorded that the live `/media/upload` "validates neither file type nor
+size". **That was wrong** — I had read only the first sixteen lines of the
+handler. It checks both: `MAX_FILE_SIZE` is 50MB (deliberately not 100MB; the
+note says 100 caused a 413 on bucket creation) and `getMediaType` refuses
+anything outside an explicit image/video allowlist. It is also properly gated:
+`requireSignedIn` runs on `/media` and `/media/*`, and the file says why — these
+routes use the service-role client, which bypasses RLS, so the token check is
+the only thing between the public internet and the bucket.
+
+Two real defects were there, though.
+
+### Fixed: the file extension went into the storage path unsanitised
+
+`getFileExtension` returned everything after the last dot, lowercased and
+otherwise untouched, and `generateStoragePath` drops that straight into
+`media/:year/:month/:timestamp-:random.:ext`. Nothing else in that path is
+caller-controlled; the extension was the one opening. A file named
+`photo.png/../../elsewhere` made the "extension" `png/../../elsewhere`.
+
+It is now restricted to letters and digits, capped at eight characters, and
+falls back to `bin` when there is no usable extension — which also fixes a
+smaller bug where a file with no dot produced a path ending in a bare dot.
+
+### Fixed: nobody knew who uploaded anything
+
+`uploadedBy` was hardcoded to `'System User'` behind a `// TODO: Get from auth`.
+Every item in the library claimed the same anonymous author, so there was no way
+to tell who put a file there, or to find everything one account had uploaded if
+it turned out to be a problem. `requireSignedIn` had already resolved the user
+and stashed it on the context — the answer was sitting there unused. Now records
+`uploadedBy` (name or email) and `uploadedById`.
+
+### Verified against production after deploy
+
+| Case | Result |
+|---|---|
+| `deck.PNG` | `media/2026/09/…-….png` — extension lowercased |
+| `photo.verylongextensionname` | `….verylong` — capped at 8 |
+| `noextension` | `….bin` — fallback works |
+| attribution | `uploadedBy: "Media Probe"`, `uploadedById` set |
+| `text/plain` upload | 400, "Unsupported file type" |
+| no session | 401, "Sign in required" |
+| `photo.png/../../escape` | **403 from Supabase's CDN** — the platform blocks that filename before it reaches the function |
+
+That last row is worth knowing: the traversal case cannot be exercised end to
+end because the CDN refuses it first. The sanitiser is the belt and the CDN the
+braces; the sanitiser's own behaviour is demonstrated by the three rows above it.
+
+### Cleanup
+
+All five test uploads deleted through the app's own `DELETE /media/:id` (which
+exercised that route too — 200 each). Storage bucket back to zero objects, the
+`audit` folder index removed, probe account deleted. 7 accounts remain.
+
+### Not changed, worth a decision
+
+`image/svg+xml` is on the allowlist. An SVG can carry script, and these are
+served by signed URL from the storage origin. That is a different origin to the
+app, so it cannot touch app sessions, but it can still execute there and be
+used for phishing. Removing it would likely break logo uploads, so it is a
+decision rather than something to change quietly.

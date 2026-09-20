@@ -116,9 +116,26 @@ async function initializeBucket() {
 initializeBucket();
 
 // Helper to get file extension from filename
+/**
+ * The extension, and nothing but the extension.
+ *
+ * This used to return everything after the last dot, lowercased and otherwise
+ * untouched — and that string is dropped straight into the storage path. The
+ * uploader chooses the filename, so a name like `photo.png/../../elsewhere`
+ * made the "extension" `png/../../elsewhere` and the object landed wherever
+ * that resolved to inside the bucket. Nothing else in the path is
+ * caller-controlled; this was the one opening.
+ *
+ * Restricted to letters and digits and capped, so whatever arrives can only
+ * ever be one harmless path segment. A name with no usable extension gets
+ * `bin` rather than an empty string, which would otherwise leave a path ending
+ * in a bare dot.
+ */
 function getFileExtension(filename: string): string {
-  const parts = filename.split('.');
-  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+  const parts = String(filename || '').split('.');
+  if (parts.length < 2) return 'bin';
+  const raw = parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, '');
+  return raw.slice(0, 8) || 'bin';
 }
 
 // Helper to determine media type from MIME type
@@ -220,7 +237,18 @@ mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
       mimeType: file.type,
       dimensions: { width: 0, height: 0 }, // TODO: Extract actual dimensions
       uploadedAt: new Date().toISOString(),
-      uploadedBy: 'System User', // TODO: Get from auth
+      // Who actually uploaded it. This was hardcoded to 'System User' behind a
+      // TODO, so every item in the library claimed the same anonymous author
+      // and there was no way to tell who put a file there — or to find
+      // everything one account had uploaded if it turned out to be a problem.
+      // `requireSignedIn` has already resolved the user and stashed it, so the
+      // real answer was sitting there unused.
+      uploadedBy: String(
+        (c.get('mediaUser') as any)?.user_metadata?.full_name ||
+        (c.get('mediaUser') as any)?.email ||
+        'Unknown',
+      ),
+      uploadedById: String((c.get('mediaUser') as any)?.id || ''),
       tags: tags ? tags.split(',').map(t => t.trim()) : [],
       folder: folder || undefined,
       project: project || undefined,
