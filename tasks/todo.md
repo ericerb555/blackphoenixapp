@@ -5334,3 +5334,76 @@ inbox. Worth one real test from the live site with a working address.
 
 Checks unchanged since the last run: app typecheck 324, server typecheck 84,
 full smoke 332 rendered / 0 threw. No code changed in this entry.
+
+---
+
+## Stuck accounts deleted, and the next round — 2026-09-20
+
+Eric: "delete them i will resend invites later."
+
+Deleted from `auth.users`: the four stuck invites (marksutton@hotmail.com,
+marksutton04@gmail.com, opodroubnyi@gmail.com, markdavidsutton@yahoo.com), the
+stale unconfirmed self-signup newcustomer@gmail.com, and three old probe
+accounts. Kept `e2e-probe@blackphoenixtest.dev` — `scripts/e2e.mjs:125` depends
+on it as a fixture.
+
+Checked first that nothing would cascade: no foreign key outside the `auth`
+schema references `auth.users`, so the business records keyed by email in the KV
+store all survive — three quotes for marksutton@hotmail.com, an invoice for
+marksutton04@gmail.com, a quote and a pipeline work request for
+markdavidsutton@yahoo.com, four `portal_access` grants, `feature_grant` rows
+running to 2027 and the onboarding intakes. Re-inviting gives them a fresh login
+and their history intact.
+
+Seven accounts remain and every one is confirmed, has a password and has signed
+in. No stuck accounts left.
+
+### Plan — approved (A, B, C, F)
+
+- [x] **A. Customer registration throws for the public.** DONE. `customer-registration`
+      is a public route, and `CustomerRegistrationForm.tsx:230` calls
+      `authedHeaders()`, which throws when there is no session. A member of the
+      public gets their auth account created by `/auth/signup` and then sees
+      "Your session has expired" — profile never saved, never redirected, and a
+      retry says "already registered". The same trap that caught jbrenes19.
+      Fix: sign in after signup (the account is created confirmed, so this
+      works — proven earlier today), then save the profile with a real session.
+- [ ] **B. ClientWorkRequestForm** uses the throwing helper in three places on
+      the public `request-service` page — product catalogue, advertiser offers,
+      AI guide chat. Submitting works; those three silently do nothing for a
+      signed-out visitor. Switch to `authedHeadersOrAnon`.
+- [ ] **C. Drive every application form and portal login end to end** against
+      production and report what breaks. Vendor, subcontractor, investor,
+      advertiser, service-provider, territory, tenant. Audit only — no code
+      changes until the findings are seen.
+- [ ] **F. Housekeeping.** Supabase Auth SMTP is still misconfigured so the
+      dashboard's own reset button does nothing; signup signs you in and then
+      sends you to the login page; `getSupabaseClient()` in `auth.tsx` is dead.
+
+### B is not a bug fix — it needs a decision
+
+Checked the server before changing the client, and the framing was wrong. All
+three calls are signed-in-only **on the server**, not just in the browser:
+
+- `/api/products` (api-gateway.tsx:64) — not on any public list. The public list
+  has `/products`, which this path does not start with.
+- `/product-ads` — not public either.
+- `/ai-guide-chat` — sits in `AI_METERED_PREFIXES`, so it is deliberately behind
+  a session for cost control.
+
+Switching the client to `authedHeadersOrAnon` would only turn a thrown error
+into a 401. The visitor still sees nothing. Making these work for signed-out
+visitors means adding paths to the server's public GET list — an auth-policy
+change affecting every caller of those routes, which needs Eric's sign-off
+rather than my judgement.
+
+The question is a product one: **on the public "request service" page, should a
+signed-out visitor see the vendor product catalogue and advertiser offers?**
+There is a case for yes on both — browsing materials is most of the point of
+that step, and advertisers pay for impressions that a signed-out visitor would
+otherwise never generate, which is the same reasoning that already makes
+`/advertising/serve` public. The AI guide chat is different; metered AI behind a
+session looks deliberate and worth leaving alone.
+
+Current behaviour is not a crash: the three calls throw, are caught locally, and
+those sections render empty.

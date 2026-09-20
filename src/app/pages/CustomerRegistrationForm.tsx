@@ -7,6 +7,7 @@ import {
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders, authedHeadersOrAnon } from '../utils/authHeaders';
+import { supabase } from '../lib/supabase';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -200,7 +201,43 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
         throw new Error(signupData.error || `Signup failed (${signupRes.status})`);
       }
 
-      // 2) Persist the customer profile (address, property type, plan, etc.).
+      /**
+       * 2) Sign them in. This step was missing, and its absence broke the whole
+       * form for the people it is for.
+       *
+       * `customer-registration` is on the public route list — "people apply then
+       * get login" — so whoever fills this in has no session. The profile save
+       * below asks for `authedHeaders()`, which deliberately THROWS rather than
+       * falling back to the anon key. So the sequence was: auth account created,
+       * next line throws, applicant is shown "Your session has expired. Sign in
+       * again to continue.", their address, property type and plan are never
+       * saved, and they are never sent to the portal. Trying again tells them
+       * the email is already registered.
+       *
+       * That is the same dead end that cost a customer his account on
+       * 2026-09-20 — an account that exists with a person locked outside it.
+       *
+       * `/auth/signup` creates the account already confirmed, so signing in
+       * needs nothing else and no email round-trip. Verified against production
+       * the same day: signup 200, then token 200 with a session.
+       *
+       * A failure here is not fatal. The account is real and usable, so say so
+       * and send them to sign in rather than implying the registration failed.
+       */
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+      if (signInError) {
+        setErrors({
+          submit: 'Your account was created, but we could not sign you in automatically. Please sign in with the email and password you just chose.',
+        });
+        setLoading(false);
+        if (onNavigate) onNavigate('login');
+        return;
+      }
+
+      // 3) Persist the customer profile (address, property type, plan, etc.).
       const customerRes = await fetch(`${base}/customers`, {
         method: 'POST',
         headers: await authedHeaders(),
