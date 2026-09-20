@@ -19,7 +19,7 @@
  * Mounted with `app.route("/make-server-3eae23a6", videoStudioRouter)`, so
  * route paths here are relative (like creative-studio.tsx).
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";

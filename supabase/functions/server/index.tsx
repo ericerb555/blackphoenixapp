@@ -5,10 +5,10 @@
  * Updated: 2026-06-16
  */
 
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
-import { logger } from "npm:hono/logger";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { cors } from "npm:hono@4/cors";
+import { logger } from "npm:hono@4/logger";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";

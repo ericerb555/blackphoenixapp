@@ -16,7 +16,7 @@
  * that never had these routes, so they have been failing rather than merely
  * being empty. Mounting this is what fixes them.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { requireStaffOn } from "./requireStaff.ts";
 

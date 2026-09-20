@@ -38,7 +38,7 @@
  * to ask the same question twice would be careless.
  */
 
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 
 export const reelResearchRouter = new Hono();

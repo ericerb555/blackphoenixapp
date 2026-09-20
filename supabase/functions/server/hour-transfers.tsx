@@ -3,7 +3,7 @@
  * Handles transfer requests, approvals, and execution
  */
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 const app = new Hono();

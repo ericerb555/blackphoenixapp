@@ -12,7 +12,7 @@
  * - GET  /make-server-3eae23a6/ai-floorplan/projects/:id
  */
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 
 const app = new Hono();
 

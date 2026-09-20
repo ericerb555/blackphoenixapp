@@ -1,6 +1,6 @@
 // Cohort Management API Routes
 // Enterprise-grade cohort pricing and subscription management
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
 

@@ -13,9 +13,9 @@
 //   DELETE /variances/:id       -> remove a draft
 //
 // Everything is KV-backed and best-effort so the tool works out of the box.
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import OpenAI from 'npm:openai@4';
-import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
 const variancesRouter = new Hono();

@@ -1,6 +1,6 @@
 // eCommerce Cart API Routes
 // Phase 1: Foundation & Backend Infrastructure
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 // Type definitions

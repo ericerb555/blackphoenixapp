@@ -20,7 +20,7 @@
  * unrouted precisely because this route 404'd. The route works now, so that page
  * can be put back whenever it is wanted.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { requireStaffOn } from "./requireStaff.ts";
 

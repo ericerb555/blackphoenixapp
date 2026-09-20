@@ -1,6 +1,6 @@
 // Vendor Profile API Routes
 // Public vendor profile data for storefronts
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { trustedRole, STAFF_ROLE_SET } from './trustedRole.ts';

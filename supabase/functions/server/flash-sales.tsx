@@ -6,7 +6,7 @@
  * frontend persists via the public anon token — the KV key is a single
  * shared list for the storefront.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 
 const flashSalesRouter = new Hono();

@@ -7,8 +7,8 @@
  * 7-day forecast, mapped into the shape the frontend already expects.
  */
 
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
+import { Hono } from "npm:hono@4";
+import { cors } from "npm:hono@4/cors";
 
 const weatherRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";

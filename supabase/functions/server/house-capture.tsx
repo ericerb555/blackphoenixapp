@@ -21,7 +21,7 @@
  * required to surface both. Nothing from a photo is allowed to look like a
  * measurement, because someone will build off it.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import * as kv from "./kv_store.tsx";

@@ -9,7 +9,7 @@
  */
 
 import { Hono } from 'npm:hono@4';
-import { cors } from 'npm:hono/cors';
+import { cors } from 'npm:hono@4/cors';
 import OpenAI from 'npm:openai@4';
 
 const planBuilderRouter = new Hono();

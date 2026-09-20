@@ -3,7 +3,7 @@
  * Handles both eCommerce orders and subscription payments with tracking codes
  */
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { recordEntitlementEvent } from './entitlements.tsx';
 

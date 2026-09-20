@@ -25,7 +25,7 @@
  * nothing against it may be work they have not priced. Both matter more than
  * the total, and both disappear if a reader only reports its successes.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { trustedRole } from "./trustedRole.ts";

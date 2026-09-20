@@ -3,7 +3,7 @@
  * Searches across all enabled data sources with intelligent fallback
  */
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 const app = new Hono();

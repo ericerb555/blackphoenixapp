@@ -16,8 +16,8 @@
  * - PUT  /make-server-3eae23a6/tier-features            (admin)  replaces the full map.
  * - POST /make-server-3eae23a6/tier-features/toggle     (admin)  sets one feature in one tier.
  */
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 
 const tierFeaturesRouter = new Hono();

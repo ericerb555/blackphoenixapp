@@ -19,8 +19,8 @@
  *   GET  /make-server-3eae23a6/shipping-rates/tools    → discovered MCP tool names
  *   POST /make-server-3eae23a6/shipping-rates/refresh  → pull + persist live shipping
  */
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { resolveKey, num } from "./zendrop.tsx";
 import { invalidateProductsCache } from "./ecommerce-products.tsx";

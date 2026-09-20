@@ -22,7 +22,7 @@
  * load per post — the assistant is told to use that number rather than
  * recomputing it, so the two can never contradict each other on the same page.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 

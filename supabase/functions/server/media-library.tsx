@@ -25,7 +25,7 @@
  * - Max Size: 100MB per file
  */
 
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 

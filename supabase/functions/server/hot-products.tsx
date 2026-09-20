@@ -23,8 +23,8 @@
  *   POST /hot-products/source-analysis   (admin) AI "where to source it"
  *   POST /hot-products/search-everywhere (admin) AI universal product research
  */
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import OpenAI from "npm:openai@4";
 import * as kv from "./kv_store.tsx";
 import { zendropFetch, extractProducts, normalize, loadServerConfig, resolveKey, num } from "./zendrop.tsx";

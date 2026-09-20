@@ -9,8 +9,8 @@
  *
  * All routes are admin-only.
  */
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
   CONTENT_FILTER_CONFIG_KEY,

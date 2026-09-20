@@ -17,7 +17,7 @@
 //   DELETE /page-pilot/:id             -> remove a campaign (frees its slot)
 //
 // Everything is KV-backed and best-effort so the tool works out of the box.
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import OpenAI from 'npm:openai@4';
 import Anthropic from 'npm:@anthropic-ai/sdk';
 import * as kv from './kv_store.tsx';

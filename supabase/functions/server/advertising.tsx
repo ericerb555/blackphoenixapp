@@ -25,7 +25,7 @@
  * rollup answers exactly, at three orders of magnitude less storage.
  */
 
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";

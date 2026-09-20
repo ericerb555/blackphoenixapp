@@ -20,7 +20,7 @@
  *   stripe_payment:{paymentId}   → PaymentRecord
  *   stripe_payment_index         → string[] of paymentIds (newest first)
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import Stripe from "npm:stripe@17";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";

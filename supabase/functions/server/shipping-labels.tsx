@@ -17,8 +17,8 @@
  * quote returns options and prices, and nothing is purchased until a specific
  * rate is chosen.
  */
-import { Hono } from 'npm:hono';
-import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+import { Hono } from 'npm:hono@4';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
 export const shippingLabelsRouter = new Hono();

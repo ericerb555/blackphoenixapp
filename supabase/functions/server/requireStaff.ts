@@ -28,7 +28,7 @@
  * letting the caller name their own authority — which is exactly the hole that
  * public signup had until it was closed.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { trustedRole } from "./trustedRole.ts";
 
 const STAFF_ROLES = new Set([

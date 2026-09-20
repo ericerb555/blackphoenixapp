@@ -11,9 +11,9 @@
  * Mounted with `app.route("/make-server-3eae23a6", contentStudioRouter)`, so
  * route paths are relative.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import Anthropic from "npm:@anthropic-ai/sdk";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 
 export const contentStudioRouter = new Hono();

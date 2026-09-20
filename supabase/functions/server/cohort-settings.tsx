@@ -1,6 +1,6 @@
 // Cohort Settings API Routes
 // Manages editable configuration for territory and cohort systems
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 export const cohortSettingsRouter = new Hono();

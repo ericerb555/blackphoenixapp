@@ -1,7 +1,7 @@
 // Territory-Based Cohort Management API Routes
 // Geographic radius-based cohort management with capacity limits
 // Territories are centered on company headquarters zip code
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 export const territoryCohortRouter = new Hono();

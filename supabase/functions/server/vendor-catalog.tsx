@@ -22,7 +22,7 @@
  * another's cost base is the thing tenant isolation exists to prevent.
  */
 
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { inspectUrl, safeFetch } from "./outboundGuard.ts";

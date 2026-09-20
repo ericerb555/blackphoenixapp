@@ -3,7 +3,7 @@
  * Server-side integration with Home Depot, Lowe's, and Grainger APIs
  */
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import { requireStaff } from './requireStaff.ts';
 
 const app = new Hono();

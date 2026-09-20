@@ -1,5 +1,5 @@
 // API Gateway - Headless eCommerce Architecture
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 

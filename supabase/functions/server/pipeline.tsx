@@ -1,5 +1,5 @@
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
+import { Hono } from "npm:hono@4";
+import { cors } from "npm:hono@4/cors";
 import * as kv from "./kv_store.tsx";
 
 const pipelineRouter = new Hono();

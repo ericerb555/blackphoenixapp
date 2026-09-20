@@ -19,8 +19,8 @@
  */
 
 import { Hono } from 'npm:hono@4';
-import { cors } from 'npm:hono/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+import { cors } from 'npm:hono@4/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { recordEntitlementEvent } from './entitlements.tsx';
 

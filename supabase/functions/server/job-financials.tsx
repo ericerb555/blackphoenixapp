@@ -22,8 +22,8 @@
  * service actually uses. An arbitrary key means an arbitrary record, and a
  * prefix is not a permission.
  */
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+import { Hono } from "npm:hono@4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 

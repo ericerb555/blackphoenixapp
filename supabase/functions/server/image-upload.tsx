@@ -11,7 +11,7 @@
  * STORAGE:
  * - Bucket: make-57095a78-images (public)
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireStaffOn } from "./requireStaff.ts";
 

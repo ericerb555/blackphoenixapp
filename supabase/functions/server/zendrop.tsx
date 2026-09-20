@@ -10,7 +10,7 @@
  * happen here, server-side, using the ZENDROP_API_KEY secret (or a key passed
  * in the request body as a fallback).
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import * as config from "./dropshipper-config.tsx";
 import { screenAndQuarantine } from "./content-filter.tsx";

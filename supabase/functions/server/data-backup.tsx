@@ -4,7 +4,7 @@
  * Handles backing up and restoring localStorage data to/from the database
  */
 
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 
 const dataBackupRouter = new Hono();

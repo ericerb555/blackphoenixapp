@@ -1,7 +1,7 @@
 // Tenant Management API Routes
 // Multi-tenant system with role-based access control
 
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 export const tenantsRouter = new Hono();

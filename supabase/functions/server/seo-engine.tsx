@@ -11,7 +11,7 @@
  * raw-fetch pattern as marketing-assets.tsx. Routes are self-prefixed and the
  * router is mounted with `app.route("/", seoEngineRouter)` in index.tsx.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { loadBrandContext } from "./content-studio.tsx";
 

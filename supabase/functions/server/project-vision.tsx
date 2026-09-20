@@ -10,8 +10,8 @@
  *   → { success, analysis: { summary, scope[], materials[], labor[], laborHours, materialsCost, laborCost, estimatedCost } }
  */
 
-import { Hono } from "npm:hono";
-import { cors } from "npm:hono/cors";
+import { Hono } from "npm:hono@4";
+import { cors } from "npm:hono@4/cors";
 
 const projectVisionRouter = new Hono();
 

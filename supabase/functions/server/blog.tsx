@@ -17,7 +17,7 @@
  * Published means public. Drafts are never served — the whole point of a draft
  * is that someone still has to look at it, and these are written by a model.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 
 const PREFIX = "/make-server-3eae23a6";

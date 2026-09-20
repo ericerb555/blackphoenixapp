@@ -5,7 +5,7 @@
 // KV records). Where a value cannot be sourced from real data (e.g. per-item
 // product cost when the item didn't record one), we estimate with a documented
 // assumption (DEFAULT_MARGIN) rather than fabricate.
-import { Hono } from 'npm:hono';
+import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 
 const app = new Hono();
