@@ -6617,3 +6617,65 @@ answered 200 with the right storage path and `uploadedBy: "Bucket Probe"`, and
 Boot overhead went from roughly **13 seconds to under one**. All probe accounts
 removed; 7 accounts remain and the only test address left is `e2e-probe`, the
 fixture `scripts/e2e.mjs` depends on.
+
+---
+
+## The Stripe webhook secret — I was wrong, it was installed — 2026-09-20
+
+I reported that `STRIPE_WEBHOOK_SECRET` was not set and that the webhook could
+not verify events. Eric asked whether he had already installed them. He had.
+
+### How that was established without seeing any value
+
+POSTed a deliberately invalid signature to the `stripe-webhooks` function:
+
+    400 {"received":false,"error":"Invalid signature."}
+
+Not `500 … "Webhook signing secret is not configured."`, which is what that
+function returns when it has none. So a secret is installed and working.
+
+Supabase secrets are **project-wide** — every function sees all of them. So
+since the main function reported the bare `STRIPE_WEBHOOK_SECRET` missing while
+`stripe-webhooks` plainly had one, what is installed must be under
+`STRIPE_WEBHOOK_SECRET_SERVICES` or `STRIPE_WEBHOOK_SECRET_STORE`, the names
+that function reads.
+
+### So it was never a missing secret
+
+`investments-kv.tsx`'s AI-subscription webhook read **one** name — the bare
+`STRIPE_WEBHOOK_SECRET` — and refused perfectly good events with "Webhook not
+configured" because the secrets live under the others. `stripe-webhooks` had
+been reading three names all along.
+
+It now collects every signing secret the project has and verifies against each
+in turn, exactly as the other function does. Safe, because a signature only
+verifies against the secret belonging to the endpoint that actually sent the
+event — a forged or unsigned body still fails against all of them.
+`STRIPE_WEBHOOK_SECRET_INVESTMENTS` is tried first so a dedicated endpoint for
+this URL can be added later without a code change.
+
+### Verified after deploy
+
+Same probe against `POST /investments/stripe-webhook`:
+
+| | Before | After |
+|---|---|---|
+| Response | 500 "Webhook not configured (missing STRIPE_WEBHOOK_SECRET)" | **400 "signature verification failed"** |
+
+400 is the correct answer to a bogus signature: it found the secrets, tried
+them, and refused. Server typecheck 84 with the error sets diffed — zero new
+findings.
+
+### What is genuinely still on Eric's side
+
+Signature verification only succeeds against the secret of the Stripe endpoint
+that sent the event. If no Stripe endpoint is registered pointing at
+`/make-server-3eae23a6/investments/stripe-webhook`, that route will never
+receive a real event regardless of this change — worth checking in the Stripe
+dashboard against the two URLs this project exposes:
+
+- `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/stripe-webhooks`
+  (checkout.session.completed, invoice.payment_succeeded,
+  invoice.payment_failed, customer.subscription.deleted)
+- `https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/investments/stripe-webhook`
+  (the AI Property Intelligence subscription)
