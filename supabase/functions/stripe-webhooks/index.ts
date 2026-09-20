@@ -121,6 +121,122 @@ async function forwardToStore(raw: string): Promise<Record<string, unknown>> {
   return { forwarded: true, store: payload };
 }
 
+// ─── AI Property Intelligence subscriptions ─────────────────────────────────
+//
+// These used to be handled by a second webhook route inside the main server
+// function, at /make-server-3eae23a6/investments/stripe-webhook. No Stripe
+// endpoint was ever registered against that URL — confirmed on 2026-09-20 by
+// listing the account's endpoints — so it had never received an event and
+// could not. Meanwhile the events themselves arrived HERE, at the one endpoint
+// that is registered, and were dropped because nothing in this file knew what
+// `kind: 'property_ai'` meant.
+//
+// The visible half still worked: the confirm route activates a subscriber when
+// they return from Stripe. What was lost is everything that happens when nobody
+// is watching — a cancellation or a failed renewal never reached the
+// entitlement, so somebody could stop paying and keep access.
+//
+// Eric's choice of the two fixes: one endpoint serving both billing concerns,
+// rather than registering a second one.
+
+const AI_SUB = (email: string) => `property_ai_subscription:${email.toLowerCase()}`;
+
+/**
+ * Find the AI subscription a Stripe object belongs to.
+ *
+ * Subscription id first, customer id only as a fallback. A customer can hold a
+ * maintenance plan AND an AI subscription, and matching on customer alone would
+ * let a plan's invoice deactivate the wrong thing — the subscription id is the
+ * precise identifier and is present on everything that matters.
+ */
+async function findAiSub(opts: { customer?: string | null; subscription?: string | null }): Promise<any | null> {
+  const all = await kvByPrefix('property_ai_subscription:');
+  if (opts.subscription) {
+    const bySubscription = all.find((s: any) => s?.stripe_subscription === opts.subscription);
+    if (bySubscription) return bySubscription;
+  }
+  if (opts.customer) {
+    const byCustomer = all.find((s: any) => s?.stripe_customer === opts.customer);
+    if (byCustomer) return byCustomer;
+  }
+  return null;
+}
+
+async function setAiActive(record: any, active: boolean, note: string): Promise<void> {
+  if (!record?.email) return;
+  await kvSet(AI_SUB(record.email), {
+    ...record,
+    active,
+    status_note: note,
+    updated_at: new Date().toISOString(),
+  });
+  console.log(`[stripe-webhooks/ai-sub] ${record.email} -> active=${active} (${note})`);
+}
+
+/**
+ * Handle an event if it belongs to an AI subscription, otherwise say so.
+ *
+ * Returns null when the event is not ours, so the caller can fall through to
+ * the store and maintenance-plan handlers exactly as before. Nothing here
+ * claims an event it cannot identify.
+ */
+async function handlePropertyAiEvent(event: any): Promise<Record<string, unknown> | null> {
+  const object = event?.data?.object || {};
+
+  switch (event?.type) {
+    case 'checkout.session.completed': {
+      if (String(object?.metadata?.kind || '') !== 'property_ai') return null;
+      const email = String(object?.metadata?.email || object?.customer_email || '').toLowerCase();
+      if (!email) return null;
+      const existing = await kvGet(AI_SUB(email));
+      const now = new Date().toISOString();
+      await kvSet(AI_SUB(email), {
+        ...(existing || {}),
+        email,
+        active: true,
+        tier: object?.metadata?.tier || existing?.tier || 'professional',
+        audience: object?.metadata?.audience || existing?.audience || 'landlord',
+        stripe_customer: object?.customer || existing?.stripe_customer || null,
+        stripe_subscription: object?.subscription || existing?.stripe_subscription || null,
+        stripe_session: object?.id,
+        updated_at: now,
+        started_at: existing?.started_at || now,
+      });
+      console.log(`[stripe-webhooks/ai-sub] activated via checkout.session.completed for ${email}`);
+      return { aiSubscriptionActivated: email };
+    }
+
+    // On a subscription event the object IS the subscription, so its id is the
+    // one to match. On an invoice the subscription is a field.
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted': {
+      const record = await findAiSub({ customer: object?.customer, subscription: object?.id });
+      if (!record) return null;
+      const active = event.type === 'customer.subscription.updated'
+        && (object?.status === 'active' || object?.status === 'trialing');
+      await setAiActive(record, active, `${event.type}:${object?.status || 'deleted'}`);
+      return { aiSubscription: record.email, active };
+    }
+
+    case 'invoice.payment_failed': {
+      const record = await findAiSub({ customer: object?.customer, subscription: object?.subscription });
+      if (!record) return null;
+      await setAiActive(record, false, 'invoice.payment_failed');
+      return { aiSubscription: record.email, active: false };
+    }
+
+    case 'invoice.payment_succeeded': {
+      const record = await findAiSub({ customer: object?.customer, subscription: object?.subscription });
+      if (!record) return null;
+      if (!record.active) await setAiActive(record, true, 'invoice.payment_succeeded');
+      return { aiSubscription: record.email, active: true };
+    }
+
+    default:
+      return null;
+  }
+}
+
 async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
   const object = event?.data?.object || {};
   const planId = String(object?.metadata?.plan_id || '');
@@ -235,6 +351,16 @@ Deno.serve(async (req) => {
     // the plan handler.
     const object = event?.data?.object || {};
     const isStore = !!object?.metadata?.store_checkout_id;
+
+    // AI subscriptions get first refusal, and refuse politely: the handler
+    // returns null for anything it cannot positively identify as its own, so a
+    // store order or a maintenance plan falls through untouched.
+    const aiResult = await handlePropertyAiEvent(event);
+    if (aiResult) {
+      return new Response(JSON.stringify({ received: true, type: event?.type, ...aiResult }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const result = isStore ? await forwardToStore(raw) : await handlePlanEvent(event);
     return new Response(JSON.stringify({ received: true, type: event?.type, ...result }), {

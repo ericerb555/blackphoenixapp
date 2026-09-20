@@ -15,6 +15,20 @@ project_id = "plzsvzwwcdopnawtiwzm"
 entrypoint = "./functions/server/index.tsx"
 verify_jwt = true
 
+# Stripe's webhook deliveries. verify_jwt MUST stay false: Stripe posts with a
+# signature header and no Supabase token, so any JWT check rejects every event
+# at the gateway before the function sees it.
+#
+# It was deployed with verify_jwt already false but was NOT listed here, which
+# made it a trap: the CLI defaults to true, so the next deploy of this function
+# would have silently switched the gate on and killed every delivery — including
+# the maintenance-plan and store events that work today. The function verifies
+# Stripe's own signature itself and refuses outright when no signing secret is
+# configured, so the JWT gate adds nothing it does not already do better.
+[functions.stripe-webhooks]
+entrypoint = "./functions/stripe-webhooks/index.ts"
+verify_jwt = false
+
 # The public doorway for OAuth returns. verify_jwt MUST stay false: Facebook
 # sends the user back by redirecting their browser, which carries no Supabase
 # token, so any verification here rejects the handshake before it can complete —
