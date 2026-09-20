@@ -113,20 +113,44 @@ vendorPricingRouter.post(`${PREFIX}/vendor-pricing/compare`, async (c) => {
       }
     }
 
-    // 2. Prices a contractor entered by hand for this material.
-    const overrides = ((await kv.getByPrefix(`vendor_price:${materialKey}:`)) as any[] || []).filter(Boolean);
-    for (const rec of overrides) {
-      if (String(rec?.source || "") !== "contractor") continue; // stored estimates are not evidence
-      results.push({
-        vendorName: rec.vendorName,
-        vendorKey: rec.vendorKey,
-        productName: rec.materialName || materialName,
-        price: Number(rec.price || 0),
-        sku: String(rec.sku || ""),
-        inStock: rec.inStock ?? null,
-        delivery: rec.delivery || "",
-        source: "contractor",
-      });
+    /**
+     * 2. Prices we negotiated — INTERNAL ONLY.
+     *
+     * A `source: "contractor"` record is the real rate Black Phoenix pays,
+     * entered by staff through the PUT below, which describes itself as "the
+     * contractor's real negotiated price". That figure is the company's margin
+     * on materials: anybody who can see it alongside the vendor's published
+     * price knows exactly what the mark-up is on every line of their quote.
+     *
+     * This route had no authorisation of any kind, and `/vendor-pricing` is not
+     * on the admin prefix list, so it sat at the ordinary signed-in tier — which
+     * means **any customer with an account could ask for a material by name and
+     * be told what we pay for it.**
+     *
+     * Eric's rule, 2026-09-20: "the customers should only see vendors pricing
+     * not my discounted pricing." So the negotiated rows are added only for
+     * internal callers. Everyone else gets the vendor's own published catalogue
+     * price, which is what a customer is entitled to see.
+     *
+     * Decided here rather than in the browser on purpose. Filtering it out in
+     * the client would mean the number had already been sent, and a hidden
+     * field is not a check.
+     */
+    if (await isPricingStaff(c)) {
+      const overrides = ((await kv.getByPrefix(`vendor_price:${materialKey}:`)) as any[] || []).filter(Boolean);
+      for (const rec of overrides) {
+        if (String(rec?.source || "") !== "contractor") continue; // stored estimates are not evidence
+        results.push({
+          vendorName: rec.vendorName,
+          vendorKey: rec.vendorKey,
+          productName: rec.materialName || materialName,
+          price: Number(rec.price || 0),
+          sku: String(rec.sku || ""),
+          inStock: rec.inStock ?? null,
+          delivery: rec.delivery || "",
+          source: "contractor",
+        });
+      }
     }
 
     results.sort((a, b) => a.price - b.price);
@@ -163,26 +187,42 @@ const PRICING_STAFF = new Set([
   "project_manager", "estimator", "office",
 ]);
 
+/**
+ * Is this caller internal?
+ *
+ * Answers the question without refusing, so a read can use it to decide what to
+ * INCLUDE rather than whether to answer at all. Fails closed: anything it
+ * cannot positively identify as staff is not staff.
+ */
+async function isPricingStaff(c: any): Promise<boolean> {
+  try {
+    const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+    if (!token) return false;
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return false;
+
+    const owners = [
+      "ericerb555@proton.me",
+      ...(Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
+        .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+    ];
+    const email = String(data.user.email || "").toLowerCase();
+    // app_metadata only. A role the browser can set is not a role, and this one
+    // decides the cost basis of every quote.
+    return owners.includes(email) || PRICING_STAFF.has(trustedRole(data.user));
+  } catch {
+    return false;
+  }
+}
+
 async function requirePricingStaff(c: any): Promise<Response | null> {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) return c.json({ success: false, error: "Sign in required." }, 401);
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data?.user) return c.json({ success: false, error: "Sign in required." }, 401);
-
-  const owners = [
-    "ericerb555@proton.me",
-    ...(Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
-      .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
-  ];
-  const email = String(data.user.email || "").toLowerCase();
-  // app_metadata only. A role the browser can set is not a role, and this one
-  // decides the cost basis of every quote.
-  if (owners.includes(email) || PRICING_STAFF.has(trustedRole(data.user))) return null;
-
+  if (await isPricingStaff(c)) return null;
   return c.json({ success: false, error: "Internal access is required to change pricing." }, 403);
 }
 
