@@ -6091,3 +6091,52 @@ An exit-intent modal — *"Wait — Don't Leave Empty Handed! 5% OFF, promo code
 SAVE5"* — fired over the portal on a customer who had just registered seconds
 earlier and had not tried to leave. Offering a discount on a first service to
 somebody mid-signup is at best odd timing.
+
+---
+
+## Surviving a deploy with the app open — 2026-09-20
+
+Every screen is loaded on demand: `routes.tsx` has 179 `lazy(() => import(...))`
+calls, and the browser asks for the exact chunk filename baked into the HTML
+when the tab was first loaded. A deploy replaces those filenames, so anyone
+holding the app open asks for a file that no longer exists the next time they
+move between screens:
+
+    TypeError: Failed to fetch dynamically imported module:
+    /assets/CustomerPortalView-DO87881s-1789941823893.js
+
+React then leaves them on the Suspense fallback — the word "Loading…" —
+indefinitely. Observed live earlier today: forty-four identical console errors
+and a portal that never rendered until the page was reloaded by hand. It is not
+an edge case; it happens to every open session on every deploy.
+
+### The fix is one listener, not 179 wrappers
+
+`staleChunkReload.ts`, installed in `main.tsx` alongside the session-expiry
+notice. Wrapping each of the 179 `lazy()` calls would have worked too and been a
+far larger, riskier diff across the shared route map for the same result.
+
+It listens for three things: Vite's own `vite:preloadError`, which fires on the
+preload helper wrapping every dynamic import in a built bundle and is the most
+reliable; the `unhandledrejection` React raises when a `lazy()` import fails;
+and a plain `error` event. The message match is deliberately narrow, because
+this triggers a full page reload and must never fire on an ordinary application
+error — that would refresh away whatever somebody was typing.
+
+### Why a timestamp rather than a boolean
+
+A chunk can fail for reasons a reload will never cure: a broken CDN, a genuinely
+missing file, being offline. Reloading on every failure would spin such a
+browser forever, which is worse than the stall it replaces. So the last attempt
+is remembered in `sessionStorage` and another is refused for twenty seconds.
+
+A boolean would have been simpler and wrong in the other direction — it would
+make the first deploy of a session recoverable and every later one not, and a
+tab is easily open across several. `sessionStorage` rather than `localStorage`
+because the guard should last as long as the tab and no longer; a reload keeps
+it, a new tab starts clean. If storage throws at all (a private window), it does
+nothing rather than risk a loop.
+
+App typecheck 324, unchanged. Smoke: the full 332-page pass, because `main.tsx`
+is a shared entry point and a mistake there breaks every screen — 332 rendered,
+0 threw.
