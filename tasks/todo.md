@@ -6140,3 +6140,23 @@ nothing rather than risk a loop.
 App typecheck 324, unchanged. Smoke: the full 332-page pass, because `main.tsx`
 is a shared entry point and a mistake there breaks every screen — 332 rendered,
 0 threw.
+
+### Verified on the live site with a real failed import
+
+Not a simulated event — fired a genuine uncaught dynamic import of a chunk that
+does not exist, `import('/assets/bp-missing-chunk-test-xyz.js')`, which produces
+exactly the rejection a stale chunk produces.
+
+| Step | Result |
+|---|---|
+| Set `window.__bpProbe`, cleared the guard, fired the failed import | page **reloaded on its own**, `__bpProbe` gone, still on `/login` |
+| Guard after the reload | `bp:stale-chunk-reload-at` written and survived, as `sessionStorage` should |
+| Fired a second failed import straight away | **no reload** — `window.__bpProbe2` survived and the timestamp was unchanged |
+| Console | `[staleChunk] a page chunk failed to import — already reloaded once, leaving it alone.` |
+
+So the recovery works and the loop guard works, which are the two things that
+matter: a person stranded by a deploy is carried into the current build without
+noticing, and a chunk that is genuinely missing cannot spin their browser.
+
+The reload happens in place, on the same path, so somebody is returned to the
+screen they were on rather than the landing page.
