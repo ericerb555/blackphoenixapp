@@ -386,27 +386,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error };
       }
 
-      // Immediately add the new user to the CRM and persist their profile
-      // server-side. Best-effort: never block signup if this fails.
-      try {
-        await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/register-crm`,
-          {
-            method: 'POST',
-            headers: await authedHeadersOrAnon(publicAnonKey),
-            body: JSON.stringify({
-              email,
-              fullName: profile?.fullName,
-              phone: profile?.phone,
-              accountType: profile?.accountType,
-              userId: data?.user?.id,
-            }),
-          }
-        );
-        console.log('✅ [Auth] New signup synced to CRM:', email);
-      } catch (crmError) {
-        console.error('⚠️ [Auth] Failed to sync signup to CRM (non-blocking):', crmError);
-      }
+      /**
+       * Sync the phone number and account type into the CRM — without waiting.
+       *
+       * The comment here used to say "never block signup if this fails", and
+       * then the call was awaited, which blocked signup every time. It is the
+       * second CRM pass of the flow: `/auth/signup` already writes the record,
+       * and this one exists to add the details that route never received.
+       *
+       * Both passes scan every customer and every invoice, so awaiting this put
+       * another unbounded scan between the person and their portal. Started and
+       * left to finish on its own: nothing below depends on it, and a failure
+       * cannot make the account any less real than it already is.
+       */
+      void (async () => {
+        try {
+          await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/register-crm`,
+            {
+              method: 'POST',
+              headers: await authedHeadersOrAnon(publicAnonKey),
+              body: JSON.stringify({
+                email,
+                fullName: profile?.fullName,
+                phone: profile?.phone,
+                accountType: profile?.accountType,
+                userId: data?.user?.id,
+              }),
+            }
+          );
+          console.log('✅ [Auth] New signup synced to CRM:', email);
+        } catch (crmError) {
+          console.error('⚠️ [Auth] Failed to sync signup to CRM (non-blocking):', crmError);
+        }
+      })();
 
       return { error: null };
     } catch (error) {

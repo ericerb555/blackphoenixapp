@@ -78,6 +78,24 @@ async function setPermissions(userId: string, patch: Record<string, any>): Promi
  * Idempotent: deduplicates by email so repeated calls never create duplicates.
  * Returns the customer record.
  */
+/**
+ * Finish a piece of work after the reply has gone out.
+ *
+ * Supabase's edge runtime can tear an isolate down once a handler returns, so a
+ * bare fire-and-forget promise is not guaranteed to complete. `waitUntil` keeps
+ * the isolate alive until it settles — the same contract as a service worker.
+ * Where it is unavailable the promise is still started, which is no worse than
+ * what the code did before.
+ *
+ * Use this only for work whose failure does not change the answer already sent.
+ */
+function afterResponse(work: Promise<unknown>, label: string): void {
+  const settled = work.catch((err) =>
+    console.log(`[after-response:${label}] ${err?.message || err}`));
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  if (typeof runtime?.waitUntil === 'function') runtime.waitUntil(settled);
+}
+
 async function ensureCrmCustomer(params: {
   email: string;
   fullName?: string;
@@ -322,17 +340,35 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
 
     console.log(`✅ User created successfully: ${email} (${userId})`);
 
-    // 🗂️ Add the new user to the CRM + persist profile (deduped by email).
-    try {
-      await ensureCrmCustomer({
+    /**
+     * 🗂️ CRM record — after the reply, not before it.
+     *
+     * `ensureCrmCustomer` reads EVERY customer with a prefix scan to dedupe,
+     * then `linkInvoicesByEmail` scans every invoice. Two unbounded scans that
+     * grow with the business, and this route awaited both before answering.
+     * Measured on 2026-09-20: `POST /auth/signup` took **9.6 seconds**, almost
+     * all of it here — `createUser` itself finishes in about half a second.
+     *
+     * None of it decides whether the account exists. By this line the account
+     * is created, confirmed, and has its profile and role. Somebody waiting on
+     * a spinner is waiting for bookkeeping.
+     *
+     * That wait is not cosmetic: a customer abandoned the signup page mid-spin
+     * earlier the same day, then could not work out whether the account had
+     * been made — which is the whole incident this work started from.
+     *
+     * `afterResponse` rather than a bare promise so the isolate is kept alive
+     * until the CRM write actually lands.
+     */
+    afterResponse(
+      ensureCrmCustomer({
         email,
         fullName: full_name,
         userId,
         accountType: role === "client" ? "customer" : role,
-      });
-    } catch (crmError) {
-      console.error("[CRM] Failed to add signup to CRM (non-blocking):", crmError);
-    }
+      }),
+      `crm:${email}`,
+    );
 
     // 📧 Alert the team about the new sign-up. This used to POST to
     // /notifications/customer-signup, which lives in a router that was never
