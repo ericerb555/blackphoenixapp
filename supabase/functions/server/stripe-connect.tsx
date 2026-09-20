@@ -21,7 +21,8 @@
  *   stripe_payment_index         → string[] of paymentIds (newest first)
  */
 import { Hono } from "npm:hono@4";
-import Stripe from "npm:stripe@17";
+// Type only — erased at compile time, so the SDK is not in the boot path.
+import type Stripe from "npm:stripe@17";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole, STAFF_ROLE_SET } from "./trustedRole.ts";
@@ -76,24 +77,33 @@ const DEFAULT_KEY_ENV = "STRIPE_SECRET_KEY";
 // report so the UI can show which accounts are wired without leaking values.
 const KNOWN_KEY_ENVS = ["STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY_2"];
 
-function makeStripe(key: string): Stripe {
-  return new Stripe(key, {
+/**
+ * Built on demand, so the Stripe SDK stays out of the cold start.
+ *
+ * The import above is `import type`, which TypeScript erases — the SDK itself
+ * is fetched here, the first time a route actually needs Stripe. Every cold
+ * start used to parse and instantiate it, including the ones for requests that
+ * never touch payments.
+ */
+async function makeStripe(key: string): Promise<Stripe> {
+  const { default: StripeSdk } = await import("npm:stripe@17");
+  return new StripeSdk(key, {
     apiVersion: "2024-12-18.acacia",
     // Use fetch under Deno rather than Node http.
-    httpClient: Stripe.createFetchHttpClient(),
+    httpClient: StripeSdk.createFetchHttpClient(),
   });
 }
 
 // Client for a specific secret-key env var (e.g. "STRIPE_SECRET_KEY_2").
-function getStripeByEnv(envName?: string): Stripe | null {
+async function getStripeByEnv(envName?: string): Promise<Stripe | null> {
   const key = Deno.env.get(envName || DEFAULT_KEY_ENV);
   if (!key) return null;
-  return makeStripe(key);
+  return await makeStripe(key);
 }
 
 // Client for a given company, using the key its record points at.
-function getStripeForCompany(company: CompanyRecord): Stripe | null {
-  return getStripeByEnv(company.stripeKeyEnv || DEFAULT_KEY_ENV);
+async function getStripeForCompany(company: CompanyRecord): Promise<Stripe | null> {
+  return await getStripeByEnv(company.stripeKeyEnv || DEFAULT_KEY_ENV);
 }
 
 // Which known key envs actually have a value configured (names only, no values).
@@ -147,7 +157,7 @@ async function getPayments(): Promise<PaymentRecord[]> {
 // its secret key belongs to). `accounts.retrieve()` with no id returns the
 // account associated with the API key — perfect for a standalone account.
 async function refreshAccountStatus(company: CompanyRecord): Promise<CompanyRecord> {
-  const stripe = getStripeForCompany(company);
+  const stripe = await getStripeForCompany(company);
   if (!stripe) {
     // Key not configured yet — mark as not ready, don't error.
     company.chargesEnabled = false;
@@ -336,7 +346,7 @@ stripeConnectRouter.post(`${PREFIX}/stripe/companies/:id/connect`, async (c) => 
   try {
     const company = await getCompany(c.req.param("id"));
     if (!company) return c.json({ success: false, error: "Company not found" }, 404);
-    const stripe = getStripeForCompany(company);
+    const stripe = await getStripeForCompany(company);
     if (!stripe) {
       return c.json({
         success: false,
@@ -395,7 +405,7 @@ stripeConnectRouter.post(`${PREFIX}/stripe/charge`, async (c) => {
     }
     const company = await getCompany(companyId);
     if (!company) return c.json({ success: false, error: "Company not found" }, 404);
-    const stripe = getStripeForCompany(company);
+    const stripe = await getStripeForCompany(company);
     if (!stripe) {
       return c.json({ success: false, error: `${company.name}'s Stripe key (${company.stripeKeyEnv}) is not configured` }, 400);
     }
@@ -462,7 +472,7 @@ stripeConnectRouter.post(`${PREFIX}/stripe/create-payment-intent`, async (c) => 
     }
     const company = await getCompany(companyId);
     if (!company) return c.json({ success: false, error: "Company not found" }, 404);
-    const stripe = getStripeForCompany(company);
+    const stripe = await getStripeForCompany(company);
     if (!stripe) {
       return c.json({ success: false, error: `${company.name}'s Stripe key (${company.stripeKeyEnv}) is not configured` }, 400);
     }
@@ -518,7 +528,7 @@ stripeConnectRouter.post(`${PREFIX}/stripe/finalize/:paymentId`, async (c) => {
     const record = (await kv.get(`${PAYMENT_PREFIX}:${paymentId}`)) as PaymentRecord | null;
     if (!record) return c.json({ success: false, error: "Payment not found" }, 404);
     const company = await getCompany(record.companyId);
-    const stripe = company ? getStripeForCompany(company) : null;
+    const stripe = company ? await getStripeForCompany(company) : null;
     if (stripe && record.stripePaymentIntentId) {
       const intent = await stripe.paymentIntents.retrieve(record.stripePaymentIntentId);
       record.status = intent.status;

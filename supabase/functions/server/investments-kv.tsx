@@ -22,7 +22,8 @@
 //   POST   /investments/documents/:id/sign                  -> { success, document }
 //   GET    /investments/analytics/portfolio/:email          -> { summary, commitments, recentPayouts }
 import { Hono } from 'npm:hono@4';
-import Stripe from 'npm:stripe@17';
+// Type only — erased at compile time, so the SDK is not in the boot path.
+import type Stripe from 'npm:stripe@17';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { trustedRole } from './trustedRole.ts';
@@ -31,12 +32,21 @@ const investmentsRouter = new Hono();
 
 // Stripe client for the AI Property Intelligence subscription (same account/key
 // pattern as stripe-connect.tsx). The browser never sees the secret key.
-function getStripe(): Stripe | null {
+/**
+ * Built on demand, so the Stripe SDK stays out of the cold start.
+ *
+ * The import above is `import type`, which TypeScript erases — the SDK itself
+ * is fetched here, the first time a route actually needs Stripe. Every cold
+ * start used to parse and instantiate it, including the ones for requests that
+ * never go near a payment.
+ */
+async function getStripe(): Promise<Stripe | null> {
   const key = Deno.env.get('STRIPE_SECRET_KEY');
   if (!key) return null;
-  return new Stripe(key, {
+  const { default: StripeSdk } = await import('npm:stripe@17');
+  return new StripeSdk(key, {
     apiVersion: '2024-12-18.acacia',
-    httpClient: Stripe.createFetchHttpClient(),
+    httpClient: StripeSdk.createFetchHttpClient(),
   });
 }
 
@@ -1236,7 +1246,7 @@ investmentsRouter.post(`${PREFIX}/investments/ai-subscription/checkout`, async (
     if (!email) return c.json({ error: 'An email is required to subscribe.' }, 400);
     if (!pricing) return c.json({ error: `Unknown subscription tier: ${tier}` }, 400);
 
-    const stripe = getStripe();
+    const stripe = await getStripe();
     if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
 
     const origin = String(body.origin || '').replace(/\/$/, '');
@@ -1271,7 +1281,7 @@ investmentsRouter.post(`${PREFIX}/investments/ai-subscription/confirm`, async (c
     const sessionId = String(body.session_id || '');
     if (!sessionId) return c.json({ error: 'A session_id is required.' }, 400);
 
-    const stripe = getStripe();
+    const stripe = await getStripe();
     if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -1456,7 +1466,7 @@ async function setSubActive(record: any, active: boolean, note: string) {
 // Stripe endpoint pointing here and store its signing secret as
 // STRIPE_WEBHOOK_SECRET. Uses the raw request body for signature verification.
 investmentsRouter.post(`${PREFIX}/investments/stripe-webhook`, async (c) => {
-  const stripe = getStripe();
+  const stripe = await getStripe();
   const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
   if (!stripe) return c.json({ error: 'Billing not configured (missing STRIPE_SECRET_KEY).' }, 500);
   if (!webhookSecret) return c.json({ error: 'Webhook not configured (missing STRIPE_WEBHOOK_SECRET).' }, 500);
