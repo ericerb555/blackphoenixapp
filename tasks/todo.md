@@ -6572,3 +6572,48 @@ Three bucket initialisers (`deliverables.tsx`, `marketplace.tsx`,
 `media-library.tsx`) call `listBuckets`/`createBucket` at module scope on every
 isolate. There is no top-level `await` anywhere in the server, so they cost work
 rather than latency — but they are avoidable network calls per boot.
+
+### The bucket initialisers — done, and one was a race
+
+Three modules called a bucket initialiser at module scope, so every cold isolate
+made a `listBuckets` round trip whether or not the request had anything to do
+with files. They now run once per isolate on first use, memoised, with the memo
+cleared on failure so a transient error cannot poison an isolate into never
+retrying.
+
+**`media-library.tsx` was also a race.** It called `initializeBucket()` under a
+comment reading "Initialize on startup" and **nothing awaited it** — an upload
+arriving before it finished raced it. The upload route now awaits the bucket, so
+it is guaranteed to exist before the first write rather than probably existing
+by then. Cheaper and more correct at once.
+
+**`deliverables.tsx`** was redundant as well as eager: its upload route already
+awaited `ensureBucket()` before writing, which is the only place it matters.
+
+**`marketplace.tsx`** had `ensureCoverBucket()` eager while `ensureFileBucket()`
+directly below it was already lazy, called from the one route that needs it. The
+cover bucket now matches.
+
+No module-scope side-effect calls remain anywhere in the server.
+
+Cold `GET /health` measured **645 ms**, against 618 ms before this change —
+unchanged within noise, which is the expected result and was the prediction:
+with no top-level `await` these calls never blocked the response, so they cost
+work per isolate rather than latency. The win here is three fewer network calls
+per boot and a genuine race removed, not a faster number.
+
+Verified the upload path afterwards, since its flow changed: `POST /media/upload`
+answered 200 with the right storage path and `uploadedBy: "Bucket Probe"`, and
+`DELETE /media/:id` cleaned it up. Storage is back to 0 objects.
+
+### Cold start, final
+
+| | Cold | Warm |
+|---|---|---|
+| `POST /auth/signup` this morning | **16,289 ms** | 3,100 ms |
+| now | **5,578 ms** | ~5,000 ms |
+| `GET /health` on a fresh isolate | **645 ms** | ~500 ms |
+
+Boot overhead went from roughly **13 seconds to under one**. All probe accounts
+removed; 7 accounts remain and the only test address left is `e2e-probe`, the
+fixture `scripts/e2e.mjs` depends on.
