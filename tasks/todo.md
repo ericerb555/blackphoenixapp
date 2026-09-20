@@ -5463,7 +5463,7 @@ fate.)
 
 ### Proposed fix — NOT APPLIED, needs approval
 
-- [ ] Delete the `/applications` POST from `territory-cohorts.tsx` so the real
+- [x] DONE — deleted the `/applications` POST **and GET** from `territory-cohorts.tsx` so the real
       handler serves, mirroring exactly what was done to `auth.tsx` earlier
       today. Applications would then save and reach the CRM.
 

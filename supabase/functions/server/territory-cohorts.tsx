@@ -152,25 +152,43 @@ territoryCohortRouter.put('/territories/:id', async (c) => {
   }
 });
 
-// Get all applications
-territoryCohortRouter.get('/applications', async (c) => {
-  try {
-    const applications = await kv.getByPrefix(APPLICATION_PREFIX);
-    
-    return c.json({
-      success: true,
-      applications: applications.map(item => item.value),
-      count: applications.length
-    });
-  } catch (error) {
-    console.error('Error fetching applications:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to fetch applications',
-      applications: []
-    }, 500);
-  }
-});
+/**
+ * `/applications` DOES NOT LIVE HERE — see index.tsx:1862.
+ *
+ * A `GET /applications` and a `POST /applications` used to sit at this spot,
+ * and because `app.route("/make-server-3eae23a6", territoryCohortRouter)` runs
+ * at index.tsx:754 — long before index.tsx declares its own handlers at 1862 —
+ * these were the ones Hono actually matched. They shadowed the real pair.
+ *
+ * WHAT THAT COST
+ *
+ * The POST refused any applicant with no active territory inside 40 miles. It
+ * looked for a record under the `territory_` prefix, and there are none — not
+ * one has ever been created. So the gate could not pass for anybody, anywhere:
+ * it was not that some applicants fell outside a service area, it was that no
+ * service area existed. Every vendor, subcontractor, investor, service-provider
+ * and advertiser who ever filled in one of those forms was answered
+ * `404 No active territory found within 40 miles of your location`, and the
+ * `applications` store was still empty when this was found — not a single
+ * application had ever been recorded.
+ *
+ * The GET shadowed the administrator's list in the same way, reading the empty
+ * `application_` prefix instead of the real store, so even a saved application
+ * would not have shown up.
+ *
+ * The real handlers save the application AND create the CRM record, which is
+ * the entire point of a lead-generation form.
+ *
+ * This is the second instance of this exact bug found on 2026-09-20 — the first
+ * shadowed the password reset from auth.tsx. Anything added to a router in this
+ * directory is registered before most of index.tsx, so a route name that also
+ * exists there silently wins. Check before adding one.
+ *
+ * The territory-specific routes below — status filter, approve, reject — are
+ * left alone: they claim paths index.tsx does not declare, so they shadow
+ * nothing. Territory gating can come back deliberately, inside the real
+ * handler, once there are territories to gate on.
+ */
 
 // Get applications by status
 territoryCohortRouter.get('/applications/status/:status', async (c) => {
@@ -197,69 +215,6 @@ territoryCohortRouter.get('/applications/status/:status', async (c) => {
   }
 });
 
-// Submit new application
-territoryCohortRouter.post('/applications', async (c) => {
-  try {
-    const applicationData = await c.req.json();
-    
-    // Find matching territory based on zip code
-    const allTerritories = await kv.getByPrefix(TERRITORY_PREFIX);
-    const matchingTerritory = allTerritories
-      .map(item => item.value)
-      .find(t => t.active && calculateDistance(t.zipCode, applicationData.zipCode) <= CAPACITY_LIMITS.radius);
-    
-    if (!matchingTerritory) {
-      return c.json({
-        success: false,
-        error: 'No active territory found within 40 miles of your location',
-        waitlistAvailable: true
-      }, 404);
-    }
-    
-    // Check capacity
-    const canAdd = await checkCapacity(matchingTerritory, applicationData.type, applicationData.trade);
-    
-    if (!canAdd.available) {
-      return c.json({
-        success: false,
-        error: canAdd.reason,
-        waitlistAvailable: true,
-        territory: matchingTerritory.name
-      }, 400);
-    }
-    
-    const applicationId = `APP-${Date.now()}`;
-    
-    const application = {
-      ...applicationData,
-      id: applicationId,
-      territoryId: matchingTerritory.id,
-      territoryName: matchingTerritory.name,
-      status: 'pending',
-      submittedAt: new Date().toISOString(),
-      reviewedAt: null,
-      reviewedBy: null,
-      distance: calculateDistance(matchingTerritory.zipCode, applicationData.zipCode),
-    };
-    
-    await kv.set(`${APPLICATION_PREFIX}${applicationId}`, application);
-    
-    console.log(`📝 New application: ${applicationData.name} (${applicationData.type}) - Territory: ${matchingTerritory.name}`);
-    
-    return c.json({
-      success: true,
-      application,
-      territory: matchingTerritory,
-      message: 'Application submitted successfully'
-    });
-  } catch (error) {
-    console.error('❌ Error submitting application:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to submit application' 
-    }, 500);
-  }
-});
 
 // Approve application
 territoryCohortRouter.post('/applications/:id/approve', async (c) => {
