@@ -1494,6 +1494,7 @@ investmentsRouter.post(`${PREFIX}/investments/stripe-webhook`, async (c) => {
     Deno.env.get('STRIPE_WEBHOOK_SECRET'),
     Deno.env.get('STRIPE_WEBHOOK_SECRET_SERVICES'),
     Deno.env.get('STRIPE_WEBHOOK_SECRET_STORE'),
+    Deno.env.get('STRIPE_WEBHOOK_SECRET_TEST'),
   ].filter((s): s is string => !!s && s.trim().length > 0);
 
   if (!candidateSecrets.length) {
@@ -1517,6 +1518,24 @@ investmentsRouter.post(`${PREFIX}/investments/stripe-webhook`, async (c) => {
   if (!event) {
     console.log(`[ai-sub webhook] signature verification failed against ${candidateSecrets.length} secret(s): ${lastError}`);
     return c.json({ error: `Webhook signature verification failed: ${lastError}` }, 400);
+  }
+
+  /**
+   * A verified TEST-mode event stops here.
+   *
+   * Test events carry fabricated data — invented subscription ids, payments
+   * that never happened — so applying one would let a dashboard click activate
+   * or revoke a real subscriber. 200 rather than an error, because Stripe
+   * treats a non-2xx as a failed delivery and retries; the body says plainly
+   * that it was verified and deliberately not applied.
+   *
+   * Same guard as the stripe-webhooks function. Exercising these handlers
+   * against test data belongs in an environment with its own database.
+   */
+  if (event?.livemode === false) {
+    console.log(`[ai-sub webhook] test-mode ${event?.type} verified; not applied to live data.`);
+    return c.json({ received: true, testMode: true, applied: false,
+      note: 'Test-mode event verified but deliberately not applied to live records.' });
   }
 
   try {

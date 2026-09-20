@@ -312,6 +312,11 @@ Deno.serve(async (req) => {
     Deno.env.get('STRIPE_WEBHOOK_SECRET_SERVICES'),
     Deno.env.get('STRIPE_WEBHOOK_SECRET_STORE'),
     Deno.env.get('STRIPE_WEBHOOK_SECRET'),
+    // Test mode. Registering a test-mode endpoint against this same URL and
+    // storing its signing secret here means billing can be exercised without
+    // touching live — see the livemode guard below, which is what makes that
+    // safe rather than merely possible.
+    Deno.env.get('STRIPE_WEBHOOK_SECRET_TEST'),
   ].filter((s): s is string => !!s && s.trim().length > 0);
 
   if (!secrets.length) {
@@ -342,6 +347,37 @@ Deno.serve(async (req) => {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  /**
+   * A verified TEST-mode event is acknowledged and then goes no further.
+   *
+   * This is the whole point of accepting a test signing secret. Stripe stamps
+   * every event with `livemode`, and a test event carries fabricated data —
+   * invented subscription ids, payments that never happened. Letting one
+   * through the handlers below would let a dashboard click mark a real plan
+   * paid or revoke a real subscriber's access. "Testing" that can corrupt live
+   * records is not testing.
+   *
+   * Returning 200 matters: Stripe treats a non-2xx as a failed delivery and
+   * retries with backoff, so refusing would leave the dashboard showing errors
+   * against an endpoint that is behaving exactly as intended. The response says
+   * plainly what happened, so a test delivery still confirms the two things
+   * worth confirming — that the endpoint is reachable and that the signature
+   * verified.
+   *
+   * Exercising the handlers themselves against test data belongs in a separate
+   * environment with its own database, not in the one serving customers.
+   */
+  if (event?.livemode === false) {
+    console.log(`[stripe-webhooks] test-mode ${event?.type} received and verified; not applied to live data.`);
+    return new Response(JSON.stringify({
+      received: true,
+      testMode: true,
+      type: event?.type,
+      applied: false,
+      note: 'Test-mode event verified but deliberately not applied to live records.',
+    }), { headers: { 'Content-Type': 'application/json' } });
   }
 
   try {
