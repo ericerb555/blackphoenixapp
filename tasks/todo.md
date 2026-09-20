@@ -5242,3 +5242,66 @@ only 6 and missed the two pages changed most, so the full pass was run instead �
 - `getSupabaseClient()` in `auth.tsx` is now unused. Harmless, left in place.
 - Probe accounts still on the project: `loginprobe+1789935143903@…` and
   `e2e-probe@…`, `flowprobe+…` from earlier sessions.
+
+---
+
+## "I don't want to invite people and them not be able to get on" — 2026-09-20
+
+Eric's words, and the audit found it had already happened.
+
+### Five accounts are locked out right now, four of them people he invited
+
+| Address | Invited as | Invited | State |
+|---|---|---|---|
+| marksutton@hotmail.com | landlord | 2026-08-03 | unconfirmed, no password, never signed in |
+| marksutton04@gmail.com | landlord | 2026-08-03 | unconfirmed, no password, never signed in |
+| opodroubnyi@gmail.com | customer | 2026-08-07 | unconfirmed, no password, never signed in |
+| markdavidsutton@yahoo.com | customer | 2026-08-30 | unconfirmed, no password, never signed in |
+| newcustomer@gmail.com | (self-signup) | 2026-06-22 | unconfirmed, has a password, never signed in |
+
+The live auth settings say `mailer_autoconfirm: false`, so Supabase refuses to
+sign in any account whose email is unconfirmed — whatever its password. Those
+four invitations went out through `inviteUserByEmail`, over Supabase Auth's own
+SMTP, which answers `535 "Invalid username"`. The mail never left the building.
+Each person got nothing, and their account has sat unusable ever since.
+
+### Two one-line gaps that would have kept them locked out anyway
+
+- [x] **Resetting a password did not confirm the email.** `reset-password` set
+      only the password, so every one of those five would have completed a reset
+      and then been refused at sign-in with "Email not confirmed" — a worse dead
+      end than before, because it looks like it worked. It now passes
+      `email_confirm: true`. That is sound rather than a shortcut: the token was
+      minted here, mailed here to that exact address, expires in an hour and is
+      single-use, so whoever holds it has proved control of the mailbox.
+- [x] **Re-inviting somebody who already existed did not confirm them either.**
+      `ensureAuthUser` confirms a brand-new invitee (`email_confirm: true` on
+      `createUser`) but its "already exists" branch only stamped a role.
+      Resending the invitation is the obvious thing an admin would try to
+      rescue these five, and it would have left them exactly as stuck. It now
+      fills that blank too, and never touches an already-confirmed account.
+
+### What the frontend audit found
+
+Every `fetch` in `src/` that calls the edge function was scanned for the missing
+credential that broke the reset button. After the two fixes in the previous
+commit, **zero** remain — `ForgotPassword.tsx` and `ResetPassword.tsx` were the
+only two. (The first scan flagged 17 more; all were false positives that pass a
+headers variable or an `await authHeaders()` helper, confirmed by reading each.)
+
+### Still blocked
+
+**The edge function is still not deployed**, so none of the server-side work is
+live. `npx supabase functions deploy` is refused by the sandbox, and the MCP
+deploy tool needs all 129 source files inline, which is not a safe way to ship
+this. Eric needs to run it. `supabase/config.toml` already pins the entrypoint
+and `verify_jwt = true`, so the command needs no flags:
+
+    npx supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm --use-api
+
+Note the frontend fix is already live, which makes deploying more urgent rather
+than less: "Forgot password?" now reaches the old server instead of erroring at
+the gateway, so it answers "check your inbox" and still sends nothing.
+
+Once deployed, the five above can let themselves in with "Forgot password?" —
+no data surgery needed.

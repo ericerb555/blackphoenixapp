@@ -3813,7 +3813,31 @@ app.post('/make-server-3eae23a6/auth/reset-password', async (c) => {
       await kv.del(`pwreset:${token}`);
       return c.json({ success: false, error: 'This reset link has expired. Please request a new one.' }, 400);
     }
-    const { error } = await supabase.auth.admin.updateUserById(record.userId, { password });
+    /**
+     * `email_confirm: true` is not an afterthought — without it this route
+     * cannot rescue the people who most need it.
+     *
+     * This project has `mailer_autoconfirm: false`, so Supabase refuses to sign
+     * in any account whose email is unconfirmed. Everybody invited through the
+     * old `inviteUserByEmail` path is in exactly that state: the invitation was
+     * sent over Supabase Auth's SMTP, which answers `535 "Invalid username"`,
+     * so it never arrived, and the account sits there with no password and no
+     * confirmation. Five accounts on this project are stuck that way, four of
+     * them real people Eric invited months ago. Not one has ever signed in.
+     *
+     * Setting only the password would leave every one of them still locked out
+     * — a successful reset followed by "Email not confirmed", which is a worse
+     * dead end than before because it looks like it worked.
+     *
+     * Confirming here is sound, not a shortcut. The token was minted by us,
+     * mailed by us to that exact address, expires in an hour and is single-use.
+     * Anyone holding it has demonstrated control of the mailbox, which is the
+     * whole thing email confirmation exists to establish.
+     */
+    const { error } = await supabase.auth.admin.updateUserById(record.userId, {
+      password,
+      email_confirm: true,
+    });
     if (error) return c.json({ success: false, error: `Unable to reset password: ${error.message}` }, 502);
     await kv.del(`pwreset:${token}`);
     return c.json({ success: true });
@@ -11108,6 +11132,30 @@ async function ensureAuthUser(supabase: any, email: string, metadata: Record<str
         try {
           await supabase.auth.admin.updateUserById(data.user.id, { app_metadata: { role: metadata.role } });
         } catch (_) { /* the invite still stands; the role can be set by hand */ }
+      }
+      /**
+       * Confirm the address, exactly as the `createUser` call above does for a
+       * brand-new invitee.
+       *
+       * Without this, re-inviting somebody could never rescue them. This
+       * project has `mailer_autoconfirm: false`, so an unconfirmed account is
+       * refused at sign-in whatever its password — and every account left over
+       * from the old `inviteUserByEmail` path is unconfirmed, because that
+       * invitation went over Supabase Auth's SMTP, which answers
+       * `535 "Invalid username"` and delivers nothing. Five accounts on this
+       * project are in that state, four of them real people. Resending the
+       * invite is the obvious thing an administrator would try, and it would
+       * have quietly left them just as locked out as before.
+       *
+       * The same reasoning as a new invitee applies: an administrator is
+       * deliberately inviting this address and the invitation is being emailed
+       * to it. Only ever fills a blank — an already-confirmed account is left
+       * alone.
+       */
+      if (!data.user.email_confirmed_at) {
+        try {
+          await supabase.auth.admin.updateUserById(data.user.id, { email_confirm: true });
+        } catch (_) { /* the invite still stands; they can confirm via reset */ }
       }
       return data.user.id;
     }
