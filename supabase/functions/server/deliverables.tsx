@@ -44,7 +44,25 @@ async function ensureBucket() {
     console.error("[Deliverables] ensureBucket error:", err);
   }
 }
-ensureBucket();
+
+/**
+ * Ensure the bucket once per isolate, on first use.
+ *
+ * `ensureBucket()` used to be called here at module scope, so every cold start
+ * made a `listBuckets` round trip whether or not the request had anything to do
+ * with deliverables. It was redundant as well as eager: the upload route below
+ * already awaits it before writing, which is the only place it matters.
+ *
+ * Memoised so repeated uploads do not each re-check, and the memo is cleared on
+ * failure so a transient error cannot poison the isolate into never retrying.
+ */
+let bucketPromise: Promise<void> | null = null;
+function bucketReady(): Promise<void> {
+  if (!bucketPromise) {
+    bucketPromise = ensureBucket().catch((err) => { bucketPromise = null; throw err; });
+  }
+  return bucketPromise;
+}
 
 // Decode a data URL / base64 string into bytes.
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; contentType: string } {
@@ -78,7 +96,7 @@ deliverablesRouter.post("/make-server-3eae23a6/quotes/:id/deliverables", async (
     const quote = await kv.get(`quote:${quoteId}`);
     if (!quote) return c.json({ success: false, error: `Quote ${quoteId} not found` }, 404);
 
-    await ensureBucket();
+    await bucketReady();
     const { bytes, contentType } = decodeDataUrl(dataUrl);
     const did = `D-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const safeName = name.replace(/[^a-z0-9._-]+/gi, "_").slice(0, 60);

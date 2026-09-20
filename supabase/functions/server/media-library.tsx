@@ -112,8 +112,26 @@ async function initializeBucket() {
   }
 }
 
-// Initialize on startup
-initializeBucket();
+/**
+ * Ensure the bucket once per isolate, on first use.
+ *
+ * `initializeBucket()` used to be called here at module scope — "Initialize on
+ * startup" — so every cold start made a `listBuckets` round trip even when the
+ * request had nothing to do with media. Nothing awaited it either, so an upload
+ * arriving before it finished raced it.
+ *
+ * Now the upload route awaits this, which is both cheaper and more correct: the
+ * bucket is guaranteed to exist before the first write rather than probably
+ * existing by then. Memoised, and the memo is cleared on failure so a transient
+ * error cannot poison the isolate into never retrying.
+ */
+let bucketPromise: Promise<void> | null = null;
+function bucketReady(): Promise<void> {
+  if (!bucketPromise) {
+    bucketPromise = initializeBucket().catch((err) => { bucketPromise = null; throw err; });
+  }
+  return bucketPromise;
+}
 
 // Helper to get file extension from filename
 /**
@@ -200,6 +218,11 @@ mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
 
     // Generate storage path
     const storagePath = generateStoragePath(file.name);
+
+    // The bucket is ensured here rather than at module load, so the cost falls
+    // on the upload that needs it — and, unlike the old fire-and-forget call at
+    // startup, it is actually finished before the first write.
+    await bucketReady();
 
     // Upload to Supabase Storage
     const fileBuffer = await file.arrayBuffer();

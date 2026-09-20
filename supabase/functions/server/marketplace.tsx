@@ -52,7 +52,25 @@ async function ensureCoverBucket(): Promise<void> {
     console.log("Error ensuring marketplace cover bucket:", err);
   }
 }
-ensureCoverBucket();
+
+/**
+ * Ensure the cover bucket once per isolate, on first use.
+ *
+ * `ensureCoverBucket()` used to be called at module scope, so every cold start
+ * made a `listBuckets` round trip even for requests that never touch a cover
+ * image. `ensureFileBucket` below was already called lazily, from the one route
+ * that needs it — this now matches.
+ *
+ * Memoised, and the memo is cleared on failure so a transient error cannot
+ * poison the isolate into never retrying.
+ */
+let coverBucketPromise: Promise<void> | null = null;
+function coverBucketReady(): Promise<void> {
+  if (!coverBucketPromise) {
+    coverBucketPromise = ensureCoverBucket().catch((err) => { coverBucketPromise = null; throw err; });
+  }
+  return coverBucketPromise;
+}
 
 async function ensureFileBucket(): Promise<void> {
   try {
@@ -246,7 +264,10 @@ router.post(`${PREFIX}/marketplace/generate-image`, async (c) => {
       return c.json({ error: `AI image generation failed: ${String(err)}` }, 502);
     }
 
-    // Decode base64 → bytes and upload to the private bucket.
+    // Decode base64 → bytes and upload to the private bucket. The bucket is
+    // ensured here rather than at module load, so the cost falls on the upload
+    // that needs it instead of on every cold start.
+    await coverBucketReady();
     const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
     const path = `covers/${productId || "unassigned"}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
     const { error: upErr } = await supabase.storage.from(COVER_BUCKET).upload(path, bytes, { contentType: "image/png", upsert: true });
