@@ -114,10 +114,16 @@ export default function SignUp({ onNavigate }: SignUpProps) {
 
       if (isFirstUser) {
         console.log('👑 First user created as OWNER:', userProfile);
-        toast.success('Welcome! You are the first user and have been granted owner privileges.', {
+        // `isFirstUser` is decided by whether this BROWSER has a `userProfiles`
+        // entry, so it is true on any fresh device, and the "owner privileges"
+        // it announces are a localStorage claim only — the server grants every
+        // self-registration the `client` role and Login.tsx discards a locally
+        // elevated accountType on the next sign-in. Worth untangling separately;
+        // for now the wording no longer promises a redirect that has moved.
+        toast.success('Welcome! Your account is ready and you are signed in.', {
           description: selectedCohort
-            ? `Subscribed to ${selectedCohort}. Redirecting to login...`
-            : 'You have full access to all features. Redirecting to login...'
+            ? `Subscribed to ${selectedCohort}.`
+            : 'Taking you to your portal now.',
         });
       } else {
         console.log('💾 User profile saved to localStorage:', userProfile);
@@ -136,16 +142,33 @@ export default function SignUp({ onNavigate }: SignUpProps) {
          * again and trying to log in. Telling somebody to wait for a message
          * that does not exist is worse than telling them nothing.
          */
-        toast.success('Account created — you can sign in now.', {
-          description: `Use ${formData.email} and the password you just chose. There is no confirmation email to wait for.`,
-          duration: 8000,
+        toast.success(`Welcome, ${formData.fullName.trim().split(' ')[0] || 'and thanks'}.`, {
+          description: 'Your account is ready and you are signed in.',
+          duration: 6000,
         });
       }
 
-      // Redirect to login page
-      setTimeout(() => {
-        onNavigate('login');
-      }, 2000);
+      /**
+       * Into the app, not back to the login page.
+       *
+       * `signUp` above already called `signInWithPassword` — the account is
+       * created confirmed, so there is a live session by the time this line
+       * runs. Sending them to `login` asked somebody to type a password they
+       * had chosen thirty seconds earlier, which is exactly the moment a
+       * customer came unstuck on 2026-09-20: the account existed, the sign-in
+       * failed, and they concluded the registration had not worked.
+       *
+       * Nothing rescued them either. The guard in App.tsx that would normally
+       * move a signed-in visitor off an auth page deliberately returns early
+       * for `login` and `signup` — "Login owns the post-auth destination" —
+       * so they simply sat there.
+       *
+       * The destination is the customer portal because `/auth/signup` grants
+       * the lowest role there is, always: self-registration cannot produce
+       * anything but a client. Anyone who is more than that got there through
+       * an invitation, and signs in rather than registering.
+       */
+      onNavigate('customer-portal-app');
     } catch (error) {
       console.error('Sign up error:', error);
       toast.error(error instanceof Error ? error.message : 'An unexpected error occurred');

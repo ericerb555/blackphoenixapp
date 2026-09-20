@@ -5833,3 +5833,54 @@ served by signed URL from the storage origin. That is a different origin to the
 app, so it cannot touch app sessions, but it can still execute there and be
 used for phishing. Removing it would likely break logo uploads, so it is a
 decision rather than something to change quietly.
+
+---
+
+## Signup no longer bounces you to the login page — 2026-09-20
+
+`AuthContext.signUp` calls `signInWithPassword` as soon as the account is
+created, so there is a live session by the time `SignUp.tsx` finishes. It then
+navigated to `login` anyway — asking somebody to type a password they had
+chosen thirty seconds earlier.
+
+That is precisely where a customer came unstuck this morning: the account
+existed, the sign-in attempt failed, and the reasonable conclusion was that the
+registration had not worked. Nothing rescued them, either. The guard in
+`App.tsx:844` that would normally move a signed-in visitor off an auth page
+deliberately returns early for `login` and `signup` — "Login owns the post-auth
+destination" — so they sat on a login form while already signed in.
+
+**Now goes to `customer-portal-app`.** That is the right destination because
+`/auth/signup` grants the lowest role there is, always: self-registration cannot
+produce anything but a client. Anyone who is more than that arrived through an
+invitation and signs in rather than registering.
+
+Checked the destination from three angles before changing it, because landing
+somewhere that bounces would be worse than the login page:
+
+- it is in `publicRoutes` (App.tsx:556), so the route guard returns early with
+  "Public route, no restrictions" and cannot redirect them;
+- it is the customer's own portal home (`portalHomePages.customer`, line 685);
+- it is first in `portalAllowedRoutes.customer` (line 722).
+
+Both success toasts were reworded too — one still said "Redirecting to
+login...", and the other told people they could "sign in now" when they already
+were.
+
+App typecheck 324, unchanged. Smoke: 6 pages reached including both signup
+routes, all rendered, 0 threw; `customer-portal-app` itself renders clean in the
+full 332-page pass run earlier today.
+
+**Not observed end to end.** This is a navigation target, and I cannot drive the
+browser from here — what is verified is that the destination exists, renders,
+and is not gated against a fresh customer. Registering a throwaway account on
+the live site would confirm the click-through.
+
+### Noticed, not changed
+
+`isFirstUser` is decided by whether this BROWSER has a `userProfiles` entry, so
+it is true on any fresh device, and the "owner privileges" it announces are a
+localStorage claim only. The server grants every self-registration `client`, and
+Login.tsx discards a locally elevated `accountType` on the next sign-in, so
+nothing is actually escalated — but the branch is misleading and worth
+untangling separately.
