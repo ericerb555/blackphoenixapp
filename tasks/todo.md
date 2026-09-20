@@ -6266,3 +6266,50 @@ measured 16.3 s against 3.1 s warm — the edge function booting, not this code.
 An unlucky first visitor of the day pays it.
 
 The rest is the lazy chunk for the customer portal and its own data fetches.
+
+---
+
+## The exit-intent popup — 2026-09-20
+
+Seen on the live site: *"Wait — Don't Leave Empty Handed! Get an exclusive
+discount on your first service"* as a full-screen overlay on the customer
+portal, seconds after a registration, to an account that had handed over its
+email address on the previous screen. Nobody was leaving.
+
+### Two separate faults
+
+**It showed to signed-in users.** The popup is a lead capture for anonymous
+visitors — it asks for an email in exchange for a discount on a *first* service.
+Shown to somebody with an account it asks for the address they signed up with
+and offers a first-timer discount to a person who has already arrived. It is now
+never opened for a signed-in visitor, and closes on the spot if somebody signs
+in while it is showing.
+
+**The inactivity fallback ran everywhere.** The comment said "Mobile:" and
+nothing enforced it, so on a desktop a popup labelled *exit* intent became an
+idle nag — `mouseleave` is the real trigger there, and this fired thirty seconds
+later regardless. Worse, the activity that reset the timer was scroll, keydown,
+pointerdown and input — **not mouse movement** — so somebody reading a dashboard
+with their hand on the mouse counted as inactive. That is exactly how it
+appeared over a portal with nobody going anywhere.
+
+Now gated to `(hover: none) and (pointer: coarse)`. A phone has no mouse and so
+no exit signal at all, which is the reason the fallback exists; desktops keep
+the genuine trigger and lose the nag.
+
+### Verified on the live site
+
+Cleared `exit_intent_suppressed` first so a past dismissal could not mask the
+result, registered a fresh account, then sat **50 seconds idle** on the portal —
+the exact condition that produced it before, where it had appeared within
+thirty. `popupPresent: false`, `promoVisible: false`.
+
+App typecheck 324, unchanged. Smoke: the full 332-page pass, because this
+renders on every screen and now calls `useAuth`, which throws outside its
+provider — 332 rendered, 0 threw. Its single mount point is inside
+`AuthProvider`.
+
+### Noted, not changed
+
+The `showOnPages` config field is declared, defaulted and never read by
+anything — so the admin screen that sets it has no effect.
