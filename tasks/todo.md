@@ -6219,3 +6219,50 @@ tables do not exist in this project. Three failing round trips on every sign-in.
 it is what an unlucky first visitor of the day pays.
 
 Probe accounts and their CRM records deleted; 7 accounts remain.
+
+### The phantom table queries — removed
+
+Verified against the database first: of `user_permissions`, `company_members`,
+`user_profiles` and `companies`, **only `companies` exists**. The other three
+were queried on every sign-in and could only ever come back empty.
+
+`loadUserRole` fired three in parallel, `loadCompanyContext` fired a fourth
+through `loadUserCompanies`, and then `askServerForAuthority` made a fifth call
+for the answer that was actually used. The comment already sitting there
+recorded that the tables were missing and had moved the server call into a
+`finally` so it would run regardless — which fixed the correctness and left the
+waste.
+
+Each consumer was checked before anything was removed:
+
+- `isOwner` and `userRole` come from `askServerForAuthority`, which reads the
+  server's own owner allowlist and token metadata — the same check that refuses
+  or permits every write. Owner access was already entirely dependent on it, so
+  nothing about it changes.
+- `needsOnboarding` has no consumer outside this file. It is now set false
+  rather than left, because with the table missing the old code read
+  `onboarding_completed` as false and so set the flag **true for every user
+  forever**.
+- The company context has no consumer either — the screens with a company
+  switcher use `useCompany()`, a different context with its own source.
+  `switchCompany` still reads the default and still refuses when there is
+  nothing to switch to, exactly as before.
+
+### End to end
+
+| | Click → portal |
+|---|---|
+| Before any of today's work | ~21 s |
+| After deferring the CRM scans | 13.7 s |
+| After removing the phantom queries | **9.3 s** |
+
+Verified in the browser on a real registration each time, and the portal renders
+correctly signed in afterwards.
+
+### Still slow, and still a separate job
+
+**Cold start is now the biggest single cost.** The first call after a deploy
+measured 16.3 s against 3.1 s warm — the edge function booting, not this code.
+An unlucky first visitor of the day pays it.
+
+The rest is the lazy chunk for the customer portal and its own data fetches.
