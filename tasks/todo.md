@@ -5305,3 +5305,32 @@ the gateway, so it answers "check your inbox" and still sends nothing.
 
 Once deployed, the five above can let themselves in with "Forgot password?" —
 no data surgery needed.
+
+### Verified live, 2026-09-20 20:53 UTC
+
+Eric deployed the function. The whole chain was then driven against production,
+on a probe account deliberately put into the exact state the five locked-out
+people are in (`email_confirmed_at` set to null):
+
+| Step | Result |
+|---|---|
+| `/health` | 200, v2.9.x |
+| Sign in while unconfirmed | **400 `email_not_confirmed`** — the lockout reproduced |
+| `POST /auth/forgot-password` | 200 `{"success":true}` — the index.tsx route, so the new code is live |
+| Token in KV | `pwreset:9432…`, one-hour expiry |
+| `POST /auth/reset-password` | 200 |
+| Sign in with the new password | **200, session issued** |
+| Old password | 400, rejected |
+| Token used a second time | 400, "already been used" |
+| `email_confirmed_at` afterwards | **set** — the confirmation fix is what made the sign-in possible |
+
+Auth logs across the run show only the two deliberate test failures above. No
+`535 "Invalid username"` anywhere — nothing in the app talks to Supabase Auth's
+mailer any more. Probe account deleted afterwards.
+
+**One thing this does not prove:** the test address is on a domain with no
+mailbox, so it shows Resend *accepted* the message, not that it landed in an
+inbox. Worth one real test from the live site with a working address.
+
+Checks unchanged since the last run: app typecheck 324, server typecheck 84,
+full smoke 332 rendered / 0 threw. No code changed in this entry.
