@@ -5978,3 +5978,48 @@ restyling a banner that appears on every portal is a bigger change than that.
 Worth revisiting: a red lock panel is still an alarm, and for somebody who has
 simply not bought anything yet a neutral or promotional treatment would read
 better than an error.
+
+### Verified in the browser on a fresh registration
+
+Registered a second throwaway account on the live site. The portal now greets it
+with:
+
+> **Choose a plan to unlock full access**
+> Your account is active. A plan opens up the rest of your portal's features.
+> *[See plans]*
+
+Which is what it should say to somebody who has never had a trial. The corrected
+signup-form banner was live too: "Your account works straight away — there is no
+confirmation email to wait for."
+
+Probe account, its CRM contact and orphaned KV records deleted. 7 accounts
+remain; the single `blackphoenixtest.dev` address left is `e2e-probe`, the
+fixture `scripts/e2e.mjs` depends on.
+
+### Found by accident, and it affects real users
+
+Mid-test the portal hung on **"Loading…" forever**. The console said:
+
+    TypeError: Failed to fetch dynamically imported module:
+    /assets/CustomerPortalView-DO87881s-1789941823893.js
+
+The tab had loaded the page from the previous build, and by the time it lazily
+imported the customer portal that chunk had been replaced by the deploy. A
+manual reload fixed it instantly, which confirms the diagnosis.
+
+My own deploy caused it here, but the situation is not artificial: **anyone with
+the app open when a deploy lands hits exactly this on their next lazy-loaded
+route.** Every page in `routes.tsx` is `lazy(() => import(...))`, so that is any
+navigation at all. The app has no handler for it — it sits on "Loading…"
+indefinitely rather than reloading, and the person has no way to know that
+refreshing would fix it.
+
+The usual remedy is to catch a failed dynamic import once and force
+`location.reload()`, guarded by a sessionStorage flag so a genuinely missing
+chunk cannot cause a reload loop. Worth doing, and not started — it is a change
+to the shared route loader, so it wants a decision first.
+
+Also observed: the whole signup submit took about **21 seconds** from click to
+portal (account row created 22:10:26, session at 22:10:47). The
+`/auth/signup` call alone was measured at 8.5s earlier today. A spinner that
+long is its own risk — it is what made the original customer abandon the page.
