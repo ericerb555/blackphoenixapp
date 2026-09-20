@@ -5589,3 +5589,49 @@ merges the whole body, which is exactly right for that editor.
 **Worth a look later, not urgent:** the dead `/media/upload` validates file type
 and caps size at 100MB. The served one does neither, so the live upload route
 takes any file of any size.
+
+---
+
+## Deployed and verified against production — 2026-09-20 21:26 UTC
+
+| Check | Result |
+|---|---|
+| `/health` | 200 |
+| `POST /applications` anonymously, as the public forms post | **200, `success: true`**, applicationId returned |
+| — stored? | `applications` array went 0 → 1: **the first application ever recorded on this project** |
+| — reached the CRM? | yes, contact created |
+| `GET /auth/me` as an invited vendor (`app_metadata.role=vendor`, no permissions record) | **`"role":"vendor"`** — was `"client"` before |
+| — portal it routes to | `vendor-portal`, not `customer-portal-app` |
+| `PUT /quotes/:id` with the exact staff-editor payload | 200, and **every figure persisted**: totalCost 1786.32, laborSubtotal 1360, taxAmount 132.32, 1 labor entry, 3 process steps — all of which were silently dropped before |
+| `POST /auth/forgot-password` (regression, auth.tsx was touched again) | 200 `{"success":true}` — index.tsx's copy still serving |
+| No Authorization header at all | still 401 at the gateway, as it should be |
+
+### Cleanup
+
+Everything created for these checks is gone: the test quote, the probe
+application and its CRM contact, and the probe account. That account was
+temporarily given an `admin` role in `app_metadata` because `PUT /quotes/:id` is
+staff-only and there was no other way to exercise it; it was deleted immediately
+afterwards. Final state: 7 auth accounts, all confirmed, all with passwords, all
+having signed in. `applications` is back to empty, so the first entry will be a
+real one.
+
+The regression check sent a genuine reset email to ericerb555@proton.me — which
+is also the real-inbox delivery test that had been outstanding since the reset
+was fixed.
+
+### Where the list stands
+
+- [x] A — customer registration signs the applicant in
+- [x] `/applications` unshadowed — applications save and reach the CRM
+- [x] `/auth/me` unshadowed — invited users reach their own portal
+- [x] `PUT /quotes/:id` unshadowed — staff quote edits persist
+- [x] Five stuck accounts deleted, ready to re-invite
+- [ ] B — `/api/products` and `/product-ads` are both empty, so publishing them
+      would show nothing; left alone pending Eric's decision
+- [ ] The public work-request form's materials step has no data behind it at all
+- [ ] F — Supabase Auth SMTP still misconfigured (dashboard's own reset button);
+      signup signs you in then sends you to the login page; `getSupabaseClient()`
+      dead in auth.tsx; served `/media/upload` does not validate type or size
+- [ ] Portal *screens* beyond routing — each portal's own data loading is still
+      untested
