@@ -504,17 +504,6 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
   const [aiVideoAnalysisResults, setAiVideoAnalysisResults] = useState<any>(null);
   const [showAIVideoStudio, setShowAIVideoStudio] = useState(false);
   const [showKeyboardHint, setShowKeyboardHint] = useState(true);
-  
-  // Materials & Products state
-  const [productSearch, setProductSearch] = useState('');
-  const [productCategory, setProductCategory] = useState('all');
-  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
-  const [materialSourceTab, setMaterialSourceTab] = useState<'vendors' | 'advertisers' | 'subcontractors'>('vendors');
-  const [advertiserOffers, setAdvertiserOffers] = useState<any[]>([]);
-  const [isLoadingOffers, setIsLoadingOffers] = useState(false);
-  const [subcontractorServices, setSubcontractorServices] = useState<any[]>([]);
-  const [isLoadingServices, setIsLoadingServices] = useState(false);
 
   // Show keyboard hint briefly on mount
   useEffect(() => {
@@ -556,153 +545,39 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
     initializeAutoSave();
   }, [user?.id]);
 
-  // Fetch products from vendor catalog
-  useEffect(() => {
-    if (currentStep === 'materials') {
-      const fetchProducts = async () => {
-        setIsLoadingProducts(true);
-        try {
-          const response = await fetch(
-            `${API_BASE}/api/products?limit=50&category=${productCategory}&search=${productSearch}`,
-            {
-              headers: await authedHeaders(),
-            }
-          );
-          const data = await response.json();
-          if (data.success) {
-            setAvailableProducts(data.data.products || []);
-          }
-        } catch (error) {
-          console.error('Error fetching products:', error);
-        } finally {
-          setIsLoadingProducts(false);
-        }
-      };
-      fetchProducts();
-    }
-  }, [currentStep, productCategory, productSearch]);
-
-  // Fetch advertiser offers when advertiser tab is active
-  useEffect(() => {
-    if (currentStep === 'materials' && materialSourceTab === 'advertisers') {
-      const fetchAdvertiserOffers = async () => {
-        setIsLoadingOffers(true);
-        try {
-          const response = await fetch(
-            `${API_BASE}/product-ads?status=active&limit=50&search=${productSearch}`,
-            {
-              headers: await authedHeaders(),
-            }
-          );
-          const data = await response.json();
-          if (data.success && data.ads) {
-            // Transform product ads into offer format
-            const offers = data.ads.map((ad: any) => ({
-              id: ad.id,
-              name: ad.productName || ad.headline || 'Special Offer',
-              description: ad.description || ad.bodyText || '',
-              price: ad.pricing?.discountedPrice || ad.pricing?.originalPrice || 0,
-              originalPrice: ad.pricing?.originalPrice,
-              discount: ad.pricing?.discount,
-              imageUrl: ad.imageUrl || ad.visualAssets?.[0],
-              vendorName: ad.advertiserId || 'Special Offer',
-              category: ad.category || 'offer',
-              offerType: ad.templateId,
-              validUntil: ad.validUntil,
-            }));
-            setAdvertiserOffers(offers);
-          }
-        } catch (error) {
-          console.error('Error fetching advertiser offers:', error);
-        } finally {
-          setIsLoadingOffers(false);
-        }
-      };
-      fetchAdvertiserOffers();
-    }
-  }, [currentStep, materialSourceTab, productSearch]);
-
-  // Fetch subcontractor services when subcontractors tab is active
-  useEffect(() => {
-    if (currentStep === 'materials' && materialSourceTab === 'subcontractors') {
-      const fetchSubcontractorServices = async () => {
-        setIsLoadingServices(true);
-        try {
-          const response = await fetch(
-            `${API_BASE}/subcontractors`,
-            {
-              headers: await authedHeaders(),
-            }
-          );
-          const subcontractors = await response.json();
-          
-          if (Array.isArray(subcontractors)) {
-            // Transform subcontractors into service offerings
-            const services = subcontractors
-              .filter((sub: any) => sub.status === 'active' || !sub.status) // Only active subcontractors
-              .flatMap((sub: any) => {
-                // Each subcontractor can offer multiple services
-                const baseService = {
-                  subcontractorId: sub.id,
-                  subcontractorName: sub.companyName || sub.name || 'Professional Service',
-                  specialty: sub.specialty || sub.serviceType || 'General',
-                  rating: sub.rating || 4.5,
-                  certifications: sub.certifications || [],
-                  insurance: sub.insurance || sub.insured || false,
-                  licensed: sub.licensed || false,
-                  yearsExperience: sub.yearsExperience || 5,
-                  imageUrl: sub.logo || sub.profileImage,
-                };
-
-                // If they have a service list, create one card per service
-                if (sub.services && Array.isArray(sub.services)) {
-                  return sub.services.map((service: any) => ({
-                    id: `${sub.id}-${service.name || service.type}`,
-                    name: service.name || service.type || baseService.specialty,
-                    description: service.description || `Professional ${service.name || baseService.specialty} services`,
-                    price: service.hourlyRate || service.rate || 85,
-                    priceType: service.priceType || 'hourly',
-                    category: service.category || baseService.specialty,
-                    vendorName: baseService.subcontractorName,
-                    ...baseService,
-                  }));
-                }
-
-                // Otherwise, create a single service card for the subcontractor
-                return [{
-                  id: sub.id,
-                  name: `${baseService.specialty} Services`,
-                  description: sub.description || `Professional ${baseService.specialty} services by licensed contractor`,
-                  price: sub.hourlyRate || sub.rate || 85,
-                  priceType: 'hourly',
-                  category: baseService.specialty,
-                  vendorName: baseService.subcontractorName,
-                  ...baseService,
-                }];
-              })
-              .filter((service: any) => {
-                // Apply search filter
-                if (!productSearch) return true;
-                const searchLower = productSearch.toLowerCase();
-                return (
-                  service.name?.toLowerCase().includes(searchLower) ||
-                  service.description?.toLowerCase().includes(searchLower) ||
-                  service.specialty?.toLowerCase().includes(searchLower) ||
-                  service.vendorName?.toLowerCase().includes(searchLower)
-                );
-              });
-
-            setSubcontractorServices(services);
-          }
-        } catch (error) {
-          console.error('Error fetching subcontractor services:', error);
-        } finally {
-          setIsLoadingServices(false);
-        }
-      };
-      fetchSubcontractorServices();
-    }
-  }, [currentStep, materialSourceTab, productSearch]);
+  /**
+   * The materials step's three fetches used to sit here, and every one of them
+   * was dead.
+   *
+   * They loaded a vendor product list, advertiser offers and subcontractor
+   * services into four pieces of state — `availableProducts`,
+   * `advertiserOffers`, `subcontractorServices` and their loading flags — and
+   * **nothing rendered any of them**. There is no product list, no offer list
+   * and no service list in this form. `setMaterialSourceTab` was never called
+   * either, so the tab was permanently `'vendors'` and the other two fetches
+   * could not run at all; `setProductSearch` and `setProductCategory` were
+   * never called, so the search and category parameters were always empty.
+   *
+   * What they cost while doing nothing:
+   *
+   *   - `authedHeaders()` THROWS when there is no session, and this form is on
+   *     `request-service`, a public route. Every signed-out visitor who reached
+   *     the materials step raised an exception for a list nobody could see.
+   *   - a round trip on every visit to that step, for a result that was
+   *     discarded.
+   *
+   * And they were pointed at the wrong things regardless. `/api/products` reads
+   * a `product:` prefix and `/product-ads` reads `productad:` — checked against
+   * the database on 2026-09-20 and both hold **zero rows**. Neither is the
+   * materials system: catalogue lines live under `vendor_catalog:` and the
+   * products built from them under `hub_product:`, which is what
+   * `/catalog-products` serves.
+   *
+   * Removed rather than rewired. Pointing dead state at the right endpoint
+   * would still render nothing — a materials picker is a screen that does not
+   * exist yet, not a broken one. See tasks/todo.md for what building it would
+   * need.
+   */
 
   // Load service area settings
   useEffect(() => {

@@ -6313,3 +6313,70 @@ provider — 332 rendered, 0 threw. Its single mount point is inside
 
 The `showOnPages` config field is declared, defaulted and never read by
 anything — so the admin screen that sets it has no effect.
+
+---
+
+## B, and what it actually turned out to be — 2026-09-20
+
+B started as "the materials step calls two endpoints that return nothing".
+Investigating it properly changed the answer twice.
+
+### The endpoints were empty AND wrong
+
+Checked against the database: `/api/products` reads a `product:` prefix and
+`/product-ads` reads `productad:` — **zero rows in both**. Neither is the
+materials system either. The real chain is `vendor_catalog:` (a vendor's
+catalogue lines) → `hub_product:` (the deduped product) → `/catalog-products`,
+which is what the design centre reads.
+
+Current contents of that chain: **1 catalogue line** (`2x4 Pressure Treated
+Lumber 8ft`, $8.74, from the `VEN-OWNER` test vendor), **0 hub products**,
+**0 offers**. Six vendors exist as records — Home Depot, Lowe's, Ferguson,
+Grainger, Electrical Wholesale and the owner test account — but none has
+uploaded a catalogue.
+
+### And then: nothing rendered any of it
+
+The deciding fact. All four pieces of state the fetches populated —
+`availableProducts`, `advertiserOffers`, `subcontractorServices` and their
+loading flags — were **written and never read**. There is no product list, no
+offer list and no service list anywhere in that form. `setMaterialSourceTab`
+was never called, so the tab was permanently `'vendors'` and the advertiser and
+subcontractor fetches could never fire at all. `setProductSearch` and
+`setProductCategory` were never called either, so the search and category
+parameters were always empty.
+
+What the dead code cost while displaying nothing:
+
+- `authedHeaders()` **throws** when there is no session, and this form is on
+  `request-service`, a public route. Every signed-out visitor reaching the
+  materials step raised an exception for a list nobody could see. That was the
+  original symptom.
+- a wasted round trip on every visit to that step.
+
+### Removed rather than rewired
+
+Pointing dead state at the correct endpoint would still render nothing. A
+materials picker is a screen that does not exist yet, not a broken one, and
+building one unasked is not a fix.
+
+App typecheck 324, unchanged (the four findings in this file are pre-existing
+and were in the baseline). Smoke reached 15 pages including `request-service`
+and `get-quote` — 15 rendered, 0 threw.
+
+### What building it would actually need
+
+1. **Catalogue data.** One line from a test vendor is not a materials picker.
+   The vendors need to upload, which is the point of the materials-hub
+   subscription. There is also a staff-only backfill that promotes existing
+   `vendor_catalog:` lines into `hub_product:` records — the single line above
+   has never been through it, which is why `hub_product:` is empty.
+2. **A decision on who may see prices.** `/catalog-products` requires a session
+   today. `request-service` is public, so either the picker only appears once
+   somebody signs in, or vendor pricing becomes visible to anonymous visitors.
+   That is Eric's call, not a detail to settle in passing.
+3. **The screen itself** — list, search, category filter and selection wired
+   into the work request.
+
+Worth saying plainly: the materials hub is built and empty. Nothing about the
+work-request form was going to show products until there are products.
