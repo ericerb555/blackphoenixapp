@@ -6063,3 +6063,31 @@ ever shown to somebody who really did have one.
 
 App typecheck 324, server typecheck 84, both unchanged. Smoke 19 rendered, 0
 threw.
+
+### Verified end to end, 2026-09-20 22:27 UTC
+
+**API, including the abuse cases.** A fresh account showed
+`level: standard, hasGrant: false, needsPlan: true`. Then `POST /me/trial/start`
+with a deliberately hostile body — `{"trialMonths":999,"level":"admin",
+"email":"ericerb555@proton.me"}` — returned exactly `level: full, daysLeft: 90,
+trialMonths: 3` **for the probe's own account**. Confirmed in the KV store
+afterwards: one new grant, `self-service`, 3 months, and nothing written against
+Eric's address. A second call answered `409 alreadyUsed`; a call with the anon
+key answered 401.
+
+**Browser, on a real registration.** Signed up on the live site and landed in
+the portal with the teal banner: *"Start your free 90-day trial — Full access to
+every feature in your portal. No card needed."* Clicking **Start free trial**
+flipped it immediately to *"Full-access trial · 90 days left (ends
+12/19/2026)"* with a View plans button — no page reload, because the route
+returns the new entitlements and the banner applies them.
+
+All probe accounts, grants and CRM contacts deleted. 7 accounts and 7 grants
+remain, all real; the single `blackphoenixtest.dev` address left is `e2e-probe`.
+
+### Seen while testing, not chased
+
+An exit-intent modal — *"Wait — Don't Leave Empty Handed! 5% OFF, promo code
+SAVE5"* — fired over the portal on a customer who had just registered seconds
+earlier and had not tried to leave. Offering a discount on a first service to
+somebody mid-signup is at best odd timing.
