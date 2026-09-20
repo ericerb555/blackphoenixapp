@@ -6380,3 +6380,71 @@ and `get-quote` — 15 rendered, 0 threw.
 
 Worth saying plainly: the materials hub is built and empty. Nothing about the
 work-request form was going to show products until there are products.
+
+---
+
+## Customers were being shown the rate we pay — 2026-09-20
+
+Eric, mid-task: *"the customers should only see vendors pricing not my
+discounted pricing."* Investigating found it was happening.
+
+### What was exposed
+
+`POST /vendor-pricing/compare` returned two kinds of row in one list:
+
+- `source: "catalog"` — a vendor's own published catalogue price. Fine for a
+  customer; it is what they are entitled to see.
+- `source: "contractor"` — the real rate Black Phoenix pays, written by staff
+  through the PUT in the same file, which describes itself as "the contractor's
+  real negotiated price".
+
+The second is the company's margin on materials. Anyone who sees it next to the
+vendor's published price knows the mark-up on every line of their quote, and it
+cannot be unseen.
+
+**The read had no authorisation of any kind.** The write below it did — with a
+comment noting it "decides the cost basis of every quote" — but the read was
+open, and `/vendor-pricing` is not on the admin prefix list, so it sat at the
+ordinary signed-in tier. Any customer with an account could name a material and
+be told what we pay for it.
+
+### The fix
+
+Negotiated rows are added only for internal callers, through a new
+`isPricingStaff()` that answers without refusing, so a read can decide what to
+**include** rather than whether to answer at all. It fails closed: anything it
+cannot positively identify as staff is not staff. `requirePricingStaff` now
+shares it instead of keeping a second copy of the same logic.
+
+On the server rather than in the browser deliberately — filtering the number out
+in the client would mean it had already been sent, and a hidden field is not a
+check.
+
+### Verified in production, both directions
+
+Seeded a negotiated record at **$5.11** against the one real catalogue line,
+which publishes at **$8.74**, then asked for that material twice:
+
+| Caller | Rows returned |
+|---|---|
+| Customer (ordinary account) | `catalog` $8.74 only — **$5.11 absent** |
+| Internal staff (`admin`) | `contractor` $5.11 **and** `catalog` $8.74 |
+
+So the leak is closed and the internal tool still works, which was the other
+half of getting this right.
+
+Seeded record and probe account deleted. `vendor_price:` is back to 0 records
+and 7 accounts remain.
+
+### Also checked
+
+`vendor_price:` is read in exactly one place in the whole server, so that route
+was the only exposure of the negotiated figure.
+
+### Noted, not changed
+
+`index.tsx:5666` declares a second `POST /vendor-pricing/compare`. The router
+mounts at index.tsx:771, so the version in `vendorPricing.tsx` — the one just
+fixed — is what serves. The dead copy reads only `vendor_catalog:` and so never
+carried negotiated prices, but it is another instance of the shadowing pattern
+found four times today.
