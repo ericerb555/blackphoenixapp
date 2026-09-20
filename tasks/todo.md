@@ -5478,3 +5478,73 @@ there are territories to gate on.
 
 The portal logins themselves — customer, vendor, subcontractor, employee,
 landlord, tenant, condo, investor, advertiser, territory, property manager.
+
+### The portal sweep: invited users land in the wrong portal
+
+Third instance of the shadowing bug today, and this one decides which portal
+every non-customer lands in.
+
+A systematic sweep of the whole server (every route declared both on a mounted
+router and on `app` in index.tsx) found **eight** more duplicate paths. In all
+eight the router wins, because routers mount at index.tsx:669-754 and the `app`
+handlers are declared from line 4816 onwards:
+
+| Route | Router (served) | index.tsx (dead) |
+|---|---|---|
+| `GET /auth/me` | auth.tsx:407 | 11020 |
+| `GET /quotes` | quotes.tsx:206 | 4816 |
+| `POST /quotes` | quotes.tsx:219 | 4848 |
+| `PUT /quotes/:id` | quotes.tsx:251 | 14270 |
+| `GET /cart/:sessionId` | ecommerce-cart.tsx:365 | 5801 |
+| `POST /cart/add` | ecommerce-cart.tsx:392 | 5807 |
+| `DELETE /cart/remove` | ecommerce-cart.tsx:523 | 5824 |
+| `POST /media/upload` | media-library.tsx:144 | 5573 |
+
+#### `/auth/me` is the one that matters, and it is broken
+
+The served version (`auth.tsx:407`) resolves a role as
+`role?.role_name || "client"`, reading only the KV record
+`user_permissions:<userId>`. It never looks at `app_metadata.role`.
+
+Only **six** `user_permissions` records exist on the whole project and every one
+says `client` — they all came from `/auth/signup`. **The invite path writes none
+at all**: `ensureAuthUser` sets `app_metadata: { role }`, which is the
+trustworthy bag, and nothing in index.tsx writes `user_permissions`.
+
+So every invited user resolves to `client`. Proven against production: a probe
+account with `app_metadata.role = "vendor"` and no permissions record — exactly
+the state `ensureAuthUser` leaves an invited vendor in — asked `/auth/me` and
+got back:
+
+    {"user":{…,"role":"client","permissions":{},"onboarding_completed":false}}
+
+`Login.tsx:219` then assigns that straight onto `profile.accountType`,
+**overwriting** the correct role it had already read from `app_metadata` a few
+lines earlier. `portalRoutes` has fourteen keys and none of them is `client`, so
+the lookup misses and falls through to `'customer-portal-app'`.
+
+**Every invited vendor, subcontractor, landlord, employee, investor, advertiser,
+tenant and property manager lands in the customer portal.** They can sign in;
+they just never reach their own portal.
+
+The dead handler at index.tsx:11020 is the correct one — it reads
+`app_metadata.role` first, then permissions and company memberships, then the
+approved application's `portalType`, and also returns `onboardingStatus` and
+`applicationId`.
+
+#### Proposed fix — NOT APPLIED, needs approval
+
+- [ ] Delete `GET /auth/me` from `auth.tsx` so index.tsx's version serves — the
+      same one-line surgery as the password reset and `/applications`.
+
+Low risk to verify: **`/auth/me` has exactly one caller in the whole frontend**
+(`Login.tsx:217`) and it reads only `identity.user.role`, which the surviving
+version returns. But it changes which portal every non-customer user lands in,
+so it is Eric's call rather than mine.
+
+#### Not yet assessed
+
+The other five shadowed routes — `/quotes` (×3), `/cart` (×3), `/media/upload`.
+Each needs the same read to decide whether the served copy or the dead one is
+the one that should win. `/quotes` touches the customer portal's approval flow
+and `/cart` the storefront, so neither is cosmetic.
