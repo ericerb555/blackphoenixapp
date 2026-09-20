@@ -24,7 +24,6 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import Anthropic from "npm:@anthropic-ai/sdk";
 
 const app = new Hono();
 
@@ -224,7 +223,7 @@ app.post("/ask", async (c) => {
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return c.json({ error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
 
-    const client = new Anthropic({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
 
     const messages = [
       ...history

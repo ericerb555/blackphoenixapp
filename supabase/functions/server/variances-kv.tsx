@@ -14,7 +14,6 @@
 //
 // Everything is KV-backed and best-effort so the tool works out of the box.
 import { Hono } from 'npm:hono@4';
-import OpenAI from 'npm:openai@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
@@ -106,7 +105,7 @@ variancesRouter.post(`${PREFIX}/variances/scan-fill`, async (c) => {
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) return c.json({ error: 'AI is not configured (missing OPENAI_API_KEY).' }, 500);
-    const openai = new OpenAI({ apiKey });
+    const openai = new (await import('npm:openai@4')).default({ apiKey });
 
     const id = crypto.randomUUID();
     const supabase = await ensureBucket();

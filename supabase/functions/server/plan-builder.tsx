@@ -10,7 +10,6 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
-import OpenAI from 'npm:openai@4';
 
 const planBuilderRouter = new Hono();
 
@@ -20,9 +19,23 @@ planBuilderRouter.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-const openai = new OpenAI({
-  apiKey: Deno.env.get('OPENAI_API_KEY'),
-});
+/**
+ * Built on first use, not at boot.
+ *
+ * The OpenAI SDK is large, and importing it at module scope meant every cold
+ * start paid to parse and instantiate it — including the cold starts for
+ * requests that never go near this route. Dynamic import defers the whole cost
+ * to the first call that actually needs a model, and the client is cached so
+ * only that first call pays it.
+ */
+let openaiClient: any = null;
+async function openai(): Promise<any> {
+  if (!openaiClient) {
+    const { default: OpenAI } = await import('npm:openai@4');
+    openaiClient = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') });
+  }
+  return openaiClient;
+}
 
 planBuilderRouter.get('/test', (c) => {
   console.log('[AI Plan Builder] Test endpoint hit');
@@ -106,7 +119,7 @@ User's needs: "${needs}"`;
       { role: 'user', content: userPrompt },
     ];
 
-    const completion = await openai.chat.completions.create({
+    const completion = await (await openai()).chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
       temperature: 0.5,

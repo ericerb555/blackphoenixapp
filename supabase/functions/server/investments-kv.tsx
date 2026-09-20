@@ -22,7 +22,6 @@
 //   POST   /investments/documents/:id/sign                  -> { success, document }
 //   GET    /investments/analytics/portfolio/:email          -> { summary, commitments, recentPayouts }
 import { Hono } from 'npm:hono@4';
-import OpenAI from 'npm:openai@4';
 import Stripe from 'npm:stripe@17';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
@@ -1330,7 +1329,7 @@ investmentsRouter.post(`${PREFIX}/investments/ai-property-analysis`, async (c) =
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) return c.json({ error: 'AI is not configured (missing OPENAI_API_KEY).' }, 500);
-    const openai = new OpenAI({ apiKey });
+    const openai = new (await import('npm:openai@4')).default({ apiKey });
 
     // Ground the study in the real parcel record + valuation where available.
     // Parcel data is sourced free-first (MassGIS / NH GRANIT via Census

@@ -12,7 +12,6 @@
  */
 
 import { Hono } from "npm:hono@4";
-import OpenAI from "npm:openai@4";
 import * as kv from "./kv_store.tsx";
 
 const router = new Hono();
@@ -450,7 +449,7 @@ router.post("/make-server-3eae23a6/ranking/generate", async (c) => {
     let scores = { seoScore: 90, geoScore: 88, voiceScore: 86 };
 
     if (apiKey) {
-      const openai = new OpenAI({ apiKey });
+      const openai = new (await import('npm:openai@4')).default({ apiKey });
       const prompt = `You are an expert local SEO + GEO (generative engine optimization) copywriter.
 Write a ${typeLabels[type]} for "${businessName}", a home-services contractor in ${businessCity}.
 Services: ${services}.

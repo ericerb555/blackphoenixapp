@@ -27,7 +27,6 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import Anthropic from "npm:@anthropic-ai/sdk";
 import { trustedRole } from "./trustedRole.ts";
 
 const app = new Hono();
@@ -147,7 +146,7 @@ app.post("/read", async (c) => {
       ].filter(Boolean).join("\n"),
     });
 
-    const client = new Anthropic({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
     const message = await client.messages.create({
       model: Deno.env.get("BID_INTAKE_MODEL") || "claude-opus-5",
       max_tokens: 8000,

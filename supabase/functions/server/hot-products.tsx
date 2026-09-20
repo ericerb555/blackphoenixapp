@@ -25,7 +25,6 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import OpenAI from "npm:openai@4";
 import * as kv from "./kv_store.tsx";
 import { zendropFetch, extractProducts, normalize, loadServerConfig, resolveKey, num } from "./zendrop.tsx";
 import {
@@ -523,7 +522,7 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/source-analysis", asy
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openaiKey) return c.json({ success: true, name, analysis: null, sourcing, connectedChannels: connected });
 
-    const openai = new OpenAI({ apiKey: openaiKey });
+    const openai = new (await import('npm:openai@4')).default({ apiKey: openaiKey });
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       response_format: { type: "json_object" },
@@ -563,7 +562,7 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/search-everywhere", a
       ? `The user is researching: "${query}".`
       : "The user wants the hottest trending product opportunities across all categories right now.";
 
-    const openai = new OpenAI({ apiKey: openaiKey });
+    const openai = new (await import('npm:openai@4')).default({ apiKey: openaiKey });
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       response_format: { type: "json_object" },

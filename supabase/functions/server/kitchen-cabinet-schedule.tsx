@@ -12,7 +12,6 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
-import OpenAI from 'npm:openai@4';
 
 const app = new Hono();
 
@@ -23,9 +22,11 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-const openai = new OpenAI({
-  apiKey: Deno.env.get('OPENAI_API_KEY'),
-});
+/**
+ * An OpenAI client used to be constructed here, at module scope, and never
+ * referenced once in the whole file. It cost the SDK's import and
+ * instantiation on every cold start to build an object nothing called.
+ */
 
 interface CabinetScheduleRequest {
   kitchenData: KitchenLayout;

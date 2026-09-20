@@ -12,7 +12,6 @@
  * route paths are relative.
  */
 import { Hono } from "npm:hono@4";
-import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 
@@ -40,7 +39,7 @@ async function anthropicJson(system: string, user: string, maxTokens = 2500): Pr
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
 
-  const client = new Anthropic({ apiKey: key });
+  const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
   const message = await client.messages.create({
     model: Deno.env.get("CONTENT_STUDIO_ANTHROPIC_MODEL") || "claude-opus-5",
     // Thinking counts against this limit, so a budget sized for the JSON alone

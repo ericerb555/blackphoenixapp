@@ -18,8 +18,6 @@
 //
 // Everything is KV-backed and best-effort so the tool works out of the box.
 import { Hono } from 'npm:hono@4';
-import OpenAI from 'npm:openai@4';
-import Anthropic from 'npm:@anthropic-ai/sdk';
 import * as kv from './kv_store.tsx';
 
 // ── Which model writes the page ─────────────────────────────────────────────
@@ -52,7 +50,7 @@ async function writeWithClaude(system: string, user: string): Promise<string> {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set.');
 
-  const client = new Anthropic({ apiKey });
+  const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey });
   const message = await client.messages.create({
     model: Deno.env.get('PAGE_PILOT_ANTHROPIC_MODEL') || 'claude-opus-5',
     // Thinking is on by default and counts against max_tokens, so a limit sized
@@ -392,7 +390,7 @@ Output ONLY the JSON object.`;
       if (provider === 'anthropic') {
         raw = await writeWithClaude(system, user);
       } else {
-        const openai = new OpenAI({ apiKey });
+        const openai = new (await import('npm:openai@4')).default({ apiKey });
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [
