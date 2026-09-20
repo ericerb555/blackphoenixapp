@@ -253,6 +253,55 @@ stripeConnectRouter.get(`${PREFIX}/stripe/health`, async (c) => {
   return healthBody(c);
 });
 
+/**
+ * Which webhook endpoints Stripe actually has for this account.
+ *
+ * "Is the webhook registered?" was previously only answerable by opening the
+ * Stripe dashboard, and the code had no way to tell whether the URLs it serves
+ * are ones Stripe will ever call. Answering it from the server keeps the secret
+ * key where it belongs — nothing here returns or logs it.
+ *
+ * Staff only, and deliberately a separate route rather than folded into
+ * /stripe/health: this makes a live call to Stripe, and a health check that
+ * reaches out to a third party every time is a health check that fails when
+ * they have a bad day.
+ *
+ * The endpoint's own signing secret is never returned. Stripe only discloses it
+ * at creation time, so a list cannot leak it — but the fields below are picked
+ * explicitly rather than spread, so that stays true if Stripe ever changes.
+ */
+stripeConnectRouter.get(`${PREFIX}/stripe/webhook-endpoints`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
+  const accounts = configuredKeyEnvs();
+  const out: Record<string, any> = {};
+
+  for (const [envName, configured] of Object.entries(accounts)) {
+    if (!configured) { out[envName] = { configured: false }; continue; }
+    try {
+      const stripe = await getStripeByEnv(envName);
+      if (!stripe) { out[envName] = { configured: true, error: "client could not be built" }; continue; }
+      const list = await stripe.webhookEndpoints.list({ limit: 100 });
+      out[envName] = {
+        configured: true,
+        count: list.data.length,
+        endpoints: list.data.map((e: any) => ({
+          id: e.id,
+          url: e.url,
+          status: e.status,
+          enabledEvents: e.enabled_events,
+          pointsAtThisProject: String(e.url || "").includes("plzsvzwwcdopnawtiwzm.supabase.co"),
+        })),
+      };
+    } catch (err: any) {
+      out[envName] = { configured: true, error: err?.message || String(err) };
+    }
+  }
+
+  return c.json({ success: true, accounts: out });
+});
+
 function healthBody(c: any) {
   const accounts = configuredKeyEnvs();
   return c.json({
