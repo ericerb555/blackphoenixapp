@@ -6726,3 +6726,55 @@ never reflected. For a subscription product that is a real hole, just not a
 2. Teach `stripe-webhooks` to recognise `kind === 'property_ai'` so one endpoint
    and one secret serve everything. Fewer moving parts, but it mixes the two
    billing concerns in one function.
+
+### Option 2 done — one endpoint now serves both
+
+Eric chose one endpoint over registering a second. `stripe-webhooks/index.ts`
+now handles `checkout.session.completed` for `kind: 'property_ai'`, plus
+subscription updated/deleted and invoice succeeded/failed, mirroring the logic
+that was stranded in `investments-kv.tsx`.
+
+**Two things it is careful about.** `handlePropertyAiEvent` returns null for
+anything it cannot positively identify as its own, so store orders and
+maintenance plans fall through to the existing handlers untouched. And lookup
+matches on **subscription id first**, customer id only as a fallback — a
+customer can hold a maintenance plan *and* an AI subscription, and matching on
+customer alone would let a plan's invoice deactivate the wrong entitlement.
+
+### A trap closed on the way in
+
+`stripe-webhooks` was deployed with `verify_jwt: false` but **was not listed in
+`config.toml`**, where every other function states it explicitly "so that a
+deploy can never silently change it". The CLI defaults to **true**, so deploying
+this function would have switched the JWT gate on and killed every delivery —
+including the maintenance-plan and store events that work today. Stripe posts a
+signature and no Supabase token, so the gate would have rejected everything at
+the door.
+
+Found before deploying, not after. It is now listed with the reasoning, and the
+deployed function came back `verify_jwt: false`, version 11.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| `verify_jwt` after deploy | **false** — config entry held |
+| Invalid signature | 400 "Invalid signature" — unchanged, my code did not break the path |
+| Server typecheck | 84, error sets diffed — zero new |
+
+**What I cannot test from here:** a real `property_ai` event needs a valid
+Stripe signature, which requires the signing secret. That should not pass
+through me, so the definitive test is Eric's: Stripe dashboard → the
+`stripe-webhooks` endpoint → **Send test webhook** →
+`customer.subscription.deleted`. I can read the function logs afterwards and
+confirm it was received and routed.
+
+### One thing worth adding in Stripe
+
+The registered endpoint's events are `checkout.session.completed`,
+`invoice.payment_succeeded`, `invoice.payment_failed`,
+`customer.subscription.deleted`. The AI handler also understands
+**`customer.subscription.updated`**, which is what catches a subscription going
+past_due or being paused rather than outright cancelled. Adding that event to
+the endpoint would make the entitlement track billing more closely. That is a
+change to Eric's Stripe configuration, so it is his to make.
