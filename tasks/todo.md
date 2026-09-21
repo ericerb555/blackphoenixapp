@@ -7833,3 +7833,100 @@ duplicate price lists are a live hazard.
 
 The tier contents above are a proposal from what the app can already do. The
 prices are Eric's call, and so is which audience is worth selling to first.
+
+## Editing tiers in the Portal Plans tab, with a drafting assistant
+
+Eric: *"can we make sure we can edit the tier features and prices with in the
+same tab so add the pricing features in there and maybe have a ai assistant to
+make it easy?"*
+
+Today the Portal Plans tab can only make a published tier sellable — create or
+attach its Stripe price. The tier itself (name, blurb, features, limits, price)
+can only be written by posting JSON to the server by hand, which is why the
+three vendor tiers were typed once and never revised.
+
+### How it ties in
+
+`POST /plan-tiers/:audience` already accepts a whole tier through `readTier()`,
+and `GET /plan-tiers` already returns every field an editor needs — `publicTier`
+strips only the two Stripe price ids. So this is a form against an API that
+exists, not a new subsystem. Nothing about the catalogue's shape changes.
+
+The assistant follows the design assistant's rule: **it proposes, it does not
+edit.** A draft comes back as JSON into the form, and nothing reaches the
+catalogue until Eric presses save.
+
+- [x] E1. Inline tier editor in `PlanTierAdmin` — name, blurb, features,
+      limits, price, interval, sort order, withdrawn. New plan and Edit both
+      open it; save posts to the existing route.
+- [x] E2. Guard the price field: a tier that already has a Stripe price cannot
+      have its amount changed silently, because Stripe prices are immutable.
+      Editing the amount has to say so and require a new price afterwards.
+- [x] E3. `POST /plan-draft` — admin-only, metered in the shared `ai` bucket,
+      returns proposed tiers as JSON. Strips anything resembling a price id.
+- [x] E4. Draft panel in the tab: describe the ladder, review what comes back,
+      load any tier into the editor.
+
+### Worth saying plainly
+
+**`limits` is not enforced anywhere yet.** `withinLimit()` exists in
+`planTier.ts` and is covered by tests, but no route calls it — so a limit typed
+into a tier today is documentation, not a ceiling. The editor will say so rather
+than implying the number does something. Wiring each limit to the thing it
+meters (catalogue size, deals live, quotes per month) is its own piece of work.
+
+**Still unresolved from before this:** no tier in any portal has a Stripe price
+attached, so nothing is actually on sale.
+
+### Review — tier editing and the drafting assistant
+
+**The editor.** The Portal Plans tab now has a *New plan* button and an *Edit*
+button on every row. The form covers everything a tier is: name, one-line
+blurb, features one per line, limits as key/value rows, price in dollars,
+billing interval, sort order and whether it is on offer. It saves through the
+route that already existed, so nothing about the catalogue's shape changed. The
+id is fixed once a plan exists, because a saved subscription points at it.
+
+**The assistant.** *Assistant* opens a box: describe what the plans should do
+for a portal and a ladder comes back — names, blurbs, features, limits and
+suggested prices, with a sentence on why it steps where it does. Each proposal
+has *Open in the form*. It writes nothing. A proposal whose id matches an
+existing plan opens as an edit of that plan rather than as a new one, so
+revising "Listed" revises Listed. Admin-only, and metered in the shared `ai`
+bucket like every other model call.
+
+**A bug found on the way, which mattered more than the feature.** Saving a tier
+would have destroyed its Stripe linkage. `readTier` builds a tier from the
+request body alone, and the list route deliberately strips the price ids — so
+the editor could not have sent them back, and the save would have written a
+record with no price id at all. Editing a blurb would have taken the plan off
+sale, with no error anywhere; the first sign would have been a vendor pressing
+Subscribe. Fixed by carrying the linkage from the stored record.
+
+**And the other half of that.** A Stripe Price is immutable — its amount is
+fixed when it is created, and editing the figure here does nothing to it. So a
+plan raised from $39 to $49 while still pointing at the old Price would
+advertise one number and charge another, which is exactly the mismatch the
+attach route already refuses. Changing the amount now detaches the old price,
+which takes the plan off sale until a replacement is created — one button, in
+the same panel. The Stripe object is untouched, so anybody already subscribed
+keeps the figure they agreed to. The form says this *before* the save rather
+than after, because afterwards the plan is off sale and that would read as a
+fault.
+
+That rule lives in `planTier.ts` as `carryStripeLinkage` rather than inside
+the route, so it could be unit-tested — ten new assertions, including the
+forced-mismatch case where saving the Stripe figure must *not* detach, because
+that edit is bringing the plan into line rather than out of it.
+
+**Said plainly:** `limits` still is not enforced anywhere. `withinLimit()`
+exists and is tested, and no route calls it. The editor says so under the
+limits section rather than presenting the numbers as ceilings the software
+applies. Wiring each limit to the thing it meters is its own piece of work and
+has not been done.
+
+**Still true and still blocking sales:** no tier in any portal has a Stripe
+price attached, so nothing is on sale in either mode.
+
+Checks: app typecheck 323 (baseline), server 84 (baseline), tests 181 passing
+(was 171), smoke 4 pages reached, 0 threw.

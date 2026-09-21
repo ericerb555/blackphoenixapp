@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isPurchasable, notPurchasableReason, publicTier, resolveEntitlement, priceIdFor,
-  withinLimit, FREE_LEVEL, AUDIENCES,
+  withinLimit, carryStripeLinkage, FREE_LEVEL, AUDIENCES,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -223,4 +223,89 @@ test('neither price id reaches a customer, in either mode', () => {
     assert.ok(!shown.includes('price_live_1'), 'the live price id leaked');
     assert.ok(!shown.includes('price_test_1'), 'the test price id leaked');
   }
+});
+
+/**
+ * ── Carrying the Stripe linkage across an edit ────────────────────────────
+ *
+ * This decides whether a plan can be bought, and both ways of getting it wrong
+ * report nothing. Dropping the linkage takes a plan off sale silently, so
+ * editing a blurb would unsell it and the first sign would be a vendor pressing
+ * Subscribe. Keeping a linkage the edit has contradicted is worse: a Stripe
+ * Price is immutable, so a plan raised to $49 while still pointing at the $39
+ * Price advertises one figure and charges another.
+ */
+const attached = {
+  stripePriceId: 'price_live_abc',
+  stripePriceIdTest: 'price_test_abc',
+  stripeProductId: 'prod_abc',
+  stripePriceCents: 3900,
+  priceCents: 3900,
+};
+
+test('an unchanged amount keeps every Stripe field', () => {
+  const { linkage, detached } = carryStripeLinkage(attached, 3900);
+  assert.equal(linkage.stripePriceId, 'price_live_abc');
+  assert.equal(linkage.stripePriceIdTest, 'price_test_abc');
+  assert.equal(linkage.stripeProductId, 'prod_abc');
+  assert.deepEqual(detached, []);
+});
+
+test('EDITING A NAME DOES NOT UNSELL THE PLAN — the caller sends no price ids', () => {
+  // The edit path in full: readTier built a tier from the body, which carries
+  // no Stripe fields because the list route strips them. Nothing may be lost.
+  const { linkage, detached } = carryStripeLinkage(attached, attached.priceCents);
+  assert.equal(linkage.stripePriceId, 'price_live_abc');
+  assert.deepEqual(detached, []);
+});
+
+test('a changed amount detaches both prices — neither can charge the new figure', () => {
+  const { linkage, detached } = carryStripeLinkage(attached, 4900);
+  assert.equal(linkage.stripePriceId, undefined);
+  assert.equal(linkage.stripePriceIdTest, undefined);
+  assert.deepEqual([...detached].sort(), ['live', 'test']);
+});
+
+test('the recorded Stripe amount is forgotten once a price is detached', () => {
+  const { linkage } = carryStripeLinkage(attached, 4900);
+  assert.equal(linkage.stripePriceCents, undefined,
+    'a stale amount would let the next edit compare against a price that is gone');
+});
+
+test('the product id survives — a Stripe product outlives its prices', () => {
+  const { linkage } = carryStripeLinkage(attached, 4900);
+  assert.equal(linkage.stripeProductId, 'prod_abc');
+});
+
+test('only the mode that had a price is detached', () => {
+  const { detached } = carryStripeLinkage(
+    { stripePriceIdTest: 'price_test_x', stripePriceCents: 7900 }, 8900);
+  assert.deepEqual(detached, ['test']);
+});
+
+test('a tier that does not exist yet carries nothing and loses nothing', () => {
+  const { linkage, detached } = carryStripeLinkage(null, 3900);
+  assert.deepEqual(linkage, {});
+  assert.deepEqual(detached, []);
+});
+
+test('nothing is detached when no price was ever attached', () => {
+  const { detached } = carryStripeLinkage({ priceCents: 3900 }, 9900);
+  assert.deepEqual(detached, []);
+});
+
+test('it follows what Stripe charges, not what the plan last said', () => {
+  // A mismatch forced through the attach route: the plan says 3900 while the
+  // Price charges 4900. Saving 4900 brings the plan INTO line with Stripe, so
+  // the price must survive — detaching here would punish the fix.
+  const forced = { stripePriceId: 'price_x', stripePriceCents: 4900, priceCents: 3900 };
+  const { linkage, detached } = carryStripeLinkage(forced, 4900);
+  assert.equal(linkage.stripePriceId, 'price_x');
+  assert.deepEqual(detached, []);
+});
+
+test('an unreadable amount does not unsell anything', () => {
+  const { linkage, detached } = carryStripeLinkage(attached, Number.NaN);
+  assert.equal(linkage.stripePriceId, 'price_live_abc');
+  assert.deepEqual(detached, []);
 });

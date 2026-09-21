@@ -33,7 +33,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
-  AUDIENCES, isPurchasable, publicTier,
+  AUDIENCES, carryStripeLinkage, isPurchasable, publicTier,
   type Audience, type PlanTier, type StripeMode,
 } from "./planTier.ts";
 
@@ -180,23 +180,48 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-tiers/:audience", async (c) =
 
   const now = new Date().toISOString();
   const existing = (await kv.get(TIER(audience, tier.id))) as any;
+
+  /**
+   * The Stripe linkage is the server's, and an edit must not carry it.
+   *
+   * `readTier` builds a tier from the request body alone, so writing that
+   * straight over the record would drop every Stripe field it already held —
+   * and the caller cannot put them back, because the list route strips the
+   * price ids before anybody sees them. Editing a plan's name would quietly
+   * have unsold it. The rule, including when a changed amount means the old
+   * price has to go, lives in `planTier.ts` where it is unit-tested.
+   */
+  const { linkage: carried, detached } = carryStripeLinkage(existing, tier.priceCents);
+
   await kv.set(TIER(audience, tier.id), {
     ...tier,
+    ...carried,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     updatedBy: who.email,
   });
 
-  console.log(`[PlanCatalog] ${who.email} published ${audience}/${tier.id}`);
+  const saved = { ...tier, ...carried } as PlanTier;
+  const mode = activeMode();
+  console.log(
+    `[PlanCatalog] ${who.email} published ${audience}/${tier.id}`
+    + (detached.length ? ` (detached ${detached.join(' and ')} price: amount changed)` : ''),
+  );
   return c.json({
     success: true,
-    tier: publicTier(tier, activeMode()),
-    purchasable: isPurchasable(tier, activeMode()),
+    tier: publicTier(saved, mode),
+    purchasable: isPurchasable(saved, mode),
+    detached,
     // The single most useful thing to tell somebody who has just saved a plan
     // that nobody can buy.
-    warning: isPurchasable(tier)
-      ? undefined
-      : `Saved, but this plan cannot be bought yet — it needs a ${activeMode()}-mode Stripe price and a price above zero.`,
+    warning: detached.length
+      ? `Saved. The price changed, so the old ${detached.join(' and ')} Stripe price was `
+        + 'detached — it can only ever charge the old amount. Create a new '
+        + `${mode} price to put this plan back on sale. Anybody already subscribed `
+        + 'keeps the figure they agreed to.'
+      : isPurchasable(saved, mode)
+        ? undefined
+        : `Saved, but this plan cannot be bought yet — it needs a ${mode}-mode Stripe price and a price above zero.`,
   });
 });
 
@@ -232,6 +257,170 @@ planCatalogRouter.delete("/make-server-3eae23a6/plan-tiers/:audience/:id", async
     withdrawn: true,
     note: "Withdrawn from sale. Anyone already subscribed keeps it. Use ?hard=1 to delete outright.",
   });
+});
+
+/**
+ * The limit keys this app names, per portal.
+ *
+ * Given to the assistant so it proposes keys the codebase already uses instead
+ * of inventing a plausible-sounding one that nothing will ever read. These are
+ * NOT a promise of enforcement: `withinLimit` exists in `planTier.ts` and no
+ * route calls it yet, so a limit published today is documentation. Saying that
+ * here keeps the next person from assuming the number does something.
+ */
+const LIMIT_VOCABULARY: Record<string, string> = {
+  vendor: "products (catalogue size), deals (live at once), bidQuotesPerMonth, alertRadiusMiles",
+  subcontractor: "bidQuotesPerMonth, alertRadiusMiles, seats",
+  advertiser: "deals (live at once), campaignsPerMonth",
+  customer: "designProjects, storageGb",
+  content: "reelsPerMonth, seats, sites",
+  property_manager: "properties, units, seats",
+  landlord: "properties, units",
+  condo_association: "units, seats",
+};
+
+/**
+ * Draft a ladder of tiers from a description of what they should do.
+ *
+ * WHY THE ASSISTANT IS WORTH HAVING HERE
+ *
+ * The prices are the easy part. What is genuinely fiddly is making the rungs
+ * step sensibly — the usual failure is a middle tier nobody buys because it is
+ * barely better than the one below it, and that is only visible when the whole
+ * ladder is held in view at once.
+ *
+ * IT PROPOSES; IT DOES NOT PUBLISH
+ *
+ * The same rule the design assistant follows, for the same reason: a proposal
+ * applied without anybody reading it is a proposal nobody checked. This route
+ * writes nothing. The reply lands in the editor as fields, and the catalogue
+ * changes only when somebody presses save.
+ *
+ * AND IT NEVER RETURNS A PRICE ID
+ *
+ * A Stripe price id is a fact only Stripe can issue. A model cannot know one,
+ * so anything that looks like one is wrong by construction — and storing a
+ * fabricated one would publish a plan that bills against nothing. The field is
+ * simply not carried out of here.
+ *
+ * Metered in the shared `ai` bucket by the prefix middleware in `index.tsx`,
+ * which is registered before this router is mounted.
+ */
+planCatalogRouter.post("/make-server-3eae23a6/plan-draft", async (c) => {
+  try {
+    const who = await actor(c);
+    if (!who) return c.json({ error: "Sign in required." }, 401);
+    if (!who.isAdmin) return c.json({ error: "Only an administrator can draft plans." }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const audience = readAudience(body?.audience);
+    if (!audience) return c.json({ error: "Unknown audience." }, 400);
+    const brief = String(body?.brief || "").trim().slice(0, 2000);
+    if (!brief) return c.json({ error: "Describe what the plans should do." }, 400);
+
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!key) {
+      return c.json({ error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
+    }
+
+    const existing = ((await kv.getByPrefix(`plan_tier:${audience}:`)) as PlanTier[] || []).filter(Boolean);
+
+    const system = `You are setting up the subscription tiers a software portal sells.
+
+Give back a LADDER, not a list. Each paid rung must be obviously worth more than
+the one beneath it — the commonest mistake is a middle tier nobody would buy
+because it is barely better than the cheaper one. If three rungs cannot be
+justified, propose two. Put a free rung at the bottom at priceDollars 0, because
+a paid tier only reads as good value against something.
+
+FEATURES are what the buyer reads. Write them in their words, concrete, one
+benefit each. Not "advanced analytics" — say what they can actually see or do.
+
+LIMITS are the numbers, keyed by name. Use only these keys for this portal:
+  ${LIMIT_VOCABULARY[audience] || "this portal names no metered limits"}
+0 means unlimited. Never invent a key: a limit nothing reads is a promise
+nobody keeps.
+
+PRICES are a starting point for a human to overwrite. Whole dollars, in
+priceDollars. Never output an identifier of any kind — Stripe price ids are
+issued by Stripe, and anything you wrote would be false.
+
+Return ONLY a JSON object, no prose, no code fence:
+{
+  "tiers": [
+    { "id": "short-lowercase-slug", "name": "Listed",
+      "blurb": "one line on who this is for",
+      "features": ["what they get"], "limits": { "products": 250 },
+      "priceDollars": 39, "interval": "month", "sortOrder": 1 }
+  ],
+  "reasoning": "two or three sentences on why the ladder steps where it does"
+}`;
+
+    const context = existing.length
+      ? "They already sell these, so treat this as a revision rather than a blank sheet:\n"
+        + existing.map((t) =>
+          `· ${t.name} at ${((t.priceCents || 0) / 100).toFixed(0)}/${t.interval || "month"}`
+          + ` — limits ${JSON.stringify(t.limits || {})}`
+          + ` — features: ${(t.features || []).join("; ") || "none listed"}`).join("\n")
+      : "They sell nothing for this portal yet.";
+
+    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const message = await client.messages.create({
+      model: Deno.env.get("PLAN_DRAFT_MODEL") || "claude-opus-5",
+      max_tokens: 4000,
+      system,
+      messages: [{
+        role: "user",
+        content: `Portal: ${audience.replace(/_/g, " ")}\n\n${context}\n\nWhat they want:\n${brief}`,
+      }],
+    });
+
+    const raw = message.content
+      .filter((b: any) => b.type === "text").map((b: any) => b.text).join("").trim();
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const text = fenced ? fenced[1].trim() : raw;
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(first !== -1 && last > first ? text.slice(first, last + 1) : text);
+    } catch {
+      return c.json({ error: "The draft came back unreadable. Try describing it again." }, 502);
+    }
+
+    /**
+     * Put through the same reader the save route uses.
+     *
+     * Not a second validator written alongside it: `readTier` is what decides
+     * what a tier may contain, so a draft that skipped it could propose fields
+     * the save route would silently drop, and the editor would show something
+     * that could never be published. One gate, used twice.
+     *
+     * `stripePriceId` is cleared going in and coming out. `readTier` would take
+     * one if it were offered, and the model is never asked for one — so the
+     * only way a price id could appear here is by invention.
+     */
+    const tiers = (Array.isArray(parsed?.tiers) ? parsed.tiers : [])
+      .slice(0, 6)
+      .map((t: any) => readTier({
+        ...t,
+        stripePriceId: "",
+        priceCents: Math.max(0, Math.round(Number(t?.priceDollars ?? 0) * 100)),
+      }, audience))
+      .filter(Boolean)
+      .map((t: PlanTier) => ({ ...t, stripePriceId: undefined }));
+
+    console.log(`[PlanCatalog] ${who.email} drafted ${tiers.length} ${audience} tiers`);
+    return c.json({
+      audience,
+      tiers,
+      reasoning: String(parsed?.reasoning || "").slice(0, 800),
+      note: "Nothing is saved. Change anything you disagree with, then publish the ones you want.",
+    });
+  } catch (error: any) {
+    console.error("[PlanCatalog] draft failed:", error?.message || error);
+    return c.json({ error: error?.message || "Could not draft the plans." }, 500);
+  }
 });
 
 export default planCatalogRouter;

@@ -259,6 +259,86 @@ export function resolveEntitlement(
 }
 
 /**
+ * Everything on a stored tier that points at Stripe.
+ *
+ * Kept as its own shape because these fields are the server's, never the
+ * client's: the list route strips the price ids before anybody sees them, so a
+ * caller editing a tier has no way to send them back and must not be asked to.
+ */
+export interface StripeLinkage {
+  stripePriceId?: string;
+  stripePriceIdTest?: string;
+  stripeProductId?: string;
+  stripeProductIdTest?: string;
+  /** What the attached Stripe price actually charges, in cents. */
+  stripePriceCents?: number;
+  stripePriceCreatedAt?: string;
+}
+
+/**
+ * Carry a tier's Stripe linkage across an edit, dropping any price whose
+ * amount the edit has just contradicted.
+ *
+ * TWO FAILURES THIS PREVENTS, BOTH SILENT
+ *
+ * The first is losing the linkage entirely. A tier built from a request body
+ * carries no price ids, so writing one straight over the stored record unsells
+ * the plan — and nothing reports it, because saving succeeded. Editing a
+ * blurb would take a plan off sale, and the first sign would be a vendor
+ * pressing Subscribe.
+ *
+ * The second is keeping a linkage that has gone wrong. A Stripe Price is
+ * immutable: its amount is fixed when it is created and editing the figure
+ * here does nothing to it. So a tier whose price is raised from $39 to $49
+ * while still pointing at the old Price would advertise $49 and charge $39 —
+ * the same mismatch the attach route refuses outright, arriving through the
+ * side door of an edit.
+ *
+ * So the price is detached, and only the price. The Stripe object is untouched
+ * and anybody already subscribed keeps billing at the figure they agreed to;
+ * the plan simply stops being buyable until a replacement price is created.
+ *
+ * With nothing stored, nothing is carried and nothing is detached — a new tier
+ * has no linkage to lose.
+ */
+export function carryStripeLinkage(
+  existing: (StripeLinkage & { priceCents?: number }) | null | undefined,
+  wantedCents: number | undefined,
+): { linkage: StripeLinkage; detached: StripeMode[] } {
+  if (!existing) return { linkage: {}, detached: [] };
+
+  const linkage: StripeLinkage = {
+    stripePriceId: existing.stripePriceId,
+    stripePriceIdTest: existing.stripePriceIdTest,
+    stripeProductId: existing.stripeProductId,
+    stripeProductIdTest: existing.stripeProductIdTest,
+    stripePriceCents: existing.stripePriceCents,
+    stripePriceCreatedAt: existing.stripePriceCreatedAt,
+  };
+
+  const wanted = Number(wantedCents ?? 0);
+  // An unreadable amount is not a reason to unsell a plan. Leave it alone and
+  // let the save fail on its own terms if it is going to.
+  if (!Number.isFinite(wanted)) return { linkage, detached: [] };
+
+  // What Stripe charges, if it was recorded when the price was attached;
+  // otherwise what the plan said at that moment, which is the same number
+  // unless somebody forced a mismatch through.
+  const charged = Number(existing.stripePriceCents ?? existing.priceCents ?? wanted);
+  if (!Number.isFinite(charged) || charged === wanted) return { linkage, detached: [] };
+
+  const detached: StripeMode[] = [];
+  if (linkage.stripePriceId) { linkage.stripePriceId = undefined; detached.push('live'); }
+  if (linkage.stripePriceIdTest) { linkage.stripePriceIdTest = undefined; detached.push('test'); }
+  // Only meaningful alongside a price, and stale the moment one is dropped.
+  if (detached.length) {
+    linkage.stripePriceCents = undefined;
+    linkage.stripePriceCreatedAt = undefined;
+  }
+  return { linkage, detached };
+}
+
+/**
  * Is this account allowed one more of something?
  *
  * Returns true when no limit is published for that key, because an unmetered

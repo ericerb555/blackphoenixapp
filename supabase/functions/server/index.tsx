@@ -383,6 +383,10 @@ const ADMIN_PREFIXES = [
   '/coupons',
   '/promotions',
   '/store/orders',
+  // Deliberately NOT '/plan-tiers' — a vendor must be able to read the
+  // catalogue to buy from it, and only the write routes are restricted,
+  // inside the handlers where a list of prefixes cannot tell them apart.
+  '/plan-draft',
   '/dev/',              // developer/purge endpoints have no business being open
 ];
 
@@ -493,6 +497,9 @@ const AI_METERED_PREFIXES = [
   '/page-pilot/generate',
   '/permit-ai/',
   '/plan-builder/',
+  // Drafts a tier ladder. One model call, so one unit, in the same bucket
+  // as the rest — an admin-only route is still a route that costs money.
+  '/plan-draft',
   '/project-vision/analyze',
   '/seo-engine/articles/generate',
   '/seo-engine/keywords/discover',

@@ -25,7 +25,10 @@
  * surfaces that refusal rather than papering over it with a retry.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, AlertTriangle, CreditCard, RefreshCw } from 'lucide-react';
+import {
+  Loader2, CheckCircle2, AlertTriangle, CreditCard, RefreshCw,
+  Pencil, Plus, Sparkles, X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
@@ -45,6 +48,7 @@ interface Tier {
   limits?: Record<string, number>;
   priceCents?: number;
   interval?: 'month' | 'year';
+  sortOrder?: number;
   purchasable: boolean;
   active?: boolean;
 }
@@ -55,6 +59,282 @@ function money(cents?: number, interval?: string) {
     style: 'currency', currency: 'USD', minimumFractionDigits: 0,
   });
   return interval ? `${amount}/${interval}` : amount;
+}
+
+/**
+ * A tier being edited, held as the strings a form actually contains.
+ *
+ * Kept separate from `Tier` rather than editing one in place, because a
+ * half-typed price is the string "4" long before it is a number, and coercing
+ * on every keystroke makes the field fight the person using it. Converted once,
+ * on save.
+ */
+interface Draft {
+  id: string;
+  isNew: boolean;
+  name: string;
+  blurb: string;
+  featuresText: string;
+  limits: { key: string; value: string }[];
+  priceDollars: string;
+  interval: 'month' | 'year';
+  sortOrder: string;
+  active: boolean;
+  /** What it cost before this edit, to notice an amount change on save. */
+  originalCents: number;
+  /** Whether it could be bought before this edit, for the same reason. */
+  wasOnSale: boolean;
+}
+
+function draftFrom(t: Partial<Tier> & { id?: string }, isNew: boolean): Draft {
+  return {
+    id: t.id || '',
+    isNew,
+    name: t.name || '',
+    blurb: t.blurb || '',
+    featuresText: (t.features || []).join('\n'),
+    limits: Object.entries(t.limits || {}).map(([key, value]) => ({ key, value: String(value) })),
+    priceDollars: Number(t.priceCents) > 0 ? String(Number(t.priceCents) / 100) : '',
+    interval: t.interval === 'year' ? 'year' : 'month',
+    sortOrder: String(t.sortOrder ?? 0),
+    active: t.active !== false,
+    originalCents: Number(t.priceCents || 0),
+    wasOnSale: Boolean(t.purchasable),
+  };
+}
+
+/** The form's contents as the server's `readTier` expects them. */
+function tierFrom(d: Draft) {
+  const limits: Record<string, number> = {};
+  for (const row of d.limits) {
+    const key = row.key.trim();
+    const n = Number(row.value);
+    if (key && Number.isFinite(n) && n >= 0) limits[key] = n;
+  }
+  return {
+    id: d.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''),
+    name: d.name.trim(),
+    blurb: d.blurb.trim(),
+    features: d.featuresText.split('\n').map(f => f.trim()).filter(Boolean),
+    limits,
+    priceCents: Math.max(0, Math.round(Number(d.priceDollars || 0) * 100)),
+    interval: d.interval,
+    sortOrder: Number(d.sortOrder) || 0,
+    active: d.active,
+  };
+}
+
+const field = 'w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white '
+  + 'placeholder:text-gray-600 focus:border-orange-500 focus:outline-none';
+const label = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500';
+
+/**
+ * The form. Everything a tier is, in one place.
+ *
+ * Pulled out of the panel rather than inlined because the panel is already a
+ * list, a mode switch and two Stripe flows, and a nine-field form buried inside
+ * that is a wall nobody can read.
+ */
+function TierEditor({
+  draft, setDraft, onSave, onCancel, saving, mode,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+  mode: 'test' | 'live';
+}) {
+  const cents = Math.max(0, Math.round(Number(draft.priceDollars || 0) * 100));
+  /**
+   * The one warning worth interrupting for.
+   *
+   * A Stripe Price cannot be edited — its amount is fixed for good. So changing
+   * the figure here does nothing to what the card is charged, and the server
+   * detaches the old price on save rather than let the portal advertise one
+   * number while Stripe bills another. Said before the save, not after, because
+   * afterwards the plan is off sale and that would read as a fault.
+   */
+  const priceMoved = !draft.isNew && draft.wasOnSale && cents !== draft.originalCents;
+
+  return (
+    <div className="mb-4 rounded-xl border border-orange-500/30 bg-[#0A0A0A] p-4">
+      <p className="mb-3 text-sm font-bold text-white">
+        {draft.isNew ? 'New plan' : `Editing ${draft.name || draft.id}`}
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <span className={label}>Name</span>
+          <input
+            className={field}
+            value={draft.name}
+            placeholder="Stocked"
+            onChange={e => setDraft({ ...draft, name: e.target.value })}
+          />
+        </div>
+        <div>
+          <span className={label}>
+            Id {draft.isNew ? '' : '(fixed)'}
+          </span>
+          <input
+            className={`${field} ${draft.isNew ? '' : 'opacity-60'}`}
+            value={draft.id}
+            readOnly={!draft.isNew}
+            placeholder="stocked"
+            title={draft.isNew
+              ? 'Short, lowercase. This is what a saved subscription points at.'
+              : 'The id cannot change — subscriptions already written point at it.'}
+            onChange={e => draft.isNew && setDraft({ ...draft, id: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <span className={label}>One line on who it is for</span>
+        <input
+          className={field}
+          value={draft.blurb}
+          placeholder="For vendors who stock what they list."
+          onChange={e => setDraft({ ...draft, blurb: e.target.value })}
+        />
+      </div>
+
+      <div className="mt-3">
+        <span className={label}>Features — one per line, in the buyer's words</span>
+        <textarea
+          className={`${field} min-h-[96px] font-mono text-xs`}
+          value={draft.featuresText}
+          placeholder={'Your catalogue in front of every customer\nQuote on jobs within 50 miles'}
+          onChange={e => setDraft({ ...draft, featuresText: e.target.value })}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div>
+          <span className={label}>Price, dollars</span>
+          <input
+            className={field}
+            inputMode="decimal"
+            value={draft.priceDollars}
+            placeholder="0"
+            onChange={e => setDraft({ ...draft, priceDollars: e.target.value })}
+          />
+        </div>
+        <div>
+          <span className={label}>Billed</span>
+          <select
+            className={field}
+            value={draft.interval}
+            onChange={e => setDraft({ ...draft, interval: e.target.value === 'year' ? 'year' : 'month' })}
+          >
+            <option value="month">monthly</option>
+            <option value="year">yearly</option>
+          </select>
+        </div>
+        <div>
+          <span className={label}>Order</span>
+          <input
+            className={field}
+            inputMode="numeric"
+            value={draft.sortOrder}
+            title="Lower shows first in the portal."
+            onChange={e => setDraft({ ...draft, sortOrder: e.target.value })}
+          />
+        </div>
+      </div>
+
+      {priceMoved && (
+        <p className="mt-2 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-300">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+          <span>
+            A Stripe price cannot be changed once it exists, so saving a different
+            amount takes this plan off sale until you create a new {mode} price —
+            one button, right here, afterwards. Anybody already subscribed keeps
+            paying the figure they agreed to.
+          </span>
+        </p>
+      )}
+
+      <div className="mt-3">
+        <span className={label}>Limits</span>
+        {draft.limits.map((row, i) => (
+          <div key={i} className="mb-1.5 flex gap-2">
+            <input
+              className={`${field} flex-1`}
+              value={row.key}
+              placeholder="products"
+              onChange={e => {
+                const next = [...draft.limits];
+                next[i] = { ...row, key: e.target.value };
+                setDraft({ ...draft, limits: next });
+              }}
+            />
+            <input
+              className={`${field} w-28`}
+              inputMode="numeric"
+              value={row.value}
+              placeholder="0"
+              onChange={e => {
+                const next = [...draft.limits];
+                next[i] = { ...row, value: e.target.value };
+                setDraft({ ...draft, limits: next });
+              }}
+            />
+            <button
+              onClick={() => setDraft({ ...draft, limits: draft.limits.filter((_, j) => j !== i) })}
+              className="rounded-lg border border-[#2A2A2A] px-2 text-gray-500 transition hover:text-red-400"
+              title="Remove this limit"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => setDraft({ ...draft, limits: [...draft.limits, { key: '', value: '' }] })}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-400 transition hover:text-white"
+        >
+          <Plus className="h-3 w-3" /> Add a limit
+        </button>
+        {/* Said plainly rather than implied. Publishing a number that nothing
+            reads, while the form presents it as a ceiling, would be the kind of
+            quiet untruth that only surfaces when a vendor exceeds it and
+            nothing happens. */}
+        <p className="mt-1.5 text-[11px] text-gray-600">
+          0 means unlimited. These are recorded and shown, but nothing in the app
+          enforces them yet — treat them as what the plan promises, not as a
+          ceiling the software applies.
+        </p>
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-xs text-gray-400">
+        <input
+          type="checkbox"
+          checked={draft.active}
+          onChange={e => setDraft({ ...draft, active: e.target.checked })}
+          className="h-3.5 w-3.5 accent-orange-500"
+        />
+        On offer in the portal (uncheck to withdraw without deleting)
+      </label>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={onSave}
+          disabled={saving || !draft.name.trim() || !draft.id.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
+        >
+          {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : 'Save plan'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          className="rounded-lg border border-[#2A2A2A] px-4 py-2 text-xs font-semibold text-gray-300 transition hover:text-white disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function PlanTierAdmin() {
@@ -72,6 +352,7 @@ export default function PlanTierAdmin() {
    */
   const [mode, setMode] = useState<'test' | 'live'>('test');
   const [note, setNote] = useState<string | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   const headers = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -299,6 +580,87 @@ export default function PlanTierAdmin() {
     }
   };
 
+  /**
+   * Editing a plan, and having one drafted.
+   *
+   * Both end in the same place: the form. The assistant does not save, and
+   * there is no path by which it could — what comes back is loaded into
+   * `draft` exactly as if it had been typed, and the catalogue changes only
+   * when Save is pressed.
+   */
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [brief, setBrief] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [proposal, setProposal] = useState<{ tiers: any[]; reasoning?: string; note?: string } | null>(null);
+
+  const saveDraft = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${SERVER}/plan-tiers/${encodeURIComponent(audience)}`, {
+        method: 'POST',
+        headers: await headers(),
+        body: JSON.stringify(tierFrom(draft)),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json?.error || `Could not save (${res.status}).`);
+        return;
+      }
+      // The warning is the interesting half — it is how somebody finds out the
+      // plan they just saved is not on sale, and why.
+      if (json?.warning) toast.warning(json.warning, { duration: 12000 });
+      else toast.success(`${draft.name} saved.`);
+      setDraft(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not save the plan.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const askForDraft = async () => {
+    if (!brief.trim()) return;
+    setDrafting(true);
+    setProposal(null);
+    try {
+      const res = await fetch(`${SERVER}/plan-draft`, {
+        method: 'POST',
+        headers: await headers(),
+        body: JSON.stringify({ audience, brief }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json?.error || `Could not draft (${res.status}).`);
+        return;
+      }
+      if (!Array.isArray(json?.tiers) || json.tiers.length === 0) {
+        toast.message('Nothing came back. Try saying more about what the plans should do.');
+        return;
+      }
+      setProposal({ tiers: json.tiers, reasoning: json.reasoning, note: json.note });
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not reach the assistant.');
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  /**
+   * Take one proposed tier into the form.
+   *
+   * An id that already exists loads as an edit of that plan rather than a new
+   * one, so the assistant revising "Listed" revises Listed instead of quietly
+   * offering to overwrite it under the same key — and the form then shows the
+   * price warning if the amount moved.
+   */
+  const useProposed = (t: any) => {
+    const current = tiers.find(x => x.id === t.id);
+    setDraft(draftFrom({ ...t, purchasable: current?.purchasable }, !current));
+  };
+
   const sellable = tiers.filter(t => t.purchasable).length;
 
   return (
@@ -345,6 +707,24 @@ export default function PlanTierAdmin() {
             {AUDIENCES.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
           </select>
           <button
+            onClick={() => { setDraft(draftFrom({ interval: 'month' }, true)); }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-orange-500"
+            title="Write a new plan for this portal"
+          >
+            <Plus className="h-3.5 w-3.5" /> New plan
+          </button>
+          <button
+            onClick={() => setAssistantOpen(v => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+              assistantOpen
+                ? 'border-orange-500/40 text-orange-300'
+                : 'border-[#2A2A2A] text-gray-300 hover:border-orange-500/40 hover:text-white'
+            }`}
+            title="Describe what the plans should do and have a ladder drafted"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Assistant
+          </button>
+          <button
             onClick={loadStripePrices}
             className="rounded-lg border border-[#2A2A2A] px-3 py-2 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
             title="List recurring prices that already exist in Stripe, so one can be attached to a plan"
@@ -360,6 +740,95 @@ export default function PlanTierAdmin() {
           </button>
         </div>
       </div>
+
+      {/* ── Have the ladder drafted ───────────────────────────────────
+          The prices are the easy part; making the rungs step sensibly is not,
+          and it is only visible with the whole ladder in view. This writes
+          nothing — what comes back lands in the form, and the catalogue
+          changes when Save is pressed and not before. */}
+      {assistantOpen && (
+        <div className="mb-4 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4">
+          <p className="flex items-center gap-2 text-sm font-bold text-white">
+            <Sparkles className="h-4 w-4 text-orange-400" /> Draft the plans
+          </p>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Say what these plans should do for a {audience.replace(/_/g, ' ')} and what
+            you want to charge. It proposes; nothing is saved until you press Save on
+            a plan.
+          </p>
+          <textarea
+            className="mt-2 min-h-[72px] w-full rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-orange-500 focus:outline-none"
+            value={brief}
+            placeholder="Three tiers for suppliers. Bottom one free so they can list a few products. Middle around $79 for anyone who stocks what they list. Top tier gets first refusal on jobs within 50 miles."
+            onChange={e => setBrief(e.target.value)}
+          />
+          <button
+            onClick={askForDraft}
+            disabled={drafting || !brief.trim()}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
+          >
+            {drafting
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Drafting…</>
+              : 'Draft plans'}
+          </button>
+
+          {proposal && (
+            <div className="mt-3 border-t border-[#2A2A2A] pt-3">
+              {proposal.reasoning && (
+                <p className="mb-2 text-[11px] italic text-gray-400">{proposal.reasoning}</p>
+              )}
+              <div className="space-y-2">
+                {proposal.tiers.map((t: any) => (
+                  <div key={t.id} className="rounded-lg border border-[#2A2A2A] bg-[#111] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">
+                          {t.name}{' '}
+                          <span className="font-normal text-orange-400">
+                            {money(t.priceCents, t.interval)}
+                          </span>
+                          {tiers.some(x => x.id === t.id) && (
+                            <span className="ml-2 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-bold text-blue-300">
+                              REPLACES {t.id}
+                            </span>
+                          )}
+                        </p>
+                        {t.blurb && <p className="mt-0.5 text-[11px] text-gray-500">{t.blurb}</p>}
+                        <ul className="mt-1 space-y-0.5 text-[11px] text-gray-400">
+                          {(t.features || []).map((f: string, i: number) => <li key={i}>· {f}</li>)}
+                        </ul>
+                        {Object.keys(t.limits || {}).length > 0 && (
+                          <p className="mt-1 font-mono text-[10px] text-gray-600">
+                            {Object.entries(t.limits).map(([k, v]) => `${k}: ${v === 0 ? '∞' : v}`).join('  ·  ')}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => useProposed(t)}
+                        className="shrink-0 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-[11px] font-bold text-gray-200 transition hover:border-orange-500/40 hover:text-white"
+                      >
+                        Open in the form
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-gray-600">{proposal.note}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {draft && (
+        <TierEditor
+          draft={draft}
+          setDraft={setDraft}
+          onSave={saveDraft}
+          onCancel={() => setDraft(null)}
+          saving={saving}
+          mode={mode}
+        />
+      )}
 
       {loading ? (
         <p className="flex items-center gap-2 text-sm text-gray-400">
@@ -404,6 +873,13 @@ export default function PlanTierAdmin() {
                   </div>
 
                   <div className="shrink-0 text-right">
+                    <button
+                      onClick={() => setDraft(draftFrom(t, false))}
+                      className="mb-2 mr-2 inline-flex items-center gap-1 rounded-lg border border-[#2A2A2A] px-2.5 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+                      title="Edit this plan's name, features, limits and price"
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </button>
                     {t.purchasable ? (
                       <>
                         <p className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-xs font-bold text-green-400">
