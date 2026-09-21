@@ -161,6 +161,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
+import { notPurchasableReason, resolveEntitlement, publicTier } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
@@ -10506,6 +10507,134 @@ function stripeKeyFor(account: StripeAccount = 'services') {
   }
   return mine.key;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PORTAL PLAN TIERS — buying one of the published plans.
+//
+// On the 'services' account, deliberately. The note on StripeAccount says
+// services, invoices, SUBSCRIPTIONS, maintenance and gift cards stay on Black
+// Phoenix Builds; only store merchandise uses the TBPCO account.
+//
+// WHY `/plan-checkout` AND NOT `/subscriptions/checkout`
+//
+// Because that path is taken, and taking it would have shadowed the route
+// already there — the sixth instance of that bug in this codebase, and one I
+// very nearly shipped myself. The duplicate-route scanner caught it.
+//
+// The two are genuinely different things and both are wanted:
+//
+//   /subscriptions/checkout  charges a one-off amount from the
+//                            PORTAL_UPGRADE_PRICES table and writes a
+//                            `subscription:` record. It runs `mode: 'payment'`,
+//                            so it bills ONCE. The `renewalDate` it stores and
+//                            the `autoRenew: true` it sets are not acted on by
+//                            anything — nothing renews them.
+//
+//   /plan-checkout           bills a real Stripe recurring Price from the
+//                            published plan_tier catalogue, so Stripe renews it
+//                            and tells us when it lapses.
+//
+// That difference is worth knowing before the two are ever merged: the older
+// route is not a broken subscription, it is a single sale wearing the word.
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in to subscribe.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user?.email) return c.json({ error: 'Sign in to subscribe.' }, 401);
+
+    /**
+     * The email comes from the verified token, never from the request body.
+     *
+     * It decides which account the grant lands on when the webhook fires. Taken
+     * from the body, anybody could pay to upgrade somebody else's account — or,
+     * more usefully to them, name an account they control while a different
+     * card is on the hook.
+     */
+    const email = String(user.email).toLowerCase();
+
+    const body = await c.req.json().catch(() => ({}));
+    const audience = String(body?.audience || '').trim();
+    const tierId = String(body?.tierId || '').trim();
+    if (!audience || !tierId) return c.json({ error: 'Which plan?' }, 400);
+
+    const tier = await kv.get(`plan_tier:${audience}:${tierId}`) as any;
+    /**
+     * Fail closed, and say why.
+     *
+     * `notPurchasableReason` covers the case that matters: a tier with no
+     * Stripe price. Charging against an invented price would create a payment
+     * with no subscription behind it — nothing to renew, nothing to cancel, and
+     * the webhook that grants access would never fire because there would be no
+     * subscription to send events about.
+     */
+    const refusal = notPurchasableReason(tier);
+    if (refusal) return c.json({ error: refusal }, 400);
+
+    const appOrigin = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const params = new URLSearchParams({
+      mode: 'subscription',
+      customer_email: email,
+      success_url: String(body?.successUrl || `${appOrigin}/portal-onboarding?subscribed=1`),
+      cancel_url: String(body?.cancelUrl || `${appOrigin}/portal-onboarding?subscribed=cancelled`),
+      'line_items[0][price]': String(tier.stripePriceId),
+      'line_items[0][quantity]': '1',
+      // On the SESSION, so checkout.session.completed can be identified.
+      'metadata[bp_tier_id]': tierId,
+      'metadata[bp_audience]': audience,
+      'metadata[bp_email]': email,
+    });
+
+    /**
+     * The same metadata again, on the subscription itself.
+     *
+     * Stripe does NOT copy session metadata onto the subscription it creates.
+     * Without this, `customer.subscription.updated` and `.deleted` arrive
+     * carrying nothing that identifies whose grant they are about — so a
+     * cancellation would be received, ignored, and the customer would keep
+     * their access for good. The renewal events are the whole reason the
+     * webhook exists, so they are the ones that must be identifiable.
+     */
+    params.set('subscription_data[metadata][bp_tier_id]', tierId);
+    params.set('subscription_data[metadata][bp_audience]', audience);
+    params.set('subscription_data[metadata][bp_email]', email);
+
+    const session = await stripeCheckoutSession(params, 'services');
+    console.log(`[Subscriptions] ${email} starting checkout for ${audience}/${tierId}`);
+    return c.json({ url: session.url, sessionId: session.id });
+  } catch (error: any) {
+    console.error('[Subscriptions] checkout error:', error?.message || error);
+    return c.json({ error: error?.message || 'Could not start checkout.' }, 500);
+  }
+});
+
+/** What this account is entitled to right now, for a portal to gate on. */
+app.get('/make-server-3eae23a6/my-plan', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in required.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user?.email) return c.json({ error: 'Sign in required.' }, 401);
+
+    const email = String(user.email).toLowerCase();
+    const grant = await kv.get(`feature_grant:${email}`) as any;
+    const entitlement = resolveEntitlement(grant);
+
+    // The tier they are on, when they are on one, so the portal can show what
+    // they bought without a second request.
+    let tier: any = null;
+    if (entitlement.source === 'subscription' && grant?.tierId && grant?.portalType) {
+      const found = await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`) as any;
+      if (found) tier = publicTier(found);
+    }
+
+    return c.json({ entitlement, tier, portalType: grant?.portalType || null });
+  } catch (error: any) {
+    return c.json({ error: error?.message || 'Could not read your plan.' }, 500);
+  }
+});
+
 
 async function stripeCheckoutSession(params: URLSearchParams, account: StripeAccount = 'services') {
   const stripeKey = stripeKeyFor(account);

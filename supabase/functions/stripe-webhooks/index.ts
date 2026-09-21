@@ -237,6 +237,126 @@ async function handlePropertyAiEvent(event: any): Promise<Record<string, unknown
   }
 }
 
+/**
+ * Portal plan subscriptions — the half that actually grants access.
+ *
+ * The provisioning route writes `feature_grant:{email}` with a trial window and
+ * its own comment says "then requires a plan". This is what turns a paid Stripe
+ * subscription into that grant, and what takes it away again when the
+ * subscription stops.
+ *
+ * FIRST REFUSAL, LIKE THE HANDLER ABOVE IT
+ *
+ * Returns null for anything it cannot positively identify as its own, so a
+ * store order, a maintenance plan or a Property AI subscription falls through
+ * untouched. Ours are identified by `bp_tier_id` in metadata, which the
+ * checkout sets on BOTH the session and the subscription — Stripe does not copy
+ * session metadata onto the subscription, and without it on the subscription
+ * the renewal and cancellation events arrive unidentifiable.
+ *
+ * WHAT IT WRITES, AND WHAT IT DELIBERATELY DOES NOT
+ *
+ * It sets `tierId` and `stripeSubscriptionId` on the grant, which is what
+ * `resolveEntitlement` looks for to report a paying subscription. It leaves
+ * `trialStart` and `trialEnd` exactly as they were: the trial is a historical
+ * fact about the account and overwriting it would lose the record of whether
+ * somebody ever had one, which decides whether they may have another.
+ *
+ * On cancellation it clears the subscription fields and nothing else. It does
+ * NOT delete the grant or set the level to free by hand — `resolveEntitlement`
+ * already resolves a grant with no subscription and a spent trial to free, and
+ * two places deciding what "no longer paying" means is how they come to
+ * disagree.
+ */
+async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown> | null> {
+  const object = event?.data?.object || {};
+  const meta = object?.metadata || {};
+  const tierId = String(meta.bp_tier_id || '').trim();
+  if (!tierId) return null;
+
+  const email = String(meta.bp_email || object?.customer_email || '').trim().toLowerCase();
+  if (!email) {
+    console.log('[stripe-webhooks/plan] tier metadata with no email — cannot place the grant');
+    return { portalPlan: 'no email on the event' };
+  }
+
+  const audience = String(meta.bp_audience || '').trim();
+  const now = new Date().toISOString();
+  const key = `feature_grant:${email}`;
+  const grant = (await kvGet(key)) || {};
+
+  switch (event?.type) {
+    case 'checkout.session.completed': {
+      // `mode` guards against a one-off payment carrying the same metadata.
+      if (object?.mode && object.mode !== 'subscription') return null;
+      const subscriptionId = String(object?.subscription || '').trim();
+      if (!subscriptionId) {
+        console.log(`[stripe-webhooks/plan] ${email} completed checkout with no subscription id`);
+        return { portalPlan: email, granted: false, reason: 'no subscription on the session' };
+      }
+      await kvSet(key, {
+        ...grant,
+        email,
+        // Keep whichever portal the grant already belonged to. The audience
+        // only fills it in when provisioning never did.
+        portalType: grant.portalType || audience || undefined,
+        status: 'active',
+        tierId,
+        stripeSubscriptionId: subscriptionId,
+        stripeCustomerId: object?.customer || grant.stripeCustomerId || null,
+        subscribedAt: grant.subscribedAt || now,
+        updatedAt: now,
+      });
+      console.log(`[stripe-webhooks/plan] ${email} subscribed to ${audience || '?'}/${tierId}`);
+      return { portalPlan: email, tierId, granted: true };
+    }
+
+    case 'customer.subscription.updated': {
+      /**
+       * Stripe's own view of whether this is paying.
+       *
+       * `trialing` counts as active: a Stripe-side trial is a subscription that
+       * exists and will bill. `past_due` deliberately does not — an unpaid
+       * renewal should stop access, and Stripe moves it back to `active` the
+       * moment payment succeeds, which fires this event again.
+       */
+      const live = object?.status === 'active' || object?.status === 'trialing';
+      await kvSet(key, {
+        ...grant,
+        email,
+        status: 'active',
+        tierId: live ? tierId : undefined,
+        stripeSubscriptionId: live ? String(object?.id || '') : undefined,
+        lastSubscriptionStatus: String(object?.status || ''),
+        updatedAt: now,
+      });
+      console.log(`[stripe-webhooks/plan] ${email} subscription ${object?.status} — access ${live ? 'kept' : 'dropped'}`);
+      return { portalPlan: email, tierId, active: live, status: object?.status };
+    }
+
+    case 'customer.subscription.deleted': {
+      await kvSet(key, {
+        ...grant,
+        email,
+        status: 'active',
+        // Cleared, not overwritten with a level. resolveEntitlement decides
+        // what no-subscription means, and it is the only thing that decides it.
+        tierId: undefined,
+        stripeSubscriptionId: undefined,
+        lastSubscriptionStatus: 'deleted',
+        cancelledAt: now,
+        updatedAt: now,
+      });
+      console.log(`[stripe-webhooks/plan] ${email} subscription cancelled — back to their trial or the free floor`);
+      return { portalPlan: email, active: false, cancelled: true };
+    }
+
+    default:
+      return null;
+  }
+}
+
+
 async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
   const object = event?.data?.object || {};
   const planId = String(object?.metadata?.plan_id || '');
@@ -394,6 +514,15 @@ Deno.serve(async (req) => {
     const aiResult = await handlePropertyAiEvent(event);
     if (aiResult) {
       return new Response(JSON.stringify({ received: true, type: event?.type, ...aiResult }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Portal plan tiers get their turn next, same contract: null unless the
+    // event carries our bp_tier_id metadata.
+    const planTierResult = await handlePortalPlanEvent(event);
+    if (planTierResult) {
+      return new Response(JSON.stringify({ received: true, type: event?.type, ...planTierResult }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
