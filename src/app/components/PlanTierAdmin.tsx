@@ -458,6 +458,13 @@ export default function PlanTierAdmin() {
   const [mode, setMode] = useState<'test' | 'live'>('test');
   const [note, setNote] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  /**
+   * Which Stripe modes have a key behind them.
+   *
+   * Both assumed present until the server says otherwise, so a slow reply
+   * does not flash a warning that turns out to be wrong.
+   */
+  const [keys, setKeys] = useState({ live: true, test: true });
   const [addOns, setAddOns] = useState<any[]>([]);
   const [importReport, setImportReport] = useState<any | null>(null);
   const [importing, setImporting] = useState(false);
@@ -490,6 +497,7 @@ export default function PlanTierAdmin() {
       try {
         const me = await (await fetch(`${SERVER}/my-plan`, { headers: await headers() })).json();
         setRehearsal(Boolean(me?.rehearsal));
+        if (me?.keys) setKeys({ live: Boolean(me.keys.live), test: Boolean(me.keys.test) });
       } catch {
         // Unknown means real, not rehearsal. Being wrong the other way costs money.
         setRehearsal(false);
@@ -845,11 +853,13 @@ export default function PlanTierAdmin() {
                       : 'bg-emerald-600 text-white'
                     : 'bg-[#0A0A0A] text-gray-500 hover:text-gray-300'
                 }`}
-                title={m === 'live'
-                  ? 'Creates a price on the real Stripe account. Vendors can buy it for real money.'
-                  : 'Creates a price in Stripe test mode. Nothing real is charged.'}
+                title={!keys[m]
+                  ? `No ${m}-mode Stripe key is configured, so nothing can be created in ${m} mode.`
+                  : m === 'live'
+                    ? 'Creates a price on the real Stripe account. Vendors can buy it for real money.'
+                    : 'Creates a price in Stripe test mode. Nothing real is charged.'}
               >
-                {m}
+                {m}{!keys[m] && <span className="ml-1 opacity-60">·no key</span>}
               </button>
             ))}
           </div>
@@ -994,6 +1004,21 @@ export default function PlanTierAdmin() {
         </p>
       ) : (
         <>
+          {/* The dead end this removes: the panel defaults to test, and with
+              no test key that default refuses on every press. Somebody finds
+              that out from an error after clicking, if at all. */}
+          {!keys[mode] && (
+            <p className="mb-3 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              <span>
+                No <b>{mode}</b>-mode Stripe key is configured, so nothing can be created
+                or attached here while {mode} is selected.{' '}
+                {mode === 'test' && keys.live
+                  ? 'Switch to live to put these plans on sale, or set STRIPE_SECRET_KEY_TEST in the edge function secrets to rehearse first.'
+                  : 'Set the key in the Supabase edge function secrets.'}
+              </span>
+            </p>
+          )}
           <p className="mb-3 text-xs text-gray-500">
             {sellable} of {tiers.length} can currently be bought.
             {mode === 'live' && (

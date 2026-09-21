@@ -10973,12 +10973,28 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
      */
     const rehearsal = isStripeTestAccount(email) && Boolean(stripeTestKey());
 
+    /**
+     * Which Stripe modes can actually be used, as two booleans.
+     *
+     * Never the keys, and never anything derived from them beyond whether one
+     * is present. The panel needs this because it defaults to TEST — the safe
+     * default, since creating a live price by accident makes something buyable
+     * for real money — and if no test key is configured that default is a dead
+     * end. Finding that out from a refusal after pressing the button is how a
+     * plan sits unsellable for weeks.
+     */
+    const keys = {
+      live: Boolean(readStripeKey('services').key),
+      test: Boolean(stripeTestKey()),
+    };
+
     return c.json({
       entitlement,
       tier,
       portalType: grant?.portalType || null,
       rehearsal,
       stripeMode: rehearsal ? 'test' : activeStripeMode(),
+      keys,
     });
   } catch (error: any) {
     return c.json({ error: error?.message || 'Could not read your plan.' }, 500);
