@@ -162,7 +162,10 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
-import { notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval } from "./planTier.ts";
+import {
+  notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
+  isPurchasable, AUDIENCES,
+} from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
@@ -14931,15 +14934,37 @@ async function applyGiftHours(subscription: any, hours: number, reason: string, 
 /**
  * What this person can actually upgrade to.
  *
- * Derived from PORTAL_UPGRADE_PRICES — the same map checkout validates against —
- * rather than from a copy of the price list in the client. That is the whole
- * point: checkout rejects any plan or amount that is not in this map, so a
- * settings panel built from its own list would sooner or later offer an upgrade
- * that comes back "invalid plan or price" when the customer presses buy. Reading
- * it from here means the panel can only ever offer what will be accepted.
+ * THE RULE THIS ROUTE EXISTS TO KEEP
  *
- * Prices are never taken from the client. This returns them, and checkout still
- * checks the amount against the map independently.
+ * Never offer something that cannot then be bought. A panel built from its own
+ * price list eventually offers an upgrade that comes back "invalid plan or
+ * price" the moment the customer presses buy, and the customer has no way to
+ * tell whose fault that is.
+ *
+ * WHICH IS WHY IT READS TWO PLACES, NOT ONE
+ *
+ * The catalogue (`plan_tier:` and `plan_addon:`) is where plans are going to
+ * live, and a catalogue entry is bought through `/plan-checkout`, which takes
+ * its Stripe price straight off the record. But a catalogue entry with no
+ * Stripe price attached cannot be bought at all — so those are not offered,
+ * however complete they look.
+ *
+ * `PORTAL_UPGRADE_PRICES` is where plans live today, and those rows are bought
+ * through `/subscriptions/checkout`, which validates the posted amount against
+ * that same map.
+ *
+ * So each list falls back on its own: if the catalogue has nothing sellable for
+ * this portal, the old rows are offered exactly as before. Plans and add-ons
+ * fall back independently, because the catalogue is likely to gain one before
+ * the other. Every option says which checkout it belongs to, and the panel
+ * sends it there.
+ *
+ * This is U3 of `tasks/plan-catalogue-unification.md`, and it is deliberately
+ * the read-only half. Switching what is *offered* before switching what is
+ * *validated* means a gap in the catalogue shows up here as a row that is
+ * missing rather than as a purchase that is refused.
+ *
+ * Prices are never taken from the client, in either path.
  */
 app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
   try {
@@ -14968,17 +14993,92 @@ app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
             // "vendor professional" reads better as "Professional" beside a
             // heading that already says which portal this is.
             label: plan.replace(new RegExp(`^${planKey}[_ ]?`, 'i'), '').replace(/\b\w/g, m => m.toUpperCase()).trim(),
+            source: 'legacy' as const,
           };
         })
         .sort((a, b) => a.amount - b.amount);
+
+    /**
+     * The catalogue's version of the same list.
+     *
+     * `amount` is in DOLLARS here, because that is what this route has always
+     * returned and what `/subscriptions/checkout` compares against. The
+     * catalogue stores cents. Getting that conversion wrong is a factor of a
+     * hundred in either direction, so it happens once, here, and nowhere else.
+     *
+     * Only what is purchasable in the mode this server is actually in. An entry
+     * with no Stripe price is a plan nobody can buy, and offering it would be
+     * the failure this route exists to prevent.
+     */
+    const stripeMode = activeStripeMode();
+    const audience = AUDIENCES.includes(planKey as any) ? planKey : null;
+
+    // Takes a kind because U3b will need the add-on side; only tiers are
+    // offered today, for the reason given below.
+    const fromCatalogue = async (kind: 'tier' | 'addon') => {
+      if (!audience) return [];
+      const prefix = kind === 'tier' ? 'plan_tier' : 'plan_addon';
+      const rows = ((await kv.getByPrefix(`${prefix}:${audience}:`)) as any[] || []).filter(Boolean);
+      return rows
+        .filter((r) => r.active !== false && isPurchasable(r, stripeMode))
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || Number(a.priceCents || 0) - Number(b.priceCents || 0))
+        .map((r) => ({
+          type: audience,
+          plan: String(r.id),
+          amount: Number(r.priceCents || 0) / 100,
+          label: String(r.name || r.id),
+          blurb: r.blurb || undefined,
+          features: Array.isArray(r.features) ? r.features.slice(0, 8) : [],
+          interval: readInterval(r.interval),
+          source: 'catalogue' as const,
+          audience,
+          kind,
+        }));
+    };
+
+    const catalogueTiers = await fromCatalogue('tier');
+
+    /**
+     * Catalogue TIERS are offered. Catalogue ADD-ONS are deliberately not, yet.
+     *
+     * Not an oversight and not laziness — it is the grant model. A checkout
+     * started here ends at the webhook, which reads `bp_tier_id` off the
+     * subscription and writes the entitlement grant from it. Send an add-on
+     * down that path and the grant lands pointing at the add-on, so buying
+     * "500 more products" would overwrite the record of which plan the person
+     * is actually on. They would pay for an extra and lose their tier.
+     *
+     * Selling an add-on properly means adding a line item to the subscription
+     * they already have, not opening a second one. That is real work and it is
+     * not done, so the old rows keep serving add-ons exactly as they do today.
+     * Logged as U3b in `tasks/plan-catalogue-unification.md`.
+     */
+    const plans = catalogueTiers.length ? catalogueTiers : shape(planKey);
+    const addOns = shape(addonKey);
+
+    // Said out loud, because "the old map is still doing the work" is exactly
+    // the thing that otherwise goes unnoticed for months.
+    if (!catalogueTiers.length) {
+      console.log(
+        `[UpgradeOptions] ${email}: no sellable ${audience || planKey} tiers in the catalogue, `
+        + `falling back to PORTAL_UPGRADE_PRICES (${plans.length} rows)`,
+      );
+    }
 
     const current = (await kv.get(`subscription:${email}`)) as any;
 
     return c.json({
       success: true,
       portalType: planKey,
-      plans: shape(planKey),
-      addOns: shape(addonKey),
+      plans,
+      addOns,
+      // Which checkout the panel should use, per list. An option carries its own
+      // `source` too, so a mixed list still routes correctly item by item.
+      plansFrom: catalogueTiers.length ? 'catalogue' : 'legacy',
+      // Always legacy until an add-on can be added to an existing
+      // subscription rather than opening a competing one. See above.
+      addOnsFrom: 'legacy' as const,
+      stripeMode,
       current: current ? { plan: current.plan || null, status: current.status || null, amount: current.amount ?? null } : null,
     });
   } catch (error: any) {

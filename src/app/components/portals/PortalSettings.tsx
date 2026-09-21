@@ -132,21 +132,42 @@ export default function PortalSettings({
     }
   };
 
-  const startCheckout = async (option: { type: string; plan: string; amount: number }) => {
+  /**
+   * Send each option to the checkout it belongs to.
+   *
+   * Two exist, and which one applies is a property of the plan rather than of
+   * the portal. A catalogue plan is bought through `/plan-checkout`, which
+   * takes the Stripe price straight off the record; the older rows are bought
+   * through `/subscriptions/checkout`, which validates a posted amount against
+   * the price map. The server says which, per option, so this never has to
+   * guess — and during the migration a portal can legitimately show one of
+   * each.
+   *
+   * Neither path decides a price here. The catalogue path does not send one at
+   * all, and the legacy path sends it only because that route requires it and
+   * checks it against its own map.
+   */
+  const startCheckout = async (option: {
+    type: string; plan: string; amount: number;
+    source?: 'catalogue' | 'legacy'; audience?: string; kind?: 'tier' | 'addon';
+  }) => {
     setSaving(true);
     try {
-      const res = await fetch(`${SERVER}/subscriptions/checkout`, {
+      const catalogue = option.source === 'catalogue';
+      const res = await fetch(`${SERVER}/${catalogue ? 'plan-checkout' : 'subscriptions/checkout'}`, {
         method: 'POST',
         headers: await authedHeaders(),
-        // The amount is sent because the route requires it, and the route checks
-        // it against its own catalogue — the price is not decided here.
-        body: JSON.stringify({ type: option.type, plan: option.plan, amount: option.amount }),
+        body: JSON.stringify(catalogue
+          ? { audience: option.audience || option.type, tierId: option.plan }
+          : { type: option.type, plan: option.plan, amount: option.amount }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success || !data.checkoutUrl) {
+      // The two routes name the same thing differently.
+      const url = data.checkoutUrl || data.url;
+      if (!res.ok || !url) {
         throw new Error(data.error || 'Could not start checkout.');
       }
-      window.location.href = data.checkoutUrl;
+      window.location.href = url;
     } catch (e: any) {
       toast.error(e?.message || 'Could not start checkout.');
       setSaving(false);
@@ -317,7 +338,11 @@ export default function PortalSettings({
 }
 
 function PlanRow({ option, accent, busy, onPick }: {
-  option: { type: string; plan: string; amount: number; label: string };
+  option: {
+    type: string; plan: string; amount: number; label: string;
+    source?: 'catalogue' | 'legacy'; audience?: string; kind?: 'tier' | 'addon';
+    blurb?: string; interval?: string;
+  };
   accent: string; busy: boolean; onPick: (o: any) => void;
 }) {
   return (

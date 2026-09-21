@@ -159,9 +159,35 @@ constants are deleted last.
       way a tier can. `/plan-catalog/` also went into `ADMIN_PREFIXES`: it is
       wholly administrative and POST-only, unlike `/plan-tiers`, which any
       signed-in buyer must be able to read.
-- [ ] **U3. Point `/me/upgrade-options` at the catalogue.** Read-only surface,
-      so it can switch before checkout does and any gap shows up as a missing
-      row rather than a failed purchase.
+- [x] **U3. `/me/upgrade-options` reads the catalogue first.** A catalogue tier
+      is offered only when it is actually purchasable in the mode this server is
+      in — an entry with no Stripe price is a plan nobody can buy, and offering
+      it is precisely the failure this route exists to prevent. If the catalogue
+      has nothing sellable for the portal, the old rows are offered exactly as
+      before, and the fallback is logged rather than left to be noticed months
+      later.
+
+      Each option now says which checkout it belongs to and the panel sends it
+      there: a catalogue plan to `/plan-checkout`, which takes the Stripe price
+      off the record, and a legacy row to `/subscriptions/checkout`. During the
+      migration a portal can legitimately show one of each.
+
+      `amount` stays in DOLLARS, which is what this route has always returned
+      and what the legacy checkout compares against. The catalogue stores cents,
+      so that conversion happens once, in one place — it is a factor of a
+      hundred in either direction if it is done twice or not at all.
+- [ ] **U3b. Selling an add-on.** Catalogue add-ons are deliberately NOT offered
+      for purchase yet, and the reason is the grant model rather than effort. A
+      checkout started from this panel ends at the webhook, which reads
+      `bp_tier_id` off the subscription and writes the entitlement grant from
+      it. Send an add-on down that path and the grant lands pointing at the
+      add-on, so buying a products top-up would overwrite the record of which
+      plan the person is on. They would pay for an extra and lose their tier.
+
+      Doing it properly means adding a line item to the subscription they
+      already have rather than opening a second one — Stripe subscription-item
+      work, plus a decision about what the grant should then say. Until that
+      exists, add-ons are served by the old rows exactly as they are today.
 - [ ] **U4. Point checkout validation at the catalogue.** Keep
       `PORTAL_UPGRADE_PRICES` as a fallback for one deploy, log when the
       fallback fires, and only then delete it. This is the step that takes
