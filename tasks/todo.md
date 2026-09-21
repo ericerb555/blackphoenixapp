@@ -7034,3 +7034,51 @@ to apply all six, creating `org_entitlements`, `work_requests` and
 `company_documents` on production for features that do not use them. They should
 be deleted, or moved out of `migrations/`, before anyone pushes. That is a
 decision about dead code rather than something to do silently.
+
+### Clearing out the never-applied files — five went, one stayed
+
+"Clear them out" turned out to need reading first, and one of the six was the
+opposite of dead.
+
+**Kept: `investment_system.sql`.** Its four tables —
+`investment_opportunities`, `investor_commitments`, `payout_distributions`,
+`investment_documents` — **exist in production**, and searching every applied
+migration's SQL for those names returns nothing. They were created outside
+migration history, so this file is the **only record of their schema anywhere**.
+Deleting it would have undone part of what the reconciliation just achieved.
+
+It was not safely re-runnable though: all eight of its policies already exist,
+and a bare `CREATE POLICY` fails on a duplicate. Each is now preceded by
+`DROP POLICY IF EXISTS`, the same shape the applied `create_companies` uses, so
+the file can be applied to a fresh database and re-applied to this one without
+error. Renamed `20260920000000_investment_system.sql`.
+
+**Deleted (5), each checked against the database and the code first:**
+
+| File | Why it went |
+|---|---|
+| `010_bid_room_entitlements` | `org_entitlements` does not exist and is referenced **nowhere** |
+| `20260616_work_requests` | table does not exist; only the **retired** `make-server-57095a78` touches it, the live flow uses the KV store |
+| `014_compliance_reminder_schedule` | superseded by the two applied schedule migrations, now recovered |
+| `20260502_create_companies_tables` | `companies` is covered by the applied `create_companies`; `company_documents` does not exist and its service methods are never called |
+| `20260502_add_logo_fields` | every logo column is already in the applied `create_companies` — confirmed by reading its recorded SQL |
+
+### And the rest of the folder was renamed
+
+Nine files were still named `001_`…`013_`. The CLI derives the version from the
+filename, so `001_platform_core.sql` yields version `001`, which matches nothing
+in a history recorded as `20260815032102`. A `db push` would have tried to
+re-run all nine. They now carry their real applied versions.
+
+### Where this leaves it
+
+    19 migration files, all timestamp-prefixed
+    applied on remote with no local file:   none
+    would be applied by a `db push`:        investment_system only
+
+And that one is idempotent by construction, so pushing it against production
+creates nothing and changes nothing — it exists so a **fresh** database gets
+those four tables.
+
+The repository can now rebuild the database it is running against. That was the
+point, and it is the prerequisite for a branch being worth anything.

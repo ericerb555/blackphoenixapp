@@ -112,33 +112,43 @@ ALTER TABLE payout_distributions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE investment_documents ENABLE ROW LEVEL SECURITY;
 
 -- Opportunities: Public read, owner write
+DROP POLICY IF EXISTS "Anyone can view active opportunities" ON investment_opportunities;
 CREATE POLICY "Anyone can view active opportunities"
   ON investment_opportunities FOR SELECT
   USING (status = 'open');
+
+DROP POLICY IF EXISTS "Service role can manage opportunities" ON investment_opportunities;
 
 CREATE POLICY "Service role can manage opportunities"
   ON investment_opportunities FOR ALL
   USING (auth.role() = 'service_role');
 
 -- Commitments: Investors see their own, service role sees all
+DROP POLICY IF EXISTS "Investors can view their own commitments" ON investor_commitments;
 CREATE POLICY "Investors can view their own commitments"
   ON investor_commitments FOR SELECT
   USING (investor_email = auth.jwt() ->> 'email' OR auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Service role can manage commitments" ON investor_commitments;
 
 CREATE POLICY "Service role can manage commitments"
   ON investor_commitments FOR ALL
   USING (auth.role() = 'service_role');
 
 -- Payouts: Investors see their own, service role sees all
+DROP POLICY IF EXISTS "Investors can view their own payouts" ON payout_distributions;
 CREATE POLICY "Investors can view their own payouts"
   ON payout_distributions FOR SELECT
   USING (investor_email = auth.jwt() ->> 'email' OR auth.role() = 'service_role');
+
+DROP POLICY IF EXISTS "Service role can manage payouts" ON payout_distributions;
 
 CREATE POLICY "Service role can manage payouts"
   ON payout_distributions FOR ALL
   USING (auth.role() = 'service_role');
 
 -- Documents: Read based on commitment access, service role manages
+DROP POLICY IF EXISTS "Users can view documents for their commitments" ON investment_documents;
 CREATE POLICY "Users can view documents for their commitments"
   ON investment_documents FOR SELECT
   USING (
@@ -149,6 +159,8 @@ CREATE POLICY "Users can view documents for their commitments"
     ) OR
     auth.role() = 'service_role'
   );
+
+DROP POLICY IF EXISTS "Service role can manage documents" ON investment_documents;
 
 CREATE POLICY "Service role can manage documents"
   ON investment_documents FOR ALL
