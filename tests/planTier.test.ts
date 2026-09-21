@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import {
   isPurchasable, notPurchasableReason, publicTier, resolveEntitlement, priceIdFor,
   withinLimit, carryStripeLinkage, FREE_LEVEL, AUDIENCES,
+  readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
+  addOnsForTier, publicAddOn, type PlanAddOn,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -308,4 +310,123 @@ test('an unreadable amount does not unsell anything', () => {
   const { linkage, detached } = carryStripeLinkage(attached, Number.NaN);
   assert.equal(linkage.stripePriceId, 'price_live_abc');
   assert.deepEqual(detached, []);
+});
+
+/**
+ * ── Base tier plus add-ons ────────────────────────────────────────────────
+ *
+ * Eric's decision: $39 / $79 / $159 are base prices and most of the extras are
+ * add-ons. So what somebody pays is the tier plus what they chose, and that sum
+ * is computed on the server from records the server owns. A total posted by a
+ * browser is a number the customer can edit, which is why it is never trusted
+ * and why the arithmetic is pinned here.
+ */
+const baseTier = (over: Partial<PlanTier> = {}): PlanTier => tier({
+  id: 'stocked', name: 'Stocked', priceCents: 7900, interval: 'month',
+  ...over,
+});
+
+const addOn = (over: Partial<PlanAddOn> = {}): PlanAddOn => ({
+  id: 'extra-products', audience: 'vendor', name: '500 more products',
+  features: [], limits: { products: 500 }, priceCents: 2000, interval: 'month',
+  stripePriceId: 'price_addon_live', active: true,
+  ...over,
+});
+
+test('an interval is read, not guessed — week survives', () => {
+  assert.equal(readInterval('week'), 'week');
+  assert.equal(readInterval('year'), 'year');
+  assert.equal(readInterval('month'), 'month');
+  assert.equal(readInterval('WEEK'), 'week');
+  assert.equal(readInterval(undefined), 'month', 'the safe default');
+  assert.equal(readInterval('fortnight'), 'month', 'nonsense is not carried through');
+});
+
+test('the base price alone when nothing is added', () => {
+  assert.equal(subscriptionTotalCents(baseTier(), []), 7900);
+});
+
+test('an add-on is added to the base', () => {
+  assert.equal(subscriptionTotalCents(baseTier(), [addOn()]), 9900);
+});
+
+test('AN INCLUDED ADD-ON IS FREE — that is what including it means', () => {
+  const t = baseTier({ includedAddOns: ['extra-products'] });
+  assert.equal(subscriptionTotalCents(t, [addOn()]), 7900);
+});
+
+test('an add-on for another tier is not charged for', () => {
+  const only = addOn({ availableOn: ['preferred'] });
+  assert.equal(subscriptionTotalCents(baseTier(), [only]), 7900);
+  assert.ok(!addOnAvailableOn(only, baseTier()));
+});
+
+test('an add-on listed for this tier is available', () => {
+  assert.ok(addOnAvailableOn(addOn({ availableOn: ['stocked'] }), baseTier()));
+});
+
+test('no availableOn means every tier, which is the common case', () => {
+  assert.ok(addOnAvailableOn(addOn({ availableOn: [] }), baseTier()));
+  assert.ok(addOnAvailableOn(addOn({ availableOn: undefined }), baseTier()));
+});
+
+test('A WEEKLY ADD-ON IS REFUSED ON A MONTHLY TIER — Stripe would reject it', () => {
+  // Every recurring line item on one subscription must share an interval.
+  // Offering this would build a checkout session Stripe refuses in front of
+  // the customer, in its words rather than ours.
+  assert.ok(!addOnAvailableOn(addOn({ interval: 'week' }), baseTier()));
+  assert.equal(subscriptionTotalCents(baseTier(), [addOn({ interval: 'week' })]), 7900);
+});
+
+test('a withdrawn add-on is neither offered nor charged for', () => {
+  assert.ok(!addOnAvailableOn(addOn({ active: false }), baseTier()));
+  assert.equal(subscriptionTotalCents(baseTier(), [addOn({ active: false })]), 7900);
+});
+
+test('an add-on for another audience never crosses over', () => {
+  assert.ok(!addOnAvailableOn(addOn({ audience: 'customer' }), baseTier()));
+});
+
+test('a negative price cannot discount the base', () => {
+  assert.equal(subscriptionTotalCents(baseTier(), [addOn({ priceCents: -5000 })]), 7900);
+});
+
+test('several add-ons sum', () => {
+  const total = subscriptionTotalCents(baseTier(), [
+    addOn(),
+    addOn({ id: 'priority-routing', priceCents: 1500 }),
+    addOn({ id: 'extra-seat', priceCents: 900 }),
+  ]);
+  assert.equal(total, 7900 + 2000 + 1500 + 900);
+});
+
+test('the add-on list hides what cannot be sold, and marks what is included', () => {
+  const t = baseTier({ includedAddOns: ['priority-routing'] });
+  const shown = addOnsForTier([
+    addOn(),
+    addOn({ id: 'priority-routing', stripePriceId: undefined }),
+    addOn({ id: 'no-price', stripePriceId: undefined }),
+    addOn({ id: 'other-tier', availableOn: ['preferred'] }),
+  ], t, 'live');
+
+  const ids = shown.map(a => a.id).sort();
+  assert.deepEqual(ids, ['extra-products', 'priority-routing'],
+    'no-price has no Stripe price and other-tier is not offered here');
+  assert.ok(shown.find(a => a.id === 'priority-routing')!.included,
+    'included without a Stripe price is still offered — nothing is charged');
+  assert.ok(!shown.find(a => a.id === 'extra-products')!.included);
+});
+
+test('an add-on never carries its Stripe price id to a customer', () => {
+  const shown = addOnsForTier([addOn()], baseTier());
+  assert.ok(!('stripePriceId' in shown[0]));
+  assert.ok(!('stripePriceIdTest' in shown[0]));
+  const one = publicAddOn(addOn());
+  assert.ok(!('stripePriceId' in one));
+  assert.equal(one.purchasable, true);
+});
+
+test('addOnIncludedIn is false for a tier that includes nothing', () => {
+  assert.ok(!addOnIncludedIn('extra-products', baseTier()));
+  assert.ok(!addOnIncludedIn('extra-products', null));
 });

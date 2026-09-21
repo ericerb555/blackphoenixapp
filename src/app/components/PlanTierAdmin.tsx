@@ -72,6 +72,12 @@ function money(cents?: number, interval?: string) {
 interface Draft {
   id: string;
   isNew: boolean;
+  /**
+   * A tier is what somebody is on; an add-on is something extra they pay for
+   * on top. The form is the same nine fields either way, so one editor covers
+   * both and each kind adds the one field the other has no use for.
+   */
+  kind: 'tier' | 'addon';
   name: string;
   blurb: string;
   featuresText: string;
@@ -80,16 +86,27 @@ interface Draft {
   interval: 'month' | 'year';
   sortOrder: string;
   active: boolean;
+  /** Tiers only — add-on ids this tier throws in at no charge. */
+  includedAddOns: string;
+  /** Tiers only — 'Most Popular' and the like. */
+  badge: string;
+  /** Add-ons only — tier ids it may be bought on. Blank means all of them. */
+  availableOn: string;
   /** What it cost before this edit, to notice an amount change on save. */
   originalCents: number;
   /** Whether it could be bought before this edit, for the same reason. */
   wasOnSale: boolean;
 }
 
-function draftFrom(t: Partial<Tier> & { id?: string }, isNew: boolean): Draft {
+function draftFrom(
+  t: Partial<Tier> & { id?: string; includedAddOns?: string[]; badge?: string; availableOn?: string[] },
+  isNew: boolean,
+  kind: 'tier' | 'addon' = 'tier',
+): Draft {
   return {
     id: t.id || '',
     isNew,
+    kind,
     name: t.name || '',
     blurb: t.blurb || '',
     featuresText: (t.features || []).join('\n'),
@@ -98,6 +115,9 @@ function draftFrom(t: Partial<Tier> & { id?: string }, isNew: boolean): Draft {
     interval: t.interval === 'year' ? 'year' : 'month',
     sortOrder: String(t.sortOrder ?? 0),
     active: t.active !== false,
+    includedAddOns: (t.includedAddOns || []).join(', '),
+    badge: t.badge || '',
+    availableOn: (t.availableOn || []).join(', '),
     originalCents: Number(t.priceCents || 0),
     wasOnSale: Boolean(t.purchasable),
   };
@@ -121,7 +141,18 @@ function tierFrom(d: Draft) {
     interval: d.interval,
     sortOrder: Number(d.sortOrder) || 0,
     active: d.active,
+    // Only the field that belongs to this kind is sent. The server ignores
+    // what it does not recognise, but sending a tier an add-on field would
+    // read, in the stored record, as though somebody meant it.
+    ...(d.kind === 'tier'
+      ? { includedAddOns: splitList(d.includedAddOns), badge: d.badge.trim() }
+      : { availableOn: splitList(d.availableOn) }),
   };
+}
+
+/** A comma- or space-separated list of ids, as typed. */
+function splitList(raw: string): string[] {
+  return raw.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
 }
 
 const field = 'w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white '
@@ -160,7 +191,9 @@ function TierEditor({
   return (
     <div className="mb-4 rounded-xl border border-orange-500/30 bg-[#0A0A0A] p-4">
       <p className="mb-3 text-sm font-bold text-white">
-        {draft.isNew ? 'New plan' : `Editing ${draft.name || draft.id}`}
+        {draft.isNew
+          ? (draft.kind === 'tier' ? 'New plan' : 'New add-on')
+          : `Editing ${draft.name || draft.id}`}
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -307,6 +340,48 @@ function TierEditor({
         </p>
       </div>
 
+      {draft.kind === 'tier' ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <span className={label}>Add-ons included free</span>
+            <input
+              className={field}
+              value={draft.includedAddOns}
+              placeholder="priority-routing, extra-seat"
+              title="Add-on ids this tier throws in. This is how a ladder steps without inventing a new product at each rung."
+              onChange={e => setDraft({ ...draft, includedAddOns: e.target.value })}
+            />
+          </div>
+          <div>
+            <span className={label}>Badge</span>
+            <input
+              className={field}
+              value={draft.badge}
+              placeholder="Most Popular"
+              onChange={e => setDraft({ ...draft, badge: e.target.value })}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <span className={label}>Only on these tiers</span>
+          <input
+            className={field}
+            value={draft.availableOn}
+            placeholder="leave blank for every tier"
+            title="Tier ids this add-on may be bought on. Blank means all of them, which is the usual case."
+            onChange={e => setDraft({ ...draft, availableOn: e.target.value })}
+          />
+          {/* Stripe bills line items, and every recurring line on one
+              subscription must share an interval — so an add-on is only ever
+              offered against tiers billed the same way. */}
+          <p className="mt-1.5 text-[11px] text-gray-600">
+            An add-on is only offered on tiers billed {draft.interval}ly, because Stripe
+            bills every line of one subscription on the same cycle.
+          </p>
+        </div>
+      )}
+
       <label className="mt-3 flex items-center gap-2 text-xs text-gray-400">
         <input
           type="checkbox"
@@ -353,6 +428,9 @@ export default function PlanTierAdmin() {
   const [mode, setMode] = useState<'test' | 'live'>('test');
   const [note, setNote] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [addOns, setAddOns] = useState<any[]>([]);
+  const [importReport, setImportReport] = useState<any | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const headers = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -371,6 +449,14 @@ export default function PlanTierAdmin() {
       const json = await res.json().catch(() => ({}));
       setTiers(Array.isArray(json?.tiers) ? json.tiers : []);
       setNote(json?.note || null);
+      try {
+        const a = await (await fetch(`${SERVER}/plan-addons?audience=${encodeURIComponent(audience)}`, {
+          headers: await headers(),
+        })).json();
+        setAddOns(Array.isArray(a?.addOns) ? a.addOns : []);
+      } catch {
+        setAddOns([]);
+      }
       try {
         const me = await (await fetch(`${SERVER}/my-plan`, { headers: await headers() })).json();
         setRehearsal(Boolean(me?.rehearsal));
@@ -598,7 +684,8 @@ export default function PlanTierAdmin() {
     if (!draft) return;
     setSaving(true);
     try {
-      const res = await fetch(`${SERVER}/plan-tiers/${encodeURIComponent(audience)}`, {
+      const where = draft.kind === 'tier' ? 'plan-tiers' : 'plan-addons';
+      const res = await fetch(`${SERVER}/${where}/${encodeURIComponent(audience)}`, {
         method: 'POST',
         headers: await headers(),
         body: JSON.stringify(tierFrom(draft)),
@@ -659,6 +746,35 @@ export default function PlanTierAdmin() {
   const useProposed = (t: any) => {
     const current = tiers.find(x => x.id === t.id);
     setDraft(draftFrom({ ...t, purchasable: current?.purchasable }, !current));
+  };
+
+  /**
+   * Bring the old server-side price map into the catalogue.
+   *
+   * Always shown as a dry run first. An import that silently created twenty
+   * records would be indistinguishable from a mistake, and the interesting
+   * half of the answer is what it SKIPPED — the rows whose audience this
+   * catalogue has no name for are exactly the decisions still outstanding.
+   */
+  const runImport = async (dry: boolean, withTiers: boolean) => {
+    setImporting(true);
+    try {
+      const res = await fetch(
+        `${SERVER}/plan-catalog/import?${dry ? 'dry=1&' : ''}${withTiers ? 'tiers=1' : ''}`,
+        { method: 'POST', headers: await headers() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(json?.error || `Import failed (${res.status}).`); return; }
+      setImportReport({ ...json, withTiers });
+      if (!dry) {
+        toast.success(`Imported ${json.created?.length || 0}, all withdrawn and unpriced.`);
+        await load();
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not reach the importer.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const sellable = tiers.filter(t => t.purchasable).length;
@@ -940,6 +1056,120 @@ export default function PlanTierAdmin() {
               </div>
             ))}
           </div>
+          {/* ── What is sold alongside a tier ───────────────────────────
+              $39, $79 and $159 are base prices; most of the extras are
+              add-ons, so this is where most of what a subscriber pays
+              actually gets decided. An add-on a tier includes free needs no
+              Stripe price, because nothing is charged for it. */}
+          <div className="mt-6">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-bold text-white">Add-ons</p>
+                <p className="text-[11px] text-gray-500">
+                  Sold on top of a base tier. A tier can include one free — that is how
+                  the ladder steps without inventing a new product at each rung.
+                </p>
+              </div>
+              <button
+                onClick={() => setDraft(draftFrom({ interval: 'month' }, true, 'addon'))}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 hover:text-white"
+              >
+                <Plus className="h-3.5 w-3.5" /> New add-on
+              </button>
+            </div>
+            {addOns.length === 0 ? (
+              <p className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3 text-xs text-gray-500">
+                No add-ons for this portal yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {addOns.map(a => (
+                  <div key={a.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-white">
+                        {a.name}
+                        <span className="text-xs font-normal text-orange-400">
+                          {money(a.priceCents, a.interval)}
+                        </span>
+                        <span className="font-mono text-[10px] text-gray-600">{a.id}</span>
+                        {a.active === false && (
+                          <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">WITHDRAWN</span>
+                        )}
+                        {a.purchasable
+                          ? <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-bold text-green-400">ON SALE</span>
+                          : <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">NO STRIPE PRICE</span>}
+                      </p>
+                      {a.blurb && <p className="mt-0.5 text-[11px] text-gray-500">{a.blurb}</p>}
+                      <p className="mt-1 text-[11px] text-gray-600">
+                        {a.availableOn?.length
+                          ? `Only on: ${a.availableOn.join(', ')}`
+                          : 'Offered on every tier billed the same way'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setDraft(draftFrom(a, false, 'addon'))}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[#2A2A2A] px-2.5 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Bringing the old price map in ───────────────────────────── */}
+          <div className="mt-4 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+            <p className="text-xs font-semibold text-gray-300">Import the old price map</p>
+            <p className="mt-1 text-[11px] text-gray-500">
+              The portal upgrade prices still live in a server constant that checkout
+              validates against. This copies them into the catalogue — withdrawn, with no
+              Stripe price, and never over anything that already exists.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                onClick={() => runImport(true, false)}
+                disabled={importing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 disabled:opacity-50"
+              >
+                {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Show me what it would do
+              </button>
+              {importReport?.dryRun && (importReport.created?.length > 0) && (
+                <button
+                  onClick={() => runImport(false, importReport.withTiers)}
+                  disabled={importing}
+                  className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
+                >
+                  Import those {importReport.created.length}
+                </button>
+              )}
+              <button
+                onClick={() => runImport(true, true)}
+                disabled={importing}
+                className="rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-semibold text-gray-400 transition hover:text-white disabled:opacity-50"
+                title="The tier rows too, not just the add-ons"
+              >
+                …including the old tiers
+              </button>
+            </div>
+            {importReport && (
+              <div className="mt-2 space-y-1 text-[11px]">
+                {(importReport.created || []).map((r: any) => (
+                  <p key={r.key} className="text-green-400">
+                    + {r.as} {r.audience}/{r.id} — {money(r.priceCents, 'month')}
+                  </p>
+                ))}
+                {/* The skipped rows are the useful half: each one is a
+                    decision nobody has made yet. */}
+                {(importReport.skipped || []).map((r: any, i: number) => (
+                  <p key={i} className="text-gray-500">– {r.key}: {r.why}</p>
+                ))}
+                <p className="pt-1 text-gray-600">{importReport.note}</p>
+              </div>
+            )}
+          </div>
+
           {/* ── The events without which none of this works ────────────────
               Missing one is silent and slow: no `customer.subscription.deleted`
               means a cancellation never arrives and the customer keeps paid

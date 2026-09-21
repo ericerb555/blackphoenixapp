@@ -161,6 +161,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
+import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import { notPurchasableReason, resolveEntitlement, publicTier, priceIdFor } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -14882,24 +14883,8 @@ async function applyGiftHours(subscription: any, hours: number, reason: string, 
   await kv.set(`subscription_hour_gift:${gift.id}`, gift);
   return { record, gift };
 }
-const PORTAL_UPGRADE_PRICES: Record<string, number> = {
-  'customer:customer pro': 29, 'customer:customer premium': 79,
-  'vendor:vendor basic': 99, 'vendor:vendor professional': 199, 'vendor:vendor premium': 399, 'vendor:vendor elite': 799,
-  'subcontractor:subcontractor basic': 49, 'subcontractor:subcontractor pro': 99, 'subcontractor:subcontractor enterprise': 199,
-  'advertiser:advertiser starter': 199, 'advertiser:advertiser growth': 499, 'advertiser:advertiser enterprise': 999,
-  'investor:investor premium': 299, 'employee:employee pro': 5,
-  'property_manager:property_manager basic': 149, 'property_manager:property_manager professional': 299, 'property_manager:property_manager enterprise': 599,
-  'landlord:landlord basic': 29, 'landlord:landlord premium': 79, 'condo_manager:condo_manager basic': 199, 'condo_manager:condo_manager premium': 399,
-  'customer_maintenance:customer standard maintenance': 99, 'customer_maintenance:customer priority maintenance': 199, 'customer_maintenance:customer premium maintenance': 399,
-  'vendor_maintenance:vendor standard maintenance': 99, 'vendor_maintenance:vendor priority maintenance': 199, 'vendor_maintenance:vendor premium maintenance': 399,
-  'subcontractor_maintenance:subcontractor standard maintenance': 99, 'subcontractor_maintenance:subcontractor priority maintenance': 199, 'subcontractor_maintenance:subcontractor premium maintenance': 399,
-  'advertiser_maintenance:advertiser standard maintenance': 99, 'advertiser_maintenance:advertiser priority maintenance': 199, 'advertiser_maintenance:advertiser premium maintenance': 399,
-  'investor_maintenance:investor standard maintenance': 99, 'investor_maintenance:investor priority maintenance': 199, 'investor_maintenance:investor premium maintenance': 399,
-  'employee_maintenance:employee standard maintenance': 99, 'employee_maintenance:employee priority maintenance': 199, 'employee_maintenance:employee premium maintenance': 399,
-  'property_manager_maintenance:property_manager standard maintenance': 99, 'property_manager_maintenance:property_manager priority maintenance': 199, 'property_manager_maintenance:property_manager premium maintenance': 399,
-  'landlord_maintenance:landlord standard maintenance': 99, 'landlord_maintenance:landlord priority maintenance': 199, 'landlord_maintenance:landlord premium maintenance': 399,
-  'condo_manager_maintenance:condo_manager standard maintenance': 99, 'condo_manager_maintenance:condo_manager priority maintenance': 199, 'condo_manager_maintenance:condo_manager premium maintenance': 399,
-};
+// Moved to ./portalUpgradePrices.ts so the plan catalogue can import it —
+// see the note there. Re-exported nowhere; this is the only consumer left.
 
 /**
  * What this person can actually upgrade to.

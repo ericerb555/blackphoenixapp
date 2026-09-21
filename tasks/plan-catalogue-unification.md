@@ -7,7 +7,9 @@ Yes. They do not today. This is the plan for making them, written before any of
 it is built so the pieces can be argued about on paper rather than reconciled
 afterwards.
 
-**Nothing in here has been started.** It needs agreeing first.
+**U1 and U2 are built.** Eric settled question 1 — $39 / $79 / $159 as *base*
+prices with the extras as add-ons — which is what U1 and U2 were built to. U3
+onward are still unstarted and the remaining questions still block them.
 
 ---
 
@@ -65,6 +67,17 @@ places — provisioning (`index.tsx:11981`), the Stripe webhook
 (`stripe-webhooks/index.ts:285`), and manual grants. Everything that sells,
 comps or trials must end here and nowhere else.
 
+**Add-ons (`plan_addon:`) own what is sold alongside a tier.** A base tier is
+what a subscriber is on; an add-on is something extra they pay for on top,
+billed as its own line on the same subscription. Each carries its own Stripe
+Price for the same reason a tier does — Stripe bills line items, not totals,
+and a price this app invented would bill against nothing.
+
+Kept as their own records rather than as a field on the tier, because the same
+add-on is usually offered on several tiers and sometimes included free on the
+top one. A tier says which add-ons it includes at no cost; an add-on says
+which tiers it may be bought on.
+
 **`plan:` records own bespoke bundles.** The Plans & Add-ons builder assembles a
 custom set of services with an hours allotment. That is genuinely a *different
 product* from a published tier and should stay separate — but it must price
@@ -88,7 +101,7 @@ something one of the seven ladders does that `PlanTier` has no field for.
 | **Weekly billing** | `ADVERTISER_WEEKLY_PLANS` (`billingInterval: 'week'`) | catalogue interval is `month \| year` only |
 | **A discounted founding price** | every ladder in `subscriptionPlans.ts` (`foundingPrice`, 30% off) | needs a second Stripe price, not just a second number |
 | **Annual price alongside monthly** | `DealsOffersSection` (`annualPrice`) | two prices per tier, or two records |
-| **Add-on options** | `SubscriptionPlan.portalOptions`, `allowCustomRequest` | the add-ons a subscriber toggles on |
+| **Add-on options** | `SubscriptionPlan.portalOptions`, `allowCustomRequest`, every `*_maintenance` row | **now the centre of the work** — see the answer to question 1 |
 | **Non-numeric limits** | `storage: '10 GB'`, `support: 'Email (48hr response)'` | catalogue limits are `Record<string, number>` — these are prose, and probably belong in `features` |
 | **Ranking / priority** | `serviceProviders.SUBSCRIPTION_TIERS.priority`, `leadsPerMonth` | decides lead routing order; must survive |
 | **A badge** | `'Most Popular'`, `'Best Value'`, `highlighted`, `popular` | display only |
@@ -112,13 +125,28 @@ the catalogue before the catalogue holds every plan the portals offer, real
 purchases start being refused.** So the catalogue is filled first and the
 constants are deleted last.
 
-- [ ] **U1. Grow `PlanTier` to cover section 3.** Pure type and helper work in
-      `planTier.ts`, unit-tested, no behaviour change. Add the missing
-      audiences. Decide `storage`/`support` become features.
-- [ ] **U2. Import the existing ladders into the catalogue.** A one-off admin
-      route that reads maps #2–#7 and writes `plan_tier:` records, marked
-      inactive, so nothing goes on sale by being imported. Then Eric reconciles
-      the duplicates by hand in the Portal Plans tab — see the open questions.
+- [x] **U1. The add-on model, in `planTier.ts`.** `PlanAddOn` as its own record
+      type; a shared `Sellable` so the purchasability rules cover tiers and
+      add-ons without a second copy; `BillingInterval` widened to include
+      `week`; `readInterval` replacing three inline readers that collapsed week
+      to month; `subscriptionTotalCents`, which is where base + add-ons is
+      actually computed. Tiers gained `includedAddOns` and `badge`.
+      **15 new tests**, including the one that matters most: a weekly add-on is
+      refused on a monthly tier, because Stripe requires every recurring line on
+      one subscription to share an interval and offering it would build a
+      checkout Stripe rejects in front of the customer.
+- [x] **U2. Add-ons in the catalogue, and the importer.** `plan_addon:` records
+      with list / publish / withdraw routes mirroring the tier ones and reusing
+      `carryStripeLinkage`. `PORTAL_UPGRADE_PRICES` lifted into its own module so
+      the catalogue can read it without a cycle. `POST /plan-catalog/import`
+      brings those rows in — everything **inactive**, nothing ever overwritten,
+      nothing guessed — with a dry run first. The Portal Plans tab shows add-ons,
+      edits them in the same form as tiers, and runs the import.
+- [ ] **U2b. Stripe prices for add-ons.** NOT DONE, and it is what stands
+      between an add-on and being sellable. The `stripe-price` and
+      `attach-price` routes are written against tiers specifically; they need
+      generalising to take either. Worth doing as one generalisation rather than
+      a second copy, since the two records now share `Sellable`.
 - [ ] **U3. Point `/me/upgrade-options` at the catalogue.** Read-only surface,
       so it can switch before checkout does and any gap shows up as a missing
       row rather than a failed purchase.
@@ -143,12 +171,26 @@ catalogue cannot be judged until it holds everything.
 
 ---
 
-## 5. What needs deciding before U2
+## 5. What needs deciding next
 
-These are business calls and I should not guess at any of them.
+These are business calls and I should not guess at any of them. Question 1 is
+answered; the rest still block U3 onward, and the importer reports each row it
+had to skip for want of an answer rather than filing it under a near-enough
+audience.
 
-1. **Which vendor ladder is right?** $39/$79/$159, or $99/$199/$399/$799, or
-   $149/founding $104? Whichever wins, the others get retired.
+1. ~~**Which vendor ladder is right?**~~ **ANSWERED.** $39 / $79 / $159, and
+   they are **base** prices — *"most of the extras are add-ons."*
+
+   This changes the shape of the work rather than just settling a number. The
+   higher ladders were not competitors to be retired; a good part of what they
+   charged for is add-ons sold alongside a base tier. So what a subscriber pays
+   is `base tier + the add-ons they chose`, and the catalogue needs add-ons as a
+   first-class thing rather than as a field on a tier.
+
+   It also explains something already in the code: the `*_maintenance` rows in
+   `PORTAL_UPGRADE_PRICES` carry a comment calling them "a separate product sold
+   alongside the portal plan, so they are offered as add-ons rather than mixed
+   into the tiers." That was the right instinct with nowhere to put it.
 2. **Do investors and territory owners become catalogue audiences**, or are
    their plans sold some other way?
 3. **Are `construction` and `demolition` audiences of their own**, or customer

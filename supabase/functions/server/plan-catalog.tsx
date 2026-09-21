@@ -33,9 +33,10 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
-  AUDIENCES, carryStripeLinkage, isPurchasable, publicTier,
-  type Audience, type PlanTier, type StripeMode,
+  AUDIENCES, carryStripeLinkage, isPurchasable, publicAddOn, publicTier, readInterval,
+  type Audience, type PlanAddOn, type PlanTier, type StripeMode,
 } from "./planTier.ts";
+import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 
 /**
  * Which Stripe mode this server sells in, from the key's own prefix.
@@ -108,7 +109,15 @@ function readTier(raw: any, audience: Audience): PlanTier | null {
     priceCents: Number.isFinite(Number(raw?.priceCents)) && Number(raw?.priceCents) >= 0
       ? Math.round(Number(raw.priceCents))
       : undefined,
-    interval: raw?.interval === "year" ? "year" : "month",
+    // Through the shared reader, so a weekly price stays weekly. Written
+    // inline this was `=== "year" ? "year" : "month"`, which collapsed week
+    // to month and would have billed a quarter of what it should.
+    interval: readInterval(raw?.interval),
+    includedAddOns: (Array.isArray(raw?.includedAddOns) ? raw.includedAddOns : [])
+      .map((a: any) => String(a || "").trim())
+      .filter(Boolean)
+      .slice(0, 40),
+    badge: String(raw?.badge || "").trim().slice(0, 40) || undefined,
     sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : 0,
     active: raw?.active !== false,
   };
@@ -421,6 +430,276 @@ Return ONLY a JSON object, no prose, no code fence:
     console.error("[PlanCatalog] draft failed:", error?.message || error);
     return c.json({ error: error?.message || "Could not draft the plans." }, 500);
   }
+});
+
+/* ── add-ons ──────────────────────────────────────────────────────────────
+ *
+ * Sold alongside a tier rather than instead of one. See `PlanAddOn` in
+ * `planTier.ts` for why they are their own records, and section 2 of
+ * `tasks/plan-catalogue-unification.md` for why the work went this way.
+ *
+ * These routes deliberately mirror the tier routes rather than sharing a
+ * generic handler with them. The two have the same shape today and there is no
+ * reason to believe they will keep it — tiers will grow trial windows and
+ * add-ons will grow quantities — and a shared handler with two flags reads
+ * worse than two handlers that agree.
+ */
+
+const ADDON = (audience: string, id: string) => `plan_addon:${audience}:${id}`;
+
+/** An add-on from a request body, with only fields this app understands. */
+function readAddOn(raw: any, audience: Audience): PlanAddOn | null {
+  const id = String(raw?.id || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  const name = String(raw?.name || "").trim();
+  if (!id || !name) return null;
+
+  const limits: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw?.limits || {})) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 0) limits[String(key).slice(0, 40)] = n;
+  }
+
+  return {
+    id: id.slice(0, 40),
+    audience,
+    name: name.slice(0, 80),
+    blurb: String(raw?.blurb || "").trim().slice(0, 300) || undefined,
+    features: (Array.isArray(raw?.features) ? raw.features : [])
+      .map((f: any) => String(f || "").trim().slice(0, 160))
+      .filter(Boolean)
+      .slice(0, 20),
+    limits,
+    // Never generated, exactly as for a tier: a price this app invented would
+    // bill against nothing in Stripe.
+    stripePriceId: String(raw?.stripePriceId || "").trim().slice(0, 120) || undefined,
+    priceCents: Number.isFinite(Number(raw?.priceCents)) && Number(raw?.priceCents) >= 0
+      ? Math.round(Number(raw.priceCents))
+      : undefined,
+    interval: readInterval(raw?.interval),
+    availableOn: (Array.isArray(raw?.availableOn) ? raw.availableOn : [])
+      .map((t: any) => String(t || "").trim())
+      .filter(Boolean)
+      .slice(0, 40),
+    sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : 0,
+    active: raw?.active !== false,
+  };
+}
+
+/** The add-ons on offer for one audience. */
+planCatalogRouter.get("/make-server-3eae23a6/plan-addons", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+
+  const audience = readAudience(c.req.query("audience"));
+  if (!audience) {
+    return c.json({ error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
+  }
+
+  const mode = activeMode();
+  const rows = ((await kv.getByPrefix(`plan_addon:${audience}:`)) as PlanAddOn[] || []).filter(Boolean);
+  const visible = who.isAdmin ? rows : rows.filter((a) => a.active !== false);
+  visible.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
+
+  return c.json({
+    audience,
+    addOns: visible.map((a) => publicAddOn(a, mode)),
+    note: visible.length === 0
+      ? "No add-ons are published for this portal yet."
+      : undefined,
+  });
+});
+
+/** Publish or update an add-on. Administrators only. */
+planCatalogRouter.post("/make-server-3eae23a6/plan-addons/:audience", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  if (!who.isAdmin) return c.json({ error: "Only an administrator can publish an add-on." }, 403);
+
+  const audience = readAudience(c.req.param("audience"));
+  if (!audience) return c.json({ error: "Unknown audience." }, 400);
+
+  const body = await c.req.json().catch(() => ({}));
+  const addOn = readAddOn(body, audience);
+  if (!addOn) return c.json({ error: "An add-on needs at least an id and a name." }, 400);
+
+  const now = new Date().toISOString();
+  const existing = (await kv.get(ADDON(audience, addOn.id))) as any;
+  // The same rule as a tier, and for the same reason: the Stripe linkage is the
+  // server's, the caller never sees it, and a changed amount cannot keep a
+  // price that can only ever charge the old one.
+  const { linkage: carried, detached } = carryStripeLinkage(existing, addOn.priceCents);
+
+  await kv.set(ADDON(audience, addOn.id), {
+    ...addOn,
+    ...carried,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    updatedBy: who.email,
+  });
+
+  const saved = { ...addOn, ...carried } as PlanAddOn;
+  const mode = activeMode();
+  console.log(
+    `[PlanCatalog] ${who.email} published add-on ${audience}/${addOn.id}`
+    + (detached.length ? ` (detached ${detached.join(" and ")} price: amount changed)` : ""),
+  );
+  return c.json({
+    success: true,
+    addOn: publicAddOn(saved, mode),
+    purchasable: isPurchasable(saved, mode),
+    detached,
+    warning: detached.length
+      ? `Saved. The price changed, so the old ${detached.join(" and ")} Stripe price was `
+        + "detached — it can only ever charge the old amount. Create a new "
+        + `${mode} price to put this add-on back on sale.`
+      : isPurchasable(saved, mode)
+        ? undefined
+        : `Saved, but this add-on cannot be bought yet — it needs a ${mode}-mode Stripe price `
+          + "and a price above zero. An add-on a tier includes for free does not need one.",
+  });
+});
+
+/** Withdraw an add-on from sale, or delete it outright. */
+planCatalogRouter.delete("/make-server-3eae23a6/plan-addons/:audience/:id", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  if (!who.isAdmin) return c.json({ error: "Only an administrator can remove an add-on." }, 403);
+
+  const audience = readAudience(c.req.param("audience"));
+  if (!audience) return c.json({ error: "Unknown audience." }, 400);
+  const id = c.req.param("id");
+  const addOn = (await kv.get(ADDON(audience, id))) as PlanAddOn | null;
+  if (!addOn) return c.json({ error: "No such add-on." }, 404);
+
+  if (c.req.query("hard") === "1") {
+    await kv.del(ADDON(audience, id));
+    console.log(`[PlanCatalog] ${who.email} deleted add-on ${audience}/${id}`);
+    return c.json({ success: true, deleted: true });
+  }
+
+  await kv.set(ADDON(audience, id), {
+    ...addOn, active: false, updatedAt: new Date().toISOString(), updatedBy: who.email,
+  });
+  return c.json({
+    success: true,
+    withdrawn: true,
+    note: "Withdrawn from sale. Anyone already paying for it keeps it. Use ?hard=1 to delete outright.",
+  });
+});
+
+/* ── the one-off import ───────────────────────────────────────────────────
+ *
+ * U2 of `tasks/plan-catalogue-unification.md`. The platform grew seven places
+ * that name plans and carry their own prices; this is how the server-side one
+ * gets into the catalogue without anybody retyping it.
+ *
+ * THREE RULES, ALL OF THEM ABOUT NOT DOING DAMAGE
+ *
+ * Everything lands INACTIVE. An import is not a decision to sell something, and
+ * a row that appeared on the storefront because somebody pressed Import would be
+ * exactly the wrong outcome.
+ *
+ * Nothing is ever overwritten. The vendor tiers Eric has already settled —
+ * Listed, Stocked, Preferred — must survive an import that carries an older
+ * vendor ladder, so an id that already exists is reported and skipped.
+ *
+ * Nothing is guessed. The old map has types this catalogue has no audience for:
+ * `investor`, `employee`, and `condo_manager`, which is a different thing from
+ * the `condo_association` the catalogue knows about. Those are reported as
+ * skipped, with the reason, rather than filed under a near-enough audience.
+ */
+
+/** A pretty name from a map key fragment: "standard maintenance" → "Standard maintenance". */
+function titleFrom(raw: string): string {
+  const words = raw.trim().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return words ? words[0].toUpperCase() + words.slice(1) : "";
+}
+
+planCatalogRouter.post("/make-server-3eae23a6/plan-catalog/import", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  if (!who.isAdmin) return c.json({ error: "Only an administrator can import." }, 403);
+
+  // Add-ons by default. The tier rows are the ones most likely to duplicate
+  // something already decided, so they are opt-in.
+  const withTiers = c.req.query("tiers") === "1";
+  const dryRun = c.req.query("dry") === "1";
+
+  const created: any[] = [];
+  const skipped: any[] = [];
+
+  for (const [key, dollars] of Object.entries(PORTAL_UPGRADE_PRICES)) {
+    const [rawType, rawPlan] = key.split(":");
+    if (!rawType || !rawPlan) { skipped.push({ key, why: "unreadable key" }); continue; }
+
+    const isAddOn = rawType.endsWith("_maintenance");
+    const baseType = isAddOn ? rawType.slice(0, -"_maintenance".length) : rawType;
+    const audience = readAudience(baseType);
+
+    if (!audience) {
+      skipped.push({
+        key,
+        why: baseType === "condo_manager"
+          ? "the catalogue has condo_association, which is the association rather than the "
+            + "managing company — these are not the same buyer, so this needs deciding not guessing"
+          : `the catalogue has no '${baseType}' audience yet`,
+      });
+      continue;
+    }
+    if (!isAddOn && !withTiers) {
+      skipped.push({ key, why: "a tier, and tiers are opt-in — repeat with ?tiers=1" });
+      continue;
+    }
+
+    // "vendor standard maintenance" under type vendor_maintenance → "standard
+    // maintenance"; "vendor basic" under type vendor → "basic".
+    const label = rawPlan.toLowerCase().startsWith(`${baseType.replace(/_/g, " ")} `)
+      ? rawPlan.slice(baseType.replace(/_/g, " ").length + 1)
+      : rawPlan;
+    const id = label.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "");
+    if (!id) { skipped.push({ key, why: "no usable id" }); continue; }
+
+    const storeKey = isAddOn ? ADDON(audience, id) : TIER(audience, id);
+    const existing = await kv.get(storeKey);
+    if (existing) {
+      skipped.push({ key, why: `${audience}/${id} already exists — left alone` });
+      continue;
+    }
+
+    const record = {
+      id,
+      audience,
+      name: titleFrom(label),
+      blurb: `Imported from the portal upgrade prices on ${new Date().toISOString().slice(0, 10)}.`,
+      features: [],
+      limits: {},
+      priceCents: Math.round(Number(dollars) * 100),
+      interval: "month" as const,
+      sortOrder: 0,
+      // Never on sale by being imported, and with no Stripe price it could not
+      // be sold even if somebody switched it on by mistake.
+      active: false,
+      importedFrom: key,
+      createdAt: new Date().toISOString(),
+      updatedBy: who.email,
+    };
+
+    if (!dryRun) await kv.set(storeKey, record);
+    created.push({ key, as: isAddOn ? "add-on" : "tier", audience, id, priceCents: record.priceCents });
+  }
+
+  console.log(`[PlanCatalog] ${who.email} imported ${created.length}, skipped ${skipped.length}${dryRun ? " (dry run)" : ""}`);
+  return c.json({
+    success: true,
+    dryRun,
+    created,
+    skipped,
+    note: dryRun
+      ? "Nothing was written. This is what an import would do."
+      : "Everything landed withdrawn and with no Stripe price, so nothing is on sale. "
+        + "Edit what you want to keep in the Portal Plans tab, delete the rest, "
+        + "and create a price for anything you intend to sell.",
+  });
 });
 
 export default planCatalogRouter;

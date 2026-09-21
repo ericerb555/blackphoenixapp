@@ -73,7 +73,18 @@ export interface PlanTier {
   stripePriceIdTest?: string;
   /** Display price in cents, for showing a figure without asking Stripe. */
   priceCents?: number;
-  interval?: 'month' | 'year';
+  interval?: BillingInterval;
+  /**
+   * Add-ons this tier includes at no extra cost.
+   *
+   * How a ladder steps without inventing a separate product at each rung:
+   * the top tier includes what the ones below it pay extra for. An included
+   * add-on is offered whether or not it has a Stripe price, because nothing
+   * is being charged for it.
+   */
+  includedAddOns?: string[];
+  /** Display only — 'Most Popular', 'Best Value'. */
+  badge?: string;
   sortOrder?: number;
   /** A tier can be withdrawn from sale without being deleted. */
   active?: boolean;
@@ -105,7 +116,7 @@ export type StripeMode = 'live' | 'test';
  * of a refusal we can explain.
  */
 export function priceIdFor(
-  tier: Partial<PlanTier> | null | undefined,
+  tier: Partial<Sellable> | null | undefined,
   mode: StripeMode,
 ): string {
   const id = mode === 'test' ? tier?.stripePriceIdTest : tier?.stripePriceId;
@@ -113,7 +124,7 @@ export function priceIdFor(
 }
 
 export function isPurchasable(
-  tier: Partial<PlanTier> | null | undefined,
+  tier: Partial<Sellable> | null | undefined,
   mode: StripeMode = 'live',
 ): boolean {
   if (!tier || tier.active === false) return false;
@@ -123,7 +134,7 @@ export function isPurchasable(
 
 /** Why a tier cannot be sold, in words a person can act on. */
 export function notPurchasableReason(
-  tier: Partial<PlanTier> | null | undefined,
+  tier: Partial<Sellable> | null | undefined,
   mode: StripeMode = 'live',
 ): string | null {
   if (!tier) return 'That plan does not exist.';
@@ -158,6 +169,178 @@ export function publicTier(
 ): Omit<PlanTier, 'stripePriceId' | 'stripePriceIdTest'> & { purchasable: boolean } {
   const { stripePriceId: _live, stripePriceIdTest: _test, ...rest } = tier;
   return { ...rest, purchasable: isPurchasable(tier, mode) };
+}
+
+/**
+ * How often something recurs.
+ *
+ * `week` exists because the advertiser weekly plans do. Stripe accepts it as a
+ * recurring interval, so it costs nothing to carry and its absence would mean
+ * that ladder could never move into the catalogue.
+ */
+export type BillingInterval = 'week' | 'month' | 'year';
+
+const INTERVALS: BillingInterval[] = ['week', 'month', 'year'];
+
+/**
+ * An interval from untrusted input, defaulting to monthly.
+ *
+ * One reader, used by every route that accepts one. The version this replaces
+ * was written inline as `raw === 'year' ? 'year' : 'month'` in three places,
+ * which silently turned a weekly price into a monthly one — the kind of bug
+ * that bills a quarter of what it should and reports nothing.
+ */
+export function readInterval(raw: unknown): BillingInterval {
+  const asked = String(raw ?? '').trim().toLowerCase() as BillingInterval;
+  return INTERVALS.includes(asked) ? asked : 'month';
+}
+
+/**
+ * The part of a record that decides whether money can be taken for it.
+ *
+ * Shared by tiers and add-ons because the question is identical for both: is it
+ * offered, does Stripe have a price for the mode we are in, and is that price
+ * above zero. Generalised rather than duplicated so the two can never drift —
+ * an add-on sold without a Stripe price fails exactly the way a tier does.
+ */
+export interface Sellable {
+  stripePriceId?: string;
+  stripePriceIdTest?: string;
+  priceCents?: number;
+  interval?: BillingInterval;
+  active?: boolean;
+}
+
+/**
+ * Something sold alongside a tier rather than instead of one.
+ *
+ * WHY THESE ARE THEIR OWN RECORDS
+ *
+ * Eric's decision, and it is what the prices were already telling us: $39, $79
+ * and $159 are *base* prices, and most of what the older ladders charged for is
+ * extras. So what somebody pays is the tier plus whatever they chose, and the
+ * extras need somewhere to live that is not a field on one tier.
+ *
+ * They are separate records because the same add-on is normally offered on
+ * several tiers, and often included free on the top one. Holding it inside a
+ * tier would mean three copies of one product with three Stripe prices, and
+ * three places to forget to change.
+ *
+ * Each carries its own Stripe Price. That is not a design choice so much as how
+ * Stripe works: a subscription is made of line items, each pointing at a Price,
+ * and there is no way to bill a total.
+ */
+export interface PlanAddOn extends Sellable {
+  id: string;
+  audience: Audience;
+  name: string;
+  blurb?: string;
+  /** What the buyer is told this extra gets them. */
+  features: string[];
+  /**
+   * The ceilings this raises when it is on. Merged over the tier's own limits,
+   * so an add-on that grants 500 more products is `{ products: 500 }` as a
+   * delta, not an absolute.
+   */
+  limits: Record<string, number>;
+  /**
+   * Which tiers this may be bought on. Absent or empty means every tier for
+   * this audience — the common case, and the one that does not need thinking
+   * about when a new tier is published.
+   */
+  availableOn?: string[];
+  sortOrder?: number;
+}
+
+/**
+ * May this add-on be bought on this tier?
+ *
+ * The interval check is the one that is easy to miss and expensive to get
+ * wrong. Stripe requires every recurring line item on one subscription to share
+ * an interval, so offering a weekly add-on against a monthly tier builds a
+ * checkout session Stripe refuses outright — in front of the customer, with
+ * Stripe's wording rather than ours. Refusing to offer it is the honest version
+ * of the same answer.
+ */
+export function addOnAvailableOn(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+): boolean {
+  if (!addOn || !tier) return false;
+  if (addOn.active === false || tier.active === false) return false;
+  if (addOn.audience && tier.audience && addOn.audience !== tier.audience) return false;
+  if (readInterval(addOn.interval) !== readInterval(tier.interval)) return false;
+  const only = addOn.availableOn;
+  if (Array.isArray(only) && only.length > 0) return only.includes(String(tier.id || ''));
+  return true;
+}
+
+/** Is this add-on already part of the tier at no extra cost? */
+export function addOnIncludedIn(
+  addOnId: string,
+  tier: Partial<PlanTier> | null | undefined,
+): boolean {
+  const included = tier?.includedAddOns;
+  return Array.isArray(included) && included.includes(String(addOnId || ''));
+}
+
+/**
+ * What a subscription actually costs, in cents.
+ *
+ * Computed here, from records the server owns, and never from a figure the
+ * browser sends. A posted total is a number the customer can edit.
+ *
+ * An add-on the tier already includes adds nothing — that is what including it
+ * means — and one that is not available on this tier is not counted at all
+ * rather than quietly charged for.
+ */
+export function subscriptionTotalCents(
+  tier: Partial<PlanTier> | null | undefined,
+  chosen: Array<Partial<PlanAddOn>> = [],
+): number {
+  let total = Math.max(0, Number(tier?.priceCents ?? 0) || 0);
+  for (const addOn of chosen) {
+    if (!addOnAvailableOn(addOn, tier)) continue;
+    if (addOnIncludedIn(String(addOn?.id || ''), tier)) continue;
+    total += Math.max(0, Number(addOn?.priceCents ?? 0) || 0);
+  }
+  return total;
+}
+
+/**
+ * The add-ons to show against one tier, each marked as included or extra.
+ *
+ * `purchasable` is resolved against the server's Stripe mode for the same
+ * reason it is on a tier: a portal must not offer a button its own checkout
+ * would refuse. An included add-on is offered whether or not it has a Stripe
+ * price, because nothing is being charged for it.
+ */
+export function addOnsForTier(
+  addOns: PlanAddOn[],
+  tier: Partial<PlanTier> | null | undefined,
+  mode: StripeMode = 'live',
+): Array<Omit<PlanAddOn, 'stripePriceId' | 'stripePriceIdTest'> & {
+  purchasable: boolean;
+  included: boolean;
+}> {
+  return (addOns || [])
+    .filter((a) => addOnAvailableOn(a, tier))
+    .map((a) => {
+      const included = addOnIncludedIn(a.id, tier);
+      const { stripePriceId: _l, stripePriceIdTest: _t, ...rest } = a;
+      return { ...rest, included, purchasable: included || isPurchasable(a, mode) };
+    })
+    .filter((a) => a.purchasable)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
+}
+
+/** An add-on as a customer may see it — never a Stripe price id. */
+export function publicAddOn(
+  addOn: PlanAddOn,
+  mode: StripeMode = 'live',
+): Omit<PlanAddOn, 'stripePriceId' | 'stripePriceIdTest'> & { purchasable: boolean } {
+  const { stripePriceId: _live, stripePriceIdTest: _test, ...rest } = addOn;
+  return { ...rest, purchasable: isPurchasable(addOn, mode) };
 }
 
 /* ── what an account actually has ────────────────────────────────────────── */
