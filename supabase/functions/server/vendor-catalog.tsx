@@ -1511,4 +1511,202 @@ vendorCatalogRouter.get('/catalog-products/:productId', async (c) => {
   }
 });
 
+
+/* ── paint ────────────────────────────────────────────────────────────────
+ *
+ * WHY PAINT IS IN THIS FILE AND NOT ITS OWN
+ *
+ * Because a paint colour is a vendor catalogue entry and this is the vendor
+ * catalogue. `catalogActor` and `mayTouch` already decide who may write to
+ * whose catalogue, and a second module would have meant a second copy of those
+ * rules — which is how one of them ends up subtly more permissive than the
+ * other.
+ *
+ * WHY COLOURS AND PRODUCTS ARE SEPARATE
+ *
+ * A vendor has thousands of colours and a handful of products. Every colour is
+ * available in most products, so storing the cross-product would be hundreds of
+ * thousands of rows describing nothing. A colour is what it looks like and what
+ * it is called; a product is what a tin of it costs and how far it goes.
+ *
+ * WHAT IS DELIBERATELY NOT HERE
+ *
+ * No seeded colours. Not one. If a colour is not in a vendor's catalogue it is
+ * not offered, because an invented paint code on an order is somebody standing
+ * at a trade counter being told it does not exist. Until a vendor uploads a
+ * deck — or an API is wired to the same shape — the picker is honestly empty.
+ *
+ * And no negotiated pricing. `pricePerGal` is the vendor's own price, which is
+ * what a customer is allowed to see. Ours is not stored here, so no screen
+ * built on this can leak a margin by accident.
+ */
+
+const PAINT_COLOR = (vendorId: string, colorId: string) => `paint_color:${vendorId}:${colorId}`;
+const PAINT_PRODUCT = (vendorId: string, productId: string) => `paint_product:${vendorId}:${productId}`;
+
+/** A hex we are willing to store. Anything else is dropped rather than kept. */
+function cleanHex(raw: any): string {
+  const v = String(raw || "").trim();
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : "";
+}
+
+const SHEEN_VALUES = ["flat", "matte", "eggshell", "satin", "semi-gloss", "gloss"];
+
+/**
+ * A colour row, or null if it is not orderable.
+ *
+ * A row with no code is refused outright rather than stored with a blank. An
+ * uploaded spreadsheet always has a few empty lines in it, and the cost of
+ * keeping them is a picker full of colours nobody can buy.
+ */
+function readColor(raw: any, vendorId: string, vendorName: string) {
+  const code = String(raw?.code || "").trim();
+  const name = String(raw?.name || "").trim();
+  if (!code || !name) return null;
+  return {
+    id: `${vendorId}:${code}`.toLowerCase(),
+    vendorId,
+    vendor: vendorName,
+    code: code.slice(0, 40),
+    name: name.slice(0, 120),
+    // Empty rather than a guess. The picker falls back to a neutral swatch and
+    // says the colour is only orderable by code, which is true and useful; a
+    // made-up hex would be neither.
+    hex: cleanHex(raw?.hex),
+  };
+}
+
+function readPaintProduct(raw: any, vendorId: string, vendorName: string) {
+  const line = String(raw?.line || "").trim();
+  const sheen = String(raw?.sheen || "").trim().toLowerCase();
+  if (!line || !SHEEN_VALUES.includes(sheen)) return null;
+  const coverage = Number(raw?.coverageSqFtPerGal);
+  const price = Number(raw?.pricePerGal);
+  // Coverage is the field that swings the quantity by a third, so a product
+  // without a real one is not a product this app can quote from.
+  if (!Number.isFinite(coverage) || coverage <= 0) return null;
+  return {
+    id: `${vendorId}:${line}:${sheen}`.toLowerCase().replace(/\s+/g, "-"),
+    vendorId,
+    vendor: vendorName,
+    line: line.slice(0, 80),
+    sheen,
+    base: String(raw?.base || "").trim().slice(0, 40) || undefined,
+    coverageSqFtPerGal: Math.round(coverage),
+    // The vendor's price. Zero is allowed and means "not published" rather than
+    // free — the picker shows no price instead of showing nothing.
+    pricePerGal: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : 0,
+  };
+}
+
+/** One vendor's name, for stamping onto rows so a picker need not join. */
+async function vendorNameFor(vendorId: string): Promise<string> {
+  const v = (await kv.get(`vendor:${vendorId}`)) as any;
+  return String(v?.name || v?.companyName || vendorId);
+}
+
+/**
+ * Every colour on offer, across every vendor.
+ *
+ * Readable by anybody signed in, because the people who choose a colour are
+ * customers. Nothing here is commercially sensitive: it is a name, a code and
+ * an approximate swatch, which is exactly what a paint company prints and hands
+ * out for free.
+ */
+vendorCatalogRouter.get("/paint/colors", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  const rows = ((await kv.getByPrefix("paint_color:")) as any[] || []).filter(Boolean);
+  const q = String(c.req.query("q") || "").trim().toLowerCase();
+  const vendor = String(c.req.query("vendor") || "").trim();
+  let out = rows;
+  if (vendor) out = out.filter((r) => String(r.vendorId) === vendor);
+  if (q) {
+    out = out.filter((r) =>
+      String(r.name || "").toLowerCase().includes(q) || String(r.code || "").toLowerCase().includes(q));
+  }
+  out.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return c.json({ colors: out.slice(0, 400), total: out.length });
+});
+
+vendorCatalogRouter.get("/paint/products", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  const rows = ((await kv.getByPrefix("paint_product:")) as any[] || []).filter(Boolean);
+  const vendor = String(c.req.query("vendor") || "").trim();
+  const out = vendor ? rows.filter((r) => String(r.vendorId) === vendor) : rows;
+  out.sort((a, b) => String(a.line).localeCompare(String(b.line)));
+  return c.json({ products: out });
+});
+
+/**
+ * A vendor uploading their own deck.
+ *
+ * Replaces nothing it was not sent: an upload adds and updates, it does not
+ * clear what is already there. A vendor sending a partial file — the new
+ * colours for this season — should not silently delete the rest of their deck,
+ * and there is a separate delete for when that is actually meant.
+ */
+vendorCatalogRouter.post("/paint/:vendorId/colors", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  const vendorId = String(c.req.param("vendorId") || "").trim();
+  if (!mayTouch(who, vendorId)) return c.json({ error: "That is not your catalogue." }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const rows: any[] = Array.isArray(body?.colors) ? body.colors : [];
+  if (!rows.length) return c.json({ error: "No colours in that upload." }, 400);
+  // A ceiling per request, because a full fan deck arrives as one file and an
+  // unbounded loop of kv writes is somebody else's timeout.
+  if (rows.length > 5000) return c.json({ error: "Too many rows in one upload — split the file." }, 413);
+
+  const vendorName = await vendorNameFor(vendorId);
+  let written = 0;
+  const skipped: string[] = [];
+  for (const raw of rows) {
+    const colour = readColor(raw, vendorId, vendorName);
+    if (!colour) { skipped.push(String(raw?.code || raw?.name || "blank row")); continue; }
+    await kv.set(PAINT_COLOR(vendorId, colour.code.toLowerCase()), { ...colour, updatedAt: new Date().toISOString() });
+    written += 1;
+  }
+  return c.json({ success: true, written, skipped: skipped.slice(0, 20), skippedCount: skipped.length });
+});
+
+vendorCatalogRouter.post("/paint/:vendorId/products", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  const vendorId = String(c.req.param("vendorId") || "").trim();
+  if (!mayTouch(who, vendorId)) return c.json({ error: "That is not your catalogue." }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const rows: any[] = Array.isArray(body?.products) ? body.products : [];
+  if (!rows.length) return c.json({ error: "No products in that upload." }, 400);
+
+  const vendorName = await vendorNameFor(vendorId);
+  let written = 0;
+  const skipped: string[] = [];
+  for (const raw of rows) {
+    const product = readPaintProduct(raw, vendorId, vendorName);
+    if (!product) { skipped.push(String(raw?.line || "blank row")); continue; }
+    await kv.set(PAINT_PRODUCT(vendorId, product.id.split(":").slice(1).join(":")), {
+      ...product, updatedAt: new Date().toISOString(),
+    });
+    written += 1;
+  }
+  return c.json({ success: true, written, skipped: skipped.slice(0, 20), skippedCount: skipped.length });
+});
+
+/** Withdraw one colour — discontinued, or uploaded in error. */
+vendorCatalogRouter.delete("/paint/:vendorId/colors/:code", async (c) => {
+  const who = await catalogActor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  const vendorId = String(c.req.param("vendorId") || "").trim();
+  if (!mayTouch(who, vendorId)) return c.json({ error: "That is not your catalogue." }, 403);
+  const code = String(c.req.param("code") || "").trim().toLowerCase();
+  if (!code) return c.json({ error: "Which colour?" }, 400);
+  await kv.del(PAINT_COLOR(vendorId, code));
+  return c.json({ success: true });
+});
+
+
 export default vendorCatalogRouter;

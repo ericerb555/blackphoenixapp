@@ -65,6 +65,7 @@ import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/desi
 import HousePanel from '../components/HousePanel';
 import RoomCapture from '../components/RoomCapture';
 import AdditionPanel from '../components/AdditionPanel';
+import PaintPanel from '../components/PaintPanel';
 import { TRADES, type TradeId } from '../lib/trades';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
@@ -1591,6 +1592,20 @@ function DesignerSession({ session, onSession }: {
                   stage="scope" trade={trade}
                   title="Photos behind the scope"
                   hint="Rot, damage, an awkward corner — the evidence for why a line is on the list." />
+              </PanelErrorBoundary>
+            </div>
+            {/* ── Paint ────────────────────────────────────────────────────
+                On Scope rather than inside a trade, because painting crosses
+                all of them — a room's walls, an elevation's siding, the trim
+                round the openings. A colour field per trade would be four
+                places to choose paint and four chances for a job to be quoted
+                from whichever one somebody happened to open. */}
+            <div className={stage === 'scope' ? '' : 'hidden'}>
+              <PanelErrorBoundary name="Paint">
+                <PaintPanel
+                  house={house}
+                  onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))}
+                />
               </PanelErrorBoundary>
             </div>
             <div className={stage === 'scope' ? '' : 'hidden'}>
