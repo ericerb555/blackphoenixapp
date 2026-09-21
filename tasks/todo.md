@@ -7446,3 +7446,114 @@ shadowed route in this codebase.
 
 **Next: B, the walkthrough.**
 
+
+### B, done
+
+- [x] B1. Ten project kinds in plain English, in `lib/trades.ts`. Roofing is
+      absent because `TRADES` marks it unbuilt and offering a homeowner a
+      section that opens empty is how a good tool gets a reputation for being
+      broken.
+- [x] B2/B3. Photographs, outside and — for interior work — inside, through the
+      same `SectionCapture` the designer already uses in five places.
+- [x] B4. Their own words, kept apart from anything measured. Nothing computes
+      from it.
+- [x] B5. Two endings: open the designer on the right trade, or send it to us
+      without drawing anything.
+- [x] B6. Resumable. The project is written from step two onward, and an
+      unfinished one is offered back on return.
+
+Two bugs found by using it, both older than the walkthrough: the customer design
+list never passed an owner key and so was always empty, and the designer never
+read `?projectId=` so every "Open" landed on a blank screen. Both fixed.
+
+Not test-fired: "Send to Black Phoenix", which would put a fabricated job in the
+real pipeline.
+
+---
+
+## Plan — paint colours from vendor catalogues
+
+**Status: waiting on Eric's approval. No code written yet.**
+
+Asked for mid-session:
+
+> "also want to be able to add colors for paint in which i will get a vendors
+> api to bring in the color like benjamin moore or sherwin williams"
+
+### Where this belongs, and why not where it looks like it belongs
+
+The tempting version is a colour picker in the design centre with a list of
+Benjamin Moore colours pasted into a constant. That would be wrong twice over.
+
+A paint colour is not a colour. It is **a product from a vendor's catalogue** —
+it has a code, a name, a finish, a base, a price per gallon and a coverage rate,
+and which vendor it came from decides all of those. The materials hub already
+exists for exactly this: vendor catalogues feeding product selection and
+accurate quotes. So paint goes in as a vendor's catalogue, alongside everything
+else a vendor sells, and the design centre *selects from* it rather than owning
+a list of its own.
+
+That also settles three rules that are already standing policy:
+
+- **Customers see the vendor's price, never ours.** `vendorPricing.tsx` already
+  gates negotiated rates to internal callers. Paint arriving through the same
+  door inherits that rather than needing its own guard.
+- **Hub products stay out of the storefront.** Paint is a hub product. It must
+  not surface in the ecommerce store.
+- **A vendor answers for their own catalogue.** Questions about which Benjamin
+  Moore finishes are stocked are the vendor's to answer from their portal, not
+  something to hardcode a platform-wide default for.
+
+### Where a colour attaches
+
+Not to the project. To a **surface**, because that is what gets painted and
+what gets quantified:
+
+```
+  House.views[]            room  ──▶  walls, ceiling, trim   ──▶ interior paint
+                           elevation ─▶ siding, trim, door   ──▶ exterior paint
+  FloorPlan.rooms[]        ──▶ per-room wall and ceiling finishes
+```
+
+The area is already computed — `netWallArea` for an elevation, the room's own
+dimensions for an interior. So a colour plus a coverage rate is a gallon count,
+and a gallon count is a scope line, and a scope line is already priced and
+already flows into the pipeline. Nothing new is needed downstream; this is a
+finish field on surfaces that already know their area.
+
+### The vendor API is the part that is not ours
+
+Neither Benjamin Moore nor Sherwin-Williams publishes a documented public colour
+API, so the shape of this depends entirely on what access Eric actually gets —
+a partner API, a dealer feed, or a spreadsheet. **This plan therefore does not
+assume one.** The adapter is the only part that changes when the real feed
+arrives:
+
+- [ ] P1. A `paint_colors` catalogue in the materials hub: vendor, code, name,
+      hex, finish, base, price per gallon, coverage per gallon. Same shape as
+      any other hub product, so hub pricing and vendor gating apply unchanged.
+- [ ] P2. One importer interface with two implementations: a CSV/JSON upload a
+      vendor does from their own portal, and — when Eric has credentials — a
+      fetch adapter per vendor behind the same interface. The upload path is
+      what makes this shippable before any API exists.
+- [ ] P3. A colour field on room and elevation surfaces, with the swatch, the
+      vendor's name for it, and its code. Never a bare hex: "Simply White
+      OC-117" is orderable, `#F7F4EF` is not.
+- [ ] P4. Gallons into the scope from area ÷ coverage × coats, with the coats
+      stated rather than assumed.
+- [ ] P5. Offer it in the walkthrough for the kinds where paint is most of the
+      job — kitchen, bathroom, layout, siding.
+
+### The honest caveat about showing colour on a screen
+
+A hex value on an uncalibrated monitor is not the colour that arrives in the
+tin, and a customer who chooses from a screen and is disappointed on site is a
+real dispute. So a swatch must always carry the vendor's code and say plainly
+that it is an approximation and that a physical chip is the decider. That
+sentence is part of the feature, not a disclaimer bolted on afterwards.
+
+### What I would not do
+
+Generate colours, invent names, or interpolate a vendor's fan deck. If a colour
+is not in the catalogue it is not offered — an invented paint code on an order
+is a real-world error, not a UI blemish.
