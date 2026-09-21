@@ -45,12 +45,20 @@ select cron.schedule(
 
 -- ── Run this by hand, once, per environment ─────────────────────────────────
 --
--- The value must match the COMPLIANCE_CRON_SECRET edge function secret in the
--- SAME environment. Generate a fresh one rather than copying production's:
+-- THIS ROW IS THE SOURCE OF TRUTH. As of 2026-09-20 the route reads the secret
+-- from here, falling back to the COMPLIANCE_CRON_SECRET environment variable
+-- only when the row is absent. It used to compare against the environment only,
+-- which meant one secret lived in two places with nothing keeping them in step
+-- — and rotating it broke the scheduler three times in a row before the design
+-- was changed rather than the operator blamed.
+--
+-- So there is one thing to set, and rotating later is the same one statement:
 --
 --   insert into private_cron_config (key, value)
---   values ('compliance_cron_secret', '<the COMPLIANCE_CRON_SECRET for this environment>')
+--   values ('compliance_cron_secret', encode(gen_random_bytes(32), 'base64'))
 --   on conflict (key) do update set value = excluded.value;
+--
+-- Generate a fresh value per environment rather than copying production's.
 --
 -- Until it is set the job still runs, sends no valid secret, and the route
 -- refuses it — which is the safe direction: a misconfigured scheduler does

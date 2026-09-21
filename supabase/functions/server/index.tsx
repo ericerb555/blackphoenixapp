@@ -4174,7 +4174,46 @@ app.put('/make-server-3eae23a6/compliance/:orgId', async (c) => {
  * changes the expiry, which changes the key, so the next cycle starts clean.
  */
 app.post('/make-server-3eae23a6/compliance/run-reminders', async (c) => {
-  const secret = Deno.env.get('COMPLIANCE_CRON_SECRET') || '';
+  /**
+   * The secret is read from the table the scheduler reads, not only from the
+   * environment.
+   *
+   * WHY THIS CHANGED
+   *
+   * This value has to exist in two places: `private_cron_config`, because
+   * pg_cron builds the request header from it, and `COMPLIANCE_CRON_SECRET`,
+   * because this route compared against the environment. Two copies of one
+   * secret with nothing keeping them in step, and rotating it means changing
+   * both in the right order. On 2026-09-20 that was attempted three times and
+   * left the two halves disagreeing each time — the scheduled call answering
+   * 401 every morning, silently, because a cron job has nobody to tell.
+   *
+   * The failure was the design, not the operator. So the row the scheduler
+   * actually sends is now the source of truth, and rotating means changing one
+   * thing in one place.
+   *
+   * The environment variable still works, as a fallback for when the row is
+   * missing and for anyone calling this by hand with it. Neither is more
+   * privileged than the other: both hold the same kind of shared secret, the
+   * row is already revoked from public, anon and authenticated, and this
+   * function holds the service role key regardless — so reading it here adds
+   * no access that was not already present.
+   */
+  let secret = '';
+  try {
+    const { data } = await supabase
+      .from('private_cron_config')
+      .select('value')
+      .eq('key', 'compliance_cron_secret')
+      .maybeSingle();
+    secret = String(data?.value || '');
+  } catch {
+    // Fall through to the environment. A database blip must not turn a
+    // machine endpoint into an open one — the check below still refuses when
+    // neither source yields a secret.
+  }
+  if (!secret) secret = Deno.env.get('COMPLIANCE_CRON_SECRET') || '';
+
   const offered = c.req.header('X-Compliance-Cron-Secret') || '';
   if (!secret || offered !== secret) {
     // Also reachable by an administrator, so it can be run by hand without
