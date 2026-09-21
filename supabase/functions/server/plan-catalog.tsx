@@ -34,8 +34,24 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
   AUDIENCES, isPurchasable, publicTier,
-  type Audience, type PlanTier,
+  type Audience, type PlanTier, type StripeMode,
 } from "./planTier.ts";
+
+/**
+ * Which Stripe mode this server sells in, from the key's own prefix.
+ *
+ * Read here rather than imported from `index.tsx` because that file is the
+ * entry point and importing back into it would be a cycle. Kept out of
+ * `planTier.ts` too: that module is pure so it can be unit-tested under node,
+ * and reaching for `Deno.env` would end that.
+ *
+ * An unrecognised prefix resolves to live, because assuming test would be
+ * assuming safety about a key we cannot identify.
+ */
+function activeMode(): StripeMode {
+  const key = (Deno.env.get("STRIPE_SECRET_KEY_SERVICES") || Deno.env.get("STRIPE_SECRET_KEY") || "").trim();
+  return key.startsWith("sk_test") || key.startsWith("rk_test") ? "test" : "live";
+}
 
 export const planCatalogRouter = new Hono();
 
@@ -114,6 +130,7 @@ planCatalogRouter.get("/make-server-3eae23a6/plan-tiers", async (c) => {
     return c.json({ error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
   }
 
+  const mode = activeMode();
   const rows = ((await kv.getByPrefix(`plan_tier:${audience}:`)) as PlanTier[] || []).filter(Boolean);
   const visible = who.isAdmin ? rows : rows.filter((t) => t.active !== false);
   visible.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
@@ -122,7 +139,9 @@ planCatalogRouter.get("/make-server-3eae23a6/plan-tiers", async (c) => {
     audience,
     // The price id is stripped for everybody. An administrator who needs it can
     // read the single tier by id; a list is not where a secret belongs.
-    tiers: visible.map(publicTier),
+    // Arrow, not a bare reference: .map passes the index as the second
+    // argument, which would have arrived as the Stripe mode.
+    tiers: visible.map((t) => publicTier(t, mode)),
     // Said plainly so an empty catalogue reads as "not set up yet" rather than
     // as a loading failure.
     note: visible.length === 0
@@ -141,8 +160,9 @@ planCatalogRouter.get("/make-server-3eae23a6/plan-tiers/:audience/:id", async (c
 
   const tier = (await kv.get(TIER(audience, c.req.param("id")))) as PlanTier | null;
   if (!tier) return c.json({ error: "No such plan." }, 404);
-  if (!who.isAdmin) return c.json({ tier: publicTier(tier) });
-  return c.json({ tier, purchasable: isPurchasable(tier) });
+  const mode = activeMode();
+  if (!who.isAdmin) return c.json({ tier: publicTier(tier, mode) });
+  return c.json({ tier, mode, purchasable: isPurchasable(tier, mode) });
 });
 
 /** Publish or update a tier. Administrators only. */
@@ -170,13 +190,13 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-tiers/:audience", async (c) =
   console.log(`[PlanCatalog] ${who.email} published ${audience}/${tier.id}`);
   return c.json({
     success: true,
-    tier: publicTier(tier),
-    purchasable: isPurchasable(tier),
+    tier: publicTier(tier, activeMode()),
+    purchasable: isPurchasable(tier, activeMode()),
     // The single most useful thing to tell somebody who has just saved a plan
     // that nobody can buy.
     warning: isPurchasable(tier)
       ? undefined
-      : "Saved, but this plan cannot be bought yet — it needs a Stripe price id and a price above zero.",
+      : `Saved, but this plan cannot be bought yet — it needs a ${activeMode()}-mode Stripe price and a price above zero.`,
   });
 });
 

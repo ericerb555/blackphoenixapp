@@ -62,6 +62,15 @@ export default function PlanTierAdmin() {
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<string | null>(null);
+  /**
+   * Test unless deliberately switched.
+   *
+   * The cost of creating a test price by accident is one more click. The cost
+   * of creating a live one by accident is a plan a vendor can buy for real
+   * money before it has been rehearsed even once, so the default leans the way
+   * that is cheap to undo.
+   */
+  const [mode, setMode] = useState<'test' | 'live'>('test');
   const [note, setNote] = useState<string | null>(null);
 
   const headers = async () => {
@@ -96,7 +105,7 @@ export default function PlanTierAdmin() {
     setWorking(tierId);
     try {
       const res = await fetch(
-        `${SERVER}/plan-tiers/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/stripe-price${replace ? '?replace=1' : ''}`,
+        `${SERVER}/plan-tiers/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/stripe-price?mode=${mode}${replace ? '&replace=1' : ''}`,
         { method: 'POST', headers: await headers() },
       );
       const json = await res.json().catch(() => ({}));
@@ -137,6 +146,29 @@ export default function PlanTierAdmin() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* The mode is shown, not implied. Which Stripe account a price lands
+              on is the one thing that cannot be undone by editing afterwards,
+              and it is invisible in the price id itself. */}
+          <div className="flex overflow-hidden rounded-lg border border-[#2A2A2A]">
+            {(['test', 'live'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`px-3 py-2 text-xs font-bold uppercase tracking-wide transition ${
+                  mode === m
+                    ? m === 'live'
+                      ? 'bg-red-600 text-white'
+                      : 'bg-emerald-600 text-white'
+                    : 'bg-[#0A0A0A] text-gray-500 hover:text-gray-300'
+                }`}
+                title={m === 'live'
+                  ? 'Creates a price on the real Stripe account. Vendors can buy it for real money.'
+                  : 'Creates a price in Stripe test mode. Nothing real is charged.'}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
           <select
             value={audience}
             onChange={e => setAudience(e.target.value)}
@@ -166,6 +198,11 @@ export default function PlanTierAdmin() {
         <>
           <p className="mb-3 text-xs text-gray-500">
             {sellable} of {tiers.length} can currently be bought.
+            {mode === 'live' && (
+              <span className="ml-2 font-semibold text-red-400">
+                LIVE mode — a price created now can be bought for real money.
+              </span>
+            )}
           </p>
           <div className="space-y-2">
             {tiers.map(t => (
@@ -208,7 +245,7 @@ export default function PlanTierAdmin() {
                         >
                           {working === t.id
                             ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating…</span>
-                            : 'Create Stripe price'}
+                            : `Create ${mode} price`}
                         </button>
                       </>
                     )}

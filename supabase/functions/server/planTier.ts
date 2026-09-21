@@ -52,10 +52,25 @@ export interface PlanTier {
    */
   limits: Record<string, number>;
   /**
-   * The Stripe Price this bills against. Created by Eric in Stripe; stored
-   * here. Never generated, never guessed — see `isPurchasable`.
+   * The LIVE Stripe Price this bills against.
+   *
+   * Created in Stripe and stored here; never generated, never guessed — see
+   * `isPurchasable`.
    */
   stripePriceId?: string;
+  /**
+   * The TEST-mode Stripe Price, kept separately and deliberately.
+   *
+   * A test price and a live price are different objects on different Stripe
+   * accounts, and one cannot be charged with the other's key. Storing them in
+   * the same field would mean a tier tested in the morning and switched live
+   * in the afternoon quietly carrying a price id that the live key cannot
+   * find — the checkout would fail for every customer, at the moment it
+   * mattered, with an error from Stripe rather than from us.
+   *
+   * Two fields, and the server picks by the mode of the key it is holding.
+   */
+  stripePriceIdTest?: string;
   /** Display price in cents, for showing a figure without asking Stripe. */
   priceCents?: number;
   interval?: 'month' | 'year';
@@ -79,19 +94,51 @@ export const FREE_LEVEL = 'free';
  * purchased; offering it through checkout creates a Stripe subscription that
  * bills nothing and complicates every later question about who is paying.
  */
-export function isPurchasable(tier: Partial<PlanTier> | null | undefined): boolean {
+export type StripeMode = 'live' | 'test';
+
+/**
+ * The price id for the mode the server is actually operating in.
+ *
+ * Never falls back to the other mode. A test price charged with a live key
+ * does not exist as far as Stripe is concerned, so falling back would turn a
+ * configuration mistake into a failed checkout in front of a customer instead
+ * of a refusal we can explain.
+ */
+export function priceIdFor(
+  tier: Partial<PlanTier> | null | undefined,
+  mode: StripeMode,
+): string {
+  const id = mode === 'test' ? tier?.stripePriceIdTest : tier?.stripePriceId;
+  return String(id || '').trim();
+}
+
+export function isPurchasable(
+  tier: Partial<PlanTier> | null | undefined,
+  mode: StripeMode = 'live',
+): boolean {
   if (!tier || tier.active === false) return false;
-  if (!String(tier.stripePriceId || '').trim()) return false;
+  if (!priceIdFor(tier, mode)) return false;
   return Number(tier.priceCents ?? 0) > 0;
 }
 
 /** Why a tier cannot be sold, in words a person can act on. */
-export function notPurchasableReason(tier: Partial<PlanTier> | null | undefined): string | null {
+export function notPurchasableReason(
+  tier: Partial<PlanTier> | null | undefined,
+  mode: StripeMode = 'live',
+): string | null {
   if (!tier) return 'That plan does not exist.';
   if (tier.active === false) return 'That plan is not currently offered.';
-  if (!String(tier.stripePriceId || '').trim()) {
-    return 'That plan has no Stripe price attached yet, so it cannot be bought. '
-      + 'Create the price in Stripe and add its id to the plan.';
+  if (!priceIdFor(tier, mode)) {
+    // Naming the mode matters: the commonest version of this is a tier that
+    // HAS a price, in the other mode, which reads as a contradiction unless
+    // the message says which one is missing.
+    const other: StripeMode = mode === 'test' ? 'live' : 'test';
+    const hasOther = Boolean(priceIdFor(tier, other));
+    return hasOther
+      ? `That plan has a ${other}-mode Stripe price but no ${mode}-mode one, and this `
+        + `server is using a ${mode} key. Create the ${mode} price before selling it.`
+      : 'That plan has no Stripe price attached yet, so it cannot be bought. '
+        + 'Create the price in Stripe and add its id to the plan.';
   }
   if (!(Number(tier.priceCents ?? 0) > 0)) {
     return 'That plan has no price set. A free tier is granted rather than purchased.';
@@ -99,10 +146,18 @@ export function notPurchasableReason(tier: Partial<PlanTier> | null | undefined)
   return null;
 }
 
-/** A tier as a customer may see it — never the internal limits or the price id. */
-export function publicTier(tier: PlanTier): Omit<PlanTier, 'stripePriceId'> & { purchasable: boolean } {
-  const { stripePriceId: _omitted, ...rest } = tier;
-  return { ...rest, purchasable: isPurchasable(tier) };
+/**
+ * A tier as a customer may see it — never a Stripe price id, in either mode.
+ *
+ * `purchasable` is resolved against the mode the server is in, so a portal
+ * cannot offer a button that its own checkout would refuse.
+ */
+export function publicTier(
+  tier: PlanTier,
+  mode: StripeMode = 'live',
+): Omit<PlanTier, 'stripePriceId' | 'stripePriceIdTest'> & { purchasable: boolean } {
+  const { stripePriceId: _live, stripePriceIdTest: _test, ...rest } = tier;
+  return { ...rest, purchasable: isPurchasable(tier, mode) };
 }
 
 /* ── what an account actually has ────────────────────────────────────────── */

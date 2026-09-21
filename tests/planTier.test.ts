@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isPurchasable, notPurchasableReason, publicTier, resolveEntitlement,
+  isPurchasable, notPurchasableReason, publicTier, resolveEntitlement, priceIdFor,
   withinLimit, FREE_LEVEL, AUDIENCES,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
@@ -181,4 +181,46 @@ test('an unmetered key is allowed rather than refused', () => {
 test('every audience the code offers is a real one', () => {
   assert.ok(AUDIENCES.includes('vendor'));
   assert.equal(new Set(AUDIENCES).size, AUDIENCES.length, 'no duplicates');
+});
+
+// ── test mode and live mode are different prices ───────────────────────────
+//
+// The failure this guards against: a tier rehearsed in test mode and then
+// switched live, quietly carrying a price id the live key cannot find. The
+// checkout would fail for every customer, at the moment it mattered, with an
+// error from Stripe rather than from us.
+
+test('a tier with only a test price is not sellable on live', () => {
+  const t = tier({ stripePriceId: undefined, stripePriceIdTest: 'price_test_1' });
+  assert.ok(isPurchasable(t, 'test'));
+  assert.ok(!isPurchasable(t, 'live'), 'a test price cannot be charged with a live key');
+});
+
+test('a tier with only a live price is not sellable in test mode', () => {
+  const t = tier({ stripePriceId: 'price_live_1', stripePriceIdTest: undefined });
+  assert.ok(isPurchasable(t, 'live'));
+  assert.ok(!isPurchasable(t, 'test'));
+});
+
+test('the price id never falls back to the other mode', () => {
+  const t = tier({ stripePriceId: 'price_live_1', stripePriceIdTest: 'price_test_1' });
+  assert.equal(priceIdFor(t, 'live'), 'price_live_1');
+  assert.equal(priceIdFor(t, 'test'), 'price_test_1');
+  assert.equal(priceIdFor(tier({ stripePriceId: undefined, stripePriceIdTest: undefined }), 'test'), '');
+});
+
+test('the refusal names WHICH mode is missing, because that is the confusing case', () => {
+  const onlyLive = tier({ stripePriceIdTest: undefined });
+  const why = notPurchasableReason(onlyLive, 'test')!;
+  assert.match(why, /test-mode/);
+  assert.match(why, /live-mode/, 'it should say the other one exists, or the message reads as a contradiction');
+});
+
+test('neither price id reaches a customer, in either mode', () => {
+  const t = tier({ stripePriceId: 'price_live_1', stripePriceIdTest: 'price_test_1' });
+  for (const mode of ['live', 'test'] as const) {
+    const shown = JSON.stringify(publicTier(t, mode));
+    assert.ok(!shown.includes('price_live_1'), 'the live price id leaked');
+    assert.ok(!shown.includes('price_test_1'), 'the test price id leaked');
+  }
 });

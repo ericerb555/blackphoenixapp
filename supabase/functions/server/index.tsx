@@ -161,7 +161,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
-import { notPurchasableReason, resolveEntitlement, publicTier } from "./planTier.ts";
+import { notPurchasableReason, resolveEntitlement, publicTier, priceIdFor } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
@@ -10478,6 +10478,43 @@ function stripeAccountLabel(account: StripeAccount) {
   return account === 'tbpco_ecommerce' ? 'TBPCO E-commerce' : 'Black Phoenix Builds Services';
 }
 
+/**
+ * The TEST-mode key, for exercising a paid flow without taking real money.
+ *
+ * Its own secret, and it NEVER falls back to the live key. That is the entire
+ * point: a "test" path that quietly used the live key would charge a real card
+ * while everybody involved believed they were rehearsing, which is the single
+ * worst outcome available in this file.
+ *
+ * Only the services account has one. The store has no test flow asking for it.
+ */
+const STRIPE_TEST_KEY_ENV = 'STRIPE_SECRET_KEY_TEST';
+
+function stripeTestKey(): string {
+  return (Deno.env.get(STRIPE_TEST_KEY_ENV) || '').trim();
+}
+
+/** live | test | unknown, from the key's own prefix. Never returns the key. */
+function stripeKeyMode(key: string): 'live' | 'test' | 'unknown' {
+  if (key.startsWith('sk_live') || key.startsWith('rk_live')) return 'live';
+  if (key.startsWith('sk_test') || key.startsWith('rk_test')) return 'test';
+  return 'unknown';
+}
+
+/**
+ * Which mode this server sells in right now.
+ *
+ * Derived from the configured services key rather than from a setting, because
+ * a setting and a key can disagree and the key is the one that decides what
+ * actually happens to somebody's card.
+ */
+function activeStripeMode(): 'live' | 'test' {
+  const mode = stripeKeyMode(readStripeKey('services').key);
+  // An unrecognised prefix is treated as live, because assuming test would be
+  // assuming safety about a key we cannot identify.
+  return mode === 'test' ? 'test' : 'live';
+}
+
 function readStripeKey(account: StripeAccount) {
   for (const name of STRIPE_KEY_ENVS[account]) {
     const value = (Deno.env.get(name) || '').trim();
@@ -10569,7 +10606,10 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
      * the webhook that grants access would never fire because there would be no
      * subscription to send events about.
      */
-    const refusal = notPurchasableReason(tier);
+    // The mode comes from the key this server holds, not from the request. A
+    // caller cannot ask to be billed in test mode.
+    const mode = activeStripeMode();
+    const refusal = notPurchasableReason(tier, mode);
     if (refusal) return c.json({ error: refusal }, 400);
 
     const appOrigin = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
@@ -10578,7 +10618,7 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
       customer_email: email,
       success_url: String(body?.successUrl || `${appOrigin}/portal-onboarding?subscribed=1`),
       cancel_url: String(body?.cancelUrl || `${appOrigin}/portal-onboarding?subscribed=cancelled`),
-      'line_items[0][price]': String(tier.stripePriceId),
+      'line_items[0][price]': priceIdFor(tier, mode),
       'line_items[0][quantity]': '1',
       // On the SESSION, so checkout.session.completed can be identified.
       'metadata[bp_tier_id]': tierId,
@@ -10626,7 +10666,7 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
     let tier: any = null;
     if (entitlement.source === 'subscription' && grant?.tierId && grant?.portalType) {
       const found = await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`) as any;
-      if (found) tier = publicTier(found);
+      if (found) tier = publicTier(found, activeStripeMode());
     }
 
     return c.json({ entitlement, tier, portalType: grant?.portalType || null });
@@ -10687,17 +10727,53 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
       }, 400);
     }
 
+    /**
+     * Test unless told otherwise.
+     *
+     * A safe default matters more than a convenient one here: the cost of
+     * accidentally creating a test price is a second click, and the cost of
+     * accidentally creating a live one is a plan somebody can buy for real
+     * money before it has been rehearsed even once.
+     */
+    const mode: 'live' | 'test' = c.req.query('mode') === 'live' ? 'live' : 'test';
+    const priceField = mode === 'test' ? 'stripePriceIdTest' : 'stripePriceId';
+    const productField = mode === 'test' ? 'stripeProductIdTest' : 'stripeProductId';
+
     const replace = c.req.query('replace') === '1';
-    if (tier.stripePriceId && !replace) {
+    if (tier[priceField] && !replace) {
       return c.json({
-        error: 'This plan already has a Stripe price. Prices in Stripe cannot be edited — '
-          + 'to change the amount, call this again with ?replace=1, which creates a new price '
-          + 'and leaves the old one for anybody already subscribed to it.',
-        stripePriceId: tier.stripePriceId,
+        error: `This plan already has a ${mode}-mode Stripe price. Prices in Stripe cannot be `
+          + 'edited — to change the amount, call this again with ?replace=1, which creates a new '
+          + 'price and leaves the old one for anybody already subscribed to it.',
+        stripePriceId: tier[priceField],
       }, 409);
     }
 
-    const stripeKey = stripeKeyFor('services');
+    /**
+     * The key for the mode asked for, and no fallback between them.
+     *
+     * Falling back from a missing test key to the live one would create a real,
+     * chargeable price while the caller believed they were rehearsing.
+     */
+    let stripeKey: string;
+    if (mode === 'test') {
+      stripeKey = stripeTestKey();
+      if (!stripeKey) {
+        return c.json({
+          error: `Test mode needs its own key. Set ${STRIPE_TEST_KEY_ENV} in the Supabase edge `
+            + 'function secrets to your Stripe test secret key (it starts sk_test_). '
+            + 'It is never taken from the live key.',
+        }, 400);
+      }
+      if (stripeKeyMode(stripeKey) === 'live') {
+        return c.json({
+          error: `${STRIPE_TEST_KEY_ENV} holds a LIVE key. Refusing, because creating what you `
+            + 'asked to be a test price against a live account would make it buyable for real money.',
+        }, 400);
+      }
+    } else {
+      stripeKey = stripeKeyFor('services');
+    }
     const interval = tier.interval === 'year' ? 'year' : 'month';
 
     const post = async (path: string, params: URLSearchParams) => {
@@ -10716,7 +10792,7 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
 
     // Reuse the product across price changes, so the customer-facing name stays
     // one thing in Stripe's reporting rather than fragmenting per price.
-    let productId = String(tier.stripeProductId || '');
+    let productId = String(tier[productField] || '');
     if (!productId) {
       const product = await post('products', new URLSearchParams({
         name: `${String(tier.name)} — ${audience}`,
@@ -10739,8 +10815,8 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
     const now = new Date().toISOString();
     await kv.set(key, {
       ...tier,
-      stripeProductId: productId,
-      stripePriceId: String(price.id),
+      [productField]: productId,
+      [priceField]: String(price.id),
       // Kept so a later reader can tell whether the stored amount and the live
       // Stripe price have drifted apart — which they will, the first time
       // somebody edits priceCents and forgets that Stripe prices are immutable.
