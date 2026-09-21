@@ -83,10 +83,10 @@ the current state is exactly what happens when each route decides for itself.
 - [x] **J2. Stamp new records.** Work requests, quotes, invoices, POs and design
       projects call the resolver on creation and store `jobId`. Additive: no
       existing field changes meaning, so nothing that reads today breaks.
-- [ ] **J3. Read by job.** `GET /jobs/:id` returning the job with its documents,
+- [x] **J3. Read by job.** `GET /jobs/:id` returning the job with its documents,
       and `GET /jobs` for the list. This is the question that cannot be asked
       today.
-- [ ] **J4. Back-fill what exists.** A dry-run-first pass that walks existing
+- [x] **J4. Back-fill what exists.** A dry-run-first pass that walks existing
       records, follows the pairwise links it can, and proposes groupings —
       reporting what it cannot resolve rather than guessing. Same discipline as
       the catalogue importer: nothing overwritten, nothing invented.

@@ -34,8 +34,11 @@ const admin = createClient(
 
 const JOB = (id: string) => `job:${id}`;
 const STAFF_ROLES = new Set(["owner", "admin", "master_admin", "management", "employee", "staff"]);
+// Stricter than STAFF_ROLES on purpose: the back-fill writes to every
+// document collection at once, so it is not a thing an employee should do.
+const ADMIN_ROLES = new Set(["owner", "admin", "master_admin", "management"]);
 
-async function jobActor(c: any): Promise<{ email: string; isStaff: boolean } | null> {
+async function jobActor(c: any): Promise<{ email: string; isStaff: boolean; isAdmin: boolean } | null> {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
   if (!token) return null;
   const { data: { user }, error } = await admin.auth.getUser(token);
@@ -44,7 +47,11 @@ async function jobActor(c: any): Promise<{ email: string; isStaff: boolean } | n
   // itself, and this decides who sees what we pay our vendors.
   const role = String(user.app_metadata?.role || user.app_metadata?.accountType || "")
     .toLowerCase().replace(/[\s-]+/g, "_");
-  return { email: String(user.email || "").toLowerCase(), isStaff: STAFF_ROLES.has(role) };
+  return {
+    email: String(user.email || "").toLowerCase(),
+    isStaff: STAFF_ROLES.has(role),
+    isAdmin: ADMIN_ROLES.has(role),
+  };
 }
 
 /* ── the one function every creation path calls ───────────────────────────── */
@@ -275,6 +282,227 @@ jobsRouter.patch("/make-server-3eae23a6/jobs/:id", async (c) => {
   };
   await kv.set(JOB(id), updated);
   return c.json({ success: true, job: updated });
+});
+
+/* ── the back-fill ────────────────────────────────────────────────────────
+ *
+ * J4 of `tasks/one-job-identity.md`. Every document written before jobs
+ * existed carries no `jobId`, so `GET /jobs` shows only work started since.
+ * This walks what is already stored and gives each chain a job.
+ *
+ * IT FOLLOWS LINKS AND NOTHING ELSE
+ *
+ * The same rule the live code follows, applied to history: an invoice joins
+ * the job of the quote it names, a quote joins the job of the work request it
+ * names, and a document naming nothing gets a job of its own. Two old records
+ * are never grouped because they share a customer or an address — that is
+ * Eric's rule, and it matters more here than anywhere, because a back-fill
+ * touches thousands of records at once and a merge it got wrong would be
+ * invisible afterwards.
+ *
+ * SO A DOCUMENT WITH NO LINK BECOMES ITS OWN JOB
+ *
+ * Which can mean a lot of jobs. That is the honest outcome of the rule rather
+ * than a flaw: those documents genuinely have nothing tying them to anything,
+ * and inventing a connection would be worse than recording that they stand
+ * alone. The dry run says how many before anything is written.
+ *
+ * IT IS IDEMPOTENT AND IT NEVER OVERWRITES
+ *
+ * A record that already carries a `jobId` is left exactly as it is and its
+ * job is used for its children. Running it twice does nothing the second time.
+ */
+
+/** In the order they must be processed: parents before children. */
+const BACKFILL_PASSES: Array<{
+  prefix: string;
+  as: string;
+  doorway: JobDoorway;
+  /** Keys of the possible parents, most specific first. */
+  parents: (r: any) => string[];
+  seed: (r: any) => JobSeed;
+}> = [
+  {
+    prefix: "wr:",
+    as: "workRequests",
+    doorway: "work_request",
+    parents: () => [],
+    seed: (r) => ({
+      customerEmail: r.client_email || r.clientEmail || r.email,
+      customerName: r.client_name || r.clientName || r.customer_name,
+      siteAddress: r.address || r.site_address || r.siteAddress || r.location,
+      title: r.title || r.project_name || r.projectName,
+      serviceType: r.serviceType || r.project_type || r.service_type,
+      openedFrom: "work_request",
+      openedFromId: r.id,
+      createdBy: r.createdBy || r.client_email || r.clientEmail,
+    }),
+  },
+  {
+    prefix: "quote:",
+    as: "quotes",
+    doorway: "quote",
+    parents: (r) => {
+      const wr = String(r.workRequestId || r.work_request_id || r.wrId || "").trim();
+      return wr ? [`wr:${wr}`] : [];
+    },
+    seed: (r) => ({
+      customerEmail: r.clientEmail || r.customerEmail || r.client_email,
+      customerName: r.clientName || r.customerName || r.customer_name,
+      siteAddress: r.siteAddress || r.address || r.location,
+      title: r.title || r.projectName || r.serviceType,
+      serviceType: r.serviceType || r.project_type,
+      openedFrom: "quote",
+      openedFromId: r.id,
+      createdBy: r.createdBy,
+    }),
+  },
+  {
+    prefix: "invoice:",
+    as: "invoices",
+    doorway: "invoice",
+    parents: (r) => {
+      const q = String(r.quoteId || r.quote_id || "").trim();
+      const wr = String(r.workRequestId || r.work_request_id || "").trim();
+      return [q ? `quote:${q}` : "", wr ? `wr:${wr}` : ""].filter(Boolean);
+    },
+    seed: (r) => ({
+      customerEmail: r.customerEmail || r.customer_email || r.clientEmail,
+      customerName: r.customerName || r.customer_name,
+      siteAddress: r.siteAddress || r.site_address || r.address,
+      title: r.description || r.title || r.invoice_number,
+      openedFrom: "invoice",
+      openedFromId: r.id,
+      createdBy: r.createdBy,
+    }),
+  },
+  {
+    prefix: "purchase_order:",
+    as: "purchaseOrders",
+    doorway: "purchase_order",
+    parents: (r) => {
+      const q = String(r.sourceQuoteId || r.quoteId || "").trim();
+      const wr = String(r.workRequestId || "").trim();
+      return [q ? `quote:${q}` : "", wr ? `wr:${wr}` : ""].filter(Boolean);
+    },
+    seed: (r) => ({
+      siteAddress: r.siteAddress,
+      title: r.projectName || r.poNumber,
+      openedFrom: "purchase_order",
+      openedFromId: r.id,
+      createdBy: r.raisedBy,
+    }),
+  },
+  {
+    prefix: "design_project:",
+    as: "designProjects",
+    doorway: "design_project",
+    parents: (r) => {
+      const wr = String(r.workRequestId || r.work_request_id || "").trim();
+      return wr ? [`wr:${wr}`] : [];
+    },
+    seed: (r) => ({
+      customerEmail: r.ownerEmail || r.customerEmail,
+      siteAddress: r.siteAddress || r.address,
+      title: r.name || r.title,
+      openedFrom: "design_project",
+      openedFromId: r.id,
+      createdBy: r.createdBy || r.ownerEmail,
+    }),
+  },
+];
+
+jobsRouter.post("/make-server-3eae23a6/jobs/backfill", async (c) => {
+  const who = await jobActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+  // Deliberately stricter than the rest of this router. A back-fill writes to
+  // every document collection at once; staff can read jobs, only an owner or
+  // administrator may rewrite history.
+  if (!who.isAdmin) {
+    return c.json({ success: false, error: "Administrator access is required." }, 403);
+  }
+
+  const dryRun = c.req.query("dry") !== "0";
+
+  /**
+   * The job each record key resolves to, built up as the passes run.
+   *
+   * A child looks its parent up in here rather than re-reading storage, which
+   * is what makes a chain work in one go: the quote is resolved in pass two and
+   * the invoice that names it finds the answer in pass three.
+   */
+  const jobOf = new Map<string, string>();
+  const created: any[] = [];
+  const summary: any[] = [];
+
+  for (const pass of BACKFILL_PASSES) {
+    const rows = ((await kv.getByPrefix(pass.prefix)) as any[] || []).filter(Boolean);
+    let alreadyHad = 0;
+    let inherited = 0;
+    let opened = 0;
+    const samples: any[] = [];
+
+    for (const row of rows) {
+      const key = `${pass.prefix}${row.id}`;
+
+      const existing = jobIdOf(row);
+      if (existing) {
+        jobOf.set(key, existing);
+        alreadyHad++;
+        continue;
+      }
+
+      // Its parent's job, if it named a parent that has one.
+      let jobId = "";
+      for (const parentKey of pass.parents(row)) {
+        jobId = jobOf.get(parentKey) || (await parentJobId(parentKey));
+        if (jobId) break;
+      }
+      if (jobId) inherited++;
+
+      if (!jobId) {
+        // Nothing to join, so it stands alone. The id is generated either way
+        // so a dry run reports the true number of jobs an import would open.
+        const id = `job_${crypto.randomUUID()}`;
+        const job = openJob({ ...pass.seed(row), createdBy: pass.seed(row).createdBy || who.email }, new Date(), id);
+        if (!dryRun) await kv.set(JOB(id), job);
+        created.push({ jobNumber: job.jobNumber, from: pass.as, documentId: row.id });
+        jobId = id;
+        opened++;
+      }
+
+      jobOf.set(key, jobId);
+      if (!dryRun) await kv.set(key, { ...row, jobId });
+      if (samples.length < 5) samples.push({ id: row.id, jobId });
+    }
+
+    summary.push({
+      collection: pass.as,
+      records: rows.length,
+      alreadyHad,
+      inheritedFromParent: inherited,
+      openedOwnJob: opened,
+      samples,
+    });
+  }
+
+  const totalOpened = created.length;
+  console.log(
+    `[Jobs] backfill${dryRun ? " (dry run)" : ""} by ${who.email}: `
+    + summary.map((s) => `${s.collection} ${s.records}`).join(", ")
+    + ` — ${totalOpened} job(s) opened`,
+  );
+
+  return c.json({
+    success: true,
+    dryRun,
+    summary,
+    jobsOpened: totalOpened,
+    sampleJobs: created.slice(0, 20),
+    note: dryRun
+      ? "Nothing was written. This is what a back-fill would do. Repeat with ?dry=0 to apply it."
+      : "Applied. Documents that already had a job were left alone, so running this again changes nothing.",
+  });
 });
 
 export default jobsRouter;
