@@ -88,6 +88,8 @@ interface Draft {
   active: boolean;
   /** Tiers only — add-on ids this tier throws in at no charge. */
   includedAddOns: string;
+  /** Tiers only — percent off contract work for somebody on this tier. */
+  discountPercent: string;
   /** Tiers only — 'Most Popular' and the like. */
   badge: string;
   /** Add-ons only — tier ids it may be bought on. Blank means all of them. */
@@ -99,7 +101,7 @@ interface Draft {
 }
 
 function draftFrom(
-  t: Partial<Tier> & { id?: string; includedAddOns?: string[]; badge?: string; availableOn?: string[] },
+  t: Partial<Tier> & { id?: string; includedAddOns?: string[]; badge?: string; availableOn?: string[]; discountPercent?: number },
   isNew: boolean,
   kind: 'tier' | 'addon' = 'tier',
 ): Draft {
@@ -116,6 +118,7 @@ function draftFrom(
     sortOrder: String(t.sortOrder ?? 0),
     active: t.active !== false,
     includedAddOns: (t.includedAddOns || []).join(', '),
+    discountPercent: Number(t.discountPercent) > 0 ? String(t.discountPercent) : '',
     badge: t.badge || '',
     availableOn: (t.availableOn || []).join(', '),
     originalCents: Number(t.priceCents || 0),
@@ -145,7 +148,11 @@ function tierFrom(d: Draft) {
     // what it does not recognise, but sending a tier an add-on field would
     // read, in the stored record, as though somebody meant it.
     ...(d.kind === 'tier'
-      ? { includedAddOns: splitList(d.includedAddOns), badge: d.badge.trim() }
+      ? {
+        includedAddOns: splitList(d.includedAddOns),
+        badge: d.badge.trim(),
+        discountPercent: Math.max(0, Number(d.discountPercent) || 0),
+      }
       : { availableOn: splitList(d.availableOn) }),
   };
 }
@@ -360,6 +367,29 @@ function TierEditor({
               placeholder="Most Popular"
               onChange={e => setDraft({ ...draft, badge: e.target.value })}
             />
+          </div>
+          <div className="sm:col-span-2">
+            <span className={label}>Discount on contract work, %</span>
+            <input
+              className={field}
+              inputMode="decimal"
+              value={draft.discountPercent}
+              placeholder="0"
+              onChange={e => setDraft({ ...draft, discountPercent: e.target.value })}
+            />
+            {/* Says the ceiling rather than silently clipping to it, because
+                finding out from a customer that half the discount never
+                arrived is worse than being told here. */}
+            <p className="mt-1.5 text-[11px] text-gray-600">
+              What somebody on this plan gets off quoted work. Added to anything an
+              administrator grants them, and the total is capped at 20% however many
+              sources agree.
+              {Number(draft.discountPercent) > 20 && (
+                <span className="text-amber-400">
+                  {' '}This is above the cap, so it will never be felt in full.
+                </span>
+              )}
+            </p>
           </div>
         </div>
       ) : (
@@ -982,6 +1012,11 @@ export default function PlanTierAdmin() {
                       <span className="text-sm font-normal text-orange-400">
                         {money(t.priceCents, t.interval)}
                       </span>
+                      {Number((t as any).discountPercent) > 0 && (
+                        <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-300">
+                          {(t as any).discountPercent}% OFF WORK
+                        </span>
+                      )}
                       {t.active === false && (
                         <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">
                           WITHDRAWN

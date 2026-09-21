@@ -83,6 +83,15 @@ export interface PlanTier {
    * is being charged for it.
    */
   includedAddOns?: string[];
+  /**
+   * Percent off contract work for somebody on this tier.
+   *
+   * Here rather than in a table of tier-to-percentage, which is what this
+   * replaces, so it is set per portal AND per tier and edited beside the
+   * price it belongs with. What a subscriber actually receives is this plus
+   * any grants an administrator has made, capped — see `discounts.ts`.
+   */
+  discountPercent?: number;
   /** Display only — 'Most Popular', 'Best Value'. */
   badge?: string;
   sortOrder?: number;

@@ -37,6 +37,7 @@ import {
   type Audience, type PlanAddOn, type PlanTier, type StripeMode,
 } from "./planTier.ts";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
+import { QUOTE_DISCOUNT_CAP_PERCENT } from "./discounts.ts";
 
 /**
  * Which Stripe mode this server sells in, from the key's own prefix.
@@ -117,6 +118,11 @@ function readTier(raw: any, audience: Audience): PlanTier | null {
       .map((a: any) => String(a || "").trim())
       .filter(Boolean)
       .slice(0, 40),
+    // Bounded on the way in. The cap in `discounts.ts` is what actually
+    // limits what a customer receives; this only refuses a nonsense figure.
+    discountPercent: Number.isFinite(Number(raw?.discountPercent)) && Number(raw?.discountPercent) > 0
+      ? Math.min(100, Math.round(Number(raw.discountPercent) * 100) / 100)
+      : undefined,
     badge: String(raw?.badge || "").trim().slice(0, 40) || undefined,
     sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : 0,
     active: raw?.active !== false,
@@ -221,6 +227,12 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-tiers/:audience", async (c) =
     tier: publicTier(saved, mode),
     purchasable: isPurchasable(saved, mode),
     detached,
+    // A tier set above the cap is not an error, but it will never be felt in
+    // full, and finding that out from a customer is worse than being told now.
+    discountNote: Number(tier.discountPercent || 0) > QUOTE_DISCOUNT_CAP_PERCENT
+      ? `This plan gives ${tier.discountPercent}% off, but no customer can receive more than `
+        + `${QUOTE_DISCOUNT_CAP_PERCENT}% once every discount is added up.`
+      : undefined,
     // The single most useful thing to tell somebody who has just saved a plan
     // that nobody can buy.
     warning: detached.length
