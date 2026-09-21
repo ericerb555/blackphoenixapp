@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardList, PawPrint, Plus, X, Send, LoaderCircle, Trash2,
-  CheckCircle2, FileText,
+  CheckCircle2, FileText, Camera, Video, Image as ImageIcon,
 } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 
@@ -19,6 +19,39 @@ const DEFAULT_AREAS = [
   'Appliances', 'HVAC / Heating', 'Smoke & CO Detectors', 'Exterior / Yard',
 ];
 const CONDITIONS = ['Excellent', 'Good', 'Fair', 'Poor', 'Damaged'];
+
+/**
+ * A photo or video attached to ONE area of the property.
+ *
+ * Per area, not per form, and that is the whole point. In a deposit dispute
+ * the question is never "are there photos of this flat" — it is what the
+ * carpet in bedroom 2 looked like the day they moved in. Twenty photos in a
+ * pile cannot answer that; twenty photos against named areas can.
+ *
+ * Only the id is kept. The upload hands back a signed URL that expires in
+ * twenty-four hours, and a move-in record is read when the tenant LEAVES —
+ * possibly years later — so storing that URL would leave a form full of dead
+ * links by tomorrow. `GET /media/:id` re-signs on read, so the id is the
+ * durable thing.
+ */
+interface AreaMedia {
+  id: string;
+  name: string;
+  type: 'image' | 'video' | string;
+}
+
+interface AreaRow {
+  name: string;
+  condition: string;
+  notes: string;
+  media: AreaMedia[];
+}
+
+const blankAreas = (): AreaRow[] =>
+  DEFAULT_AREAS.map(name => ({ name, condition: 'Good', notes: '', media: [] }));
+
+/** What the media library accepts — refused here so nobody waits for a 400. */
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 const emptyTenant = { tenantId: '', tenantName: '', tenantEmail: '', propertyAddress: '', unit: '' };
 
@@ -42,7 +75,9 @@ export default function LandlordFormsManager({ session, tenants }: { session: an
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [who, setWho] = useState({ ...emptyTenant });
-  const [areas, setAreas] = useState(DEFAULT_AREAS.map(name => ({ name, condition: 'Good', notes: '' })));
+  const [areas, setAreas] = useState<AreaRow[]>(blankAreas());
+  // Which area is mid-upload, so its row can say so rather than the whole form.
+  const [uploadingArea, setUploadingArea] = useState<number | null>(null);
   const [pet, setPet] = useState({ petType: '', breed: '', petName: '', weight: '', age: '', depositAmount: '', monthlyPetRent: '', terms: 'Tenant agrees to keep the above pet(s) in accordance with the lease. Tenant is responsible for any damage caused by the pet(s) beyond the pet deposit. Pet(s) must be licensed and vaccinated as required by law.' });
 
   const authHeaders = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined;
@@ -64,7 +99,7 @@ export default function LandlordFormsManager({ session, tenants }: { session: an
 
   const resetForm = () => {
     setWho({ ...emptyTenant });
-    setAreas(DEFAULT_AREAS.map(name => ({ name, condition: 'Good', notes: '' })));
+    setAreas(blankAreas());
     setPet({ petType: '', breed: '', petName: '', weight: '', age: '', depositAmount: '', monthlyPetRent: '', terms: pet.terms });
     setMode('list');
   };
@@ -72,6 +107,65 @@ export default function LandlordFormsManager({ session, tenants }: { session: an
   const pickTenant = (id: string) => {
     const t = tenants.find(x => x.id === id);
     setWho(w => t ? { ...w, tenantId: t.id, tenantName: t.name, tenantEmail: t.email || w.tenantEmail, unit: t.unit || w.unit } : { ...w, tenantId: id });
+  };
+
+  /**
+   * Put an area's photos and video into the media library, keep the ids.
+   *
+   * Uploaded as they are picked rather than held until the form is sent,
+   * because a walkthrough is done on a phone in an empty flat and losing
+   * twenty photos to a tab closing at the end would be the whole job again.
+   *
+   * Files are sent one at a time. A single request carrying a dozen videos
+   * is one thing to fail; this way a bad file costs that file.
+   */
+  const attachToArea = async (index: number, files: File[]) => {
+    if (!authHeaders || files.length === 0) return;
+
+    const tooBig = files.filter(f => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig.length) {
+      toast.error(
+        `${tooBig.length === 1 ? tooBig[0].name : `${tooBig.length} files`} exceeded 50MB and `
+        + 'was not attached. A shorter video usually does the job.',
+      );
+    }
+    const usable = files.filter(f => f.size <= MAX_UPLOAD_BYTES);
+    if (!usable.length) return;
+
+    setUploadingArea(index);
+    const attached: AreaMedia[] = [];
+    const failed: string[] = [];
+
+    for (const file of usable) {
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('folder', 'condition-forms');
+        // Findable later by what it is rather than by remembering an id.
+        fd.append('tags', [mode, who.unit || '', who.propertyAddress || ''].filter(Boolean).join(','));
+        fd.append('description', `${typeLabel(mode)} — ${areas[index]?.name || 'area'}`);
+
+        const res = await fetch(`${SERVER}/media/upload`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: fd,
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || !payload?.media?.id) throw new Error(payload?.error || `Upload failed (${res.status})`);
+        attached.push({ id: payload.media.id, name: payload.media.name || file.name, type: payload.media.type });
+      } catch {
+        failed.push(file.name);
+      }
+    }
+
+    if (attached.length) {
+      setAreas(a => a.map((x, j) => j === index ? { ...x, media: [...x.media, ...attached] } : x));
+    }
+    // Said per file rather than as one "some failed", so it is clear which
+    // photo has to be taken again.
+    if (failed.length) toast.error(`Could not attach: ${failed.join(", ")}`);
+    else if (attached.length) toast.success(`${attached.length} attached to ${areas[index]?.name || "this area"}.`);
+    setUploadingArea(null);
   };
 
   const submit = async () => {
@@ -157,15 +251,67 @@ export default function LandlordFormsManager({ session, tenants }: { session: an
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className={labelClass}>Areas & condition</label>
-              <button type="button" onClick={() => setAreas(a => [...a, { name: '', condition: 'Good', notes: '' }])} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300 hover:text-teal-200"><Plus className="h-3.5 w-3.5" /> Add area</button>
+              <button type="button" onClick={() => setAreas(a => [...a, { name: '', condition: 'Good', notes: '', media: [] }])} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300 hover:text-teal-200"><Plus className="h-3.5 w-3.5" /> Add area</button>
             </div>
             <div className="space-y-2">
               {areas.map((area, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2">
-                  <input value={area.name} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Area" className={`${inputClass} col-span-4`} />
-                  <select value={area.condition} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, condition: e.target.value } : x))} className={`${inputClass} col-span-3`}>{CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                  <input value={area.notes} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))} placeholder="Notes (scratches, stains, etc.)" className={`${inputClass} col-span-4`} />
-                  <button type="button" onClick={() => setAreas(a => a.filter((_, j) => j !== i))} className="col-span-1 flex items-center justify-center rounded-lg border border-[#363636] text-gray-500 transition hover:border-red-500/40 hover:text-red-400"><X className="h-4 w-4" /></button>
+                <div key={i} className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-2">
+                  <div className="grid grid-cols-12 gap-2">
+                    <input value={area.name} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Area" className={`${inputClass} col-span-4`} />
+                    <select value={area.condition} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, condition: e.target.value } : x))} className={`${inputClass} col-span-3`}>{CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                    <input value={area.notes} onChange={e => setAreas(a => a.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))} placeholder="Notes (scratches, stains, etc.)" className={`${inputClass} col-span-4`} />
+                    <button type="button" onClick={() => setAreas(a => a.filter((_, j) => j !== i))} className="col-span-1 flex items-center justify-center rounded-lg border border-[#363636] text-gray-500 transition hover:border-red-500/40 hover:text-red-400"><X className="h-4 w-4" /></button>
+                  </div>
+
+                  {/* ── Evidence for THIS area ───────────────────────────
+                      A label rather than a bare input, so it can be tapped
+                      one-handed on a phone in an empty flat, which is where
+                      this is actually filled in. `capture` is not set: the
+                      camera and the gallery are both legitimate, and forcing
+                      the camera would stop somebody attaching a photo they
+                      took ten minutes ago. */}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#363636] px-2.5 py-1.5 text-xs font-semibold transition ${
+                      uploadingArea === i ? 'text-gray-500' : 'text-gray-300 hover:border-teal-500/50 hover:text-teal-300'
+                    }`}>
+                      {uploadingArea === i
+                        ? <><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Attaching…</>
+                        : <><Camera className="h-3.5 w-3.5" /> Add photos or video</>}
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        multiple
+                        disabled={uploadingArea !== null}
+                        className="hidden"
+                        onChange={e => {
+                          const files = Array.from(e.target.files || []);
+                          // Cleared so the same file can be picked again after
+                          // a failure; otherwise onChange never fires twice.
+                          e.target.value = '';
+                          void attachToArea(i, files);
+                        }}
+                      />
+                    </label>
+
+                    {area.media.map((m, k) => (
+                      <span key={m.id} className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-lg border border-teal-500/25 bg-teal-500/5 px-2 py-1 text-[11px] text-teal-200">
+                        {String(m.type).startsWith('video')
+                          ? <Video className="h-3 w-3 shrink-0" />
+                          : <ImageIcon className="h-3 w-3 shrink-0" />}
+                        <span className="truncate">{m.name}</span>
+                        <button
+                          type="button"
+                          title="Remove from this area"
+                          onClick={() => setAreas(a => a.map((x, j) => j === i
+                            ? { ...x, media: x.media.filter((_, n) => n !== k) }
+                            : x))}
+                          className="shrink-0 text-teal-400/60 transition hover:text-red-400"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

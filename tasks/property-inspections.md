@@ -9,7 +9,8 @@ Two requests from Eric, on the landlord portal:
 > inspection with photos and video and a ai assistant can put together a
 > property maintenace plan as well as update schedule and budgeting"
 
-**Nothing is built.** Section 4 has the decisions; section 3 the order of work.
+**P1 is built.** Section 4 has the decisions still outstanding; section 3 the
+order of work.
 
 ---
 
@@ -76,7 +77,7 @@ somebody has to find.
 
 ## 3. Order of work
 
-- [ ] **P1. Media per area on the condition forms.** The smallest piece with the
+- [x] **P1. Media per area on the condition forms.** The smallest piece with the
       most value: `LandlordFormsManager` already has the areas and the scale, so
       each area gains photos and video. Move-in and move-out become evidence
       rather than assertion.
