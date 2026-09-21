@@ -416,6 +416,20 @@ const PUBLIC_POST_PATHS = [
   '/referrals/attributions',  // credits a referral code at signup
 
   /**
+   * A subcontractor applying to join.
+   *
+   * The applicant has no account — that is what they are applying for — so
+   * there is no token to send and the anon key resolves to nobody. With the
+   * gate on, the onboarding form answered "Sign in required." to everyone who
+   * tried, and nobody would hear about it: the applicant simply goes away.
+   *
+   * It meets the bar for this list. `saveApplicationAndCrm` writes a pending
+   * application, a CRM contact and a lead, and grants the caller nothing —
+   * no account, no role, no access. Staff review it before anything happens.
+   */
+  '/subcontractors/register',
+
+  /**
    * Guest checkout.
    *
    * The storefront and the cart both post here with the anon key alone, and the
@@ -1892,7 +1906,9 @@ app.post('/make-server-3eae23a6/applications/submit', async (c) => {
   try {
     const applicationData = await c.req.json();
     const { application, updated } = await saveApplicationAndCrm(applicationData);
-    return c.json({ success: true, applicationId: application.id, application, message: updated ? 'Your application has been updated and is in review.' : 'Application received. Our team will review it and follow up soon.' });
+    // The id only — see the note on /subcontractors/register. This route was
+    // already public, so the same echo was readable by anybody.
+    return c.json({ success: true, applicationId: application.id, message: updated ? 'Your application has been updated and is in review.' : 'Application received. Our team will review it and follow up soon.' });
   } catch (error: any) {
     console.error('Application submission error:', error);
     return c.json({ success: false, error: error.message || 'Unable to submit application.' }, 400);
@@ -14833,7 +14849,11 @@ app.post('/make-server-3eae23a6/subcontractors/register', async (c) => {
   try {
     const body = stripBase64(await c.req.json()); const personal = body.personalInfo || body.personal || {}; const business = body.businessInfo || body.business || {}; const service = body.serviceInfo || body.service || {};
     const { application, updated } = await saveApplicationAndCrm({ ...body, applicationType: 'subcontractor', name: body.name || personal.name || [personal.firstName, personal.lastName].filter(Boolean).join(' '), email: body.email || personal.email, phone: body.phone || personal.phone, companyName: body.companyName || business.companyName || business.name, serviceArea: body.serviceArea || service.serviceArea, licenseNumber: body.licenseNumber || service.licenseNumber || business.licenseNumber });
-    return c.json({ success: true, applicationId: application.id, application, updated }, updated ? 200 : 201);
+    // The id and nothing else. A repeat submission for an email that already
+    // has a pending application merges into it, so echoing the stored record
+    // would let anyone who knows an address read back what that person filled
+    // in. The form only ever checked whether the request succeeded.
+    return c.json({ success: true, applicationId: application.id, updated }, updated ? 200 : 201);
   } catch (error: any) { return c.json({ success: false, message: error.message || 'Unable to submit subcontractor registration.' }, 400); }
 });
 
