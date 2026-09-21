@@ -7082,3 +7082,54 @@ those four tables.
 
 The repository can now rebuild the database it is running against. That was the
 point, and it is the prerequisite for a branch being worth anything.
+
+---
+
+## Rotating COMPLIANCE_CRON_SECRET — 2026-09-20
+
+The old value was sitting in plaintext in
+`supabase_migrations.schema_migrations`, because the applied migration inserted
+it as a string literal.
+
+### The database half is done
+
+    update private_cron_config
+    set value = translate(encode(gen_random_bytes(32), 'base64'), '+/=', '-_')
+    where key = 'compliance_cron_secret';
+
+Generated **inside Postgres** and never returned, so the new value has not
+passed through this conversation or any log. Verified only by its properties:
+43 characters, URL-safe, and different from the old one — the same shape as
+before, so nothing downstream needs to change.
+
+The scheduled job was checked afterwards: `compliance-expiry-reminders` is
+active, still targets `/compliance/run-reminders`, and reads the secret **from
+the table** rather than having it baked into the command — so it picks up the
+new value on its next run with no further change.
+
+### The rotation is NOT finished, by design
+
+The route compares the header against the `COMPLIANCE_CRON_SECRET` **edge
+function secret**, which still holds the old value. So right now:
+
+- the cron job sends the new secret, the route expects the old, and the 12:00
+  UTC run will answer 401 and do nothing;
+- **the old secret still works** until the edge secret is changed — so the
+  credential that was exposed is not yet dead.
+
+Two steps, both Eric's, because the value is a credential and must not pass
+through me:
+
+1. Supabase dashboard → SQL Editor:
+   `select value from private_cron_config where key = 'compliance_cron_secret';`
+2. Supabase → Edge Functions → Secrets → set **`COMPLIANCE_CRON_SECRET`** to
+   that value.
+
+The next scheduled run is 12:00 UTC, so there is a long window. Reminders are
+not lost in the meantime — the route also accepts an authenticated
+administrator, so the run can be triggered by hand.
+
+### Afterwards
+
+Once step 2 is done the literal recorded in `schema_migrations` is dead, which
+was the point. The recovered migration file in this repo never contained it.
