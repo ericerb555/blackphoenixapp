@@ -474,8 +474,29 @@ export default function UnifiedProjectPipeline() {
               ...raw,
               id: String(raw?.id ?? ''),
               itemNumber: String(raw?.itemNumber ?? raw?.id ?? '').toUpperCase() || 'WR-001',
-              customerName: String(raw?.customerName ?? raw?.client_name ?? raw?.client_info?.name ?? 'Customer'),
-              customerEmail: String(raw?.customerEmail ?? raw?.client_email ?? raw?.client_info?.email ?? ''),
+              /**
+               * `customer` and `contact` are in this list because the records
+               * that actually need normalising use them.
+               *
+               * The first version read customerName/client_name/client_info and
+               * fell through to the literal string "Customer" for both stored
+               * jobs — so the search stopped crashing and still could not find
+               * Wanda Atherton by name, which is most of the way to useless. A
+               * search that silently returns nothing is a quieter failure than
+               * one that throws, not a smaller one.
+               */
+              customerName: String(
+                raw?.customerName ?? raw?.customer ?? raw?.client_name
+                ?? raw?.client_info?.name ?? 'Customer',
+              ),
+              customerEmail: String(
+                raw?.customerEmail ?? raw?.contact?.email ?? raw?.client_email
+                ?? raw?.client_info?.email ?? '',
+              ),
+              customerPhone: String(
+                raw?.customerPhone ?? raw?.contact?.phone ?? raw?.client_phone
+                ?? raw?.client_info?.phone ?? '',
+              ),
               serviceType: String(raw?.serviceType ?? raw?.project_type ?? 'General Service'),
               title: String(raw?.title ?? raw?.project_name ?? 'Untitled'),
               description: String(raw?.description ?? ''),
