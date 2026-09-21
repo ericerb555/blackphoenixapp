@@ -7622,3 +7622,43 @@ question once and seeing whether it sounds like someone who has built one.
 and carrying an addition's footprint into siding and openings. Plus **P1-P5**,
 paint colours as a vendor catalogue.
 
+
+### E, done
+
+- [x] E1. **Additions & layout** is a real trade now. The walkthrough had been
+      sending both "an addition" and "changing the layout" to the deck section
+      with a note to start on Capture — which worked, and was a lie: somebody
+      who said they wanted an addition landed on a screen headed Decks.
+      The floor plan itself did **not** move. It stays on Capture with the
+      photographs, because that is where you record what is there and an
+      addition is the one case where part of "what is there" does not exist
+      yet — and because two editors on one plan is how two descriptions of a
+      building start to disagree. The new panel reads the plan back instead.
+- [x] E2. An addition's exterior walls are computed from the footprint and go
+      into the house as elevations, so siding, the opening schedule, structures
+      and hardscape all quote them without a line of new code. Partial abutment
+      is handled properly — a 20ft addition against a 12ft wall has 8ft exposed,
+      not 20 and not 0.
+- [x] E3 *(found while writing the addition brief)*. The assistant's brief
+      promised the model a floor plan that `describe()` never sent. It is sent
+      now, for every trade rather than only additions, with `unknown` bearing
+      reported as nobody having looked rather than quietly omitted.
+
+Verified in the running app: a 12×10 proposed room produced 44ft of wall and
+352 sq ft of face, and after one button press the siding tool listed four
+elevations — 12, 12, 10, 10, all 8ft to eave — with siding untouched.
+
+**Note on the commit:** it also picked up four test files
+(`catalogImport`, `imageSniff`, `productMatch`, `repriceEstimate`) that were
+sitting untracked in the working tree before this session started. They are not
+mine and are not described by that commit message; they are good tests that
+simply had never been committed, so they went in rather than being left loose.
+
+---
+
+## What is left
+
+- **P1–P5** — paint colours as a vendor catalogue. Planned above, not started.
+- The vision read for a room, and the assistant's answers, both need a real
+  photograph and a real question rather than a test.
+- Roofing is still unbuilt and still says so on its own tile.
