@@ -525,6 +525,10 @@ const AI_METERED_PREFIXES = [
   // Drafts a tier ladder. One model call, so one unit, in the same bucket
   // as the rest — an admin-only route is still a route that costs money.
   '/plan-draft',
+  // Reads a completed inspection and drafts a plan. Its own prefix, not
+  // /landlord/inspections/, so saving progress during a walkthrough is not
+  // charged as a model call.
+  '/inspection-plan/',
   '/project-vision/analyze',
   '/seo-engine/articles/generate',
   '/seo-engine/keywords/discover',

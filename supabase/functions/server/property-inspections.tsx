@@ -261,4 +261,228 @@ inspectionsRouter.delete("/make-server-3eae23a6/landlord/inspections/:id", async
   return c.json({ success: true, deleted: true });
 });
 
+/* ── the assistant ────────────────────────────────────────────────────────
+ *
+ * P5 of `tasks/property-inspections.md`. Reads a completed inspection and
+ * drafts a maintenance plan, a schedule and a budget.
+ *
+ * VIDEO IS STORED, NOT WATCHED
+ *
+ * Eric's decision: "store the video, analyze photos and notes." A walkthrough
+ * video runs to minutes and costs real money to put through a model, for very
+ * little the stills do not already show. So video stays what it is best at
+ * being — evidence for a dispute, a record a person can scrub through — and the
+ * assistant reads the photographs and what the inspector wrote.
+ *
+ * IT LOOKS HARDEST AT WHAT IS WORST
+ *
+ * Every area's condition and notes go in as text, which is cheap. Photographs
+ * are capped, and the cap is spent on the areas marked Poor or Damaged first.
+ * Twelve pictures of a failing roof are worth more than forty of rooms nobody
+ * is worried about, and the difference is money.
+ *
+ * IT PROPOSES; IT DOES NOT SCHEDULE OR SPEND
+ *
+ * Nothing is saved. Two of the three outputs are commitments — a date somebody
+ * has to keep and money somebody has to find — so they land as a draft a person
+ * accepts. What accepting one does is P6, and it is not built.
+ */
+
+/** Where the media library keeps its files. */
+const MEDIA_BUCKET = "make-3eae23a6-media";
+
+/**
+ * How many photographs go to the model.
+ *
+ * A cap rather than everything, because an inspection can carry fifty images
+ * and each one is paid for. Twelve is enough to see the things that matter once
+ * the worst areas are picked first.
+ */
+const MAX_PHOTOS = 12;
+
+/** Worst first — the cap is spent where the answer changes. */
+const CONDITION_RANK: Record<string, number> = {
+  Damaged: 0, Poor: 1, Fair: 2, Good: 3, Excellent: 4,
+};
+
+inspectionsRouter.post("/make-server-3eae23a6/inspection-plan/:id", async (c) => {
+  try {
+    const who = await actor(c);
+    if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+    const id = text(c.req.param("id"), 120);
+    const inspection = await kv.get(KEY(who.email, id)) as any;
+    if (!inspection) return c.json({ success: false, error: "No such inspection." }, 404);
+
+    /**
+     * Only a finished walkthrough.
+     *
+     * A draft is half a building. Drafting a maintenance plan from it would
+     * produce something that looks authoritative about rooms nobody has
+     * entered yet, and it would spend money on a model to do it.
+     */
+    if (inspection.status !== "complete") {
+      return c.json({
+        success: false,
+        error: "Finish the inspection first. A plan drawn from half a walkthrough "
+          + "is confident about rooms nobody has looked at yet.",
+      }, 400);
+    }
+
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!key) {
+      return c.json({ success: false, error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
+    }
+
+    const areas: any[] = Array.isArray(inspection.areas) ? inspection.areas : [];
+    if (!areas.length) return c.json({ success: false, error: "This inspection recorded no areas." }, 400);
+
+    /* ── choose the photographs ────────────────────────────────────────── */
+    const candidates: Array<{ area: string; condition: string; mediaId: string }> = [];
+    for (const area of [...areas].sort((a, b) =>
+      (CONDITION_RANK[a.condition] ?? 9) - (CONDITION_RANK[b.condition] ?? 9))) {
+      for (const m of (area.media || [])) {
+        // Video is deliberately skipped. It is kept as evidence and never sent.
+        if (String(m.type || "").startsWith("video")) continue;
+        candidates.push({ area: area.name, condition: area.condition, mediaId: m.id });
+      }
+    }
+
+    const images: any[] = [];
+    const shown: string[] = [];
+    for (const candidate of candidates.slice(0, MAX_PHOTOS)) {
+      try {
+        const item = await kv.get(`media:${candidate.mediaId}`) as any;
+        if (!item?.storagePath) continue;
+        const { data, error } = await admin.storage.from(MEDIA_BUCKET).download(item.storagePath);
+        if (error || !data) continue;
+        const bytes = new Uint8Array(await data.arrayBuffer());
+        // Chunked rather than spread, because a large image spread into
+        // String.fromCharCode in one call blows the argument limit.
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        }
+        images.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: String(item.mimeType || "image/jpeg"),
+            data: btoa(binary),
+          },
+        });
+        shown.push(`${candidate.area} (${candidate.condition})`);
+      } catch {
+        // One unreadable photograph is not a reason to refuse the whole plan.
+      }
+    }
+
+    /* ── what the inspector actually wrote ─────────────────────────────── */
+    const written = areas.map((a) => {
+      const photos = (a.media || []).filter((m: any) => !String(m.type || "").startsWith("video")).length;
+      const videos = (a.media || []).length - photos;
+      return `· ${a.name} — ${a.condition}`
+        + (a.notes ? `: ${a.notes}` : "")
+        + ` [${photos} photo${photos === 1 ? "" : "s"}`
+        + (videos ? `, ${videos} video${videos === 1 ? "" : "s"} on file` : "")
+        + "]";
+    }).join("\n");
+
+    const system = `You are helping a landlord turn a property inspection into a plan of work.
+
+You are given what the inspector recorded for every area, and photographs of the
+areas in the worst condition. Video was taken and is on file; you have not been
+shown it, so do not refer to it as though you had.
+
+WRITE FOR SOMEBODY WHO OWNS THE BUILDING, not for a surveyor. Say what needs
+doing, why it matters, and what happens if it waits.
+
+URGENCY IS ABOUT CONSEQUENCE, NOT TIDINESS. A failing roof flashing and a
+scuffed skirting board are not the same kind of problem. Reserve "urgent" for
+things that are unsafe, are letting water in, or will cost markedly more every
+month they are left.
+
+COSTS ARE ESTIMATES AND MUST BE LABELLED AS SUCH. Give a realistic range in US
+dollars for the work as described, and say when you cannot tell from a
+photograph — "needs a closer look" is a legitimate answer and a better one than
+a confident number that is wrong.
+
+DO NOT INVENT FINDINGS. If an area was recorded as Good with no notes and you
+were shown no photograph of it, it does not appear in the plan.
+
+Return ONLY a JSON object, no prose, no code fence:
+{
+  "summary": "two or three sentences on the state of the building overall",
+  "items": [
+    { "area": "Roof & Gutters",
+      "work": "what needs doing, in plain words",
+      "why": "what happens if it waits",
+      "urgency": "urgent" | "this year" | "watch",
+      "estimateLow": 0, "estimateHigh": 0,
+      "confidence": "clear from the photos" | "needs a closer look" }
+  ],
+  "schedule": [
+    { "when": "Next 30 days" | "Next 3 months" | "Next 12 months" | "Beyond a year",
+      "items": ["area — work"] }
+  ],
+  "budget": {
+    "urgentLow": 0, "urgentHigh": 0,
+    "yearLow": 0, "yearHigh": 0,
+    "note": "one line on how to read these figures"
+  }
+}`;
+
+    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const message = await client.messages.create({
+      model: Deno.env.get("INSPECTION_PLAN_MODEL") || "claude-opus-5",
+      max_tokens: 4000,
+      system,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Property: ${inspection.propertyName || inspection.propertyAddress || "unnamed"}\n`
+              + `Inspected: ${String(inspection.completedAt || "").slice(0, 10)}\n\n`
+              + `WHAT THE INSPECTOR RECORDED\n${written}\n\n`
+              + (inspection.summary ? `OVERALL NOTES\n${inspection.summary}\n\n` : "")
+              + (shown.length
+                ? `The photographs that follow are of: ${shown.join("; ")}.`
+                : "No photographs were attached, so work from the notes alone and say so in the summary."),
+          },
+          ...images,
+        ],
+      }],
+    });
+
+    const raw = message.content
+      .filter((b: any) => b.type === "text").map((b: any) => b.text).join("").trim();
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const body = fenced ? fenced[1].trim() : raw;
+    const first = body.indexOf("{");
+    const last = body.lastIndexOf("}");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(first !== -1 && last > first ? body.slice(first, last + 1) : body);
+    } catch {
+      return c.json({ success: false, error: "The plan came back unreadable. Try again." }, 502);
+    }
+
+    console.log(`[Inspections] ${who.email} drafted a plan for ${id} from ${images.length} photo(s)`);
+    return c.json({
+      success: true,
+      inspectionId: id,
+      photosRead: images.length,
+      photosAvailable: candidates.length,
+      plan: parsed,
+      // Said plainly on every reply, because a plan that looks saved and is not
+      // is how somebody loses an afternoon's thinking.
+      note: "Nothing has been saved or scheduled. This is a draft to read and change.",
+    });
+  } catch (error: any) {
+    console.error("[Inspections] plan failed:", error?.message || error);
+    return c.json({ success: false, error: error?.message || "Could not draft the plan." }, 500);
+  }
+});
+
 export default inspectionsRouter;

@@ -9,7 +9,7 @@ Two requests from Eric, on the landlord portal:
 > inspection with photos and video and a ai assistant can put together a
 > property maintenace plan as well as update schedule and budgeting"
 
-**P1 to P4 are built.** Section 4 has the decisions still outstanding; section 3 the
+**P1 to P5 are built.** Only P6 remains, and it waits on question (b). Section 4 has the decisions still outstanding; section 3 the
 order of work.
 
 ---
@@ -89,7 +89,7 @@ somebody has to find.
       because that is where it will actually be used.
 - [x] **P4. `lastInspectionDate` flows back**, so the property AI's score stops
       saying none is recorded. Cheap, and it closes the loop that already exists.
-- [ ] **P5. The assistant.** Reads a completed inspection, drafts a maintenance
+- [x] **P5. The assistant.** Reads a completed inspection, drafts a maintenance
       plan, a schedule and a budget. Metered like every other model call.
       Proposes only.
 - [ ] **P6. Accepting a proposal** — what a plan, a schedule and a budget
@@ -112,8 +112,9 @@ it (`dont-spend-a-render-on-an-unfinished-model`), which points the same way:
 if video analysis happens at all it should be deliberate and per-inspection,
 not automatic.
 
-Recommendation: store video, analyse photos and notes, and offer video analysis
-as an explicit action later if it is wanted.
+**ANSWERED.** Eric: "store the video, analyze photos and notes." Built that way:
+video is kept as evidence and never sent to the model, the prompt says so, and
+photographs are capped at twelve spent on the worst-condition areas first.
 
 **b) Does an inspection finding become work?**
 

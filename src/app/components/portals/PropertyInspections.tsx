@@ -22,7 +22,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardCheck, LoaderCircle, Plus, Camera, CheckCircle2,
-  Trash2, ChevronLeft, AlertTriangle,
+  Trash2, ChevronLeft, AlertTriangle, Sparkles, CalendarDays, Wallet,
 } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 import ConditionAreas, {
@@ -58,6 +58,10 @@ export default function PropertyInspections({
   const [summary, setSummary] = useState('');
   const [busy, setBusy] = useState(false);
   const [propertyId, setPropertyId] = useState('');
+  // The drafted plan, held in the page. Nothing is saved — see the note the
+  // server sends back with it.
+  const [plan, setPlan] = useState<any | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   const authHeaders = session?.access_token
     ? { Authorization: `Bearer ${session.access_token}` }
@@ -137,6 +141,32 @@ export default function PropertyInspections({
       toast.error(error?.message || 'Unable to save.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Ask for a maintenance plan, a schedule and a budget.
+   *
+   * Only on a finished inspection, which the server enforces too — a plan
+   * drawn from half a walkthrough is confident about rooms nobody has looked
+   * at, and it spends money on a model to be so.
+   */
+  const draftPlan = async () => {
+    if (!open || !authHeaders) return;
+    setDrafting(true);
+    setPlan(null);
+    try {
+      const res = await fetch(`${SERVER}/inspection-plan/${open.id}`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || `Could not draft a plan (${res.status}).`);
+      setPlan(payload);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not draft a plan.');
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -227,6 +257,101 @@ export default function PropertyInspections({
           context={`Inspection — ${open.propertyName || open.propertyAddress || 'property'}`}
           disabled={readOnly}
         />
+
+        {readOnly && (
+          <div className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-bold text-white">
+                  <Sparkles className="h-4 w-4 text-teal-400" /> Maintenance plan
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-500">
+                  Reads what you wrote and the photographs. Video stays on file as
+                  evidence and is not sent.
+                </p>
+              </div>
+              <button
+                onClick={draftPlan}
+                disabled={drafting}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-teal-500 disabled:opacity-60"
+              >
+                {drafting
+                  ? <><LoaderCircle className="h-4 w-4 animate-spin" /> Reading…</>
+                  : <>{plan ? 'Draft again' : 'Draft a plan'}</>}
+              </button>
+            </div>
+
+            {plan && (
+              <div className="mt-3 space-y-3">
+                {plan.plan?.summary && (
+                  <p className="text-sm text-gray-300">{plan.plan.summary}</p>
+                )}
+
+                {/* Work, worst first. Urgency is about consequence, so it is
+                    what the eye should land on. */}
+                {(plan.plan?.items || []).map((it: any, i: number) => (
+                  <div key={i} className="rounded-lg border border-[#2A2A2A] bg-[#151515] p-2.5">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-white">
+                      {it.area}
+                      <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                        it.urgency === 'urgent'
+                          ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                          : it.urgency === 'this year'
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                            : 'border-white/10 bg-white/5 text-gray-400'
+                      }`}>{it.urgency}</span>
+                      {Number(it.estimateHigh) > 0 && (
+                        <span className="text-xs font-normal text-teal-300">
+                          ${Number(it.estimateLow).toLocaleString()}–${Number(it.estimateHigh).toLocaleString()}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-300">{it.work}</p>
+                    {it.why && <p className="mt-0.5 text-[11px] text-gray-500">{it.why}</p>}
+                    {/* Said out loud, because a confident number from a blurry
+                        photograph is worse than an admission. */}
+                    {it.confidence === 'needs a closer look' && (
+                      <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-400">
+                        <AlertTriangle className="h-3 w-3" /> Needs a closer look before trusting the figure
+                      </p>
+                    )}
+                  </div>
+                ))}
+
+                {(plan.plan?.schedule || []).length > 0 && (
+                  <div>
+                    <p className="mb-1 flex items-center gap-1.5 text-xs font-bold text-gray-300">
+                      <CalendarDays className="h-3.5 w-3.5 text-teal-400" /> Suggested order
+                    </p>
+                    {plan.plan.schedule.map((s: any, i: number) => (
+                      <p key={i} className="text-[11px] text-gray-400">
+                        <span className="text-gray-300">{s.when}:</span> {(s.items || []).join('; ')}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {plan.plan?.budget && (
+                  <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 p-2.5">
+                    <p className="mb-1 flex items-center gap-1.5 text-xs font-bold text-teal-300">
+                      <Wallet className="h-3.5 w-3.5" /> Budget
+                    </p>
+                    <p className="text-xs text-gray-300">
+                      Urgent ${Number(plan.plan.budget.urgentLow || 0).toLocaleString()}–${Number(plan.plan.budget.urgentHigh || 0).toLocaleString()}
+                      {' · '}This year ${Number(plan.plan.budget.yearLow || 0).toLocaleString()}–${Number(plan.plan.budget.yearHigh || 0).toLocaleString()}
+                    </p>
+                    {plan.plan.budget.note && <p className="mt-0.5 text-[11px] text-gray-500">{plan.plan.budget.note}</p>}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-gray-500">
+                  {plan.note} Read from {plan.photosRead} of {plan.photosAvailable} photograph
+                  {plan.photosAvailable === 1 ? '' : 's'}.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-gray-400">Overall notes</label>
