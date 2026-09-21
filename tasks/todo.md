@@ -6968,3 +6968,69 @@ The webhook guard shipped earlier already makes test-mode events inert against
 live data, so Eric can register a test endpoint and exercise delivery safely
 today without any of the above. That covers the inbound half, which is what
 prompted this.
+
+---
+
+## Migrations reconciled — 2026-09-20
+
+### The eight that were missing are now in the repo
+
+Taken from the project's own `supabase_migrations.schema_migrations`, which
+records the exact SQL that was applied — not a regenerated schema diff, so the
+files say what actually ran. Named with their real version prefixes so they
+line up with the remote history:
+
+    20260217215610_create_kv_table_824f083c.sql
+    20260725015010_create_kv_table_57095a78.sql
+    20260809142252_create_kv_table_3eae23a6.sql
+    20260809225742_create_kv_table_12c91054.sql
+    20260901025535_revoke_trigger_fn_execute.sql
+    20260908213838_enable_pg_cron_and_pg_net.sql
+    20260908213913_schedule_compliance_reminders.sql
+    20260908214000_schedule_compliance_reminders_with_apikey.sql
+
+**Every applied migration now has a file.** The repo can describe the database
+it is running against, which it could not this morning.
+
+### A live secret was in one of them
+
+`schedule_compliance_reminders` inserts the real `COMPLIANCE_CRON_SECRET` as a
+string literal. Two reasons not to copy that into the repo: it would put a live
+credential in git, and every environment rebuilt from this repo would share
+production's secret — a new environment should get a new one.
+
+So both compliance files carry the structure and a commented block showing the
+two `insert`s an operator runs with their **own** values. Verified afterwards
+that no secret or JWT literal appears in any migration file.
+
+**Worth acting on separately:** because the applied version embedded the
+literal, that secret is sitting in plaintext in
+`supabase_migrations.schema_migrations` on production. Only privileged roles can
+read that table, but it is a place nobody thinks to look. Rotating
+`COMPLIANCE_CRON_SECRET` — changing the edge function secret and the
+`private_cron_config` row together — would be reasonable.
+
+### The six never-applied files: all dead, nothing to do
+
+Checked whether each one's tables exist and whether any live code needs them:
+
+| File | Tables exist? | Live code uses them? |
+|---|---|---|
+| `investment_system` | **yes** — all four | applied by some other route; file matches reality |
+| `20260810000000_create_companies` | yes | already in the applied history |
+| `20260502_create_companies_tables` | `companies` yes, `company_documents` **no** | `CompanyDatabaseService.getDocuments/saveDocument/deleteDocument` exist but are **never called** |
+| `014_compliance_reminder_schedule` | `private_cron_config` yes | superseded by the two applied schedule migrations |
+| `010_bid_room_entitlements` | `org_entitlements` **no** | **nothing references it anywhere** |
+| `20260616_work_requests` | `work_requests` **no** | only the **retired** `make-server-57095a78` touches it; the live flow uses the KV store |
+
+So nothing production depends on is missing, and **no schema change was applied
+to production** — which is the right outcome for a reconciliation.
+
+### One risk this creates, worth knowing before anyone runs `db push`
+
+The eight recovered files carry versions that match the remote history, so they
+will be skipped. The six above will **not** be — a `supabase db push` would try
+to apply all six, creating `org_entitlements`, `work_requests` and
+`company_documents` on production for features that do not use them. They should
+be deleted, or moved out of `migrations/`, before anyone pushes. That is a
+decision about dead code rather than something to do silently.
