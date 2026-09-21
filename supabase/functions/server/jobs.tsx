@@ -128,8 +128,16 @@ export async function ensureJobId(
   opts: {
     /** A job named outright, and the parent whose job to inherit. */
     claim?: JobClaim;
-    /** Key of the parent document, read for its jobId. */
-    parentKey?: string;
+    /**
+     * Key of the parent document, read for its jobId. Several may be given,
+     * most specific first — the first one that actually carries a job wins.
+     *
+     * A purchase order is the case that needs it: raised from the pipeline it
+     * may have a quote behind it, or only the work request, depending on how
+     * far the job has got. Trying the quote and then the work request is the
+     * difference between the order joining the job and opening its own.
+     */
+    parentKey?: string | string[];
     seed: JobSeed;
     actorEmail?: string;
   },
@@ -137,8 +145,14 @@ export async function ensureJobId(
   const already = jobIdOf(record);
   if (already) return already;
 
-  const inherited = String(opts.claim?.parentJobId || '').trim()
-    || (opts.parentKey ? await parentJobId(opts.parentKey) : '');
+  let inherited = String(opts.claim?.parentJobId || '').trim();
+  if (!inherited && opts.parentKey) {
+    const keys = Array.isArray(opts.parentKey) ? opts.parentKey : [opts.parentKey];
+    for (const key of keys) {
+      inherited = await parentJobId(key);
+      if (inherited) break;
+    }
+  }
 
   const { jobId } = await resolveJobFor(
     { jobId: opts.claim?.jobId, parentJobId: inherited },

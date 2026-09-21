@@ -875,6 +875,23 @@ export default function UnifiedProjectPipeline() {
     const quoteData = {
       id: item.id,
       itemNumber: item.itemNumber,
+      /**
+       * The ids the purchase-order route needs to tie an order back to a job.
+       *
+       * It has always accepted `quoteId`, `projectName` and `siteAddress` —
+       * under a comment saying "so a vendor question can be traced back to a
+       * job" — and nothing ever sent them, so every order raised from the
+       * materials hub was orphaned. Carrying them through here is what makes
+       * a purchase order land on the job it was ordered for.
+       */
+      // Only a real quote id goes in `quoteId`. A pipeline item id is a WORK
+      // REQUEST id for most rows, and sending it as a quote id would have the
+      // server look for a quote that does not exist and open a job of its own
+      // — the orphan this change exists to stop.
+      quoteId: (item as any).quote?.id || undefined,
+      workRequestId: item.id,
+      jobId: (item as any).jobId || (item as any).quote?.jobId || undefined,
+      siteAddress: (item as any).siteAddress || (item as any).address || (item as any).location || undefined,
       customerName: item.customerName,
       customerEmail: item.customerEmail,
       serviceType: item.serviceType,

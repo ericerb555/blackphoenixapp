@@ -5225,9 +5225,13 @@ app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
     // Create-or-update, like the quote route, so an existing order keeps the
     // job it is already on.
     const directQuoteId = String(incoming.sourceQuoteId || incoming.quoteId || "").trim();
+    const directWrId = String(incoming.workRequestId || "").trim();
     order.jobId = await ensureJobId(order, {
       claim: { jobId: incoming.jobId },
-      parentKey: directQuoteId ? `quote:${directQuoteId}` : undefined,
+      parentKey: [
+        directQuoteId ? `quote:${directQuoteId}` : "",
+        directWrId ? `wr:${directWrId}` : "",
+      ].filter(Boolean),
       seed: {
         siteAddress: incoming.siteAddress,
         title: incoming.projectName,
@@ -5296,9 +5300,16 @@ app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
     // Resolved once for the batch, before the loop, so every vendor order
     // raised from one materials list lands on the same job.
     const poQuoteId = String(body.quoteId || "").trim();
+    const poWrId = String(body.workRequestId || "").trim();
     const batchJobId = await ensureJobId({}, {
       claim: { jobId: body.jobId },
-      parentKey: poQuoteId ? `quote:${poQuoteId}` : undefined,
+      // Quote first, then the work request. Materials are often ordered
+      // before a quote record exists, and the pipeline item is a work
+      // request in that case.
+      parentKey: [
+        poQuoteId ? `quote:${poQuoteId}` : "",
+        poWrId ? `wr:${poWrId}` : "",
+      ].filter(Boolean),
       seed: {
         siteAddress: body.siteAddress,
         title: body.projectName,
@@ -13297,9 +13308,13 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
      * being left attached to nothing. A thin job beats an orphan document.
      */
     const invQuoteId = String(body.quoteId || body.quote_id || "").trim();
+    const invWrId = String(body.workRequestId || body.work_request_id || "").trim();
     (record as any).jobId = await ensureJobId(record, {
       claim: { jobId: body.jobId },
-      parentKey: invQuoteId ? `quote:${invQuoteId}` : undefined,
+      parentKey: [
+        invQuoteId ? `quote:${invQuoteId}` : "",
+        invWrId ? `wr:${invWrId}` : "",
+      ].filter(Boolean),
       seed: {
         customerEmail: recipient.customerEmail,
         customerName: recipient.customerName,

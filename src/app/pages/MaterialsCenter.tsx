@@ -589,7 +589,7 @@ export default function MaterialsCenter() {
             Nothing is merged without somebody ticking it — see the component. */}
         {activeTab === 'duplicates' && <ProductMergeReview />}
         
-        {activeTab === 'quote-builder' && <QuoteBuilderTab quoteMaterials={quoteMaterials} removeMaterialFromQuote={removeMaterialFromQuote} updateQuoteMaterial={updateQuoteMaterial} returnToQuote={returnToQuote} isQuoteMode={isQuoteMode} customerSelections={customerSelections} loadingCustomerSelections={loadingCustomerSelections} loadCustomerSelections={loadCustomerSelections} importCustomerSelections={importCustomerSelections} />}
+        {activeTab === 'quote-builder' && <QuoteBuilderTab quoteMaterials={quoteMaterials} quoteContext={quoteWorkflowData} removeMaterialFromQuote={removeMaterialFromQuote} updateQuoteMaterial={updateQuoteMaterial} returnToQuote={returnToQuote} isQuoteMode={isQuoteMode} customerSelections={customerSelections} loadingCustomerSelections={loadingCustomerSelections} loadCustomerSelections={loadCustomerSelections} importCustomerSelections={importCustomerSelections} />}
         
         {activeTab === 'database' && <DatabaseTab />}
         
@@ -1138,7 +1138,22 @@ function VendorPortalTab() {
   );
 }
 
-function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteMaterial, returnToQuote, isQuoteMode, customerSelections = [], loadingCustomerSelections, loadCustomerSelections, importCustomerSelections }: any) {
+function QuoteBuilderTab({ quoteMaterials, quoteContext, removeMaterialFromQuote, updateQuoteMaterial, returnToQuote, isQuoteMode, customerSelections = [], loadingCustomerSelections, loadCustomerSelections, importCustomerSelections }: any) {
+  /**
+   * Which job these materials are being ordered for.
+   *
+   * Sent with every purchase order so the order lands on the job rather than
+   * opening one of its own. Without it the server has nothing to inherit
+   * from and each batch becomes its own job — which is what happened to
+   * every order raised from this screen before now.
+   */
+  const jobLink = () => ({
+    quoteId: quoteContext?.quoteId || quoteContext?.quote?.id || '',
+    workRequestId: quoteContext?.workRequestId || quoteContext?.id || '',
+    jobId: quoteContext?.jobId || undefined,
+    projectName: quoteContext?.title || quoteContext?.itemNumber || '',
+    siteAddress: quoteContext?.siteAddress || '',
+  });
   const totalCost = quoteMaterials.reduce((sum: number, item: any) => sum + (item.totalPrice || 0), 0);
 
   // Vendor comparison state
@@ -1312,6 +1327,7 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
           method: 'POST',
           headers: await authedHeaders(),
           body: JSON.stringify({
+            ...jobLink(),
             fulfillment: deliveryPreference,
             lines: quoteMaterials.map((m: any) => ({
               vendorId: m.vendorId || '',
@@ -1396,6 +1412,7 @@ function QuoteBuilderTab({ quoteMaterials, removeMaterialFromQuote, updateQuoteM
           method: 'POST',
           headers: await authedHeaders(),
           body: JSON.stringify({
+            ...jobLink(),
             fulfillment: deliveryPreference,
             lines: (po.items || []).map((m: any) => ({
               vendorId: m.vendorId || '',
