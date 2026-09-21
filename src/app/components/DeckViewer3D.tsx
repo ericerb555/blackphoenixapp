@@ -666,6 +666,31 @@ export default function DeckViewer3D({
   const [shot, setShot] = useState<{ url: string; disclaimer: string } | null>(null);
   const [style, setStyle] = useState('afternoon');
 
+  /**
+   * Whether the house behind the deck is real enough to pay to render.
+   *
+   * Every press of the render button is a paid image. Spending one while the
+   * wall is still the default box sized off the deck buys a convincing picture
+   * of a building that does not exist — and the customer then pays again for
+   * the right one. So the button waits until the massing came from somewhere:
+   * a tape, or a photograph.
+   *
+   * Width, height and storeys only. Openings and siding are left out on
+   * purpose — a photo read marks synthesised windows `estimated` almost every
+   * time, so including them would hold the button shut forever, which is worse
+   * than opening it too early.
+   *
+   * This is a spend guard rather than an authorisation check, so the browser is
+   * the right place for it. The real ceiling is `reserveImages` on the server,
+   * which counts and refuses regardless of what any button does.
+   */
+  const houseIsReal = (() => {
+    if (!houseView) return false;
+    const from = houseView.source || ({} as Record<string, string>);
+    return (['widthFt', 'heightFt', 'storeys'] as const)
+      .every(f => from[f] === 'measured' || from[f] === 'photos');
+  })();
+
   const photoreal = async () => {
     const frame = grab.current?.();
     if (!frame) { toast.error('Could not read the 3D view.'); return; }
@@ -737,13 +762,28 @@ export default function DeckViewer3D({
           // that pass over whatever is currently on screen, so the angle you
           // set up is the angle you get back.
           <div className="ml-auto flex items-center gap-2">
+            {/* Said on screen rather than only in the button's tooltip, which
+                is invisible on a touch device and easy to miss on a desktop.
+                Somebody looking at a greyed-out button deserves to know what
+                would turn it on. */}
+            {!houseIsReal && (
+              <span className="text-xs text-amber-500/90 max-w-[19rem] leading-tight">
+                Measure or photograph the house first — a render of the default
+                wall costs an image and shows the wrong building.
+              </span>
+            )}
             <select value={style} onChange={e => setStyle(e.target.value)}
               title={RENDER_STYLES.find(s => s.id === style)?.hint}
               className="px-2.5 py-2 rounded-xl text-sm bg-[#0A0A0A] border border-[#2A2A2A] text-gray-300 focus:outline-none focus:border-[#ea580c]">
               {RENDER_STYLES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
-            <button onClick={photoreal} disabled={rendering}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+            <button onClick={photoreal} disabled={rendering || !houseIsReal}
+              title={houseIsReal
+                ? 'Renders the view on screen. Costs one image.'
+                : 'Measure or photograph the house first — width, height and how many '
+                  + 'storeys. Rendering before that costs an image and returns a picture '
+                  + 'of the wrong building.'}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: 'rgba(234,88,12,0.16)', border: '1px solid rgba(234,88,12,0.5)' }}>
               {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {rendering ? 'Rendering' : 'Photoreal render'}
