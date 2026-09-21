@@ -7587,3 +7587,38 @@ against the deployed function, the conversion by 20 tests.
 **Next: D**, splitting the assistant's prompt so it stops answering bathroom
 questions in joist spans.
 
+
+### D, done
+
+- [x] D1. The prompt is assembled per trade: a shared half that does not change
+      and a short brief that does. Each brief is mostly *what goes wrong* in
+      that trade, because that is what a builder is actually asking about.
+      Two rules added to the shared half — never state whether a wall is
+      bearing, and always say when a number came from a photograph.
+- [x] D2. The trade and the whole building now travel with every question, each
+      dimension carrying whether it was measured, photo-read or a guess.
+- [x] D3 *(not planned, found on the way)*. The assistant was rendered only when
+      `trade === 'deck'`, directly under a comment claiming it belonged to no
+      trade. Seven of eight trades had no assistant at all, which is why nobody
+      had noticed it answering bathroom questions in joist spans — you could not
+      ask it one.
+
+The prompt layer moved to `assistantPrompt.ts` so it could be tested;
+`design-assistant.tsx` imports Hono, which a node test cannot load. That split
+paid for itself immediately: the shared section's worked example was a deck
+example, so DCA 6 and joist sizes were reaching the bathroom prompt through the
+half that was meant to be trade-neutral. Reading the code had not caught it.
+
+Proposals are enforced server-side rather than merely requested: only the deck
+has a patchable model, and a stray `joistSize` returned during a bathroom
+question would otherwise have rendered an Apply button that edited a deck nobody
+was looking at.
+
+**Not verified:** the answers themselves. They cost money per question and are a
+judgement call rather than an assertion — worth Eric asking it a real bathroom
+question once and seeing whether it sounds like someone who has built one.
+
+**Remaining from the original plan: E** — additions as a first-class project,
+and carrying an addition's footprint into siding and openings. Plus **P1-P5**,
+paint colours as a vendor catalogue.
+
