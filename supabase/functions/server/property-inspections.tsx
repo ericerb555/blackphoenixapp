@@ -261,6 +261,94 @@ inspectionsRouter.delete("/make-server-3eae23a6/landlord/inspections/:id", async
   return c.json({ success: true, deleted: true });
 });
 
+/* ── the plan a landlord keeps ────────────────────────────────────────────
+ *
+ * P6. The inspection says what was observed on a day and never changes. The
+ * plan says what is going to be done about it, and changes constantly — things
+ * get quoted, done, deferred, reconsidered.
+ *
+ * So they are separate records. Folding the plan into the inspection would
+ * either freeze the plan, which makes it useless, or unfreeze the inspection,
+ * which makes it arguable. Neither is acceptable and the split costs nothing.
+ *
+ * THE PLAN IS THE LANDLORD'S
+ *
+ * Eric's steer: the plan belongs to them, and each line has a "get this
+ * quoted" they press if they want us to do the work. That keeps the pipeline
+ * the spine without volunteering somebody else's money — a maintenance plan
+ * that silently became a pile of work requests to Black Phoenix would be us
+ * deciding how a landlord spends.
+ */
+export const PLAN_KEY = (email: string, inspectionId: string) =>
+  `maintenance_plan:${String(email).toLowerCase()}:${inspectionId}`;
+
+/** The plan for one inspection, if the landlord kept one. */
+inspectionsRouter.get("/make-server-3eae23a6/landlord/inspections/:id/plan", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const id = text(c.req.param("id"), 120);
+  const plan = await kv.get(PLAN_KEY(who.email, id));
+  return c.json({ success: true, plan: plan || null });
+});
+
+/**
+ * Keep a plan, or update one.
+ *
+ * Saved wholesale rather than item by item, because a landlord reading through
+ * a draft changes several lines before they are happy — deferring one, cutting
+ * another, correcting an estimate — and saving each keystroke separately would
+ * make a half-edited plan the stored one.
+ */
+inspectionsRouter.put("/make-server-3eae23a6/landlord/inspections/:id/plan", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const id = text(c.req.param("id"), 120);
+  const inspection = await kv.get(KEY(who.email, id)) as any;
+  if (!inspection) return c.json({ success: false, error: "No such inspection." }, 404);
+
+  const body = await c.req.json().catch(() => ({}));
+  const existing = await kv.get(PLAN_KEY(who.email, id)) as any;
+  const now = new Date().toISOString();
+
+  const items = (Array.isArray(body?.items) ? body.items : []).slice(0, 100).map((it: any, i: number) => {
+    // A line that has already been sent to us for a quote keeps that fact,
+    // whatever the browser sends back — otherwise re-saving the plan after
+    // requesting a quote would quietly lose the link to the work request.
+    const before = existing?.items?.[i];
+    return {
+      area: text(it?.area, 120),
+      work: text(it?.work, 1000),
+      why: text(it?.why, 1000),
+      urgency: ["urgent", "this year", "watch"].includes(it?.urgency) ? it.urgency : "watch",
+      estimateLow: Number(it?.estimateLow) || 0,
+      estimateHigh: Number(it?.estimateHigh) || 0,
+      confidence: text(it?.confidence, 60),
+      status: ["open", "done", "deferred"].includes(it?.status) ? it.status : (before?.status || "open"),
+      workRequestId: before?.workRequestId || null,
+      quotedAt: before?.quotedAt || null,
+    };
+  }).filter((it: any) => it.work);
+
+  const plan = {
+    inspectionId: id,
+    landlordEmail: who.email,
+    propertyId: inspection.propertyId,
+    propertyName: inspection.propertyName || inspection.propertyAddress || "",
+    summary: text(body?.summary, 4000),
+    items,
+    schedule: Array.isArray(body?.schedule) ? body.schedule.slice(0, 20) : (existing?.schedule || []),
+    budget: body?.budget && typeof body.budget === "object" ? body.budget : (existing?.budget || null),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+
+  await kv.set(PLAN_KEY(who.email, id), plan);
+  console.log(`[Inspections] ${who.email} saved a plan for ${id} with ${items.length} item(s)`);
+  return c.json({ success: true, plan });
+});
+
 /* ── the assistant ────────────────────────────────────────────────────────
  *
  * P5 of `tasks/property-inspections.md`. Reads a completed inspection and

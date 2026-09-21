@@ -163,7 +163,7 @@ import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
 import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
-import { inspectionsRouter } from "./property-inspections.tsx";
+import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
@@ -7109,6 +7109,130 @@ async function landlordSubPortalPlan(actor: any): Promise<{ planId: string; quot
   } catch (_error) { /* fall through to default tier */ }
   return { planId: 'landlord', quota: TENANT_SUBPORTAL_QUOTA['landlord'] };
 }
+
+/**
+ * POST /landlord/plan-item/quote — ask us to price one line of a maintenance plan.
+ *
+ * P6 of `tasks/property-inspections.md`, and the one point where a landlord's
+ * private plan touches our business.
+ *
+ * WHY THIS IS A BUTTON AND NOT AUTOMATIC
+ *
+ * A maintenance plan drafted from an inspection is the landlord's own thinking
+ * about their building. Turning every line of it into a work request would be
+ * us deciding how somebody else spends their money, and it would fill the
+ * pipeline with work nobody has agreed to. So the plan stays theirs, and each
+ * line is sent to us only when they press the button on that line.
+ *
+ * WHY IT LIVES HERE RATHER THAN WITH THE OTHER INSPECTION ROUTES
+ *
+ * `persistWorkRequest` is defined in this file, and it is the one way a work
+ * request is written — it maintains the index, the legacy list, and since J2 it
+ * resolves the job the request belongs to. Reaching for the key-value store
+ * directly from the inspections router would be a second way to create a work
+ * request, and the second way is always the one that forgets something.
+ */
+app.post('/make-server-3eae23a6/landlord/plan-item/quote', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+
+    const email = String(actor.user.email).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const inspectionId = String(body?.inspectionId || '').trim();
+    const index = Number(body?.itemIndex);
+    if (!inspectionId || !Number.isInteger(index) || index < 0) {
+      return c.json({ success: false, error: 'Which line of which plan?' }, 400);
+    }
+
+    const plan = await kv.get(PLAN_KEY(email, inspectionId)) as any;
+    const item = plan?.items?.[index];
+    if (!item) return c.json({ success: false, error: 'No such line in that plan.' }, 404);
+
+    /**
+     * Asking twice does not raise a second request.
+     *
+     * The failure this prevents is not an untidy list — it is two crews being
+     * sent to look at one roof, which is a real cost and an awkward phone call.
+     */
+    if (item.workRequestId) {
+      return c.json({
+        success: false,
+        error: 'That line has already been sent to us. It is in your Maintenance tab.',
+        workRequestId: item.workRequestId,
+      }, 409);
+    }
+
+    const inspection = await kv.get(`inspection:${email}:${inspectionId}`) as any;
+    const now = new Date().toISOString();
+
+    /**
+     * The description carries what the inspection actually found.
+     *
+     * Whoever prices this has not walked the building, and "Roof & Gutters" on
+     * its own tells them nothing. The condition, the note the inspector wrote
+     * and the reason it matters are what make a quote possible without a second
+     * visit.
+     */
+    const observed = (inspection?.areas || []).find((a: any) => a.name === item.area);
+    const description = [
+      item.work,
+      item.why ? `Why it matters: ${item.why}` : '',
+      observed?.condition ? `Recorded condition: ${observed.condition}` : '',
+      observed?.notes ? `Inspector's note: ${observed.notes}` : '',
+      observed?.media?.length ? `${observed.media.length} photo/video on file for this area.` : '',
+      `From the inspection of ${String(inspection?.completedAt || '').slice(0, 10) || 'this property'}.`,
+    ].filter(Boolean).join('\n');
+
+    const title = `${item.area}: ${String(item.work).slice(0, 120)}`;
+    const record = {
+      id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+      title, project_name: title, description,
+      // The plan's own urgency, mapped onto the scale the pipeline uses.
+      priority: item.urgency === 'urgent' ? 'high' : item.urgency === 'this year' ? 'medium' : 'low',
+      category: 'maintenance',
+      unit: '',
+      address: inspection?.propertyAddress || plan.propertyName || '',
+      client_email: email, clientEmail: email,
+      client_name: String(actor.user.user_metadata?.full_name || actor.user.user_metadata?.name || ''),
+      user_id: actor.user.id,
+      landlordEmail: email,
+      type: 'landlord',
+      source: 'property-inspection',
+      // Where it came from, so a question about this job can be traced back to
+      // the photographs that prompted it.
+      inspectionId,
+      planItemIndex: index,
+      propertyId: plan.propertyId || null,
+      status: 'pending',
+      attachments: [],
+      created_at: now, updated_at: now,
+    };
+
+    // The one way a work request is written. Since J2 this also resolves the
+    // job it belongs to, so a quote raised here lands on the same job as
+    // everything else about this property's work.
+    await persistWorkRequest(record);
+
+    // Stamp the line so the plan shows it has been sent and cannot send again.
+    plan.items[index] = { ...item, workRequestId: record.id, quotedAt: now };
+    plan.updatedAt = now;
+    await kv.set(PLAN_KEY(email, inspectionId), plan);
+
+    console.log(`[Inspections] ${email} asked for a quote on ${item.area} — ${record.id}`);
+    return c.json({
+      success: true,
+      workRequestId: record.id,
+      jobId: (record as any).jobId || null,
+      note: 'Sent. It is in your Maintenance tab, and we will come back with a price.',
+    }, 201);
+  } catch (error: any) {
+    console.error('[Inspections] quote request failed:', error?.message || error);
+    return c.json({ success: false, error: error?.message || 'Could not send that for a quote.' }, 500);
+  }
+});
+
 
 app.get('/make-server-3eae23a6/landlord/work-requests', async (c) => {
   try {

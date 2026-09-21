@@ -22,7 +22,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardCheck, LoaderCircle, Plus, Camera, CheckCircle2,
-  Trash2, ChevronLeft, AlertTriangle, Sparkles, CalendarDays, Wallet,
+  Trash2, ChevronLeft, AlertTriangle, Sparkles, CalendarDays, Wallet, Save, Send,
 } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 import ConditionAreas, {
@@ -62,6 +62,10 @@ export default function PropertyInspections({
   // server sends back with it.
   const [plan, setPlan] = useState<any | null>(null);
   const [drafting, setDrafting] = useState(false);
+  // The kept plan, which is a different thing from the draft above: this one
+  // is the landlord's record and it changes as work gets quoted and done.
+  const [saved, setSaved] = useState<any | null>(null);
+  const [quoting, setQuoting] = useState<number | null>(null);
 
   const authHeaders = session?.access_token
     ? { Authorization: `Bearer ${session.access_token}` }
@@ -167,6 +171,57 @@ export default function PropertyInspections({
       toast.error(error?.message || 'Could not draft a plan.');
     } finally {
       setDrafting(false);
+    }
+  };
+
+  /** Keep this plan. It becomes the landlord's record, not a draft. */
+  const keepPlan = async () => {
+    if (!open || !authHeaders || !plan?.plan) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${SERVER}/landlord/inspections/${open.id}/plan`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(plan.plan),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || `Could not save (${res.status}).`);
+      setSaved(payload.plan);
+      toast.success('Plan saved. It is yours to work through.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save the plan.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Send one line to Black Phoenix for a price.
+   *
+   * One line at a time and never automatically — the plan is the landlord's
+   * thinking about their own building, and turning all of it into work
+   * requests would be deciding how somebody else spends their money.
+   */
+  const quoteLine = async (index: number) => {
+    if (!open || !authHeaders || !saved) return;
+    setQuoting(index);
+    try {
+      const res = await fetch(`${SERVER}/landlord/plan-item/quote`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inspectionId: open.id, itemIndex: index }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || `Could not send (${res.status}).`);
+      toast.success(payload.note || 'Sent for a quote.');
+      // Re-read so the line shows it has gone and cannot be sent twice.
+      const fresh = await fetch(`${SERVER}/landlord/inspections/${open.id}/plan`, { headers: authHeaders });
+      const freshPayload = await fresh.json().catch(() => ({}));
+      if (freshPayload?.plan) setSaved(freshPayload.plan);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not send that for a quote.');
+    } finally {
+      setQuoting(null);
     }
   };
 
@@ -281,6 +336,52 @@ export default function PropertyInspections({
               </button>
             </div>
 
+            {saved && !plan && (
+              <div className="mt-3 space-y-2">
+                <p className="text-[11px] text-gray-500">
+                  Your plan, kept {String(saved.updatedAt || '').slice(0, 10)}. Send any line to us
+                  for a price when you want it done.
+                </p>
+                {(saved.items || []).map((it: any, i: number) => (
+                  <div key={i} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#2A2A2A] bg-[#151515] p-2.5">
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-white">
+                        {it.area}
+                        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                          it.urgency === 'urgent'
+                            ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                            : it.urgency === 'this year'
+                              ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                              : 'border-white/10 bg-white/5 text-gray-400'
+                        }`}>{it.urgency}</span>
+                        {Number(it.estimateHigh) > 0 && (
+                          <span className="text-xs font-normal text-teal-300">
+                            ${Number(it.estimateLow).toLocaleString()}–${Number(it.estimateHigh).toLocaleString()}
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-300">{it.work}</p>
+                    </div>
+                    {it.workRequestId ? (
+                      <span className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-[11px] font-bold text-green-400">
+                        <CheckCircle2 className="h-3 w-3" /> With us for a price
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => quoteLine(i)}
+                        disabled={quoting !== null}
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-teal-500/40 px-2.5 py-1.5 text-[11px] font-bold text-teal-300 transition hover:bg-teal-500/10 disabled:opacity-50"
+                      >
+                        {quoting === i
+                          ? <LoaderCircle className="h-3 w-3 animate-spin" />
+                          : <><Send className="h-3 w-3" /> Get this quoted</>}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {plan && (
               <div className="mt-3 space-y-3">
                 {plan.plan?.summary && (
@@ -344,9 +445,27 @@ export default function PropertyInspections({
                   </div>
                 )}
 
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={keepPlan}
+                    disabled={busy}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-500 disabled:opacity-60"
+                  >
+                    <Save className="h-3.5 w-3.5" /> Keep this plan
+                  </button>
+                  <button
+                    onClick={() => setPlan(null)}
+                    className="rounded-lg border border-[#3a3a3a] px-3 py-2 text-xs font-semibold text-gray-300 transition hover:text-white"
+                  >
+                    Discard
+                  </button>
+                </div>
+
                 <p className="text-[11px] text-gray-500">
                   {plan.note} Read from {plan.photosRead} of {plan.photosAvailable} photograph
                   {plan.photosAvailable === 1 ? '' : 's'}.
+                  {' '}Keeping it makes it yours to work through — nothing is sent to us
+                  until you ask for a price on a line.
                 </p>
               </div>
             )}
@@ -445,7 +564,22 @@ export default function PropertyInspections({
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button
-                    onClick={() => { setOpen(i); setAreas(i.areas || []); setSummary(i.summary || ''); }}
+                    onClick={async () => {
+                      setOpen(i);
+                      setAreas(i.areas || []);
+                      setSummary(i.summary || '');
+                      setPlan(null);
+                      setSaved(null);
+                      // A plan kept earlier is the thing to show, not a blank
+                      // panel inviting somebody to draft a second one.
+                      if (authHeaders) {
+                        try {
+                          const r = await fetch(`${SERVER}/landlord/inspections/${i.id}/plan`, { headers: authHeaders });
+                          const pl = await r.json().catch(() => ({}));
+                          if (pl?.plan) setSaved(pl.plan);
+                        } catch { /* the draft button still works */ }
+                      }
+                    }}
                     className="rounded-lg border border-[#3a3a3a] px-3 py-1.5 text-xs font-semibold text-gray-300 transition hover:text-white"
                   >
                     {i.status === 'complete' ? 'View' : 'Continue'}

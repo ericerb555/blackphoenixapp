@@ -9,7 +9,7 @@ Two requests from Eric, on the landlord portal:
 > inspection with photos and video and a ai assistant can put together a
 > property maintenace plan as well as update schedule and budgeting"
 
-**P1 to P5 are built.** Only P6 remains, and it waits on question (b). Section 4 has the decisions still outstanding; section 3 the
+**P1 to P6 are built.** Questions (c) and (d) remain open. Section 4 has the decisions still outstanding; section 3 the
 order of work.
 
 ---
@@ -92,7 +92,7 @@ somebody has to find.
 - [x] **P5. The assistant.** Reads a completed inspection, drafts a maintenance
       plan, a schedule and a budget. Metered like every other model call.
       Proposes only.
-- [ ] **P6. Accepting a proposal** — what a plan, a schedule and a budget
+- [x] **P6. Accepting a proposal** — what a plan, a schedule and a budget
       actually become. See question (b): this is where it touches the pipeline.
 
 P1 is worth doing first whatever is decided about the rest, because the forms
@@ -130,9 +130,10 @@ The second is the business. It is also a much bigger claim on the landlord's
 behalf, so it should be something they choose per finding rather than something
 the assistant does.
 
-Recommendation: the plan is theirs; each line has a "get this quoted" that
-raises a work request. That keeps the pipeline the spine without volunteering
-their money.
+**BUILT THAT WAY.** The plan is kept as the landlord's own record, and each
+line has a "get this quoted" that raises a work request through
+persistWorkRequest — so it lands on the same job as everything else about that
+property, and nothing reaches us until they ask.
 
 **c) Who else may see an inspection?**
 
