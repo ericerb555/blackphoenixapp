@@ -7209,3 +7209,50 @@ either value passing through me.
 Nothing is at risk while it is mismatched: there are zero `org_compliance:`
 records, so no reminder is owed to anyone, and an administrator can trigger the
 run by hand regardless.
+
+### Third attempt, then a change of approach — done
+
+The row was still `4d4a597f…` after the update was reported as run, so the two
+copies disagreed for a third time. At that point the design is the problem, not
+the operator. One secret living in two places with nothing keeping them in step
+will drift, and it drifts silently: cron fires, the route refuses, and the only
+symptom is reminders that never arrive.
+
+So `/compliance/run-reminders` now reads `private_cron_config` first and falls
+back to `COMPLIANCE_CRON_SECRET` only when the row is absent:
+
+```ts
+let secret = '';
+try {
+  const { data } = await supabase
+    .from('private_cron_config')
+    .select('value')
+    .eq('key', 'compliance_cron_secret')
+    .maybeSingle();
+  secret = String(data?.value || '');
+} catch { /* fall through to env */ }
+if (!secret) secret = Deno.env.get('COMPLIANCE_CRON_SECRET') || '';
+```
+
+The row the scheduler already reads is now the only copy that decides anything.
+Rotating is one `UPDATE`, and there is no second place to forget.
+
+**Verified on the real path**, not inferred:
+
+- `pg_net` replicating the scheduled command exactly (request 16) → **200**
+  `{"success":true,"sent":0,"skipped":0,"lapsed":0}`
+- posting the old exposed value `7f29caf6…` → **401**
+
+So the leaked credential is dead and the 12:00 UTC job works. Nothing further is
+needed from Eric; the `COMPLIANCE_CRON_SECRET` he set (`81c0b89a…`) is now only
+a fallback for an environment whose row has not been seeded.
+
+Deployed as `make-server-3eae23a6`. Typecheck 324 and server typecheck 84, both
+unchanged against the baseline — the apparent new entries were existing errors
+shifted down by the added lines, confirmed by diffing the error sets rather than
+the counts. Smoke reports no source changes reach any page, which is right: this
+touches an edge function and a migration comment only.
+
+The migration file's instructions were rewritten to match, since they previously
+told a future operator to keep the row in step with an environment variable that
+no longer governs anything.
