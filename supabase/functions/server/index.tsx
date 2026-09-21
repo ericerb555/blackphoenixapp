@@ -14879,9 +14879,9 @@ app.patch('/make-server-3eae23a6/reviews/:id', async (c) => {
 // (TierPicker, InvoiceBuilder, portals) reads the live config from the GET route
 // below, which returns these defaults until the owner saves their own.
 const DEFAULT_TECH_TIERS = [
-  { id: 'A', label: 'Tier A — Elite Master',      description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
-  { id: 'B', label: 'Tier B — Senior Journeyman', description: 'Journeyman license, 8+ yrs, specialty-certified',          hourlyRate: 110, color: 'silver' },
-  { id: 'C', label: 'Tier C — Journeyman',        description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
+  { id: 'A', label: 'Tier A — Master tech',       description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
+  { id: 'B', label: 'Tier B — Advanced tech',     description: 'Licensed, 8+ yrs, specialty-certified',                    hourlyRate: 110, color: 'silver' },
+  { id: 'C', label: 'Tier C — Intermediate tech', description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
   { id: 'D', label: 'Tier D — Apprentice',        description: 'Entry-level, supervised work only',                        hourlyRate: 55,  color: 'green' },
 ];
 // GET is readable by ANY signed-in user (or anon key) so pickers, invoices, and

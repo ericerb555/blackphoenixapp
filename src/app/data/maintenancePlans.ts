@@ -119,22 +119,24 @@ export interface SkillLevel {
 
 export const SKILL_LEVELS: SkillLevel[] = [
   {
+    // The id stays 'apprentice' — saved plans point at it. Only the name a
+    // customer reads has changed.
     id: 'apprentice',
-    label: 'Apprentice',
+    label: 'Intermediate tech',
     description: 'Supervised tech, best value',
     multiplier: 0.80,
     badge: 'VALUE',
   },
   {
     id: 'journeyman',
-    label: 'Journeyman',
+    label: 'Advanced tech',
     description: 'Licensed & experienced',
     multiplier: 1.00,
     badge: 'STANDARD',
   },
   {
     id: 'master',
-    label: 'Master Technician',
+    label: 'Master tech',
     description: 'Top-tier specialist',
     multiplier: 1.30,
     badge: 'PREMIUM',

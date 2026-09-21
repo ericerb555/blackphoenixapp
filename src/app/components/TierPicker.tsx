@@ -13,9 +13,9 @@ const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23
 // as a fallback if the network request fails; the live source of truth is the
 // server GET /tech-tiers/config. Exported so every consumer shares one definition.
 export const DEFAULT_TECH_TIERS: TechTier[] = [
-  { id: 'A', label: 'Tier A — Elite Master',      description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
-  { id: 'B', label: 'Tier B — Senior Journeyman', description: 'Journeyman license, 8+ yrs, specialty-certified',           hourlyRate: 110, color: 'silver' },
-  { id: 'C', label: 'Tier C — Journeyman',        description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
+  { id: 'A', label: 'Tier A — Master tech',       description: 'Licensed master tradesperson, 15+ yrs, all certifications', hourlyRate: 145, color: 'gold' },
+  { id: 'B', label: 'Tier B — Advanced tech',     description: 'Licensed, 8+ yrs, specialty-certified',                     hourlyRate: 110, color: 'silver' },
+  { id: 'C', label: 'Tier C — Intermediate tech', description: 'Licensed tradesperson, 3+ yrs',                            hourlyRate: 85,  color: 'blue' },
   { id: 'D', label: 'Tier D — Apprentice',        description: 'Entry-level, supervised work only',                        hourlyRate: 55,  color: 'green' },
 ];
 const FALLBACK_TIERS = DEFAULT_TECH_TIERS;

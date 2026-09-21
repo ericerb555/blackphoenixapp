@@ -277,7 +277,7 @@ export default function TechRosterManager() {
                           <input
                             value={draftTiers[i].label}
                             onChange={e => setDraftTiers(prev => prev.map((t, j) => j === i ? { ...t, label: e.target.value } : t))}
-                            placeholder="e.g. Tier A — Elite Master"
+                            placeholder="e.g. Tier A — Master tech"
                             className="w-full bg-[#0A0A0A] border border-orange-500/30 rounded-lg px-3 py-1.5 text-white text-sm font-bold focus:outline-none focus:border-orange-500 placeholder-gray-600"
                           />
                         ) : (
