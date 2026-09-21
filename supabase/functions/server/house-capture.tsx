@@ -864,6 +864,13 @@ function photorealPrompt(opts: {
   return lines.join("\n");
 }
 
+/**
+ * Paint the designed deck into the customer's own photograph, inside a mask.
+ *
+ * Not to be confused with `/photoreal-3d` further down, which renders a frame
+ * grabbed from the measured 3D view. Different input, different prompt,
+ * different path — see the note there for what happened when they shared one.
+ */
 app.post("/photoreal", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
@@ -1216,8 +1223,21 @@ app.post("/looks", async (c) => {
  * The prompt is written to hold the geometry still and change only the
  * rendering: same camera, same proportions, same railing and stair layout. What
  * comes back is a presentation image, and it is labelled as one.
+ *
+ * WHY THE PATH IS NOT `/photoreal`
+ *
+ * It was, and that made it dead code for as long as it has existed. `/photoreal`
+ * is registered earlier in this file for the composite-and-mask render, one Hono
+ * app serves both, and the first registration wins — so every call from the 3D
+ * viewer reached the composite handler, which looked for a `composite` field it
+ * was never sent and answered 400 "Composite the deck onto the photograph
+ * first." The route that renders from measured geometry was unreachable.
+ *
+ * The two are genuinely different operations on different inputs, so they get
+ * different paths rather than one handler with a branch in it. Keep it that way:
+ * a second `app.post` on a path already taken in this file fails silently.
  */
-app.post("/photoreal", async (c) => {
+app.post("/photoreal-3d", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const shot: string = typeof body?.shot === "string" ? body.shot : "";

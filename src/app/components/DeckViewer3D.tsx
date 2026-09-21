@@ -673,7 +673,9 @@ export default function DeckViewer3D({
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/house-capture/photoreal`,
+        // `-3d` because `/house-capture/photoreal` is the composite-and-mask
+        // render. This one sends a frame off the measured model instead.
+        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/house-capture/photoreal-3d`,
         {
           method: 'POST',
           headers: {

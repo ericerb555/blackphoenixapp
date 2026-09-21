@@ -7256,3 +7256,166 @@ touches an edge function and a migration comment only.
 The migration file's instructions were rewritten to match, since they previously
 told a future operator to keep the row in step with an environment variable that
 no longer governs anything.
+
+---
+
+## Plan — "Design Your Project" as the customer's one stop shop
+
+**Status: waiting on Eric's approval. No code written yet.**
+
+### What I found before planning
+
+The surprise is how much of this already exists. Nearly every piece Eric
+described is built, working, and effectively unreachable by a homeowner:
+
+| The ask | What exists | Where |
+| --- | --- | --- |
+| Photograph the exterior | `HouseCapture` — photos/video, reads width, storeys, siding, sill height, openings, each tagged with how confident the read was | `components/HouseCapture.tsx` |
+| Exterior rendering | `/house-capture/photoreal` off the measured 3D view | `components/DeckViewer3D.tsx` |
+| Interior layout | `FloorPlanEditor` + `floorPlanModel` — existing rooms, proposed rooms, and walls that carry their structural state | `components/FloorPlanEditor.tsx` |
+| Photos in every section | `SectionCapture`, already mounted in five places | `components/design/SectionCapture.tsx` |
+| An addition | `floorPlanModel` is built around existing-plus-proposed footprint | `lib/floorPlanModel.ts` |
+| Deck, siding, openings, kitchen, bathroom, flooring, hardscape, structures | All eight trades, all marked built | `pages/DeckDesigner.tsx:165` |
+| An AI assistant | `DeckAssistant` to `/design-assistant/ask` | `components/DeckAssistant.tsx` |
+| Capture-first order of work | The designer already has stages: capture, design, scope, price, documents | `pages/DeckDesigner.tsx:294` |
+
+And the building record is already the right shape: a `House` is a set of
+`HouseView`s, each either an `elevation` or a `room`, and `houseToTrades.ts`
+feeds those views into siding, openings, flooring, structures and rooms. One
+building, many trades reading it.
+
+**So this is not a rebuild. It is a front door.** What a customer gets today is
+a card and an "Open the design centre" button that drops them on
+`stage='design'`, `trade='deck'`, cold, with no indication that photographing
+the house is step one, or that any of the above is in there at all.
+
+### The three real gaps
+
+1. **Interior photos read nothing.** `HouseCapture` only produces elevations —
+   `viewFromAnalysis` populates siding, storeys and sill height. A room view can
+   only be created by typing its dimensions into `HousePanel` by hand. Eric
+   asked for interior pictures to produce an interior layout; that half does not
+   exist.
+2. **The assistant is deck-only.** Its system prompt opens "You are sitting with
+   a deck builder" and it reasons in DCA 6 span tables. Asked about a bathroom
+   remodel it will answer about joists.
+3. **The 3D render is dead code.** `house-capture.tsx` registers
+   `POST /photoreal` twice — line 867 (composite onto a photo) and line 1220
+   (the measured 3D frame). One Hono app, so the first registration wins.
+   `DeckViewer3D` posts `{shot, deck, style}`, the composite handler reads
+   `body.composite`, finds nothing, and answers 400 "Composite the deck onto the
+   photograph first." The renders-come-from-measured-geometry path has been
+   unreachable. Same shadowing class as the five route bugs found earlier this
+   week.
+
+### The architecture, before any of it is built
+
+One idea holds it together: **the House is the record, and the walkthrough fills
+it in.** Nothing new owns data.
+
+```
+  Guided walkthrough  --writes-->   House { views: [elevation, room, ...] }
+  (the new front door)                    |         FloorPlan { rooms, walls }
+                                          |
+                  +-----------------------+-----------------------+
+                  v                                               v
+        exterior trades                                  interior trades
+   siding / openings / deck / structures        kitchen / bath / flooring / addition
+                  |                                               |
+                  +--------------> scope, price, documents <------+
+                                          |
+                                   work request -> pipeline
+```
+
+The walkthrough writes only into `House` and `FloorPlan`. Every trade screen
+already reads those. So adding a trade later costs nothing here, and the
+walkthrough cannot drift from the designer, because it is not holding a second
+copy of anything.
+
+The assistant sits beside that, reading the same record, and — per the rule
+already written into `design-assistant.tsx` — proposes rather than edits.
+
+### The todo list
+
+**A. Make the existing render work again** *(first; it is a bug, not a feature)*
+- [ ] A1. Merge the two `/photoreal` handlers in `house-capture.tsx` into one
+      that branches on whether it was given a `composite` or a `shot`. Keep both
+      prompts — they are different jobs and both are correct.
+- [ ] A2. Prove it in the running app: open the 3D view, press render, get an
+      image rather than a 400.
+
+**B. The walkthrough** *(`CustomerDesignTab` becomes a stepped flow)*
+- [ ] B1. Step 1, "What are you thinking about?" — the eight built trades plus
+      Addition and Whole-home layout, each a plain-English card rather than a
+      trade name. Roofing stays off the list until it is built, per the rail's
+      own rule that nothing is advertised before it exists.
+- [ ] B2. Step 2, "Show us the outside" — reuse `HouseCapture` unchanged, framed
+      for a homeowner. Skippable; skipping costs the render, not the design.
+- [ ] B3. Step 3, "Show us the inside" — one room at a time, reusing
+      `SectionCapture` for the photos and the new read in C1 for the dimensions.
+      Only appears for interior work.
+- [ ] B4. Step 4, "What do you want?" — free text, plus the assistant.
+- [ ] B5. Step 5, "Here is what we made" — the render, the layout, and the
+      existing Send-to-Black-Phoenix action, which already posts to
+      `/work-requests` and lands in the pipeline with everything else.
+- [ ] B6. Resumable. Someone who photographs the house on Saturday and comes
+      back on Sunday finds their place, because the House is what is saved, not
+      the step number.
+
+**C. Interior reading** *(the genuine new capability)*
+- [ ] C1. Extend the analyse route to read a room: length, width, ceiling
+      height, window and door positions, and what is there now — cabinet run,
+      tub, shower, vanity. Same provenance discipline as the exterior read:
+      every number labelled as photo-read, never presented as measured.
+- [ ] C2. Turn that read into a `HouseView` of kind `room` and a `FloorPlan`
+      room, so `RoomDesigner` and `FlooringTakeoff` pick it up with no change of
+      their own.
+
+**D. Widen the assistant**
+- [ ] D1. Split the system prompt: shared rules (be brief, use the app's own
+      numbers, never edit the design) plus a per-trade section. Decks keep DCA
+      6; kitchens get clearances and the work triangle; bathrooms get fixture
+      clearances and ventilation; additions get the bearing-wall question.
+- [ ] D2. Send the trade and the House with every question.
+
+**E. Additions as a first-class project**
+- [ ] E1. Surface `FloorPlanEditor` as its own trade in the designer rather than
+      a panel reachable only from the deck screen.
+- [ ] E2. Carry the addition's footprint into siding and openings through
+      `houseToTrades`, so a new wall is quoted like any other wall.
+
+### What I am deliberately not doing
+
+- Not restyling the portal or any other tab. The walkthrough is a new panel
+  inside the existing tab, in the existing dark card style.
+- Not touching the designer's layout for staff. Same screens, reached
+  differently.
+- Not building roofing to fill out the trade list.
+- Not letting the walkthrough produce a price. What a customer designs is an
+  idea, not a quote, and the existing tab already says so — that text survives
+  into the new flow.
+
+### Scale, honestly
+
+This is five or six sittings, not one. A is an afternoon. B is the bulk of it. C
+is a new AI read and wants real photos of real rooms to test against. D and E
+are small once B exists. If it should be narrower, **A plus B is a coherent
+shippable thing on its own** — it makes everything that already exists
+reachable, and the interior read can follow.
+
+### Approved 2026-09-20
+
+Eric chose **A + B now** — fix the render, then build the walkthrough — with C,
+D and E to follow once he has used it. So the interior read is not being built
+yet, but he settled what it should pull out of a room photo when it is, and all
+four were wanted:
+
+- dimensions and ceiling height
+- window and door positions
+- what is there now (cabinet runs, tub, shower, vanity, appliances)
+- finishes and condition
+
+The last of those is the least reliable thing to read off a photograph, so when
+C is built it must be labelled hardest — it feeds a quote, and a confident wrong
+answer about counter material costs real money.
+
