@@ -10636,6 +10636,139 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
 });
 
 
+/**
+ * Create the Stripe Product and recurring Price for a published tier.
+ *
+ * WHY THE SERVER DOES THIS AND NOT A PERSON WITH THE DASHBOARD OPEN
+ *
+ * Creating them by hand works and is fine. What goes wrong is the copying: a
+ * price id pasted into the wrong tier bills the wrong amount, and nothing
+ * catches it until a customer's card is charged. Here the tier already knows
+ * its own name, amount and interval, so the Stripe objects are created FROM
+ * the tier and the id comes straight back onto it. There is no step where a
+ * human moves an identifier between two systems.
+ *
+ * The secret key never leaves the edge function — it is read from the Supabase
+ * secret the rest of the Stripe code already uses, on the 'services' account,
+ * because subscriptions belong to Black Phoenix Builds and never to the store.
+ *
+ * IDEMPOTENT BY REFUSAL
+ *
+ * A tier that already has a price id is left alone unless `?replace=1`. Prices
+ * in Stripe are immutable: changing an amount means creating a new Price and
+ * leaving the old one for existing subscribers, so quietly making a second one
+ * every time this was called would litter the account with near-identical
+ * prices and make it impossible to tell which was live.
+ */
+app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in required.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return c.json({ error: 'Sign in required.' }, 401);
+
+    const role = String(user.app_metadata?.role || user.app_metadata?.accountType || '')
+      .toLowerCase().replace(/[\s-]+/g, '_');
+    if (!['owner', 'admin', 'master_admin', 'management'].includes(role)) {
+      return c.json({ error: 'Only an administrator can create prices.' }, 403);
+    }
+
+    const audience = String(c.req.param('audience') || '').trim();
+    const tierId = String(c.req.param('id') || '').trim();
+    const key = `plan_tier:${audience}:${tierId}`;
+    const tier = await kv.get(key) as any;
+    if (!tier) return c.json({ error: 'No such plan.' }, 404);
+
+    const amount = Number(tier.priceCents);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({
+        error: 'This plan has no price set, so there is nothing to create in Stripe. '
+          + 'A free tier is granted rather than sold.',
+      }, 400);
+    }
+
+    const replace = c.req.query('replace') === '1';
+    if (tier.stripePriceId && !replace) {
+      return c.json({
+        error: 'This plan already has a Stripe price. Prices in Stripe cannot be edited — '
+          + 'to change the amount, call this again with ?replace=1, which creates a new price '
+          + 'and leaves the old one for anybody already subscribed to it.',
+        stripePriceId: tier.stripePriceId,
+      }, 409);
+    }
+
+    const stripeKey = stripeKeyFor('services');
+    const interval = tier.interval === 'year' ? 'year' : 'month';
+
+    const post = async (path: string, params: URLSearchParams) => {
+      const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${btoa(`${stripeKey}:`)}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error?.message || `Stripe refused: ${res.status}`);
+      return payload;
+    };
+
+    // Reuse the product across price changes, so the customer-facing name stays
+    // one thing in Stripe's reporting rather than fragmenting per price.
+    let productId = String(tier.stripeProductId || '');
+    if (!productId) {
+      const product = await post('products', new URLSearchParams({
+        name: `${String(tier.name)} — ${audience}`,
+        description: String(tier.blurb || `${tier.name} plan for the ${audience} portal`).slice(0, 350),
+        'metadata[bp_audience]': audience,
+        'metadata[bp_tier_id]': tierId,
+      }));
+      productId = String(product.id);
+    }
+
+    const price = await post('prices', new URLSearchParams({
+      product: productId,
+      currency: 'usd',
+      unit_amount: String(Math.round(amount)),
+      'recurring[interval]': interval,
+      'metadata[bp_audience]': audience,
+      'metadata[bp_tier_id]': tierId,
+    }));
+
+    const now = new Date().toISOString();
+    await kv.set(key, {
+      ...tier,
+      stripeProductId: productId,
+      stripePriceId: String(price.id),
+      // Kept so a later reader can tell whether the stored amount and the live
+      // Stripe price have drifted apart — which they will, the first time
+      // somebody edits priceCents and forgets that Stripe prices are immutable.
+      stripePriceCents: Math.round(amount),
+      stripePriceCreatedAt: now,
+      updatedAt: now,
+      updatedBy: String(user.email || '').toLowerCase(),
+    });
+
+    console.log(`[PlanCatalog] ${user.email} created ${price.id} (${amount} ${interval}) for ${audience}/${tierId}`);
+    return c.json({
+      success: true,
+      stripeProductId: productId,
+      stripePriceId: String(price.id),
+      amountCents: Math.round(amount),
+      interval,
+      livemode: Boolean(price.livemode),
+      note: price.livemode
+        ? 'Created on the LIVE Stripe account. This plan can now be bought for real money.'
+        : 'Created in Stripe TEST mode. Swap the secret key to go live.',
+    });
+  } catch (error: any) {
+    console.error('[PlanCatalog] stripe price error:', error?.message || error);
+    return c.json({ error: error?.message || 'Could not create the Stripe price.' }, 500);
+  }
+});
+
+
 async function stripeCheckoutSession(params: URLSearchParams, account: StripeAccount = 'services') {
   const stripeKey = stripeKeyFor(account);
   if (!stripeKey) throw new Error(`${stripeAccountLabel(account)} Stripe checkout is not configured.`);
