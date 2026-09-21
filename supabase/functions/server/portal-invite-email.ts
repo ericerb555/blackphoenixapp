@@ -4,11 +4,17 @@
  * and the email that is actually delivered via Resend. Preview === delivered,
  * guaranteed, because both call buildPortalInviteEmail().
  *
- * The editable copy (subject, heading, intro, blurb, trial line, button label,
- * footer) can be overridden per portal type. Overrides are stored in the KV
- * store by the server and merged in here. Any field left blank falls back to
- * the built-in default below. Copy supports these tokens:
+ * The editable copy (subject, heading, intro, blurb, trial line, plan line,
+ * button label, footer) can be overridden per portal type. Overrides are stored
+ * in the KV store by the server and merged in here. Any field left blank falls
+ * back to the built-in default below. Copy supports these tokens:
  *   {firstName} {company} {label} {trialPeriod} {trialMonths}
+ *   {planName} {planPrice}
+ *
+ * The plan block renders only when the caller supplies BOTH a name and a price.
+ * It is the one commercial sentence in an otherwise welcoming email, so it sits
+ * in its own bordered block: somebody skimming should be able to see what this
+ * will cost without reading the whole thing.
  */
 
 export const PORTAL_LABELS: Record<string, string> = {
@@ -49,11 +55,12 @@ export const INVITE_FIELD_DEFS: { key: InviteFieldKey; label: string; hint: stri
   { key: "intro", label: "Intro paragraph", hint: "First sentence of the message", multiline: true },
   { key: "blurb", label: "Portal pitch", hint: "One-line value pitch for this portal", multiline: true },
   { key: "trialLine", label: "Trial note", hint: "Shown only when a free trial is granted", multiline: true },
+  { key: "planLine", label: "Plan on offer", hint: "Shown only when a specific plan is being offered. Use {planName} and {planPrice}.", multiline: true },
   { key: "buttonLabel", label: "Button label", hint: "The call-to-action button text", multiline: false },
   { key: "footerNote", label: "Footer note", hint: "Small print at the bottom", multiline: true },
 ];
 
-export type InviteFieldKey = "subject" | "heading" | "intro" | "blurb" | "trialLine" | "buttonLabel" | "footerNote";
+export type InviteFieldKey = "subject" | "heading" | "intro" | "blurb" | "trialLine" | "planLine" | "buttonLabel" | "footerNote";
 export type InviteFields = Partial<Record<InviteFieldKey, string>>;
 
 /** Built-in default copy (with tokens) for a given portal type. */
@@ -64,6 +71,7 @@ export function defaultInviteFields(portalType: string): Record<InviteFieldKey, 
     intro: "You've been invited to the {label} portal at {company}.",
     blurb: PORTAL_BLURB[portalType] || "Access your dedicated portal and get started.",
     trialLine: "As a welcome, you have full access to every feature for {trialPeriod}. After that you can choose a plan to keep going.",
+    planLine: "When the trial ends, {planName} keeps everything switched on for {planPrice}. Nothing is charged until you choose it.",
     buttonLabel: "Access your portal →",
     footerNote: "Sent by {company}. If you weren't expecting this invitation, you can safely ignore this email.",
   };
@@ -103,6 +111,20 @@ export interface PortalInviteEmailInput {
   /** Trial info, optional. */
   fullAccess?: boolean;
   trialMonths?: number;
+  /**
+   * The plan being offered, when one is.
+   *
+   * Both are required together or the block is not rendered at all. An invite
+   * naming a plan with no price, or a price with no plan, is worse than an
+   * invite that mentions neither — it invites a reply asking what it costs,
+   * which is the opposite of what the email is for.
+   *
+   * The price is passed already formatted rather than in cents, because the
+   * email is not the place to decide how money is written and the caller
+   * already knows the interval.
+   */
+  planName?: string;
+  planPrice?: string;
   /** Per-portal copy overrides from the KV store (Owner's Dashboard editor). */
   overrides?: InviteFields;
 }
@@ -116,9 +138,20 @@ export function buildPortalInviteEmail(input: PortalInviteEmailInput): { subject
   const months = input.trialMonths || 6;
   const trialPeriod = `${months} month${months === 1 ? "" : "s"}`;
 
+  /**
+   * Both halves or neither.
+   *
+   * A plan block naming a plan with no price invites a reply asking what it
+   * costs, which is the opposite of what this email is for.
+   */
+  const planName = String(input.planName || "").trim();
+  const planPrice = String(input.planPrice || "").trim();
+  const offeringPlan = Boolean(planName && planPrice);
+
   const tokens: Record<string, string> = {
     firstName, company, label,
     trialPeriod, trialMonths: String(months),
+    planName, planPrice,
   };
   const fields = effectiveInviteFields(input.portalType, input.overrides);
 
@@ -129,6 +162,22 @@ export function buildPortalInviteEmail(input: PortalInviteEmailInput): { subject
   const subject = raw("subject");
   const trialLineHtml = input.fullAccess
     ? `<p style="margin:0 0 18px;color:#cbd5e1;font-size:14px;line-height:22px;">${html("trialLine")}</p>`
+    : "";
+
+  /**
+   * The plan on offer, set apart from the body copy.
+   *
+   * Boxed rather than run into the paragraph above it because it is the one
+   * commercial sentence in an otherwise welcoming email, and somebody skimming
+   * should be able to see what this will cost without reading the whole thing.
+   * It is the honest place for that, and burying it would be the dishonest one.
+   */
+  const planLineHtml = offeringPlan
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+         <tr><td style="background:#141414;border:1px solid #2a2a2a;border-left:3px solid #ea580c;border-radius:10px;padding:14px 16px;">
+           <p style="margin:0;color:#cbd5e1;font-size:14px;line-height:22px;">${html("planLine")}</p>
+         </td></tr>
+       </table>`
     : "";
 
   const logoBlock = logo
@@ -161,6 +210,7 @@ export function buildPortalInviteEmail(input: PortalInviteEmailInput): { subject
           <h1 style="margin:0 0 12px;color:#ffffff;font-size:22px;font-weight:800;">${html("heading")}</h1>
           <p style="margin:0 0 18px;color:#d1d5db;font-size:15px;line-height:24px;">${html("intro")} ${html("blurb")}</p>
           ${trialLineHtml}
+          ${planLineHtml}
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px;">
             <tr><td style="border-radius:10px;background-color:#ea580c;">
               <a href="${esc(url)}" target="_blank" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px;">${html("buttonLabel")}</a>
@@ -196,7 +246,16 @@ export function buildPortalInviteSms(input: PortalInviteEmailInput): string {
   const trialPeriod = `${months} month${months === 1 ? "" : "s"}`;
   const label = PORTAL_LABELS[input.portalType] || "Portal";
   const firstName = (input.name || "there").split(" ")[0];
-  const tokens: Record<string, string> = { firstName, company, label, trialPeriod, trialMonths: String(months) };
+  // Both halves or neither, exactly as in the email — see the note on
+  // PortalInviteEmailInput. A text message quoting a plan with no price is
+  // worse than one that mentions neither.
+  const planName = String(input.planName || "").trim();
+  const planPrice = String(input.planPrice || "").trim();
+
+  const tokens: Record<string, string> = {
+    firstName, company, label, trialPeriod, trialMonths: String(months),
+    planName, planPrice,
+  };
   const fields = effectiveInviteFields(input.portalType, input.overrides);
   const fill = (s: string) => fillTokens(s, tokens);
 
@@ -207,6 +266,7 @@ export function buildPortalInviteSms(input: PortalInviteEmailInput): string {
     fill(fields.blurb),
   ];
   if (input.fullAccess) parts.push(fill(fields.trialLine));
+  if (planName && planPrice) parts.push(fill(fields.planLine));
   parts.push(`Get started: ${url}`);
   // Collapse whitespace and cap length so it lands as a clean SMS.
   let msg = parts.join(" ").replace(/\s+/g, " ").trim();

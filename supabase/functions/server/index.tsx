@@ -145,7 +145,7 @@ async function authoritativeUnitPrice(id: string): Promise<number | null> {
   );
   return price > 0 ? price : null;
 }
-import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.tsx";
+import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.ts";
 const INVITE_TEMPLATE_KEY = (portalType: string) => `portal_invite_template:${portalType}`;
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";

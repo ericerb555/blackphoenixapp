@@ -50,6 +50,64 @@ function goToPlans() {
   window.location.href = '/subscription-hub';
 }
 
+/** A tier as the catalogue hands it over — never with the Stripe price id. */
+interface SellableTier {
+  id: string;
+  name: string;
+  blurb?: string;
+  features: string[];
+  priceCents?: number;
+  interval?: 'month' | 'year';
+  purchasable: boolean;
+}
+
+function money(cents?: number, interval?: string): string {
+  if (!Number.isFinite(Number(cents)) || Number(cents) <= 0) return '';
+  const amount = (Number(cents) / 100).toLocaleString(undefined, {
+    style: 'currency', currency: 'USD', minimumFractionDigits: 0,
+  });
+  return interval ? `${amount}/${interval}` : amount;
+}
+
+/**
+ * The plans this portal can actually sell, if any.
+ *
+ * Deliberately part of THIS banner rather than a second one. The banner already
+ * knows whether a trial is running, whether it has ended and which portal it is
+ * in — a separate plan banner would have had to work all of that out again, and
+ * the two would have sat one above the other telling the same person about the
+ * same trial in different words.
+ *
+ * Empty is the normal state until somebody publishes a tier with a real Stripe
+ * price. `purchasable` is computed on the server, so nothing here can offer
+ * something that cannot be bought.
+ */
+function useSellableTiers(portalType?: string) {
+  const { session } = useAuth();
+  const [tiers, setTiers] = useState<SellableTier[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (!portalType || !session?.access_token) return;
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/plan-tiers?audience=${encodeURIComponent(portalType)}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (active) setTiers((Array.isArray(json?.tiers) ? json.tiers : []).filter((t: SellableTier) => t.purchasable));
+      } catch {
+        // A banner that cannot reach the catalogue keeps its existing button,
+        // which goes to the subscription hub. No error is worth showing here.
+      }
+    })();
+    return () => { active = false; };
+  }, [portalType, session?.access_token]);
+
+  return tiers;
+}
+
 /**
  * Drop-in banner for the top of any portal view. Renders:
  *  - nothing for admins / users with no trial grant and no plan requirement
@@ -61,6 +119,36 @@ export default function PortalTrialBanner() {
   const { session } = useAuth();
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const tiers = useSellableTiers(entitlements?.portalType);
+  const [showPlans, setShowPlans] = useState(false);
+  const [buying, setBuying] = useState<string | null>(null);
+
+  /**
+   * Straight to Stripe for the chosen tier.
+   *
+   * The card never touches this app: the server creates a Checkout Session and
+   * the browser is sent to Stripe's own page. The tier id is all that travels,
+   * and the server decides from it what may be charged and to whom — the email
+   * comes from the verified token, not from here.
+   */
+  async function choosePlan(tierId: string) {
+    if (buying || !session?.access_token || !entitlements?.portalType) return;
+    setBuying(tierId);
+    try {
+      const res = await fetch(`${SERVER}/plan-checkout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audience: entitlements.portalType, tierId }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok && payload?.url) { window.location.assign(payload.url); return; }
+      setStartError(payload?.error || 'Could not start checkout. Please try again.');
+    } catch {
+      setStartError('Could not reach the server. Please try again.');
+    } finally {
+      setBuying(null);
+    }
+  }
 
   /**
    * Start the ninety-day trial for somebody who registered themselves.
@@ -141,11 +229,63 @@ export default function PortalTrialBanner() {
             <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-red-500/20"><Lock className="h-5 w-5 text-red-400" /></div>
             <div>
               <p className="text-sm font-bold text-red-300">Your full-access trial has ended</p>
-              <p className="text-xs text-red-200/80">Choose a plan to keep using all of your portal's features.</p>
+              <p className="text-xs text-red-200/80">
+                {startError || (tiers.length > 0
+                  ? "Choose a plan to keep using all of your portal's features."
+                  /* Nothing published for this portal yet. Saying "choose a
+                     plan" with nothing to choose sends somebody hunting for a
+                     page that cannot help them. */
+                  : 'We will be in touch about what happens next.')}
+              </p>
             </div>
           </div>
-          <button onClick={goToPlans} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500">Choose a plan <ArrowRight className="h-4 w-4" /></button>
+
+          {/* Only offer the button when there is something behind it. With a
+              published catalogue the plans open inline, because sending
+              somebody to another page to buy is a step at which people stop. */}
+          {tiers.length > 0 && (
+            <button
+              onClick={() => setShowPlans(v => !v)}
+              className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500"
+            >
+              {showPlans ? 'Hide plans' : 'Choose a plan'} <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
         </div>
+
+        {showPlans && tiers.length > 0 && (
+          <div className="mx-auto max-w-7xl px-6 pb-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {tiers.map(t => (
+                <div key={t.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="font-semibold text-white">{t.name}</p>
+                    <p className="text-sm font-bold text-red-300">{money(t.priceCents, t.interval)}</p>
+                  </div>
+                  {t.blurb && <p className="mt-1 text-xs text-gray-400">{t.blurb}</p>}
+                  {t.features.length > 0 && (
+                    <ul className="mt-2 space-y-0.5 text-xs text-gray-400">
+                      {t.features.slice(0, 5).map((f, i) => <li key={i}>· {f}</li>)}
+                    </ul>
+                  )}
+                  <button
+                    onClick={() => choosePlan(t.id)}
+                    disabled={buying !== null}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-red-500 disabled:opacity-60"
+                  >
+                    {buying === t.id
+                      ? <><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Opening checkout…</>
+                      : <>Choose {t.name}</>}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-gray-500">
+              Payment is taken by Stripe. Your card details never reach this app.
+              {' '}Prefer the full comparison? <button onClick={goToPlans} className="underline hover:text-gray-300">Open the subscription hub</button>.
+            </p>
+          </div>
+        )}
       </div>
     );
   }
