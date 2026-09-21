@@ -3,12 +3,14 @@
  *
  * WHY THIS IS ITS OWN MODULE
  *
- * They are stored under `wr:{id}` behind a `wr_index` list, with two fallbacks
- * beneath that for records written before the index existed. Knowing all of
- * that is not obvious, and the cost of guessing wrong is silent: a second
- * reader that looks at the wrong prefix returns an empty list rather than an
- * error, so everything downstream of it simply has no work requests and nobody
- * is told why.
+ * They are stored under `wr:{id}` behind a `wr_index` list, with an older array
+ * and an optional table alongside holding records that never reached it. All
+ * three are merged, because they are three generations of the same store and
+ * a job is no less real for having been raised before the current one existed.
+ * Knowing all of that is not obvious, and the cost of guessing wrong is silent:
+ * a second reader that looks at the wrong prefix returns an empty list rather
+ * than an error, so everything downstream of it simply has no work requests and
+ * nobody is told why.
  *
  * That is exactly what had happened. `design-links` read a `work_request:`
  * prefix that is never written to anywhere — the only other uses of that string
@@ -31,10 +33,36 @@ import * as kv from "./kv_store.tsx";
  */
 export async function readWorkRequests(sb?: any): Promise<any[]> {
   const index: string[] = ((await kv.get("wr_index")) as string[]) || [];
+  const legacy: any[] = ((await kv.get("all_work_requests")) as any[]) || [];
 
-  let all: any[] = index.length
+  const indexed: any[] = index.length
     ? ((await Promise.all(index.map((id) => kv.get(`wr:${id}`)))).filter(Boolean) as any[])
-    : ((await kv.get("all_work_requests")) as any[]) || [];
+    : [];
+
+  /**
+   * THE LEGACY ARRAY IS MERGED, NOT FALLEN BACK TO.
+   *
+   * This read `index.length ? indexed : legacy` — an either/or. The index is
+   * empty on a system that has never used it, so the old array was read and
+   * everything showed up, which is why it looked correct.
+   *
+   * It was one submission away from not being. The moment `persistWorkRequest`
+   * writes the first indexed record, `wr_index` has one entry, the truthy
+   * branch is taken, and every record that exists only in the old array stops
+   * being returned — by the pipeline, by the customer's own list, and by the
+   * design centre, all of which come through here.
+   *
+   * On this project that is not hypothetical: two real jobs from June live only
+   * in that array, one of them assigned to a customer. They were visible only
+   * because nothing had been submitted since. Merging costs one extra read and
+   * removes the cliff entirely.
+   */
+  const byId = new Map<string, any>();
+
+  // Freshest first: an indexed record is what a PUT updates, so it wins over an
+  // older copy of the same id sitting in the array.
+  for (const record of indexed) if (record?.id) byId.set(record.id, record);
+  for (const record of legacy) if (record?.id && !byId.has(record.id)) byId.set(record.id, record);
 
   if (sb) {
     try {
@@ -43,20 +71,17 @@ export async function readWorkRequests(sb?: any): Promise<any[]> {
         .select("data")
         .order("created_at", { ascending: false })
         .limit(500);
-      const present = new Set(all.map((record: any) => record?.id));
-      all = [
-        ...all,
-        ...((data || [])
-          .map((row: any) => row.data)
-          .filter((record: any) => record && !present.has(record.id))),
-      ];
+      for (const row of data || []) {
+        const record = row?.data;
+        if (record?.id && !byId.has(record.id)) byId.set(record.id, record);
+      }
     } catch {
       // The key-value store remains the durable fallback when the optional
       // table is absent, which it is in most environments.
     }
   }
 
-  return all;
+  return [...byId.values()];
 }
 
 /**
