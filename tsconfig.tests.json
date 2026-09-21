@@ -1,0 +1,25 @@
+{
+  // The test files themselves, which neither of the other two configs covers:
+  // `tsconfig.json` includes only `src/**`, and `tsconfig.server.json` only the
+  // edge function. An unchecked test can pass while asserting nonsense, so they
+  // get a config of their own rather than being trusted.
+  //
+  // `allowImportingTsExtensions` is required because the tests import `.ts`
+  // paths directly — that is how Node runs them, with type stripping and no
+  // build step.
+  //
+  // No `@types/node` is installed and none is needed: leaving `types` alone lets
+  // the compiler resolve `node:test` and `node:assert` without it. Verified by
+  // introducing a deliberate type error and watching this config catch it, which
+  // is the only way to know a checker is checking anything.
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["tests/**/*.ts"]
+}
