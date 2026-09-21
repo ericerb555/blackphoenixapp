@@ -15456,6 +15456,46 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
         sms: `Quote ${quote.quoteNumber || quote.id} was approved by ${updated.signature.signerName}.`,
       }).catch(() => {});
     }
+
+    /**
+     * Tell the office, whoever the quote belongs to.
+     *
+     * The notify above fires only when the quote carries a landlordEmail,
+     * which an ordinary construction quote does not — so approving one told
+     * nobody at all. The page tried to cover that gap by writing an alert in
+     * the browser, which put it on the CUSTOMER's device, where no member of
+     * staff was ever going to look.
+     *
+     * An approval is the moment a job becomes real. It belongs in the alert
+     * store the office actually reads, written by the route that knows it
+     * happened.
+     */
+    if (decision === 'approved') {
+      try {
+        const alerts = (await kv.get('admin_alerts') as any[]) || [];
+        const value = Number(quote.total || quote.totalCost || 0);
+        alerts.unshift({
+          id: `quote_approved_${crypto.randomUUID()}`,
+          type: 'success',
+          category: 'Quotes',
+          title: `Quote approved: ${quote.quoteNumber || quote.id}`,
+          description: `${updated.signature.signerName} approved ${quote.quoteNumber || quote.id}`
+            + (quote.customerName ? ` for ${quote.customerName}` : '')
+            + (value > 0 ? ` — ${value.toLocaleString()}` : '')
+            + '.',
+          status: 'unread',
+          source: 'quote-approval',
+          actionRequired: true,
+          data: { quoteId: quote.id, jobId: quote.jobId || null },
+          timestamp: now,
+        });
+        await kv.set('admin_alerts', alerts.slice(0, 200));
+      } catch (err: any) {
+        // An approval that was recorded must not be undone by a failure to
+        // announce it — the quote is already saved above.
+        console.error('[Quotes] approved but could not raise the alert:', err?.message || err);
+      }
+    }
     return c.json({ success: true, quote: updated });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to record your decision.' }, 500); }
 });

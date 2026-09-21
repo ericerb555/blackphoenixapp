@@ -6,7 +6,6 @@
  */
 
 import { toast } from 'sonner@2.0.3';
-import { sendApprovedQuoteNotification } from '../utils/adminAlertHelper';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -230,7 +229,21 @@ export default function CustomerQuoteApproval() {
         if (decision === 'approved') {
           setApproved(true);
           toast.success('Quote approved and signed! We\'ll contact you shortly to schedule.');
-          sendApprovedQuoteNotification(quote, quote.customerName).catch(() => {});
+          /**
+           * Telling the office happens on the server, in the route that just
+           * recorded the approval.
+           *
+           * What was here called `sendApprovedQuoteNotification(quote, name)`
+           * — a function that takes one argument and returns nothing — and
+           * then `.catch()` on the nothing. That threw a TypeError every
+           * time, which the outer catch turned into an error toast, so a
+           * customer who had just successfully approved their quote was
+           * immediately told it had failed.
+           *
+           * It would not have worked even without the crash: it wrote the
+           * alert to `localStorage` on THIS device — the customer's — so the
+           * office was never going to see it.
+           */
         } else {
           toast.info('Quote rejected. We\'ll reach out to discuss alternatives.');
         }
@@ -348,15 +361,15 @@ export default function CustomerQuoteApproval() {
       description: 'Your contract is being generated...'
     });
     
-    // Send notification to admin
-    sendApprovedQuoteNotification({
-      quoteNumber: quote.quoteNumber,
-      customerName: quote.customerName,
-      customerEmail: quote.customerEmail,
-      projectTitle: quote.projectTitle,
-      totalCost: quote.totalCost,
-      approvedAt: new Date().toISOString()
-    });
+    /**
+     * Nothing is announced here, because nothing has been approved yet.
+     *
+     * This is the step that reveals the contract; the approval is recorded
+     * further down, when the customer signs. What was here wrote an "approved"
+     * alert into this browser's localStorage — so it told the office nothing,
+     * and it said it at a moment when the customer had not yet agreed to
+     * anything. The office is told by the server when the signature lands.
+     */
     
     // Simulate contract generation
     setTimeout(() => {
