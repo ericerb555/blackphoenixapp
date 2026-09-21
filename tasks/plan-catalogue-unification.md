@@ -1,0 +1,184 @@
+# One catalogue behind every plan
+
+Eric, looking at the portals: *"all the plan builders need to all connect
+correct?"*
+
+Yes. They do not today. This is the plan for making them, written before any of
+it is built so the pieces can be argued about on paper rather than reconciled
+afterwards.
+
+**Nothing in here has been started.** It needs agreeing first.
+
+---
+
+## 1. What is actually there now
+
+Seven places name plans and carry their own prices.
+
+| # | Where | What it drives | Prices live in |
+|---|---|---|---|
+| 1 | `plan_tier:` records | Portal Plans tab; the **only** ladder with a Stripe price behind it | the catalogue |
+| 2 | `PORTAL_UPGRADE_PRICES` — `index.tsx:14885` | what portal checkout **validates an amount against**, and `/me/upgrade-options` | a server constant |
+| 3 | `config/subscriptionPlans.ts` | ten exported ladders, read by `SubscriptionPlans`, `TierFeatureManager`, `AdvertiserTabs`, `RevenueMonetizationHub`, `subscriptionDiscount` | a client constant |
+| 4 | `SUBSCRIPTION_PLANS` — `DealsOffersSection.tsx:49` | the deals panel inside the portals | a client constant |
+| 5 | `PLANS` — `PropertyAIStudio.tsx:27` | Property AI | a client constant |
+| 6 | `SUBSCRIPTION_TIERS` — `serviceProviders.tsx:75` | **lead routing order** and provider ranking, not just price | a server constant |
+| 7 | `SUBSCRIPTION_TIERS` — `InvestmentTab.tsx:33` | the investor portal's tiers | a client constant |
+
+### The evidence that this matters
+
+Three of them describe the same vendor and disagree:
+
+- Catalogue — **Listed $39 / Stocked $79 / Preferred $159**
+- Checkout map — **basic $99 / professional $199 / premium $399 / elite $799**
+- Config file — **Vendor Starter $149** (founding $104) / Professional / Enterprise
+
+A vendor can be shown one of these and charged against another, or shown a plan
+that checkout then refuses as "invalid plan or price" — `index.tsx:14967`
+rejects any amount not in map #2, and map #2 has never heard of Listed,
+Stocked or Preferred.
+
+Number 6 is the one that would surprise someone: `SUBSCRIPTION_TIERS` in
+`serviceProviders.tsx` carries `priority` and `leadsPerMonth`, and the provider
+list is **sorted by it**. So that ladder is not a price list at all — it is
+routing logic wearing a price list's clothes. Deleting it without replacing the
+ranking would silently reorder who gets leads.
+
+---
+
+## 2. What should own what
+
+Four owners, each with one job. Nothing else holds a price.
+
+**The catalogue (`plan_tier:`) owns what is for sale.** Names, blurbs,
+features, limits, display price, interval, sort order, whether it is offered.
+One record per tier per audience. Already built, already editable in the Portal
+Plans tab.
+
+**Stripe owns what can be charged.** A Price object, immutable, referenced by
+id from the catalogue record and never invented by this app. Already built,
+including the rule that changing an amount detaches the old price.
+
+**`feature_grant` → `resolveEntitlement` owns what a person may do.** It is
+already the only thing the portals gate on, and it is already written by three
+places — provisioning (`index.tsx:11981`), the Stripe webhook
+(`stripe-webhooks/index.ts:285`), and manual grants. Everything that sells,
+comps or trials must end here and nowhere else.
+
+**`plan:` records own bespoke bundles.** The Plans & Add-ons builder assembles a
+custom set of services with an hours allotment. That is genuinely a *different
+product* from a published tier and should stay separate — but it must price
+against the catalogue rather than its own service prices, and it must end in
+the same kind of grant.
+
+### The one rule
+
+> A surface reads the catalogue. It never carries prices.
+> If the catalogue cannot express what a surface needs, the catalogue grows.
+
+---
+
+## 3. What the catalogue cannot express yet
+
+This is the real work, and it is why this is not a find-and-replace. Each gap is
+something one of the seven ladders does that `PlanTier` has no field for.
+
+| Gap | Who needs it | Note |
+|---|---|---|
+| **Weekly billing** | `ADVERTISER_WEEKLY_PLANS` (`billingInterval: 'week'`) | catalogue interval is `month \| year` only |
+| **A discounted founding price** | every ladder in `subscriptionPlans.ts` (`foundingPrice`, 30% off) | needs a second Stripe price, not just a second number |
+| **Annual price alongside monthly** | `DealsOffersSection` (`annualPrice`) | two prices per tier, or two records |
+| **Add-on options** | `SubscriptionPlan.portalOptions`, `allowCustomRequest` | the add-ons a subscriber toggles on |
+| **Non-numeric limits** | `storage: '10 GB'`, `support: 'Email (48hr response)'` | catalogue limits are `Record<string, number>` — these are prose, and probably belong in `features` |
+| **Ranking / priority** | `serviceProviders.SUBSCRIPTION_TIERS.priority`, `leadsPerMonth` | decides lead routing order; must survive |
+| **A badge** | `'Most Popular'`, `'Best Value'`, `highlighted`, `popular` | display only |
+
+### And the audiences do not line up
+
+- Catalogue: `vendor, subcontractor, advertiser, customer, content, property_manager, landlord, condo_association`
+- Config file: `customer, construction, demolition, property-management, vendor, subcontractor, advertiser, investor, territory-owner`
+
+The catalogue has **no `investor` and no `territory_owner`**, so it cannot hold
+those two ladders at all today. `construction` and `demolition` look like
+customer sub-categories rather than audiences, but that is Eric's call, not a
+mechanical one.
+
+---
+
+## 4. Order of work, so nothing goes dark
+
+The danger is obvious and worth naming: **if checkout starts validating against
+the catalogue before the catalogue holds every plan the portals offer, real
+purchases start being refused.** So the catalogue is filled first and the
+constants are deleted last.
+
+- [ ] **U1. Grow `PlanTier` to cover section 3.** Pure type and helper work in
+      `planTier.ts`, unit-tested, no behaviour change. Add the missing
+      audiences. Decide `storage`/`support` become features.
+- [ ] **U2. Import the existing ladders into the catalogue.** A one-off admin
+      route that reads maps #2–#7 and writes `plan_tier:` records, marked
+      inactive, so nothing goes on sale by being imported. Then Eric reconciles
+      the duplicates by hand in the Portal Plans tab — see the open questions.
+- [ ] **U3. Point `/me/upgrade-options` at the catalogue.** Read-only surface,
+      so it can switch before checkout does and any gap shows up as a missing
+      row rather than a failed purchase.
+- [ ] **U4. Point checkout validation at the catalogue.** Keep
+      `PORTAL_UPGRADE_PRICES` as a fallback for one deploy, log when the
+      fallback fires, and only then delete it. This is the step that takes
+      money, so it gets the belt and braces.
+- [ ] **U5. Move the ranking out of `serviceProviders.SUBSCRIPTION_TIERS`.**
+      `priority` and `leadsPerMonth` become catalogue limits; the provider sort
+      reads them from the tier record. Do this before deleting that constant,
+      and check the provider order is unchanged afterwards.
+- [ ] **U6. Switch the client surfaces to read the catalogue.** #3, #4, #5, #7.
+      One component at a time, each with a smoke run, since these render inside
+      portals Eric has told me not to restyle.
+- [ ] **U7. Delete the constants.** Only once nothing imports them.
+- [ ] **U8. Bespoke plans price against the catalogue.** The Plans & Add-ons
+      builder stops carrying its own service prices, and an activated bespoke
+      plan writes a `feature_grant` like any other sale.
+
+U1 and U2 are worth doing whatever is decided about the prices, because the
+catalogue cannot be judged until it holds everything.
+
+---
+
+## 5. What needs deciding before U2
+
+These are business calls and I should not guess at any of them.
+
+1. **Which vendor ladder is right?** $39/$79/$159, or $99/$199/$399/$799, or
+   $149/founding $104? Whichever wins, the others get retired.
+2. **Do investors and territory owners become catalogue audiences**, or are
+   their plans sold some other way?
+3. **Are `construction` and `demolition` audiences of their own**, or customer
+   tiers?
+4. **Is the founding-price discount still running?** It needs a second Stripe
+   price per tier if so, and that doubles the price objects to manage.
+5. **Does anything still need weekly billing**, or can advertiser weekly go?
+
+---
+
+## 6. What this does NOT do
+
+- It does not restyle any portal. Surfaces change where their data comes from,
+  not how they look.
+- It does not merge the bespoke plan builder into the tier system. They stay
+  two products that share a catalogue and an entitlement.
+- It does not touch the maintenance-plan add-ons in `PORTAL_UPGRADE_PRICES`
+  beyond moving them; whether they stay a separate product is question 4's
+  neighbour and not part of this.
+- It does not change who can buy what. Gating already runs off the grant.
+
+---
+
+## 7. Still open from the work around this
+
+- **25 calls across 15 files** still send the publishable anon key to routes
+  that require a signed-in caller, so they answer "Sign in required." to people
+  who are signed in. Includes guest `POST /marketplace/checkout` twice in
+  `DigitalStorefront`. Audit script: `scratchpad/anonaudit.mjs`.
+- **No tier in any portal has a Stripe price attached**, in live or test mode,
+  so nothing is on sale yet whatever the catalogue says.
+- **`limits` is enforced nowhere.** `withinLimit()` exists and is tested; no
+  route calls it. U5 would make the first real consumer.

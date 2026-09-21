@@ -7930,3 +7930,16 @@ price attached, so nothing is on sale in either mode.
 
 Checks: app typecheck 323 (baseline), server 84 (baseline), tests 181 passing
 (was 171), smoke 4 pages reached, 0 threw.
+
+## One catalogue behind every plan — PLAN WRITTEN, NOT STARTED
+
+Eric asked whether all the plan builders need to connect. They do, and they
+do not: seven places name plans and carry their own prices, and three of them
+describe the same vendor at three different figures. Checkout validates
+against a map that has never heard of the tiers in the Portal Plans tab.
+
+The architecture, the gaps in the catalogue, the order of work and the five
+business questions that block it are in `tasks/plan-catalogue-unification.md`.
+
+**Waiting on Eric to verify the plan before anything is built.**
+
