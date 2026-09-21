@@ -7662,3 +7662,39 @@ simply had never been committed, so they went in rather than being left loose.
 - The vision read for a room, and the assistant's answers, both need a real
   photograph and a real question rather than a test.
 - Roofing is still unbuilt and still says so on its own tile.
+
+### P, mostly done — with one item deliberately held back
+
+- [x] P1. A paint catalogue in the vendor catalogue: colours (vendor, code,
+      name, approximate hex) and products (line, sheen, base, coverage, the
+      vendor's price per gallon), stored per vendor and readable by anybody
+      signed in. Separate because a vendor has thousands of colours and a
+      handful of products; storing the cross-product would be hundreds of
+      thousands of rows describing nothing.
+- [x] P2. Vendor upload, reusing the existing ownership rules. An upload adds
+      and updates but never clears — a vendor sending this season's new colours
+      must not silently delete the rest of their deck. An API adapter drops in
+      behind the same shape when Eric has credentials; neither Benjamin Moore
+      nor Sherwin-Williams publishes a documented public colour API, so nothing
+      here assumes one.
+- [x] P3. Colour chosen per surface, on Scope rather than inside a trade,
+      because painting crosses all of them. Never a bare hex — every swatch
+      carries the vendor's code, and the screen-colour caveat is on the panel.
+- [x] P4. Gallons from area ÷ coverage × coats, rounded up because paint comes
+      in tins, with the arithmetic printed in the line's basis so the quantity
+      can be checked. Two coats is the default and it is stated, never assumed
+      away.
+- [ ] P5. **Not done on purpose.** Offering paint in the customer walkthrough
+      would today show a homeowner an empty picker, because no vendor has
+      uploaded a deck. That is a worse first impression than not offering it.
+      It goes in the moment there is a catalogue behind it.
+
+**What this needs from Eric:** a vendor's colour deck. Either a paint vendor
+uploads one from their portal, or a spreadsheet of code/name/hex plus a short
+product list with coverage and price. Everything above is built and tested; it
+is waiting on data, not on code.
+
+**A note on the margin rule.** `PaintProduct` has `pricePerGal` and no field for
+our negotiated cost, so no screen built on this model can leak one by accident.
+That is asserted by a test rather than left as an intention.
+
