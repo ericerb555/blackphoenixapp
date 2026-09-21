@@ -160,6 +160,7 @@ import { territoryCohortRouter } from "./territory-cohorts.tsx";
 import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
+import { planCatalogRouter } from "./plan-catalog.tsx";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
@@ -755,6 +756,9 @@ app.route("/make-server-3eae23a6", territoryCohortRouter);
 app.route("/make-server-3eae23a6", vendorProfileRouter);
 app.route("/make-server-3eae23a6", advertisingRouter);
 app.route("/make-server-3eae23a6", vendorCatalogRouter);
+// Published subscription tiers. Routes carry their own full prefixes, so this
+// mounts at the root like the vendor catalogue beside it.
+app.route("/", planCatalogRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
 // imported so the module can be deployed and tested on its own — it decides
