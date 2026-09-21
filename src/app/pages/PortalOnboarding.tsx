@@ -199,7 +199,40 @@ export default function PortalOnboarding() {
     </main>
   );
 
-  if (!intake) return <div className="min-h-screen bg-[#0a0a0a] grid place-items-center px-6 text-center text-gray-300">No portal onboarding record is available for this account.</div>;
+  /**
+   * No intake — and, until now, no way out.
+   *
+   * Sign-in sends somebody here when the onboarding endpoint reports an intake
+   * that is not yet active. This screen then loads it for itself and sometimes
+   * finds none, and the two disagreeing left a customer looking at one grey
+   * sentence about a record they have never heard of, with no navigation, no
+   * button and nothing to click. Found by signing in to production as a real
+   * customer: login succeeded and the very next screen was a wall.
+   *
+   * Nothing is actually broken when this happens. There is no onboarding to do
+   * — that is what "no record" means — so the right thing is to let them into
+   * the portal their account already has.
+   *
+   * A link rather than an automatic redirect, deliberately. Sign-in is not the
+   * only way to arrive here, and a screen that bounces on sight is a loop
+   * waiting for the day something sends people back.
+   */
+  if (!intake) return (
+    <div className="min-h-screen bg-[#0a0a0a] grid place-items-center px-6 text-center">
+      <div className="max-w-md">
+        <p className="text-gray-300">There is nothing to set up on this account.</p>
+        <p className="mt-2 text-sm text-gray-500">
+          Your access is already active, so you can go straight in.
+        </p>
+        <button
+          onClick={enterPortal}
+          className="mt-6 inline-flex items-center gap-2 bg-orange-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-500"
+        >
+          Go to my portal <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   if (intake.ownerProvisioned && !intake.profile?.completed) return (
     <main className="min-h-screen bg-[#0a0a0a] px-5 py-10 text-white md:px-10 md:py-16">

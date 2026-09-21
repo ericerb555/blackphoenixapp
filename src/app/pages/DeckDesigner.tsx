@@ -241,6 +241,19 @@ interface Session {
   proposal?: Proposal;
   /** Where the camera has to stand for the model to line up with the photo. */
   camera?: AlignedCamera | null;
+  /**
+   * Which trade this project was saved as.
+   *
+   * On the session because opening a project remounts the editor, and the trade
+   * has to survive that. Without it, opening a saved bathroom from the portal
+   * landed on the Decks tab — the project was right, its name was in the header,
+   * and the screen was the wrong one, which is the same complaint that made
+   * additions a trade of their own.
+   *
+   * A URL `?trade=` still wins for a fresh arrival; this is what a *saved
+   * project* knows about itself.
+   */
+  trade?: TradeId | null;
   id: string | null;
 }
 
@@ -307,7 +320,12 @@ function DesignerSession({ session, onSession }: {
    * navigation act and not an edit: nothing about the deck is discarded by
    * looking at the siding.
    */
-  const [trade, setTrade] = useState<TradeId>(() => tradeFromUrl() || 'deck');
+  // A saved project knows which trade it is; a URL says which one was asked
+  // for. The project wins, because opening one is a more specific act than
+  // arriving at the page.
+  const [trade, setTrade] = useState<TradeId>(
+    () => session.trade || tradeFromUrl() || 'deck',
+  );
 
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
@@ -947,6 +965,12 @@ function DesignerSession({ session, onSession }: {
         proposal: full.meta.proposal && typeof full.meta.proposal === 'object'
           ? full.meta.proposal : {},
         camera: full.meta.camera && typeof full.meta.camera === 'object' ? full.meta.camera : null,
+        // Validated rather than trusted: a project saved with a trade that has
+        // since been renamed or retired falls back to the default instead of
+        // selecting a tab that does not exist.
+        trade: TRADES.some(t => t.id === full.meta.kind && t.built)
+          ? (full.meta.kind as TradeId)
+          : null,
         id: full.id,
       });
       toast.success(`Opened ${full.name}`);
@@ -2120,7 +2144,22 @@ export default function DeckDesigner() {
           (c: any) => String(c?.email || '').trim().toLowerCase() === from.email,
         );
         if (!match) {
-          toast.error('That customer is not in the customer list yet, so the job could not be attached.');
+          /**
+           * Silent when a customer is driving.
+           *
+           * This message is for the office: it means a pipeline job could not
+           * be linked to a CRM record. A homeowner who opened their own design
+           * from their own portal is told their customer is not in the customer
+           * list — about themselves, in software they are paying for, in words
+           * that describe an internal bookkeeping state they cannot act on.
+           *
+           * Nothing is broken when this happens to them. The design opens and
+           * works; only the CRM link is absent, and that is ours to fix rather
+           * than theirs to worry about.
+           */
+          if (!cameFromPortal()) {
+            toast.error('That customer is not in the customer list yet, so the job could not be attached.');
+          }
           return;
         }
         setSession(prev => ({
