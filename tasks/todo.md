@@ -7133,3 +7133,37 @@ administrator, so the run can be triggered by hand.
 
 Once step 2 is done the literal recorded in `schema_migrations` is dead, which
 was the point. The recovered migration file in this repo never contained it.
+
+### The edge secret did not take — proven, not guessed
+
+Eric said the secret was set. It was not, and the evidence is exact rather than
+inferred:
+
+1. `POST /compliance/run-reminders` carrying the **old** value answered **200**.
+   With only the anon key for Authorization the administrator fallback cannot
+   apply, so a 200 means the header matched `COMPLIANCE_CRON_SECRET`.
+2. Redeployed the function to force a cold isolate with fresh environment, in
+   case a warm one was holding stale env. Still 200.
+3. `supabase secrets list` prints a name and a **digest**, never a value.
+   `sha256` of the old secret is exactly the digest Supabase holds:
+
+       sha256(old value)   7f29caf68d43ecdc67563d109bb04543b983a8354cb111c0bd4ad50f80578bad
+       COMPLIANCE_CRON_SECRET  7f29caf68d43ecdc67563d109bb04543b983a8354cb111c0bd4ad50f80578bad
+
+So the variable still literally holds the value that was exposed.
+
+Nothing was sent by any of this: there are **zero** `org_compliance:` records,
+which is why it was safe to test at all — the run reported
+`sent: 0, skipped: 0, lapsed: 0`.
+
+### A way to confirm it next time without revealing anything
+
+Because the digest is `sha256` of the value, the rotation can be verified by
+comparing hashes rather than secrets. The value now in `private_cron_config` has
+digest:
+
+    4d4a597fb2a267f4f5f1e0d80910df6a98426ead6afb889781c137d08edd6ac5
+
+When `supabase secrets list` shows that digest against `COMPLIANCE_CRON_SECRET`,
+the two halves match and the rotation is complete. Until then the old secret
+remains live and the 12:00 UTC run will 401.
