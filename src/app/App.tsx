@@ -984,12 +984,11 @@ export default function App() {
           import("./utils/savePermanentLogo"),
         ]);
 
-        const [{ migrateUserProfiles }, { initializeOwnerProfile }, { initializeDataSync }, { verifyCompanyData }, { seedPipelineData }] = await Promise.all([
+        const [{ migrateUserProfiles }, { initializeOwnerProfile }, { initializeDataSync }, { verifyCompanyData }] = await Promise.all([
           import("./utils/migrationHelper"),
           import("./utils/initializeOwnerProfile"),
           import("./utils/syncToSupabase"),
           import("./utils/verifyCompanyData"),
-          import("./utils/seedPipelineData"),
         ]);
         if (disposed) return;
 
@@ -997,7 +996,27 @@ export default function App() {
         initializeOwnerProfile();
         initializeDataSync().catch(() => console.log("ℹ️ [Sync] Running in local-only mode (sync disabled)"));
         window.verifyCompanyData = verifyCompanyData;
-        window.seedPipelineData = seedPipelineData;
+        /**
+         * `window.seedPipelineData` used to be assigned here, and that is where
+         * 432 demo records came from — 60 separate batches of stock names and
+         * invented jobs, sitting in the pipeline beside three real customers.
+         *
+         * Attaching a data generator to `window` on a production site makes it
+         * one console line away for anybody who opens devtools, with no
+         * confirmation and nothing recording who did it. The pipeline's "Clear
+         * Pipeline" button was removed for the same reason from the other
+         * direction: destroying everything and filling it with fiction are the
+         * same kind of control, and neither belongs a keystroke away from a
+         * board carrying real work.
+         *
+         * `verifyCompanyData` stays because it reads and reports; it changes
+         * nothing.
+         *
+         * The seeder module is left on disk. Demo data is genuinely useful when
+         * demonstrating the product, and it can be imported deliberately by
+         * whoever is doing that — which is a different act from it being
+         * permanently available on every page load in production.
+         */
       } catch (error) {
         // Boot helpers are optional. The application remains usable if an old helper
         // or an unavailable backend dependency fails.
