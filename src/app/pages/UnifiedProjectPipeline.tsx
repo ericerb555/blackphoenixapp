@@ -105,6 +105,34 @@ interface CustomerSubmission {
   };
 }
 
+/**
+ * What a quote comes to, whichever shape it was written in.
+ *
+ * TWO CONVENTIONS EXIST IN THE STORED DATA AND BOTH ARE REAL
+ *
+ * One generation of quote writes `totalCost`, with `labor` and `materials`.
+ * Another writes `total`, with `laborItems` and `materialItems`. Both are
+ * present in production right now — Mark Sutton's quote is the first shape,
+ * Eric Ern's and Wanda Atherton's are the second.
+ *
+ * Every reader in this file looked for `totalCost` only and fell back to
+ * `estimatedValue` when it was missing. `estimatedValue` is the customer's
+ * stated budget, not a price, so a job quoted at $49,674.82 against a budget of
+ * $500,000 displayed as $500,000 — in the stage totals, in the card, in the
+ * sort order, and in the payload sent to the quote service.
+ *
+ * That is not a rounding difference. It is the pipeline reporting an order of
+ * magnitude more revenue than has actually been quoted, and it reads as real
+ * because the number is real — it is simply the answer to a different question.
+ *
+ * Returns null rather than 0 when there is no quote, so callers can tell "not
+ * quoted yet" from "quoted at nothing" and choose their own fallback.
+ */
+function quoteTotal(quote: any): number | null {
+  const value = Number(quote?.totalCost ?? quote?.total);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 interface PipelineItem {
   id: string;
   itemNumber: string;
@@ -574,7 +602,7 @@ export default function UnifiedProjectPipeline() {
       laborSubtotal: item.quote.laborSubtotal || 0,
       taxRate: item.quote.taxRate || 0.08,
       taxAmount: item.quote.taxAmount || 0,
-      totalCost: item.quote.totalCost || 0,
+      totalCost: quoteTotal(item.quote) ?? 0,
       generatedAt: item.quote.generatedAt || new Date().toISOString(),
       approvalStatus: (item.quote.approvalStatus || 'pending') as 'pending' | 'approved' | 'rejected' | 'revised',
       approvedAt: item.quote.approvedAt,
@@ -811,7 +839,7 @@ export default function UnifiedProjectPipeline() {
       const { data: { session } } = await supabase.auth.getSession();
       await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes`, {
         method: 'POST', headers: await authedHeaders(),
-        body: JSON.stringify({ id: updatedItem.quote?.id, number: updatedItem.quote?.quoteNumber, clientName: updatedItem.customerName, clientEmail: updatedItem.customerEmail, clientPhone: updatedItem.customerPhone, items: [...(updatedItem.quote?.materials || []), ...(updatedItem.quote?.labor || [])], notes: updatedItem.description, status: 'draft', workRequestId: updatedItem.id, total: updatedItem.quote?.totalCost })
+        body: JSON.stringify({ id: updatedItem.quote?.id, number: updatedItem.quote?.quoteNumber, clientName: updatedItem.customerName, clientEmail: updatedItem.customerEmail, clientPhone: updatedItem.customerPhone, items: [...(updatedItem.quote?.materials || []), ...(updatedItem.quote?.labor || [])], notes: updatedItem.description, status: 'draft', workRequestId: updatedItem.id, total: quoteTotal(updatedItem.quote) ?? 0 })
       });
       const savedItem = await saveItemToBackend(updatedItem);
       setItems(items.map(i => i.id === item.id ? savedItem : i));
@@ -923,7 +951,7 @@ export default function UnifiedProjectPipeline() {
             clientPhone: item.customerPhone,
             serviceType: item.serviceType,
             approvalUrl: data.approvalUrl,
-            quoteTotal: item.quote?.totalCost || item.estimatedValue || 0,
+            quoteTotal: quoteTotal(item.quote) ?? item.estimatedValue ?? 0,
           }),
         }).catch(() => {});
         // Copy link to clipboard as fallback
@@ -965,7 +993,7 @@ export default function UnifiedProjectPipeline() {
   const handleSaveQuote = async (updatedItem: any) => {
     const current = items.find(i => i.id === updatedItem.id);
     if (!current) return;
-    const next = { ...current, stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage, quote: updatedItem.quote, estimatedValue: updatedItem.quote?.totalCost || current.estimatedValue, lastModified: new Date().toISOString() };
+    const next = { ...current, stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage, quote: updatedItem.quote, estimatedValue: quoteTotal(updatedItem.quote) ?? current.estimatedValue, lastModified: new Date().toISOString() };
     try {
       const saved = await saveItemToBackend(next);
       setItems(items.map(i => i.id === saved.id ? saved : i)); setSelectedItem(saved); setShowQuoteEditor(false); toast.success('Quote saved to the project record.');
@@ -1036,7 +1064,7 @@ export default function UnifiedProjectPipeline() {
   };
 
   const getTotalValue = (stageItems: PipelineItem[]) => {
-    return stageItems.reduce((sum, item) => sum + (item.quote?.totalCost || item.estimatedValue), 0);
+    return stageItems.reduce((sum, item) => sum + (quoteTotal(item.quote) ?? item.estimatedValue), 0);
   };
 
   // Show loading state
@@ -1197,7 +1225,7 @@ export default function UnifiedProjectPipeline() {
 
       {/* Per-source value rollup */}
       {(() => {
-        const valOf = (i: any) => Number(i.quote?.totalCost || i.estimatedValue) || 0;
+        const valOf = (i: any) => quoteTotal(i.quote) ?? (Number(i.estimatedValue) || 0);
         const rollup = (pred: (i: any) => boolean) => {
           const list = items.filter(pred);
           return { count: list.length, value: list.reduce((s, i) => s + valOf(i), 0) };
@@ -1375,7 +1403,7 @@ export default function UnifiedProjectPipeline() {
                             <div className="flex items-center justify-between">
                               <span className="text-xs text-green-400 font-semibold uppercase">Value</span>
                               <span className="text-lg font-bold text-green-400">
-                                ${(item.quote?.totalCost || item.estimatedValue).toLocaleString()}
+                                ${(quoteTotal(item.quote) ?? item.estimatedValue).toLocaleString()}
                               </span>
                             </div>
                           </div>
