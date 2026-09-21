@@ -147,6 +147,16 @@ export default function PlanTierAdmin() {
    * wrong in.
    */
   const [rehearsal, setRehearsal] = useState(false);
+  /**
+   * Recurring prices that already exist in Stripe.
+   *
+   * Loaded on demand rather than always, because most of the time the create
+   * button is the right path and a dropdown of every price in the account is
+   * noise. It matters when somebody has already built their prices in the
+   * Stripe dashboard — then the price is real, and only this app is unaware.
+   */
+  const [stripePrices, setStripePrices] = useState<any[] | null>(null);
+  const [attaching, setAttaching] = useState<string | null>(null);
   const [checkingHooks, setCheckingHooks] = useState(false);
   const [hookReport, setHookReport] = useState<string[]>([]);
 
@@ -252,6 +262,43 @@ export default function PlanTierAdmin() {
     }
   };
 
+  const loadStripePrices = async () => {
+    try {
+      const res = await fetch(`${SERVER}/stripe-prices?mode=${mode}`, { headers: await headers() });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(json?.error || 'Could not read Stripe prices.'); return; }
+      setStripePrices(json.prices || []);
+      if ((json.prices || []).length === 0) {
+        toast.message(`No recurring ${mode}-mode prices found in Stripe.`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not reach Stripe.');
+    }
+  };
+
+  const attachPrice = async (tierId: string, priceId: string) => {
+    setAttaching(tierId);
+    try {
+      const res = await fetch(
+        `${SERVER}/plan-tiers/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/attach-price?mode=${mode}`,
+        { method: 'POST', headers: await headers(), body: JSON.stringify({ stripePriceId: priceId }) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // 409 is the amount mismatch, and it is the one worth reading rather
+        // than dismissing — it means the portal and the card would disagree.
+        toast.error(json?.error || `Could not attach (${res.status}).`, { duration: 12000 });
+        return;
+      }
+      toast.success(`Attached ${json.stripePriceId} — ${money(json.amountCents, json.interval)}.`);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not attach that price.');
+    } finally {
+      setAttaching(null);
+    }
+  };
+
   const sellable = tiers.filter(t => t.purchasable).length;
 
   return (
@@ -297,6 +344,13 @@ export default function PlanTierAdmin() {
           >
             {AUDIENCES.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
           </select>
+          <button
+            onClick={loadStripePrices}
+            className="rounded-lg border border-[#2A2A2A] px-3 py-2 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+            title="List recurring prices that already exist in Stripe, so one can be attached to a plan"
+          >
+            Find prices in Stripe
+          </button>
           <button
             onClick={() => void load()}
             className="rounded-lg border border-[#2A2A2A] p-2 text-gray-400 transition hover:text-white"
@@ -382,6 +436,27 @@ export default function PlanTierAdmin() {
                             ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating…</span>
                             : `Create ${mode} price`}
                         </button>
+
+                        {/* For prices already built in the Stripe dashboard.
+                            Attaching checks the amount against the plan and
+                            refuses a mismatch — the portal advertising one
+                            number while the card is charged another is not a
+                            formatting problem. */}
+                        {stripePrices && stripePrices.length > 0 && (
+                          <select
+                            defaultValue=""
+                            disabled={attaching !== null}
+                            onChange={e => { if (e.target.value) attachPrice(t.id, e.target.value); }}
+                            className="mt-1.5 block w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-2 py-1.5 text-[11px] text-gray-300 focus:border-orange-500 focus:outline-none"
+                          >
+                            <option value="">…or attach an existing one</option>
+                            {stripePrices.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.productName || p.id} — {money(p.amountCents, p.interval)}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </>
                     )}
                   </div>

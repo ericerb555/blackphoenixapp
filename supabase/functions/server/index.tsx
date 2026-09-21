@@ -10901,6 +10901,162 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
  * configured key is live. Kept separate from stripeCheckoutSession so the
  * ordinary path cannot be handed a key by a caller.
  */
+/**
+ * Prices that already exist in Stripe, and attaching one to a tier.
+ *
+ * WHY THIS IS NEEDED ALONGSIDE THE CREATE ROUTE
+ *
+ * The create route makes the Stripe objects from the tier, so no identifier
+ * ever has to be copied. That is the better path and it stays the default. But
+ * somebody who has already built their prices in the Stripe dashboard — which
+ * is the obvious thing to do, and what happened here — ends up with real prices
+ * that this app has never heard of. Telling them to delete and start again
+ * would be rude and would orphan anything already subscribed.
+ *
+ * So: list what is actually in Stripe, and attach the right one.
+ *
+ * THE AMOUNT IS CHECKED, NOT TRUSTED
+ *
+ * Attaching a price whose amount differs from the tier's is the exact failure
+ * the create route exists to prevent: the portal advertises $39 and Stripe
+ * bills $159. The mismatch is refused by default, because a customer seeing one
+ * number and being charged another is not a formatting problem.
+ */
+app.get('/make-server-3eae23a6/stripe-prices', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in required.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return c.json({ error: 'Sign in required.' }, 401);
+    const role = String(user.app_metadata?.role || user.app_metadata?.accountType || '')
+      .toLowerCase().replace(/[\s-]+/g, '_');
+    if (!['owner', 'admin', 'master_admin', 'management'].includes(role)) {
+      return c.json({ error: 'Only an administrator can read Stripe prices.' }, 403);
+    }
+
+    const mode: 'live' | 'test' = c.req.query('mode') === 'test' ? 'test' : 'live';
+    const key = mode === 'test' ? stripeTestKey() : stripeKeyFor('services');
+    if (!key) return c.json({ error: `No ${mode}-mode Stripe key is configured.` }, 400);
+
+    const res = await fetch('https://api.stripe.com/v1/prices?limit=100&active=true&expand[]=data.product', {
+      headers: { Authorization: `Basic ${btoa(`${key}:`)}` },
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) return c.json({ error: payload?.error?.message || 'Stripe refused.' }, 502);
+
+    // Only recurring prices can back a subscription. A one-off price would
+    // create a Checkout Session that charges once and never renews, which is
+    // the bug the whole plan catalogue exists to avoid.
+    const prices = (payload.data || [])
+      .filter((p: any) => p?.recurring?.interval)
+      .map((p: any) => ({
+        id: p.id,
+        productName: typeof p.product === 'object' ? p.product?.name : String(p.product || ''),
+        amountCents: Number(p.unit_amount ?? 0),
+        currency: p.currency,
+        interval: p.recurring.interval,
+        livemode: Boolean(p.livemode),
+        // Set when this app created it, absent when the dashboard did.
+        bpTierId: p.metadata?.bp_tier_id || null,
+        bpAudience: p.metadata?.bp_audience || null,
+      }));
+
+    return c.json({ mode, prices, count: prices.length });
+  } catch (error: any) {
+    return c.json({ error: error?.message || 'Could not read Stripe prices.' }, 500);
+  }
+});
+
+/** Attach an existing Stripe price to a tier. */
+app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in required.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return c.json({ error: 'Sign in required.' }, 401);
+    const role = String(user.app_metadata?.role || user.app_metadata?.accountType || '')
+      .toLowerCase().replace(/[\s-]+/g, '_');
+    if (!['owner', 'admin', 'master_admin', 'management'].includes(role)) {
+      return c.json({ error: 'Only an administrator can attach a price.' }, 403);
+    }
+
+    const audience = String(c.req.param('audience') || '').trim();
+    const tierId = String(c.req.param('id') || '').trim();
+    const tierKey = `plan_tier:${audience}:${tierId}`;
+    const tier = await kv.get(tierKey) as any;
+    if (!tier) return c.json({ error: 'No such plan.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const priceId = String(body?.stripePriceId || '').trim();
+    if (!priceId) return c.json({ error: 'Which Stripe price?' }, 400);
+
+    const mode: 'live' | 'test' = c.req.query('mode') === 'test' ? 'test' : 'live';
+    const key = mode === 'test' ? stripeTestKey() : stripeKeyFor('services');
+    if (!key) return c.json({ error: `No ${mode}-mode Stripe key is configured.` }, 400);
+
+    // Read it back from Stripe rather than trusting the id. A typo would
+    // otherwise be stored happily and fail at the customer's checkout.
+    const res = await fetch(`https://api.stripe.com/v1/prices/${encodeURIComponent(priceId)}`, {
+      headers: { Authorization: `Basic ${btoa(`${key}:`)}` },
+    });
+    const price = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return c.json({
+        error: price?.error?.message
+          || `Stripe does not have a ${mode}-mode price with that id.`,
+      }, 400);
+    }
+
+    if (!price?.recurring?.interval) {
+      return c.json({
+        error: 'That is a one-off price, not a recurring one. A subscription needs a '
+          + 'recurring price or it will charge once and never renew.',
+      }, 400);
+    }
+
+    const stripeAmount = Number(price.unit_amount ?? 0);
+    const tierAmount = Number(tier.priceCents ?? 0);
+    if (stripeAmount !== tierAmount && c.req.query('force') !== '1') {
+      return c.json({
+        error: `The plan says ${(tierAmount / 100).toFixed(2)} and that Stripe price charges `
+          + `${(stripeAmount / 100).toFixed(2)}. Refusing: the portal would advertise one number `
+          + 'and the card would be charged another. Fix the plan price to match, pick a different '
+          + 'price, or repeat with ?force=1 if the Stripe amount is the correct one.',
+        tierCents: tierAmount,
+        stripeCents: stripeAmount,
+      }, 409);
+    }
+
+    const now = new Date().toISOString();
+    await kv.set(tierKey, {
+      ...tier,
+      [mode === 'test' ? 'stripePriceIdTest' : 'stripePriceId']: priceId,
+      [mode === 'test' ? 'stripeProductIdTest' : 'stripeProductId']:
+        typeof price.product === 'string' ? price.product : price.product?.id,
+      // Follow Stripe when forced, so the two cannot stay out of step.
+      priceCents: stripeAmount,
+      stripePriceCents: stripeAmount,
+      interval: price.recurring.interval === 'year' ? 'year' : 'month',
+      stripePriceCreatedAt: tier.stripePriceCreatedAt || now,
+      updatedAt: now,
+      updatedBy: String(user.email || '').toLowerCase(),
+    });
+
+    console.log(`[PlanCatalog] ${user.email} attached ${priceId} (${mode}) to ${audience}/${tierId}`);
+    return c.json({
+      success: true,
+      stripePriceId: priceId,
+      amountCents: stripeAmount,
+      interval: price.recurring.interval,
+      livemode: Boolean(price.livemode),
+      adjustedPlanPrice: stripeAmount !== tierAmount,
+    });
+  } catch (error: any) {
+    return c.json({ error: error?.message || 'Could not attach that price.' }, 500);
+  }
+});
+
+
 async function stripeSessionWithKey(params: URLSearchParams, key: string) {
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
