@@ -90,6 +90,13 @@ export default function PlanTierAdmin() {
       const json = await res.json().catch(() => ({}));
       setTiers(Array.isArray(json?.tiers) ? json.tiers : []);
       setNote(json?.note || null);
+      try {
+        const me = await (await fetch(`${SERVER}/my-plan`, { headers: await headers() })).json();
+        setRehearsal(Boolean(me?.rehearsal));
+      } catch {
+        // Unknown means real, not rehearsal. Being wrong the other way costs money.
+        setRehearsal(false);
+      }
     } catch {
       setTiers([]);
       setNote('Could not load the plans.');
@@ -131,6 +138,15 @@ export default function PlanTierAdmin() {
     }
   };
 
+  /**
+   * Whether a checkout from THIS account would be a rehearsal or real money.
+   *
+   * Read from the server, which applies exactly the conditions the checkout
+   * applies, so the label on the button cannot disagree with what the button
+   * does. Defaults to false — assuming "real" is the safe direction to be
+   * wrong in.
+   */
+  const [rehearsal, setRehearsal] = useState(false);
   const [checkingHooks, setCheckingHooks] = useState(false);
   const [hookReport, setHookReport] = useState<string[]>([]);
 
@@ -197,6 +213,25 @@ export default function PlanTierAdmin() {
    * a non-admin account.
    */
   const rehearse = async (tierId: string) => {
+    /**
+     * Only a rehearsal when the server says so.
+     *
+     * With no test key configured this button opens a real Stripe checkout on
+     * the live account. A confirm dialog is a weak safeguard in general — but
+     * here it is guarding against a mislabelled button rather than a mis-click,
+     * and the label itself already says REAL money. This is the second line,
+     * not the only one.
+     */
+    if (!rehearsal) {
+      const t = tiers.find(x => x.id === tierId);
+      const ok = window.confirm(
+        'This is NOT a rehearsal.\n\n'
+        + 'No Stripe test key is configured for this account, so buying '
+        + `"${t?.name || tierId}" will charge your card ${money(t?.priceCents, t?.interval)} for real.\n\n`
+        + 'Continue?',
+      );
+      if (!ok) return;
+    }
     setWorking(tierId);
     try {
       const res = await fetch(`${SERVER}/plan-checkout`, {
@@ -330,7 +365,7 @@ export default function PlanTierAdmin() {
                         >
                           {working === t.id
                             ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Opening…</span>
-                            : 'Buy it myself (rehearsal)'}
+                            : rehearsal ? 'Buy it myself (rehearsal)' : 'Buy it myself (REAL money)'}
                         </button>
                       </>
                     ) : (

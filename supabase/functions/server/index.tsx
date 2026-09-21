@@ -10701,7 +10701,24 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
       if (found) tier = publicTier(found, activeStripeMode());
     }
 
-    return c.json({ entitlement, tier, portalType: grant?.portalType || null });
+    /**
+     * Would a checkout from this account be a rehearsal, or real money?
+     *
+     * Surfaced because the admin panel offers a 'buy it myself' button, and a
+     * button labelled rehearsal that charges a real card is how somebody ends
+     * up paying $159 to test a feature. The two conditions are the same ones
+     * the checkout applies, read from the same place, so the label cannot
+     * disagree with what the button does.
+     */
+    const rehearsal = isStripeTestAccount(email) && Boolean(stripeTestKey());
+
+    return c.json({
+      entitlement,
+      tier,
+      portalType: grant?.portalType || null,
+      rehearsal,
+      stripeMode: rehearsal ? 'test' : activeStripeMode(),
+    });
   } catch (error: any) {
     return c.json({ error: error?.message || 'Could not read your plan.' }, 500);
   }
