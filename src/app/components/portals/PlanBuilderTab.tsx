@@ -235,10 +235,21 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/generate`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          /**
+           * The signed-in person's token, not the anon key.
+           *
+           * `/plan-builder/` is not a public route, so the server resolves
+           * the caller before the handler runs and the anon key resolves to
+           * nobody — every press came back "Sign in required." while the
+           * person was sitting there signed in. The pricing call further up
+           * this file already did this correctly; only this one was left
+           * behind when the auth gate was switched on.
+           *
+           * It still falls back to the anon key, because this tab also
+           * renders inside the signup flow where there is genuinely no
+           * session yet — and the server answers that case on its own terms.
+           */
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             entityType: entity,
             portalRole: portalType,
