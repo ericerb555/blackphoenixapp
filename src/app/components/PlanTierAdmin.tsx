@@ -182,6 +182,41 @@ export default function PlanTierAdmin() {
     }
   };
 
+  /**
+   * Start a checkout for this plan as the signed-in administrator.
+   *
+   * Exists because an administrator never sees the banner that normally sells
+   * a plan: the entitlements route short-circuits admins to full access with
+   * `needsPlan: false`, and `PortalTrialBanner` returns null for them. So the
+   * one person able to rehearse the paid flow is the one person with no button
+   * to press.
+   *
+   * What this rehearses is the chain that matters — checkout, Stripe, the
+   * webhook, the grant, and `/my-plan` reflecting it. It does NOT rehearse the
+   * banner, which stays invisible to administrators by design. That half needs
+   * a non-admin account.
+   */
+  const rehearse = async (tierId: string) => {
+    setWorking(tierId);
+    try {
+      const res = await fetch(`${SERVER}/plan-checkout`, {
+        method: 'POST',
+        headers: await headers(),
+        body: JSON.stringify({ audience, tierId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.url) {
+        toast.error(json?.error || `Could not start checkout (${res.status}).`, { duration: 9000 });
+        return;
+      }
+      window.location.assign(json.url);
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not reach Stripe.');
+    } finally {
+      setWorking(null);
+    }
+  };
+
   const sellable = tiers.filter(t => t.purchasable).length;
 
   return (
@@ -281,9 +316,23 @@ export default function PlanTierAdmin() {
 
                   <div className="shrink-0 text-right">
                     {t.purchasable ? (
-                      <p className="inline-flex items-center gap-1.5 rounded-lg border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-xs font-bold text-green-400">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> On sale
-                      </p>
+                      <>
+                        <p className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-xs font-bold text-green-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> On sale
+                        </p>
+                        {/* An administrator never sees the banner that sells
+                            this, so without a button here the one person who
+                            can rehearse the flow has no way to start it. */}
+                        <button
+                          onClick={() => rehearse(t.id)}
+                          disabled={working !== null}
+                          className="block w-full rounded-lg border border-[#2A2A2A] px-3 py-2 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 disabled:opacity-50"
+                        >
+                          {working === t.id
+                            ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Opening…</span>
+                            : 'Buy it myself (rehearsal)'}
+                        </button>
+                      </>
                     ) : (
                       <>
                         <p className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-400">
