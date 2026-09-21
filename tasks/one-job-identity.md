@@ -75,12 +75,12 @@ the current state is exactly what happens when each route decides for itself.
 
 ## 3. Order of work
 
-- [ ] **J1. The job record and the resolver.** `job:{id}`, plus one
+- [x] **J1. The job record and the resolver.** `job:{id}`, plus one
       `resolveJob()` that every creation path calls: given a customer, a site
       and whatever ids the caller has, return the existing job or open one.
       Pure matching logic split out so it can be unit-tested, because this is
       the piece that decides whether two documents are the same job.
-- [ ] **J2. Stamp new records.** Work requests, quotes, invoices, POs and design
+- [x] **J2. Stamp new records.** Work requests, quotes, invoices, POs and design
       projects call the resolver on creation and store `jobId`. Additive: no
       existing field changes meaning, so nothing that reads today breaks.
 - [ ] **J3. Read by job.** `GET /jobs/:id` returning the job with its documents,

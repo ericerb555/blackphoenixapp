@@ -107,6 +107,47 @@ export async function parentJobId(key: string): Promise<string> {
   }
 }
 
+/**
+ * Give a document its job, unless it already has one.
+ *
+ * The shape every creation path uses. Two things about it matter.
+ *
+ * It NEVER re-stamps. Several of these routes are create-or-update — POST
+ * /quotes takes the id from the request body, so posting an existing quote
+ * back is an edit — and a document that already belongs to a job must keep it.
+ * Re-resolving on every save would move a quote to a new job the first time
+ * somebody edited it without passing the parent again, quietly detaching it
+ * from the invoice raised against it.
+ *
+ * It inherits only from the parent the caller names. There is no lookup by
+ * customer or address anywhere in this chain — see THE RULE in
+ * tests/jobIdentity.test.ts for why that is load-bearing.
+ */
+export async function ensureJobId(
+  record: any,
+  opts: {
+    /** A job named outright, and the parent whose job to inherit. */
+    claim?: JobClaim;
+    /** Key of the parent document, read for its jobId. */
+    parentKey?: string;
+    seed: JobSeed;
+    actorEmail?: string;
+  },
+): Promise<string> {
+  const already = jobIdOf(record);
+  if (already) return already;
+
+  const inherited = String(opts.claim?.parentJobId || '').trim()
+    || (opts.parentKey ? await parentJobId(opts.parentKey) : '');
+
+  const { jobId } = await resolveJobFor(
+    { jobId: opts.claim?.jobId, parentJobId: inherited },
+    opts.seed,
+    String(opts.actorEmail || '').toLowerCase(),
+  );
+  return jobId;
+}
+
 /* ── reading ──────────────────────────────────────────────────────────────── */
 
 /** Every stored collection that can carry a jobId, and what to call it. */

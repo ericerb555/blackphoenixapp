@@ -161,7 +161,7 @@ import { vendorProfileRouter } from "./vendor-profile.tsx";
 import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
-import { jobsRouter } from "./jobs.tsx";
+import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
@@ -4940,6 +4940,32 @@ app.post('/make-server-3eae23a6/quotes', async (c) => {
     const now = new Date().toISOString();
     const id = String(incoming.id || `quote_${crypto.randomUUID()}`);
     const quote = stripBase64({ ...incoming, id, createdAt: incoming.createdAt || now, updatedAt: now });
+
+    /**
+     * The job comes from the work request this quote was raised against.
+     *
+     * This route is create-or-update — the id arrives in the body — so a quote
+     * that already has a job keeps it. Without that, editing a quote without
+     * re-sending its work request would move it to a job of its own and detach
+     * it from the invoice raised against it.
+     */
+    const wrId = String(incoming.workRequestId || incoming.work_request_id || incoming.wrId || "").trim();
+    quote.jobId = await ensureJobId(quote, {
+      claim: { jobId: incoming.jobId },
+      parentKey: wrId ? `wr:${wrId}` : undefined,
+      seed: {
+        customerEmail: quote.clientEmail || quote.customerEmail || quote.client_email,
+        customerName: quote.clientName || quote.customerName || quote.customer_name,
+        siteAddress: quote.siteAddress || quote.address || quote.location,
+        title: quote.title || quote.projectName || quote.serviceType,
+        serviceType: quote.serviceType || quote.project_type,
+        openedFrom: 'quote',
+        openedFromId: id,
+        createdBy: user.email,
+      },
+      actorEmail: user.email,
+    });
+
     await kv.set(`quote:${id}`, quote);
     return c.json({ success: true, quote });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save quote.' }, 500); }
@@ -5195,6 +5221,21 @@ app.post('/make-server-3eae23a6/purchase-orders', async (c) => {
     }
 
     const order = stripBase64({ ...incoming, id, vendorId, status: incoming.status || 'draft', createdAt: incoming.createdAt || now, updatedAt: now });
+
+    // Create-or-update, like the quote route, so an existing order keeps the
+    // job it is already on.
+    const directQuoteId = String(incoming.sourceQuoteId || incoming.quoteId || "").trim();
+    order.jobId = await ensureJobId(order, {
+      claim: { jobId: incoming.jobId },
+      parentKey: directQuoteId ? `quote:${directQuoteId}` : undefined,
+      seed: {
+        siteAddress: incoming.siteAddress,
+        title: incoming.projectName,
+        openedFrom: 'purchase_order',
+        openedFromId: id,
+      },
+    });
+
     await kv.set(`purchase_order:${id}`, order);
     return c.json({ success: true, order });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save purchase order.' }, 500); }
@@ -5252,6 +5293,22 @@ app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
     const stamp = Date.now().toString(36).toUpperCase();
     const orders: any[] = [];
 
+    // Resolved once for the batch, before the loop, so every vendor order
+    // raised from one materials list lands on the same job.
+    const poQuoteId = String(body.quoteId || "").trim();
+    const batchJobId = await ensureJobId({}, {
+      claim: { jobId: body.jobId },
+      parentKey: poQuoteId ? `quote:${poQuoteId}` : undefined,
+      seed: {
+        siteAddress: body.siteAddress,
+        title: body.projectName,
+        openedFrom: 'purchase_order',
+        openedFromId: poQuoteId,
+        createdBy: actor.email,
+      },
+      actorEmail: actor.email,
+    });
+
     for (const group of groups) {
       const vendorId = String(group.vendor.id);
       const id = `po_${crypto.randomUUID()}`;
@@ -5276,6 +5333,13 @@ app.post('/make-server-3eae23a6/purchase-orders/from-materials', async (c) => {
         createdAt: now,
         updatedAt: now,
       });
+      /**
+       * Every order in this batch belongs to the same job — they were split by
+       * vendor, not by job. Resolved from the quote the materials were priced
+       * against, which is the field this route already accepted and the screen
+       * never sent.
+       */
+      (order as any).jobId = batchJobId;
       await kv.set(`purchase_order:${id}`, order);
       orders.push(order);
     }
@@ -6539,7 +6603,28 @@ async function readWorkRequests() {
   return await readWorkRequestsShared(supabase);
 }
 
+/**
+ * Every work request goes through here, on create and on update, which makes
+ * it the one place a work request can be given its job.
+ *
+ * A work request is the front door with nothing above it, so it opens a job
+ * rather than inheriting one — unless the caller already put a jobId on the
+ * record, which is how a second request can be added to work already under
+ * way. `ensureJobId` never re-stamps, so an update keeps the job it had.
+ */
 async function persistWorkRequest(record: any) {
+  record.jobId = await ensureJobId(record, {
+    seed: {
+      customerEmail: record.client_email || record.clientEmail || record.email,
+      customerName: record.client_name || record.clientName || record.customer_name,
+      siteAddress: record.address || record.site_address || record.siteAddress || record.location,
+      title: record.title || record.project_name || record.projectName,
+      serviceType: record.serviceType || record.project_type || record.service_type,
+      openedFrom: 'work_request',
+      openedFromId: record.id,
+      createdBy: record.createdBy || record.client_email || record.clientEmail,
+    },
+  });
   await kv.set(`wr:${record.id}`, record);
   const index: string[] = (await kv.get('wr_index') as string[]) || [];
   if (!index.includes(record.id)) await kv.set('wr_index', [record.id, ...index].slice(0, 1000));
@@ -13204,6 +13289,29 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
     } const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
     const isDraft = Boolean(requestedDraft) || !recipient.customerEmail; const status = isDraft ? 'draft' : (body.status && body.status !== 'draft' ? body.status : 'pending');
     const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: money(body.paid_amount || 0), balance_due: money(total - money(body.paid_amount || 0)), status, is_draft: isDraft, issuedAt: isDraft ? null : now, createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email };
+    /**
+     * The job comes from the quote this invoice bills for.
+     *
+     * An invoice raised with no quote — for work already done, or a deposit
+     * taken before anything was drawn up — opens a job of its own rather than
+     * being left attached to nothing. A thin job beats an orphan document.
+     */
+    const invQuoteId = String(body.quoteId || body.quote_id || "").trim();
+    (record as any).jobId = await ensureJobId(record, {
+      claim: { jobId: body.jobId },
+      parentKey: invQuoteId ? `quote:${invQuoteId}` : undefined,
+      seed: {
+        customerEmail: recipient.customerEmail,
+        customerName: recipient.customerName,
+        siteAddress: body.siteAddress || body.site_address || body.address,
+        title: body.description || body.title,
+        openedFrom: 'invoice',
+        openedFromId: id,
+        createdBy: user.email,
+      },
+      actorEmail: user.email,
+    });
+
     await kv.set(`invoice:${id}`, record); return c.json({ success: true, invoice: record }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
