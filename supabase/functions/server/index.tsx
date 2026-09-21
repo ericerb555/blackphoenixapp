@@ -6732,6 +6732,97 @@ app.put('/make-server-3eae23a6/work-requests/:id/notes/:noteId', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to edit project note.' }, 500); }
 });
 
+/**
+ * Remove a work request permanently.
+ *
+ * WHY THIS DID NOT EXIST, AND WHY IT SHOULD
+ *
+ * There was no way to delete a work request at all — POST, GET, PUT and note
+ * routes only. So a duplicate submission, a test, or a request raised against
+ * the wrong customer stayed in the pipeline for good, and the only options were
+ * to leave it or to park it in a status and hope nobody read it as real work.
+ *
+ * WHY IT TAKES FIVE WRITES
+ *
+ * Because creating one takes five. `persistWorkRequest` writes the record, an
+ * index, a legacy array and a Postgres row, and the create route adds an admin
+ * alert on top. A delete that cleared only the record would leave the id in the
+ * index, a full copy in the legacy array and a row in the table — a request
+ * that is gone from one screen and present on three others, which is worse than
+ * not deleting it, because now the screens disagree.
+ *
+ * WHY ADMIN ONLY
+ *
+ * A customer may create a request and may edit their own. They may not make one
+ * disappear: a submitted request is a record of what was asked for and when,
+ * and a dispute about scope is exactly the moment somebody would want it gone.
+ * Deleting is an office action and is logged as one.
+ */
+app.delete('/make-server-3eae23a6/work-requests/:id', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in first.' }, 401);
+    // Deliberately not ownsWorkRequest: this is not a customer action.
+    if (!admin) return c.json({ success: false, error: 'Only an administrator can delete a work request.' }, 403);
+
+    const id = String(c.req.param('id') || '').trim();
+    if (!id) return c.json({ success: false, error: 'Which work request?' }, 400);
+
+    const record = await kv.get(`wr:${id}`) as any;
+    if (!record) return c.json({ success: false, error: 'Work request not found.' }, 404);
+
+    const removed: string[] = [];
+
+    await kv.del(`wr:${id}`);
+    removed.push('record');
+
+    const index = (await kv.get('wr_index') as string[]) || [];
+    if (index.includes(id)) {
+      await kv.set('wr_index', index.filter((item) => item !== id));
+      removed.push('index');
+    }
+
+    const legacy = (await kv.get('all_work_requests') as any[]) || [];
+    if (legacy.some((item: any) => item?.id === id)) {
+      await kv.set('all_work_requests', legacy.filter((item: any) => item?.id !== id));
+      removed.push('legacy list');
+    }
+
+    // The alert the create route raised. Left behind it would sit in the
+    // office's unread queue pointing at a request that no longer exists.
+    const alerts = (await kv.get('admin_alerts') as any[]) || [];
+    const keptAlerts = alerts.filter((a: any) => String(a?.data?.workRequestId || '') !== id);
+    if (keptAlerts.length !== alerts.length) {
+      await kv.set('admin_alerts', keptAlerts);
+      removed.push('admin alert');
+    }
+
+    // The table row. Wrapped because the table is the newer of the two stores
+    // and a deployment where it is absent should still clear the rest rather
+    // than failing half way and leaving the caller unsure what happened.
+    try {
+      await supabase.from('work_requests').delete().eq('id', id);
+      removed.push('table row');
+    } catch (err: any) {
+      console.log(`[Work Requests] Table delete failed for ${id}: ${err?.message || err}`);
+    }
+
+    console.log(`[Work Requests] ${user.email} deleted ${id} — cleared: ${removed.join(', ')}`);
+    return c.json({
+      success: true,
+      id,
+      removed,
+      // Echoed back so whoever pressed the button can see what they removed,
+      // and so a mistake is recoverable by hand from the response.
+      deleted: { title: record.project_name || record.title || '', client: record.client_email || '', status: record.status || '' },
+    });
+  } catch (error: any) {
+    console.error('[Work Requests] Delete error:', error);
+    return c.json({ success: false, error: error.message || 'Unable to delete work request.' }, 500);
+  }
+});
+
+
 app.delete('/make-server-3eae23a6/work-requests/:id/notes/:noteId', async (c) => {
   try {
     const { user, admin } = await workRequestActor(c); if (!user) return c.json({ success: false, error: 'Sign in before deleting a project note.' }, 401);
