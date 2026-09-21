@@ -25,7 +25,7 @@ import {
 } from '../config/subscriptionPlans';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
-import { saveCustomerMembership, planTierLabel } from '../lib/subscriptionDiscount';
+
 import { useAuth } from '../contexts/AuthContext';
 
 type PricingDisplay = 'regular' | 'first12';
@@ -199,24 +199,19 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
       onSelectPlan(planId);
     }
 
-    // Persist the customer's membership so it unlocks their contract-job discount.
-    const plan = subscriptionPlans.find((p) => p.id === planId);
-    const email = (user as any)?.email as string | undefined;
-    if (plan && email) {
-      saveCustomerMembership(email, {
-        planId: plan.id,
-        planName: plan.name,
-        tier: plan.tier,
-        status: 'active',
-        source: 'subscription',
-      }).catch((err) => console.error('Failed to persist customer membership:', err));
-
-      const tierLabel = planTierLabel(plan.tier);
-      const pct = plan.tier === 'starter' ? 5 : plan.tier === 'professional' ? 10 : 15;
-      toast.success(`Plan selected! You now get ${pct}% off contract jobs${tierLabel ? ` (${tierLabel} tier)` : ''}.`);
-    } else {
-      toast.success('Plan selected! Proceed to checkout.');
-    }
+    /**
+     * Selecting a plan promises nothing, because nothing has been paid.
+     *
+     * This used to write a membership record here and tell the customer they
+     * now got 15% off contract jobs — on SELECTION, before any payment. The
+     * discount they were promised came from a record the purchase never
+     * created, so the promise was made at the one moment it could not be kept.
+     *
+     * A discount now follows the entitlement the Stripe webhook writes when
+     * the payment actually lands, and is resolved on the server every time it
+     * is shown. There is nothing for this screen to persist.
+     */
+    toast.success('Plan selected! Proceed to checkout.');
   };
 
   const handleEditPlan = (plan: SubscriptionPlan, e: React.MouseEvent) => {

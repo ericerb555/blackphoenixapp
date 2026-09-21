@@ -11,13 +11,21 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
-import {
-  loadCustomerMembership,
-  contractDiscountForMembership,
-  planTierLabel,
-  isLandlordPlanId,
-  type CustomerMembership,
-} from '../lib/subscriptionDiscount';
+/**
+ * The discount arrives with the quote, resolved by the server.
+ *
+ * This page used to load a membership record itself and work the percentage
+ * out here, falling back to a `localStorage` value the customer owned — so a
+ * paying subscriber often got nothing while anyone editing one browser value
+ * took 15% off. The figure now comes down with the quote, computed from the
+ * plan the payment actually granted plus any grants aimed at this customer,
+ * and this page only displays it.
+ */
+interface ResolvedDiscount {
+  percent: number;
+  capped?: boolean;
+  components?: Array<{ source: string; percent: number; why: string }>;
+}
 import {
   CheckCircle, X, DollarSign, Calendar, User, MapPin, Phone, Mail,
   FileText, Clock, Package, Users, Download, CreditCard, Shield,
@@ -115,6 +123,9 @@ export default function CustomerQuoteApproval() {
         .then(data => {
           if (data?.quote) {
             setTokenRecord(data.quote);
+            // Absent when the server could not resolve one, which means no
+            // discount rather than a remembered one.
+            setDiscount(data.discount || null);
             if (data.quote.status === 'approved') setAlreadySigned(true);
             // Merge real quote data if available
             if (data.quote.quoteData) {
@@ -272,26 +283,16 @@ export default function CustomerQuoteApproval() {
     approvalStatus: 'pending'
   });
 
-  // Subscription / maintenance-plan loyalty discount on this contract job
-  const [membership, setMembership] = useState<CustomerMembership | null>(null);
-  const discountPct = contractDiscountForMembership(membership);
+  // Sent with the quote by the server. Nothing here decides it.
+  const [discount, setDiscount] = useState<ResolvedDiscount | null>(null);
+  const discountPct = Number(discount?.percent || 0);
   const jobSubtotal = quote.materialsSubtotal + quote.laborSubtotal;
   const discountAmount = Math.round(jobSubtotal * (discountPct / 100));
   const discountedTotal = Math.max(0, quote.totalCost - discountAmount);
 
-  // Resolve the customer's membership by email whenever it changes.
-  useEffect(() => {
-    let cancelled = false;
-    const email = quote.customerEmail;
-    if (!email) {
-      setMembership(null);
-      return;
-    }
-    loadCustomerMembership(email)
-      .then((m) => { if (!cancelled) setMembership(m); })
-      .catch((err) => console.error('Failed to resolve customer membership for discount:', err));
-    return () => { cancelled = true; };
-  }, [quote.customerEmail]);
+  // No effect here any more. Asking the server a second question about who
+  // this customer is would be a second chance to get a different answer;
+  // the discount comes down with the quote it applies to.
 
   const [showContract, setShowContract] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
@@ -583,9 +584,11 @@ export default function CustomerQuoteApproval() {
                 <div className="flex justify-between items-center text-green-400">
                   <span className="flex items-center gap-2">
                     <Award className="w-4 h-4" />
-                    {isLandlordPlanId(membership?.planId)
-                      ? 'Landlord Plan'
-                      : (planTierLabel(membership?.tier) ? `${planTierLabel(membership?.tier)} Plan` : 'Member')} Discount ({discountPct}% off)
+                    {/* The server says what each part of this is for. Shown as
+                        given — this page has no plan catalogue to look names up
+                        in, and inventing one is how the two came to disagree. */}
+                    {discount?.components?.map(c => c.why).filter(Boolean).join(' + ') || 'Discount'}
+                    {' '}({discountPct}% off)
                   </span>
                   <span className="font-semibold">−${discountAmount.toLocaleString()}</span>
                 </div>

@@ -162,6 +162,7 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
 import { jobsRouter, ensureJobId } from "./jobs.tsx";
+import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
@@ -791,6 +792,7 @@ app.route("/make-server-3eae23a6", vendorCatalogRouter);
 // mounts at the root like the vendor catalogue beside it.
 app.route("/", planCatalogRouter);
 app.route("/", jobsRouter);
+app.route("/", discountGrantsRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
 // imported so the module can be deployed and tested on its own — it decides
@@ -15378,7 +15380,33 @@ app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
     const quote = await kv.get(`quote:${record.quoteId}`) as any;
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
     const stripped = stripBase64(quote);
-    return c.json({ success: true, quote: {
+
+    /**
+     * Resolved here, not in the browser.
+     *
+     * The page that shows this used to load a membership record client-side
+     * and work the percentage out itself, falling back to a localStorage
+     * value the customer could edit. The figure now comes from the plan the
+     * Stripe webhook says they are paying for, plus grants aimed at them,
+     * capped — and the page displays it rather than deciding it.
+     *
+     * A failure here must not take the quote down with it. A customer who
+     * cannot see their quote is a worse outcome than one who sees it without
+     * a discount line, and the discount is recoverable by reloading.
+     */
+    let discount = null;
+    try {
+      discount = await resolveDiscountFor({
+        customerEmail: quote.customerEmail || quote.clientEmail || record.clientEmail,
+        jobId: quote.jobId,
+        quoteId: quote.id,
+        context: 'quote',
+      });
+    } catch (err: any) {
+      console.error('[Discounts] could not resolve for quote', quote.id, err?.message || err);
+    }
+
+    return c.json({ success: true, discount, quote: {
       quoteId: quote.id,
       clientName: quote.customerName || quote.clientName || record.clientName || '',
       clientEmail: quote.customerEmail || quote.clientEmail || record.clientEmail || '',

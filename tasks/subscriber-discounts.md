@@ -170,11 +170,11 @@ that never ends is a price change that never went through pricing.
 - [x] **D3. `resolveDiscount`**, pure and tested — the arithmetic above, the
       grant validity rules, the per-context ceilings, and `discountCents` so a
       figure is rounded once rather than wherever a total is assembled.
-- [ ] **D2. The grant record and its routes.**
-- [ ] **D4. One route to ask** for the resolved figure.
-- [ ] **D5. Quoting reads it**, and `subscriptionDiscount.ts` with its
+- [x] **D2. The grant record and its routes.**
+- [x] **D4. One route to ask** for the resolved figure.
+- [x] **D5. Quoting reads it**, and `subscriptionDiscount.ts` with its
       `localStorage` path is deleted rather than left beside the new one.
 - [ ] **D6. A grants screen.**
 
-`resolveDiscount` is not called by anything yet. Until D4 and D5, the broken
-system in section 1 is still the one in use.
+The broken system in section 1 is deleted. What remains unbuilt is D6, the
+grants screen — grants are created and revoked through the routes until then.
