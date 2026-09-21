@@ -189,7 +189,48 @@ inspectionsRouter.put("/make-server-3eae23a6/landlord/inspections/:id", async (c
   };
 
   await kv.set(KEY(who.email, id), updated);
-  if (wantsComplete) console.log(`[Inspections] ${who.email} completed ${id}`);
+
+  /**
+   * A completed inspection stamps the property it was about.
+   *
+   * The property AI scores each building partly on how long ago it was last
+   * inspected, and with nothing recorded it says so — "No inspection date
+   * recorded. Schedule a professional inspection." Somebody who has just
+   * spent an hour walking the building with a camera should not then be told
+   * to go and inspect it.
+   *
+   * Written on completion rather than when the walk starts, because a draft
+   * abandoned halfway is not an inspection and should not silence the
+   * warning.
+   *
+   * Best effort: the inspection is already saved above, and failing to
+   * update a score must not lose an hour of somebody's work.
+   */
+  if (wantsComplete) {
+    console.log(`[Inspections] ${who.email} completed ${id}`);
+    try {
+      const portfolioKey = `landlord_portfolio:${who.email}`;
+      const portfolio = (await kv.get(portfolioKey)) as any[] | null;
+      if (Array.isArray(portfolio)) {
+        let touched = false;
+        const next = portfolio.map((prop: any) => {
+          if (String(prop?.id) !== String(updated.propertyId)) return prop;
+          touched = true;
+          return {
+            ...prop,
+            lastInspectionDate: updated.completedAt,
+            lastInspectionId: updated.id,
+          };
+        });
+        if (touched) {
+          await kv.set(portfolioKey, next);
+          console.log(`[Inspections] stamped ${updated.propertyId} as inspected ${updated.completedAt}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Inspections] completed but could not stamp the property:', err?.message || err);
+    }
+  }
 
   return c.json({
     success: true,

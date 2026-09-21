@@ -233,6 +233,15 @@ function mapLandlordProperty(p: any, base: PropertyProfile): PropertyProfile {
     currentIncome: monthlyRent != null ? monthlyRent * (units || 1) : base.currentIncome,
     occupancyRate: units && units > 0 ? Math.round(((units - (vacancies || 0)) / units) * 100) : base.occupancyRate,
     notes: p.conditionNotes || base.notes,
+    /**
+     * Carried through from the portfolio, so a walkthrough recorded in the
+     * Properties tab answers the question this screen asks.
+     *
+     * Without this the health score kept reporting "No inspection date
+     * recorded" at a landlord who had inspected the building that morning —
+     * the record existed and nothing brought it here.
+     */
+    lastInspectionDate: p.lastInspectionDate || base.lastInspectionDate,
   };
 }
 
