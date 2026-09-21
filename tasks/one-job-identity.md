@@ -3,9 +3,9 @@
 Eric: *"lets make sure we can keep all the work requests/quote and invoices link
 to one job no matter what point we enter in the job."*
 
-Written before building. **Nothing here has been started**, and two questions in
-section 4 need answering first because guessing at them would bake the wrong
-answer into every record from then on.
+Written before building. Eric has settled the question that was blocking it: a document never matches
+an existing job by looking similar to it. Same address, same customer, still a
+separate job number. J1 and J2 are being built to that.
 
 ---
 
@@ -104,41 +104,46 @@ adds more records that J4 has to guess about.
 
 ## 4. What needs deciding first
 
-**a) How is a document matched to an existing job?**
+**a) ~~How is a document matched to an existing job?~~ ANSWERED — it is not.**
 
-This is the whole difficulty. Somebody raising an invoice for work already done
-has to land on the right job, and the wrong answer in either direction is bad:
-matching too eagerly merges two genuinely separate jobs at the same address,
-and matching too rarely leaves the same job split in two.
+Eric: *"even if we have the same addresses and service address the documents
+will create a separate job number per job or work request."*
 
-Candidates, not exclusive:
+So the address is **not a matching key**, and neither is the customer. A new
+work request is a new job with its own job number, at the same address as ten
+others if that is how the work came in. Nothing is ever merged by looking at
+two records and judging them similar.
 
-- *Explicit only* — whoever creates the document picks the job from a list, and
-  a new job is opened deliberately. Never wrong, always work.
-- *Customer + site address* — strong signal, but a repeat customer at one
-  address is exactly the case that merges two jobs wrongly.
-- *Customer + site + an open job* — the same, bounded to jobs not yet closed,
-  which fixes the repeat-customer case at the cost of needing a closed stage.
-- *Suggest, do not decide* — match on customer and site, propose it, and let
-  the person confirm or open a new job.
+This removes the hardest part of the design and the only part that could have
+done damage. There is no fuzzy matching to tune, no suggest-and-confirm step,
+and — most importantly — no way for two genuinely separate jobs at one address
+to be silently collapsed into one. A landlord with recurring work at the same
+building gets a clean job per instruction, which is what the business actually
+needs.
 
-My recommendation is the last one, with an explicit picker always available. It
-is the only option that cannot silently merge two jobs, and the confirmation
-step is one click on a screen somebody is already looking at.
+The resolver therefore has exactly two moves, and both are explicit:
+
+1. The caller names a job, or names a parent document that already has one —
+   follow it. This is how a quote raised from a work request, and an invoice
+   raised from that quote, all land on the same job.
+2. Otherwise open a new job. A document created cold starts its own.
+
+Nothing is inferred from customer, address, service type or timing, in either
+direction.
 
 **b) What happens to records already written?**
 
-Back-filling can follow existing pairwise links where they exist, but a quote
-with no work request and an invoice raised from a plan proposal have nothing to
-follow. Options: leave them unattached and let them age out; attach them by the
-same suggest-and-confirm pass; or attach only what is unambiguous and list the
-rest for a person to sort.
+Unchanged as a question, but much easier to answer now. The back-fill can
+follow the pairwise links that exist — an invoice naming a quote, a quote
+naming a work request — and group each chain under one job. Anything with no
+link is its own job, which is the same rule applied to history and needs no
+judgement about whether two old records "look like" the same work.
 
-A related question that is Eric's alone: **is a job ever closed?** Several of
-the matching options above need a notion of "still open", and nothing in the
-codebase has one today.
+**c) ~~Is a job ever closed?~~ NO LONGER BLOCKING.**
 
----
+It only mattered for bounding an address match, and there is no address match.
+A closed stage may still be worth having for reporting; it is not needed for
+any of the work below.
 
 ## 5. What this does NOT do
 
