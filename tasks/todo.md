@@ -7557,3 +7557,33 @@ sentence is part of the feature, not a disclaimer bolted on afterwards.
 Generate colours, invent names, or interpolate a vendor's fan deck. If a colour
 is not in the catalogue it is not offered — an invented paint code on an order
 is a real-world error, not a UI blemish.
+
+### C, done
+
+- [x] C1. A third subject on `/analyze`: `room`. Reads the room's two floor
+      dimensions and ceiling height, every opening by wall and offset, what is
+      fitted in it now, and finishes with condition — all four things Eric
+      asked for. Scale fallbacks are split indoor/outdoor, because siding
+      courses and brick are no use in a bathroom.
+- [x] C2. `roomViewFromAnalysis` turns that into a `HouseView` of kind `room`,
+      which `RoomDesigner` and `FlooringTakeoff` already read through
+      `roomViews(house)`. Neither needed changing, which was the point of
+      routing it through the house rather than inventing a parallel record.
+- [x] C3 *(not planned, found on the way)*. `/analyze` was never metered. Every
+      render in that file reserves before spending; the vision read did not, and
+      any signed-in portal customer could call it in a loop. It now reserves
+      from the `ai` bucket.
+
+Two model bugs surfaced by writing the tests rather than by running the app:
+`blankView` never recorded a provenance for `openings` despite its docstring
+claiming every field was marked, and `mergeRead` never merged `depthFt`, so a
+second read of a room silently kept the first one's depth.
+
+**Still unverified, and deliberately so:** the vision call itself. It wants a
+real photograph of a real room; a stock image would cost money and prove
+nothing. Everything either side of it is verified — the subject routing free
+against the deployed function, the conversion by 20 tests.
+
+**Next: D**, splitting the assistant's prompt so it stops answering bathroom
+questions in joist spans.
+
