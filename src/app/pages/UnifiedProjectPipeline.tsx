@@ -455,7 +455,32 @@ export default function UnifiedProjectPipeline() {
         if (session?.access_token) {
           const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`, { headers: { Authorization: `Bearer ${session.access_token}` } });
           const data = await response.json();
-          if (response.ok && data.success && Array.isArray(data.items)) kvItems = data.items as PipelineItem[];
+          if (response.ok && data.success && Array.isArray(data.items)) {
+            /**
+             * Given the fields the type promises, rather than cast and hoped.
+             *
+             * This was `data.items as PipelineItem[]` — a cast, which checks
+             * nothing at runtime. Records stored by older versions of this
+             * screen are missing fields the interface declares as required, and
+             * they win the merge below over the well-formed work-request items,
+             * so a stored record could replace a good one with a broken one.
+             *
+             * The same fallbacks the work-request mapping above already uses.
+             * An item that cannot even say which record it is keeps its id as
+             * its number, because a blank reference in a list is worse than an
+             * ugly one.
+             */
+            kvItems = data.items.map((raw: any): PipelineItem => ({
+              ...raw,
+              id: String(raw?.id ?? ''),
+              itemNumber: String(raw?.itemNumber ?? raw?.id ?? '').toUpperCase() || 'WR-001',
+              customerName: String(raw?.customerName ?? raw?.client_name ?? raw?.client_info?.name ?? 'Customer'),
+              customerEmail: String(raw?.customerEmail ?? raw?.client_email ?? raw?.client_info?.email ?? ''),
+              serviceType: String(raw?.serviceType ?? raw?.project_type ?? 'General Service'),
+              title: String(raw?.title ?? raw?.project_name ?? 'Untitled'),
+              description: String(raw?.description ?? ''),
+            }));
+          }
         }
       } catch (error) { console.warn('[Pipeline] Could not load saved pipeline records:', error); }
 
@@ -621,12 +646,32 @@ export default function UnifiedProjectPipeline() {
     }
 
     if (searchQuery) {
+      /**
+       * Every field is coerced before it is lowercased.
+       *
+       * These four were read straight off the item, and the type says they are
+       * strings, and for most items they are. Three of the 437 saved pipeline
+       * records have no `itemNumber` and no `customerName` — two of them the
+       * real June jobs, the third saved under the literal key
+       * `pipeline:undefined` — and those come back from the server as stored
+       * and are cast to the type without anything checking.
+       *
+       * So typing a single character into the search box called
+       * `.toLowerCase()` on undefined, threw, and took the whole pipeline to
+       * the error screen. Not a filtered list, not a missing row: the page.
+       *
+       * A search box is the wrong place to be strict about data shape. It
+       * cannot fix a bad record and it must not lose the other 434 because of
+       * one — an item with no customer name simply does not match a search for
+       * a customer name, which is the honest answer.
+       */
       const search = searchQuery.toLowerCase();
+      const has = (value: unknown) => String(value ?? '').toLowerCase().includes(search);
       return (
-        item.itemNumber.toLowerCase().includes(search) ||
-        item.customerName.toLowerCase().includes(search) ||
-        item.title.toLowerCase().includes(search) ||
-        item.serviceType.toLowerCase().includes(search)
+        has(item.itemNumber) ||
+        has(item.customerName) ||
+        has(item.title) ||
+        has(item.serviceType)
       );
     }
     
