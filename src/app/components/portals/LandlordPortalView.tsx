@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import LandlordLeaseManager from './LandlordLeaseManager';
 import LandlordFormsManager from './LandlordFormsManager';
+import PropertyInspections from './PropertyInspections';
 import UnitTurnoverChecklist from './UnitTurnoverChecklist';
 import NotificationBell from './NotificationBell';
 import NotificationPreferences from './NotificationPreferences';
@@ -543,6 +544,7 @@ export default function LandlordPortalView() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-bold">Properties</h2><p className="mt-1 text-sm text-gray-400">Your saved landlord portfolio.</p></div><button type="button" onClick={() => { if (showPropertyForm) { resetPropertyForm(); } else { setEditingPropertyId(null); setPropertyDraft(emptyPropertyDraft); setPropertyMedia([]); setShowPropertyForm(true); } }} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"><Plus className="h-4 w-4" /> Add property</button></div>
             <FeatureGate feature="Market Rent Finder"><MarketRentWidget session={session} initialAddress={properties[0]?.address || ''} /></FeatureGate>
+            <PropertyInspections session={session} properties={properties} />
             {showPropertyForm && <form onSubmit={addProperty} className="space-y-5 rounded-xl border border-teal-500/25 bg-[#151515] p-5">
               <p className="text-sm font-bold text-teal-300">{editingPropertyId ? 'Edit property' : 'New property'}</p>
               {(() => {

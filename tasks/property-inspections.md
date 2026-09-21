@@ -9,7 +9,7 @@ Two requests from Eric, on the landlord portal:
 > inspection with photos and video and a ai assistant can put together a
 > property maintenace plan as well as update schedule and budgeting"
 
-**P1 is built.** Section 4 has the decisions still outstanding; section 3 the
+**P1, P2 and P3 are built.** Section 4 has the decisions still outstanding; section 3 the
 order of work.
 
 ---
@@ -81,10 +81,10 @@ somebody has to find.
       most value: `LandlordFormsManager` already has the areas and the scale, so
       each area gains photos and video. Move-in and move-out become evidence
       rather than assertion.
-- [ ] **P2. The inspection record and its routes.** Create, save as draft,
+- [x] **P2. The inspection record and its routes.** Create, save as draft,
       complete, list per property. A walkthrough happens over an hour with bad
       signal, so it saves as it goes rather than in one submit at the end.
-- [ ] **P3. The inspection screen**, under Properties. Area by area, photo and
+- [x] **P3. The inspection screen**, under Properties. Area by area, photo and
       video per area, condition and notes — usable one-handed on a phone,
       because that is where it will actually be used.
 - [ ] **P4. `lastInspectionDate` flows back**, so the property AI's score stops
