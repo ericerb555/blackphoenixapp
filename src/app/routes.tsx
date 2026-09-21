@@ -134,6 +134,7 @@ const WeatherJobSiteMonitor = lazy(() => import("./pages/WeatherJobSiteMonitor")
 const CodeTracker = lazy(() => import("./pages/CodeTracker"));
 const ProductDataSources = lazy(() => import("./pages/ProductDataSources"));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders"));
+const JobsCenter = lazy(() => import("./pages/JobsCenter"));
 const EnterpriseEmailManagement = lazy(() => import("./pages/EnterpriseEmailManagement"));
 const SocialMediaManager = lazy(() => import("./pages/SocialMediaManager"));
 const ModuleManager = lazy(() => import("./pages/ModuleManager"));
@@ -512,6 +513,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Operations & Tools
   "product-data-sources": ProductDataSources,
   "purchase-orders":      PurchaseOrders,
+  "jobs":                 JobsCenter,
+  "job-center":           JobsCenter,
 
   // Communication
   "messaging":        Messaging,

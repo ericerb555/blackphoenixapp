@@ -90,7 +90,7 @@ the current state is exactly what happens when each route decides for itself.
       records, follows the pairwise links it can, and proposes groupings —
       reporting what it cannot resolve rather than guessing. Same discipline as
       the catalogue importer: nothing overwritten, nothing invented.
-- [ ] **J5. The job view.** One screen showing a job with its requests, quotes,
+- [x] **J5. The job view.** One screen showing a job with its requests, quotes,
       invoices and POs, and their stages. This is also where "raise the POs for
       this job" belongs — see `tasks/todo.md` for the purchase-order thread.
 - [ ] **J6. Close the nullable default.** Once the resolver exists, a creation

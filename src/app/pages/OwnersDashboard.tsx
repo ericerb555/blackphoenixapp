@@ -248,6 +248,9 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       name: 'Operations',
       icon: Settings,
       modules: [
+        // Everything for one piece of work in one place — the question that
+        // could not be asked before jobs existed.
+        { name: 'Jobs', path: 'jobs', icon: Briefcase },
         { name: 'Materials Database', path: 'materials-database', icon: Database },
         { name: 'Materials Hub', path: 'materials-hub', icon: Package },
         { name: 'Purchase Orders', path: 'purchase-orders', icon: FileText },
