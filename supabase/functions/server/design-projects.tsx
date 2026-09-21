@@ -263,6 +263,23 @@ function summarize(p: any) {
             state: p.meta.site.state ?? '',
           }
           : null,
+        /**
+         * Enough to spot a walkthrough somebody abandoned halfway.
+         *
+         * The customer portal offers to pick one up where it was left, which it
+         * can only do if listing tells it a half-finished one exists. Two
+         * fields, in the spirit of the note above: what they said they wanted,
+         * and whether they ever finished. Their written brief is deliberately
+         * not here — it has no length limit and a list of twenty projects
+         * should not carry twenty paragraphs. Resuming fetches the project by
+         * id and gets it then.
+         */
+        intake: p.meta.intake
+          ? {
+            kindId: p.meta.intake.kindId ?? '',
+            done: p.meta.intake.done === true,
+          }
+          : null,
       }
       : null,
   };

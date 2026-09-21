@@ -8,8 +8,20 @@
  * has only ever described what they want over the phone. Dropping a homeowner
  * straight into it is how a good tool gets a reputation for being difficult.
  *
- * So the tab lands here first: what the thing is, what it is not, a way in, and
- * the designs they already have.
+ * So the tab lands here first: the walkthrough that starts a project, and the
+ * designs they already have.
+ *
+ * THE WALKTHROUGH DOES THE WORK NOW
+ *
+ * This used to be a card explaining the design centre and a button that opened
+ * it. That was still a cold start with a paragraph in front of it — everything
+ * a homeowner wants to do first lived inside the tool, at stages and in panels
+ * they had no reason to find. `DesignWalkthrough` asks the four questions and
+ * writes the answers into a design project; the explanatory card is gone
+ * because the walkthrough explains itself by asking.
+ *
+ * What stayed is the list below it. Somebody returning to this tab is usually
+ * coming back to something they already started, and that is what it shows.
  *
  * WHY THE "SEND" ACTION IS HERE AND NOT IN THE DESIGNER
  *
@@ -24,11 +36,13 @@
  * ownership check, the staff alert and the admin notification all come free
  * because they already guard that route.
  */
-import { useEffect, useState } from 'react';
-import { Hammer, ExternalLink, Loader2, Send, CheckCircle2, Info, MapPin } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2, Send, CheckCircle2, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
+import DesignWalkthrough, { type ResumableIntake } from './DesignWalkthrough';
+import { ownerKeyForCurrentUser } from '../../lib/designProjectService';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -39,7 +53,12 @@ interface DesignSummary {
   floorCount?: number;
   elementCount?: number;
   updatedAt?: string;
-  meta?: { kind?: string | null; site?: { projectName?: string; address?: string; town?: string; state?: string } | null } | null;
+  meta?: {
+    kind?: string | null;
+    site?: { projectName?: string; address?: string; town?: string; state?: string } | null;
+    /** Present when the project was started by the portal walkthrough. */
+    intake?: { kindId?: string; done?: boolean } | null;
+  } | null;
 }
 
 export default function CustomerDesignTab({
@@ -67,35 +86,64 @@ export default function CustomerDesignTab({
    * copy — if the office deletes a request, this should stop claiming it was
    * sent.
    */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const headers = await authedHeaders();
-        const [designRes, wrRes] = await Promise.all([
-          fetch(`${SERVER}/design-projects`, { headers }),
-          fetch(`${SERVER}/work-requests`, { headers }),
-        ]);
-        if (!designRes.ok) throw new Error(`The design service responded ${designRes.status}`);
-        const designJson = await designRes.json();
-        const wrJson = wrRes.ok ? await wrRes.json().catch(() => []) : [];
+  const load = useCallback(async () => {
+    try {
+      const headers = await authedHeaders();
+      /**
+       * The owner key is not optional, though this asked as though it were.
+       *
+       * The server reads `?owner=` and hands it to `permittedOwnerKey`, which
+       * defaults a missing one to `shared` — a staff namespace. A customer is
+       * refused it, the handler answers with an empty list rather than an
+       * error, and the panel below says "Nothing saved yet" in a reassuring
+       * tone. So this list has never shown a customer a single one of their own
+       * designs, however many they had, and it looked like working software
+       * the whole time.
+       *
+       * The deck designer has always passed it. This is the same call.
+       */
+      const owner = await ownerKeyForCurrentUser();
+      const [designRes, wrRes] = await Promise.all([
+        fetch(`${SERVER}/design-projects?owner=${encodeURIComponent(owner)}`, { headers }),
+        fetch(`${SERVER}/work-requests`, { headers }),
+      ]);
+      if (!designRes.ok) throw new Error(`The design service responded ${designRes.status}`);
+      const designJson = await designRes.json();
+      const wrJson = wrRes.ok ? await wrRes.json().catch(() => []) : [];
 
-        if (cancelled) return;
-        setDesigns(Array.isArray(designJson?.projects) ? designJson.projects : []);
-        const already = new Set<string>();
-        for (const wr of Array.isArray(wrJson) ? wrJson : []) {
-          const id = String(wr?.designProjectId || wr?.design_project_id || '');
-          if (id) already.add(id);
-        }
-        setSent(already);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Could not load your designs.');
-      } finally {
-        if (!cancelled) setLoading(false);
+      setDesigns(Array.isArray(designJson?.projects) ? designJson.projects : []);
+      const already = new Set<string>();
+      for (const wr of Array.isArray(wrJson) ? wrJson : []) {
+        const id = String(wr?.designProjectId || wr?.design_project_id || '');
+        if (id) already.add(id);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [customerEmail]);
+      setSent(already);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || 'Could not load your designs.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load, customerEmail]);
+
+  /**
+   * A walkthrough they began and never finished, if there is one.
+   *
+   * The most recent only. Offering a list of abandoned attempts would be a
+   * nag; offering the last one is a courtesy. Projects are returned newest
+   * first, so the first match is the right one.
+   */
+  const resumable: ResumableIntake | null = (() => {
+    const found = designs.find(d => d.meta?.intake && d.meta.intake.done !== true);
+    if (!found) return null;
+    return {
+      id: found.id,
+      name: found.name || 'Untitled',
+      kindId: String(found.meta?.intake?.kindId || ''),
+    };
+  })();
 
   /**
    * Open the design centre.
@@ -160,39 +208,13 @@ export default function CustomerDesignTab({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-[#2A2A2A] bg-[#111] p-6">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-orange-600/15 p-2.5">
-            <Hammer className="h-6 w-6 text-orange-400" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-lg font-bold text-white">Design your project</h3>
-            <p className="mt-1 text-sm text-gray-400">
-              The same tool our team designs with — decks, siding, doors and windows,
-              flooring, kitchens and bathrooms. Lay out what you have in mind, then send
-              it over and we will work out what it takes to build.
-            </p>
-          </div>
-        </div>
-
-        {/* Said plainly and up front. A drawing is persuasive, and somebody who
-            believes theirs is a quote is a difficult conversation later. */}
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
-          <p className="text-sm text-blue-200/80">
-            What you draw is an idea, not a plan and not a price. We check spans, loads
-            and what your town requires before anything is built or quoted.
-          </p>
-        </div>
-
-        <button
-          onClick={() => openDesigner()}
-          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-500"
-        >
-          <ExternalLink className="h-4 w-4" />
-          Open the design centre
-        </button>
-      </div>
+      <DesignWalkthrough
+        customerEmail={customerEmail}
+        customerName={customerName}
+        customerAddress={customerAddress}
+        resumable={resumable}
+        onChanged={load}
+      />
 
       <div>
         <h4 className="mb-3 font-bold text-white">Your designs</h4>

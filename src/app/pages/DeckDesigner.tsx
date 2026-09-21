@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Save, Loader2, Ruler, Hammer, MapPin, AlertTriangle, Check,
-  FolderOpen, Plus, Home, DoorOpen, ChefHat, Bath, Layers, Triangle, Warehouse, Layers3,
+  FolderOpen, Plus,
   Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -63,6 +63,7 @@ import { DESIGN_OWNER_KEY, ownerKeyForCurrentUser } from '../lib/designProjectSe
 import SectionCapture from '../components/design/SectionCapture';
 import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
 import HousePanel from '../components/HousePanel';
+import { TRADES, type TradeId } from '../lib/trades';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
 import {
@@ -158,20 +159,10 @@ const NO_LINK: DesignLink = { customerId: '', customerName: '', jobId: '', jobTi
  * three that are not built say so on their own tile rather than being
  * discovered by pressing them — a button that looks like the working ones and
  * then does nothing is worse than one that admits what it is.
+ *
+ * The list itself now lives in `lib/trades.ts`, because the customer
+ * walkthrough needs the same one and two copies would drift.
  */
-type TradeId = 'deck' | 'structures' | 'hardscape' | 'siding' | 'openings' | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
-
-const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> = [
-  { id: 'deck', label: 'Decks', icon: Hammer, built: true },
-  { id: 'structures', label: 'Structures', icon: Warehouse, built: true },
-  { id: 'hardscape', label: 'Hardscape', icon: Layers3, built: true },
-  { id: 'siding', label: 'Siding', icon: Home, built: true },
-  { id: 'openings', label: 'Doors & windows', icon: DoorOpen, built: true },
-  { id: 'kitchen', label: 'Kitchens', icon: ChefHat, built: true },
-  { id: 'bathroom', label: 'Bathrooms', icon: Bath, built: true },
-  { id: 'flooring', label: 'Flooring', icon: Layers, built: true },
-  { id: 'roofing', label: 'Roofing', icon: Triangle, built: false },
-];
 
 /**
  * Where work goes when the server will not take it.
@@ -291,7 +282,14 @@ function DesignerSession({ session, onSession }: {
    * Design is the default because it is where most returns to this page are
    * headed, and because it is closest to what the page used to show.
    */
-  const [stage, setStage] = useState<'capture' | 'design' | 'scope' | 'price' | 'documents'>('design');
+  const [stage, setStage] = useState<'capture' | 'design' | 'scope' | 'price' | 'documents'>(
+    // The portal walkthrough may have asked for a particular one — an addition
+    // starts on Capture, because there is nothing to design until the existing
+    // rooms are drawn. Read as the initial value rather than applied by an
+    // effect, so the first paint is already the right stage and nobody sees
+    // Design flash past on the way.
+    () => stageFromUrl() || 'design',
+  );
 
   /**
    * Which trade is being designed.
@@ -306,7 +304,7 @@ function DesignerSession({ session, onSession }: {
    * navigation act and not an edit: nothing about the deck is discarded by
    * looking at the siding.
    */
-  const [trade, setTrade] = useState<TradeId>('deck');
+  const [trade, setTrade] = useState<TradeId>(() => tradeFromUrl() || 'deck');
 
   const [loads, setLoads] = useState<SiteLoads>(session.loads);
   const [link, setLink] = useState<DesignLink>(session.link);
@@ -980,6 +978,42 @@ function DesignerSession({ session, onSession }: {
       setOpening(null);
     }
   }, [onSession]);
+
+  /**
+   * Open the project the portal sent us to.
+   *
+   * The customer portal has linked here with `?projectId=` since it was
+   * written, and this page has never read it. So "Open" on a saved design, and
+   * every hand-off out of the walkthrough, landed on a blank designer titled
+   * "New deck" — the saved work was still there, but nothing on screen said so,
+   * and the obvious next move was to draw it all again.
+   *
+   * THE GUARD IS THE URL, NOT A REF, AND THAT IS NOT A STYLE CHOICE.
+   *
+   * `open` ends by calling `onSession`, which bumps the key this whole
+   * component is mounted under, so opening a project remounts it. A `useRef`
+   * guard would be reconstructed by that remount, the effect would fire again,
+   * open again, remount again — a fetch loop that never settles. Taking the
+   * parameter out of the URL first means the remounted copy reads no parameter
+   * and does nothing.
+   *
+   * `trade` and `stage` are deliberately left in place: they are read on every
+   * mount and should survive, so the remount lands back on the same tab.
+   */
+  useEffect(() => {
+    let wanted = '';
+    try {
+      const q = new URLSearchParams(window.location.search);
+      wanted = String(q.get('projectId') || '').trim();
+      if (!wanted) return;
+      q.delete('projectId');
+      const rest = q.toString();
+      window.history.replaceState(
+        {}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`,
+      );
+    } catch { return; }
+    void open({ id: wanted });
+  }, [open]);
 
   const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
   const label = 'block text-xs font-semibold text-gray-400 mb-1';
@@ -1957,6 +1991,42 @@ function addressFromUrl(): string {
     return String(new URLSearchParams(window.location.search).get('address') || '').trim();
   } catch {
     return '';
+  }
+}
+
+/**
+ * Which section and which stage the portal walkthrough asked for.
+ *
+ * Somebody who has just said "a bathroom remodel" and landed on the deck
+ * screen has been asked the question twice and answered it once, and the second
+ * answer is the one that looks like the tool ignoring them. So the walkthrough
+ * names both, and both are validated here rather than trusted: an unknown trade
+ * falls back to the default instead of selecting a tab that does not exist.
+ *
+ * Presentation only — like `?from=portal`, it decides where somebody arrives,
+ * not what they are allowed to do. That is settled by the server from their
+ * token.
+ */
+function tradeFromUrl(): TradeId | null {
+  try {
+    const want = String(new URLSearchParams(window.location.search).get('trade') || '').trim();
+    const match = TRADES.find(t => t.id === want && t.built);
+    return match ? match.id : null;
+  } catch {
+    return null;
+  }
+}
+
+const STAGES = ['capture', 'design', 'scope', 'price', 'documents'] as const;
+
+function stageFromUrl(): (typeof STAGES)[number] | null {
+  try {
+    const want = String(new URLSearchParams(window.location.search).get('stage') || '').trim();
+    return (STAGES as readonly string[]).includes(want)
+      ? (want as (typeof STAGES)[number])
+      : null;
+  } catch {
+    return null;
   }
 }
 

@@ -120,6 +120,13 @@ export interface SaveProjectInput {
   layers?: any;
   quoteId?: string | null;
   note?: string;
+  /**
+   * Everything about the project that is not its geometry — the trade, the
+   * site, the house, the customer's own brief. The server has always stored
+   * it; this interface simply never named it, so callers had to bypass the
+   * helper and hand-roll the fetch to save any.
+   */
+  meta?: any;
 }
 
 /** Create or upsert a project; the server snapshots a new version each save. */
