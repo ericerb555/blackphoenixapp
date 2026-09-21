@@ -7167,3 +7167,45 @@ digest:
 When `supabase secrets list` shows that digest against `COMPLIANCE_CRON_SECRET`,
 the two halves match and the rotation is complete. Until then the old secret
 remains live and the 12:00 UTC run will 401.
+
+### Second attempt: half right — the leak is closed, the scheduler is broken
+
+The digest changed, so something was set. But it is not the value the database
+holds:
+
+    old, exposed value        7f29caf6…   (dead)
+    COMPLIANCE_CRON_SECRET    81c0b89a…   (what Eric set)
+    private_cron_config row   4d4a597f…   (what the cron job sends)
+
+So a **new** value was generated rather than the one waiting in the database.
+
+**What that fixed:** posting the exposed value now answers **401**. The
+credential that was sitting in `schema_migrations` is dead. That was the point
+of the rotation and it is done.
+
+**What it broke:** the two halves no longer agree. Tested on the real path —
+had Postgres itself make the call, `pg_net` with the headers read from
+`private_cron_config`, exactly as the scheduled command does:
+
+    request 15 → status 401 {"success":false,"error":"Unauthorized."}
+
+At 12:00 UTC the job will fail. (A note on my own tooling: the probe script
+printed "Rotation complete on both halves" off a single 401. It tested one
+thing and claimed two. The message was wrong, not the result.)
+
+### One statement closes it
+
+The value is already in Eric's hands — it is what he just set. In the SQL
+editor:
+
+    update private_cron_config
+    set value = '<the value you set as COMPLIANCE_CRON_SECRET>'
+    where key = 'compliance_cron_secret';
+
+Then both digests read `81c0b89a…` and the scheduled call succeeds. I can
+confirm by re-running the same `pg_net` call and comparing digests, without
+either value passing through me.
+
+Nothing is at risk while it is mismatched: there are zero `org_compliance:`
+records, so no reminder is owed to anyone, and an administrator can trigger the
+run by hand regardless.
