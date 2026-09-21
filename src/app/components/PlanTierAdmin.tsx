@@ -131,6 +131,57 @@ export default function PlanTierAdmin() {
     }
   };
 
+  const [checkingHooks, setCheckingHooks] = useState(false);
+  const [hookReport, setHookReport] = useState<string[]>([]);
+
+  /**
+   * Find this project's Stripe webhook endpoints and make sure each one is
+   * subscribed to the events a subscription flow needs.
+   *
+   * Only endpoints pointing at this project are touched. Stripe accounts often
+   * carry endpoints for other things entirely, and adding events to somebody
+   * else's endpoint would send them deliveries they never asked for.
+   */
+  const checkWebhookEvents = async () => {
+    setCheckingHooks(true);
+    setHookReport([]);
+    const lines: string[] = [];
+    try {
+      const listed = await fetch(`${SERVER}/stripe/webhook-endpoints`, { headers: await headers() });
+      const json = await listed.json().catch(() => ({}));
+      if (!listed.ok) {
+        setHookReport([`! ${json?.error || `Could not list endpoints (${listed.status}).`}`]);
+        return;
+      }
+
+      const accounts = json?.accounts || {};
+      let touched = 0;
+      for (const [envName, info] of Object.entries<any>(accounts)) {
+        for (const ep of info?.endpoints || []) {
+          if (!ep.pointsAtThisProject) continue;
+          touched += 1;
+          const res = await fetch(
+            `${SERVER}/stripe/webhook-endpoints/${encodeURIComponent(ep.id)}/ensure-subscription-events?key=${encodeURIComponent(envName)}`,
+            { method: 'POST', headers: await headers() },
+          );
+          const out = await res.json().catch(() => ({}));
+          const where = `${ep.livemode ? 'live' : 'test'} · ${ep.url.replace(/^https:\/\//, '').slice(0, 40)}`;
+          if (!res.ok) lines.push(`! ${where}: ${out?.error || res.status}`);
+          else if (out.alreadyComplete) lines.push(`✓ ${where}: already complete`);
+          else lines.push(`✓ ${where}: added ${(out.added || []).join(', ')}`);
+        }
+      }
+      if (touched === 0) {
+        lines.push('! No Stripe webhook endpoint points at this project yet — nothing to fix.');
+      }
+      setHookReport(lines);
+    } catch (e: any) {
+      setHookReport([`! ${e?.message || 'Could not reach Stripe.'}`]);
+    } finally {
+      setCheckingHooks(false);
+    }
+  };
+
   const sellable = tiers.filter(t => t.purchasable).length;
 
   return (
@@ -254,6 +305,40 @@ export default function PlanTierAdmin() {
               </div>
             ))}
           </div>
+          {/* ── The events without which none of this works ────────────────
+              Missing one is silent and slow: no `customer.subscription.deleted`
+              means a cancellation never arrives and the customer keeps paid
+              access for good; no `.updated` means a failed renewal never
+              arrives and we go on treating them as paying. Neither surfaces as
+              an error anywhere, which is why it gets a button rather than a
+              line in a runbook. */}
+          <div className="mt-4 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+            <p className="text-xs font-semibold text-gray-300">Stripe webhook events</p>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Subscriptions need Stripe to tell us about cancellations and failed
+              renewals. Without those events access is never withdrawn, and nothing
+              anywhere reports it.
+            </p>
+            <button
+              onClick={checkWebhookEvents}
+              disabled={checkingHooks}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 disabled:opacity-50"
+            >
+              {checkingHooks
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…</>
+                : 'Check and fix webhook events'}
+            </button>
+            {hookReport.length > 0 && (
+              <ul className="mt-2 space-y-1 text-[11px]">
+                {hookReport.map((line, i) => (
+                  <li key={i} className={line.startsWith('✓') ? 'text-green-400' : line.startsWith('!') ? 'text-amber-400' : 'text-gray-400'}>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <p className="mt-3 text-[11px] text-gray-600">
             Creating a price uses the Stripe key already stored in the edge function
             secrets, on the Black Phoenix Builds account. The reply says whether it

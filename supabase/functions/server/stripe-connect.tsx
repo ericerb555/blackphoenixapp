@@ -309,6 +309,98 @@ stripeConnectRouter.get(`${PREFIX}/stripe/webhook-endpoints`, async (c) => {
   return c.json({ success: true, accounts: out });
 });
 
+/**
+ * Add the events a subscription flow cannot work without.
+ *
+ * WHY A ROUTE RATHER THAN THE STRIPE DASHBOARD
+ *
+ * Because the consequence of missing one is silent and slow. Without
+ * `customer.subscription.deleted` a cancellation never reaches us and the
+ * customer keeps their paid access for good. Without
+ * `customer.subscription.updated` a failed renewal never reaches us either —
+ * Stripe moves the subscription to `past_due`, stops collecting, and this app
+ * goes on treating them as a paying subscriber. Neither shows up as an error
+ * anywhere. The first sign is a reconciliation nobody runs.
+ *
+ * Knowing that is the hard part, and it is knowledge that belongs next to the
+ * webhook handler rather than in somebody's memory of which checkboxes to tick.
+ *
+ * IT ADDS AND NEVER REMOVES
+ *
+ * The endpoint's existing events are kept and the missing ones appended. Other
+ * flows on this project subscribe to their own events through the same
+ * endpoint, and replacing the list wholesale would silently unsubscribe the
+ * store, the maintenance plans and Property AI — breaking three working things
+ * to fix one.
+ */
+const REQUIRED_SUBSCRIPTION_EVENTS = [
+  "checkout.session.completed",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  // A failed renewal reaches us as an invoice event before the subscription
+  // status catches up, so it is the earliest honest signal that access should
+  // stop.
+  "invoice.payment_failed",
+  "invoice.payment_succeeded",
+];
+
+stripeConnectRouter.post(`${PREFIX}/stripe/webhook-endpoints/:id/ensure-subscription-events`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
+  const endpointId = String(c.req.param("id") || "").trim();
+  if (!endpointId) return c.json({ success: false, error: "Which endpoint?" }, 400);
+
+  const envName = String(c.req.query("key") || DEFAULT_KEY_ENV);
+  const stripe = await getStripeByEnv(envName);
+  if (!stripe) return c.json({ success: false, error: `${envName} is not configured.` }, 400);
+
+  try {
+    const existing = await stripe.webhookEndpoints.retrieve(endpointId);
+    const current: string[] = Array.isArray(existing?.enabled_events) ? existing.enabled_events : [];
+
+    // Already listening to everything, including via a wildcard.
+    if (current.includes("*")) {
+      return c.json({
+        success: true,
+        alreadyComplete: true,
+        note: "This endpoint subscribes to all events (*), so nothing needs adding.",
+        enabledEvents: current,
+      });
+    }
+
+    const missing = REQUIRED_SUBSCRIPTION_EVENTS.filter((e) => !current.includes(e));
+    if (missing.length === 0) {
+      return c.json({
+        success: true,
+        alreadyComplete: true,
+        note: "Every event the subscription flow needs is already enabled.",
+        enabledEvents: current,
+      });
+    }
+
+    const updated = await stripe.webhookEndpoints.update(endpointId, {
+      enabled_events: [...current, ...missing] as any,
+    });
+
+    console.log(`[stripe] added ${missing.join(", ")} to webhook endpoint ${endpointId}`);
+    return c.json({
+      success: true,
+      added: missing,
+      kept: current,
+      enabledEvents: updated.enabled_events,
+      livemode: Boolean(updated.livemode),
+      note: updated.livemode
+        ? "Added on the LIVE endpoint. Cancellations and failed renewals will now reach the app."
+        : "Added on a TEST-mode endpoint. Stripe keeps separate endpoint lists per mode.",
+    });
+  } catch (err: any) {
+    console.error("[stripe] could not update webhook endpoint:", err?.message || err);
+    return c.json({ success: false, error: err?.message || "Could not update the endpoint." }, 500);
+  }
+});
+
+
 function healthBody(c: any) {
   const accounts = configuredKeyEnvs();
   return c.json({
