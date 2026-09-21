@@ -490,13 +490,61 @@ Deno.serve(async (req) => {
    * environment with its own database, not in the one serving customers.
    */
   if (event?.livemode === false) {
-    console.log(`[stripe-webhooks] test-mode ${event?.type} received and verified; not applied to live data.`);
+    /**
+     * ONE NARROW EXCEPTION, AND IT IS AN ALLOWLIST OF ONE.
+     *
+     * The guard above exists because fabricated data must not touch real
+     * records. That reasoning does not change — but it leaves the single most
+     * important link in the subscription flow, "paid event grants access",
+     * impossible to exercise on a server holding a live key. The correct answer
+     * is a separate environment; until there is one, this is the contained
+     * version of it.
+     *
+     * Three conditions, all required:
+     *   · STRIPE_TEST_ACCOUNT_EMAIL is set — unset means nobody, so the path
+     *     does not exist until somebody is deliberately named;
+     *   · the event carries `bp_tier_id`, so only the portal plan flow is
+     *     reachable and the store, maintenance plans and Property AI stay
+     *     untouchable by test data;
+     *   · the event's own `bp_email` matches the nominated address.
+     *
+     * So a fabricated event can only ever write to one named account's grant.
+     * It cannot mark a real plan paid, and it cannot revoke a real subscriber.
+     * Whoever is named must be an account nobody relies on, because a payment
+     * that never happened can give them a paid plan — which is the point.
+     */
+    const testAccount = (Deno.env.get('STRIPE_TEST_ACCOUNT_EMAIL') || '').trim().toLowerCase();
+    const meta = event?.data?.object?.metadata || {};
+    const eventEmail = String(meta.bp_email || '').trim().toLowerCase();
+    const isRehearsal = Boolean(testAccount)
+      && Boolean(String(meta.bp_tier_id || '').trim())
+      && eventEmail === testAccount;
+
+    if (!isRehearsal) {
+      console.log(`[stripe-webhooks] test-mode ${event?.type} received and verified; not applied to live data.`);
+      return new Response(JSON.stringify({
+        received: true,
+        testMode: true,
+        type: event?.type,
+        applied: false,
+        note: 'Test-mode event verified but deliberately not applied to live records.',
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Loud on purpose. A test event changing a grant is a thing somebody should
+    // be able to find in the logs later and understand immediately.
+    console.log(
+      `[stripe-webhooks] REHEARSAL: applying test-mode ${event?.type} for the nominated `
+      + `test account ${eventEmail}. No other account can be reached this way.`,
+    );
+    const rehearsed = await handlePortalPlanEvent(event);
     return new Response(JSON.stringify({
       received: true,
       testMode: true,
+      rehearsal: true,
       type: event?.type,
-      applied: false,
-      note: 'Test-mode event verified but deliberately not applied to live records.',
+      applied: Boolean(rehearsed),
+      ...(rehearsed || {}),
     }), { headers: { 'Content-Type': 'application/json' } });
   }
 

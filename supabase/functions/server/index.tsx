@@ -10508,6 +10508,25 @@ function stripeKeyMode(key: string): 'live' | 'test' | 'unknown' {
  * a setting and a key can disagree and the key is the one that decides what
  * actually happens to somebody's card.
  */
+/**
+ * The one account allowed to rehearse a paid flow against test Stripe.
+ *
+ * Set as STRIPE_TEST_ACCOUNT_EMAIL. Unset means nobody, which is the safe
+ * default — the rehearsal path does not exist until somebody is named.
+ *
+ * It must be an account nobody is relying on. Whoever is named here can be
+ * granted a paid plan by a payment that never happened, which is exactly what
+ * makes the rehearsal useful and exactly why it must not be a real vendor.
+ */
+function stripeTestAccountEmail(): string {
+  return (Deno.env.get('STRIPE_TEST_ACCOUNT_EMAIL') || '').trim().toLowerCase();
+}
+
+function isStripeTestAccount(email: string): boolean {
+  const nominated = stripeTestAccountEmail();
+  return Boolean(nominated) && nominated === String(email || '').trim().toLowerCase();
+}
+
 function activeStripeMode(): 'live' | 'test' {
   const mode = stripeKeyMode(readStripeKey('services').key);
   // An unrecognised prefix is treated as live, because assuming test would be
@@ -10606,9 +10625,20 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
      * the webhook that grants access would never fire because there would be no
      * subscription to send events about.
      */
-    // The mode comes from the key this server holds, not from the request. A
-    // caller cannot ask to be billed in test mode.
-    const mode = activeStripeMode();
+    /**
+     * The mode comes from the key this server holds, not from the request — a
+     * caller cannot ask to be billed in test mode.
+     *
+     * The single exception is the nominated test account, which exists so the
+     * paid flow can be rehearsed on a live-keyed server without a separate
+     * environment. It is an allowlist of one, set as a secret, and it only
+     * takes effect when a test key is actually configured.
+     */
+    const rehearsing = isStripeTestAccount(email) && Boolean(stripeTestKey());
+    const mode = rehearsing ? 'test' : activeStripeMode();
+    if (rehearsing) {
+      console.log(`[Subscriptions] REHEARSAL: ${email} is the nominated test account — using test Stripe.`);
+    }
     const refusal = notPurchasableReason(tier, mode);
     if (refusal) return c.json({ error: refusal }, 400);
 
@@ -10640,8 +10670,10 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
     params.set('subscription_data[metadata][bp_audience]', audience);
     params.set('subscription_data[metadata][bp_email]', email);
 
-    const session = await stripeCheckoutSession(params, 'services');
-    console.log(`[Subscriptions] ${email} starting checkout for ${audience}/${tierId}`);
+    const session = rehearsing
+      ? await stripeSessionWithKey(params, stripeTestKey())
+      : await stripeCheckoutSession(params, 'services');
+    console.log(`[Subscriptions] ${email} starting ${mode} checkout for ${audience}/${tierId}`);
     return c.json({ url: session.url, sessionId: session.id });
   } catch (error: any) {
     console.error('[Subscriptions] checkout error:', error?.message || error);
@@ -10844,6 +10876,27 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
   }
 });
 
+
+/**
+ * A Checkout Session against an explicitly supplied key.
+ *
+ * Only used by the rehearsal path, which needs the test key while the server's
+ * configured key is live. Kept separate from stripeCheckoutSession so the
+ * ordinary path cannot be handed a key by a caller.
+ */
+async function stripeSessionWithKey(params: URLSearchParams, key: string) {
+  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${btoa(`${key}:`)}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error?.message || 'Unable to start Stripe checkout.');
+  return payload;
+}
 
 async function stripeCheckoutSession(params: URLSearchParams, account: StripeAccount = 'services') {
   const stripeKey = stripeKeyFor(account);
