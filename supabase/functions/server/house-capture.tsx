@@ -66,6 +66,23 @@ app.use("*", requireSignedIn);
 const reserveImages = (user: any, n: number) => reserve(user, "render", n);
 const refundImages = (user: any, n: number) => refund(user, "render", n);
 
+/**
+ * The photo reads, which were never counted at all.
+ *
+ * Every render in this file reserves before it spends, and `/analyze` — an
+ * Opus vision call over up to a dozen full-size photographs, with adaptive
+ * thinking and an eight-thousand-token ceiling — did not. It is gated on being
+ * signed in, like the renders, so any portal customer could call it in a loop.
+ * `index.tsx` leaves `/house-capture/` out of its metered list on the grounds
+ * that this file meters itself, which was true of the renders and not of this.
+ *
+ * The `ai` bucket is where it belongs: its own documentation names "analysing a
+ * photo" as an example, and its ceiling is a runaway backstop rather than a
+ * quota anybody meets honestly.
+ */
+const reserveRead = (user: any, n: number) => reserve(user, "ai", n);
+const refundRead = (user: any, n: number) => refund(user, "ai", n);
+
 /** Split a data URI into the parts the APIs want. Returns null if unusable. */
 function splitDataUri(uri: string): { mediaType: string; base64: string } | null {
   const m = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec((uri || "").trim());
@@ -148,7 +165,33 @@ const SCALE_OBJECTS: ScaleObject[] = [
  * one for the other reintroduces exactly the perspective error the reference
  * was there to remove, so the model is told plainly not to.
  */
-function scaleSection(refs: Array<{ object: string; placement: string }>): string {
+/**
+ * The fallback references, when nothing of known size was placed in the shot.
+ *
+ * Split by where the camera is standing. Siding courses and brick are no use
+ * inside a bathroom, and a switch plate is no use from the far side of a lawn —
+ * offering the wrong list invites the model to reach for something it cannot
+ * actually see and report the result as though it had.
+ */
+const FALLBACK_REFS: Record<"outside" | "inside", string> = {
+  outside: `  · a standard entry door is 80 inches tall, 36 inches wide
+  · a standard exterior step riser is 7 to 7.75 inches
+  · lap siding courses expose 4 to 8 inches
+  · a concrete block is 8 inches tall, 16 long
+  · a brick course with mortar is about 2.67 inches`,
+  inside: `  · a standard interior door is 80 inches tall, 30 or 32 wide
+  · a single switch or outlet plate is 4.5 inches tall, 2.75 wide
+  · a kitchen worktop sits 36 inches off the floor; a bathroom vanity 31 to 36
+  · a base cabinet carcass is 34.5 inches tall; a wall cabinet hangs 54 off the floor
+  · a standard alcove bathtub is 60 inches long, 30 to 32 wide
+  · a toilet centreline sits 12 inches off the finished wall behind it
+  · a floor tile is usually 12 inches square; a plank 5 to 7 wide`,
+};
+
+function scaleSection(
+  refs: Array<{ object: string; placement: string }>,
+  where: "outside" | "inside" = "outside",
+): string {
   const known = refs
     .map(r => ({ obj: SCALE_OBJECTS.find(o => o.id === r.object), placement: r.placement }))
     .filter(r => r.obj) as Array<{ obj: ScaleObject; placement: string }>;
@@ -157,11 +200,7 @@ function scaleSection(refs: Array<{ object: string; placement: string }>): strin
     return `SCALE. Photographs have no inherent scale, and nothing of known size was
 placed in these. Derive dimensions only from a reference of known size that you
 can actually see, and name it:
-  · a standard entry door is 80 inches tall, 36 inches wide
-  · a standard exterior step riser is 7 to 7.75 inches
-  · lap siding courses expose 4 to 8 inches
-  · a concrete block is 8 inches tall, 16 long
-  · a brick course with mortar is about 2.67 inches
+${FALLBACK_REFS[where]}
 These are assumptions about typical construction, not measurements of this
 house, so mark every dimension you take from them as basis "assumed-standard".
 State which reference you used and how confident you are. Perspective, camera
@@ -182,17 +221,17 @@ FIND IT FIRST, before estimating anything. It is an exact measurement of this
 house on this day, and it beats every assumption about typical construction.
 Anything you derive from it, mark basis "scale-object" and name which one.
 
-STAY IN ITS PLANE. A reference against the wall scales what is on the wall — the
-sill height, the ledger run, window and door sizes. A reference on the ground
-scales the ground. Do not use one to measure the other: the whole reason a known
-width at the near corner cannot scale the far corner is perspective, and a
-reference only escapes that for things at its own depth and orientation.
+STAY IN ITS PLANE. A reference against the wall scales what is on the wall —
+opening sizes, sill and counter heights, the run of a wall. A reference on the
+${where === "inside" ? "floor scales the floor" : "ground scales the ground"}.
+Do not use one to measure the other: the whole reason a known width at the near
+corner cannot scale the far corner is perspective, and a reference only escapes
+that for things at its own depth and orientation.
 
-If you cannot find it, say so in "scaleReference" and fall back to assumptions —
-a standard entry door is 80 inches tall, a step riser 7 to 7.75, lap siding
-courses expose 4 to 8, a brick course about 2.67. Mark anything from those
-"assumed-standard". Never report a number as scale-object when you did not
-actually find the object.`;
+If you cannot find it, say so in "scaleReference" and fall back to assumptions:
+${FALLBACK_REFS[where]}
+Mark anything from those "assumed-standard". Never report a number as
+scale-object when you did not actually find the object.`;
 }
 
 const ANALYSIS_SYSTEM = `You are a deck builder standing in the customer's yard looking at their house,
@@ -351,7 +390,123 @@ Every number here is an estimate to be checked with a tape before material is
 ordered. Say so honestly in confidence rather than rounding your uncertainty
 away.`;
 
-export type CaptureSubject = "deck-wall" | "siding";
+/**
+ * Reading a room from the inside.
+ *
+ * WHY THIS IS A THIRD PROMPT AND NOT A FLAG ON THE OTHERS
+ *
+ * The two above are looking at a building from outside and asking how big its
+ * faces are. This is standing inside a box asking what shape the box is and
+ * what is bolted to it. Almost nothing carries over: there is no grade, no
+ * siding, no eave, no ledger; there is a ceiling, a floor, four walls at once
+ * in a single frame, and fittings whose positions decide whether a proposed
+ * layout fits at all.
+ *
+ * WHY IT REPORTS FITTINGS BY POSITION AND NOT AS A LIST
+ *
+ * "There is a tub" is worth very little. "There is a 60-inch tub along the wall
+ * opposite the door, with the window above it" decides whether a walk-in shower
+ * can take its place without moving a window, which is the difference between a
+ * two-day job and a two-week one. So every fitting names the wall it is on and
+ * how far along that wall it sits.
+ *
+ * WHY THE FINISHES SECTION IS MARKED HARDEST
+ *
+ * Eric asked for finishes and condition, and they are the least reliable thing
+ * to read off a photograph: white balance moves colour, a phone's processing
+ * flatters a worn floor, and laminate photographs as stone. They feed a quote,
+ * so a confident wrong answer about counter material costs real money. The
+ * prompt is told to be conservative there specifically, and every field in that
+ * block carries its own confidence.
+ */
+const ROOM_SYSTEM = `You are standing inside a room the customer wants remodelled, working out what
+is there now. You are reading photographs, so you can see what is there but you
+cannot measure anything directly.
+
+Report only what is visible. "Not visible" is a useful answer and a guess is
+not. Somebody will plan cabinet runs and fixture positions from this, and a
+room reported a foot wider than it is produces a layout that does not fit.
+
+__SCALE_SECTION__
+
+THE SHAPE OF THE ROOM. Give its two floor dimensions and the floor-to-ceiling
+height. Call the wall with the main door "door wall" and work clockwise from it
+— "left", "opposite", "right" — so every position below is unambiguous without
+knowing which way the camera was pointing. If the room is not a rectangle, say
+so in "notes" and give the dimensions of the largest rectangle inside it; do not
+average an L-shaped room into a rectangle silently.
+
+OPENINGS. Every door and window: which wall, how far along that wall its centre
+sits, its width and height, and for windows the sill height off the floor. These
+decide whether a run of cabinets or a shower can go where somebody wants it.
+
+WHAT IS THERE NOW. This is nearly always a remodel, so the existing fittings are
+the most useful thing in the photograph. Cabinet runs, worktops, sink, cooker,
+fridge, dishwasher, tub, shower, toilet, vanity, radiators, vents. Each one:
+which wall, how far along, how long, and what it is.
+
+FINISHES AND CONDITION — BE CONSERVATIVE HERE. Photographs are unreliable about
+material and colour: white balance shifts colour badly, laminate reads as stone,
+vinyl plank reads as timber, and a phone flatters a worn floor. This feeds a
+price, so guessing costs somebody real money. Say "unknown" freely, keep
+confidence low unless the texture is genuinely legible, and describe what you
+can see rather than naming a product you cannot confirm.
+
+Return ONLY a JSON object, no prose and no code fence:
+{
+  "room": {
+    "type": "kitchen | bathroom | bedroom | living | dining | hall | laundry | other",
+    "lengthFt": 0,
+    "widthFt": 0,
+    "ceilingHeightFt": 0,
+    "basis": "scale-object | assumed-standard | not-visible",
+    "reference": "what you scaled it from",
+    "confidence": "high | medium | low",
+    "shape": "rectangular | L-shaped | irregular",
+    "notes": "anything about the shape a rectangle does not capture"
+  },
+  "openings": [
+    { "kind": "door | window | opening | closet",
+      "wall": "door | left | opposite | right",
+      "offsetFt": 0,
+      "widthFt": 0,
+      "heightFt": 0,
+      "sillHeightFt": 0,
+      "confidence": "high | medium | low" }
+  ],
+  "fittings": [
+    { "item": "base cabinets | wall cabinets | worktop | sink | cooker | fridge | dishwasher | tub | shower | toilet | vanity | radiator | vent | other",
+      "wall": "door | left | opposite | right",
+      "offsetFt": 0,
+      "lengthFt": 0,
+      "description": "what it is, in plain language",
+      "confidence": "high | medium | low" }
+  ],
+  "finishes": {
+    "floor": "what the floor appears to be",
+    "floorConfidence": "high | medium | low",
+    "walls": "paint | tile | panelling | wallpaper | unknown",
+    "wallColor": "plain language",
+    "wallColorHex": "#RRGGBB",
+    "wallColorConfidence": "high | medium | low",
+    "counter": "what the worktop appears to be, if there is one",
+    "counterConfidence": "high | medium | low",
+    "condition": "what state the room is in overall",
+    "conditionConfidence": "high | medium | low"
+  },
+  "cautions": ["things that would change the price or the scope — a window where a shower is wanted, a radiator in the way, a bearing wall"],
+  "notVisible": ["what a photo could not show that still has to be checked on site — behind cabinets, under the floor, where the plumbing runs"]
+}
+
+PLUMBING AND STRUCTURE. You cannot see either. Do not infer where pipes run or
+whether a wall is bearing — say in "notVisible" that it has to be checked. A
+wrong bearing-wall call is the most expensive mistake available in this trade.
+
+Every number here is an estimate to be checked with a tape before anything is
+ordered or built. Say so honestly in confidence rather than rounding your
+uncertainty away.`;
+
+export type CaptureSubject = "deck-wall" | "siding" | "room";
 
 /**
  * The system prompt for one request.
@@ -363,12 +518,16 @@ export function analysisSystem(
   refs: Array<{ object: string; placement: string }>,
   subject: CaptureSubject = "deck-wall",
 ): string {
-  const base = subject === "siding" ? SIDING_SYSTEM : ANALYSIS_SYSTEM;
-  return base.replace("__SCALE_SECTION__", scaleSection(refs));
+  const base = subject === "room" ? ROOM_SYSTEM
+    : subject === "siding" ? SIDING_SYSTEM
+      : ANALYSIS_SYSTEM;
+  // Where the camera is standing decides which fallback references are any use.
+  return base.replace("__SCALE_SECTION__", scaleSection(refs, subject === "room" ? "inside" : "outside"));
 }
 
 export function readSubject(raw: unknown): CaptureSubject {
-  return String(raw ?? "") === "siding" ? "siding" : "deck-wall";
+  const asked = String(raw ?? "");
+  return asked === "siding" || asked === "room" ? asked : "deck-wall";
 }
 
 /** What the client says was put in the shot, kept to things we actually know. */
@@ -405,7 +564,13 @@ app.post("/analyze", async (c) => {
     const scaleRefs = readScaleRefs(body?.scaleRefs);
     const subject = readSubject(body?.subject);
 
-    if (!images.length) return c.json({ error: "Add at least one photo of the house." }, 400);
+    if (!images.length) {
+      return c.json({
+        error: subject === "room"
+          ? "Add at least one photo of the room."
+          : "Add at least one photo of the house.",
+      }, 400);
+    }
 
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return c.json({ error: "Photo analysis is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
@@ -424,25 +589,42 @@ app.post("/analyze", async (c) => {
     blocks.push({
       type: "text",
       text: [
-        `${blocks.length} photo${blocks.length > 1 ? "s" : ""} of the same house.`,
+        `${blocks.length} photo${blocks.length > 1 ? "s" : ""} of the same ${
+          subject === "room" ? "room" : "house"
+        }.`,
         note ? `What the customer said: ${note}` : "",
         scaleRefs.length
           ? `Something of known size was placed in these photographs — find it before you estimate anything.`
           : "",
-        subject === "siding"
-          ? "Read every wall you can see and report them as JSON."
-          : "Read the wall a deck would attach to and report it as JSON.",
+        subject === "room"
+          ? "Read the room — its shape, its openings, what is fitted in it now — and report it as JSON."
+          : subject === "siding"
+            ? "Read every wall you can see and report them as JSON."
+            : "Read the wall a deck would attach to and report it as JSON.",
       ].filter(Boolean).join("\n\n"),
     });
 
-    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
-    const message = await client.messages.create({
-      model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      system: analysisSystem(scaleRefs, subject),
-      messages: [{ role: "user", content: blocks }],
-    });
+    // Reserved before the call, refunded if it fails — charging on success lets
+    // a burst of parallel requests all pass the same check before any of them
+    // has been counted.
+    const actor = c.get("actor");
+    const refused = await reserveRead(actor, 1);
+    if (refused) return c.json(refused, 429);
+
+    let message: any;
+    try {
+      const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+      message = await client.messages.create({
+        model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
+        max_tokens: 8000,
+        thinking: { type: "adaptive" },
+        system: analysisSystem(scaleRefs, subject),
+        messages: [{ role: "user", content: blocks }],
+      });
+    } catch (err) {
+      await refundRead(actor, 1);
+      throw err;
+    }
 
     const raw = message.content
       .filter((b: any) => b.type === "text")

@@ -146,6 +146,12 @@ export function blankView(name: string, kind: 'elevation' | 'room' = 'elevation'
     source: {
       widthFt: 'estimated', heightFt: 'estimated', storeys: 'estimated',
       sidingType: 'estimated', sillHeightInches: 'estimated',
+      // Listed so the docstring above is true. It was absent, which left the
+      // field's provenance `undefined` and working only because the panel
+      // treats anything it does not recognise as a guess. Relying on a UI
+      // fallback to make the record honest is one refactor away from a default
+      // being presented as a finding.
+      openings: 'estimated',
       ...(kind === 'room' ? { depthFt: 'estimated' as Provenance } : {}),
     },
   };
@@ -215,6 +221,112 @@ export function viewFromAnalysis(analysis: any, name = 'Back elevation'): HouseV
 }
 
 /**
+ * Build a room view from an interior photo read.
+ *
+ * THE SAME DISCIPLINE AS THE ELEVATION READ, FOR THE SAME REASON
+ *
+ * Anything the analysis actually supplied is marked `photos`; anything it left
+ * out keeps the blank default and stays `estimated`. A room reported a foot
+ * wider than it is produces a cabinet run that does not fit, and the only
+ * defence against that is being honest on screen about which numbers came from
+ * a photograph and which are placeholders.
+ *
+ * WHY THE OPENINGS ARE TREATED DIFFERENTLY HERE THAN OUTSIDE
+ *
+ * The elevation read returns a count and a typical size, so its openings are
+ * spread evenly and marked `estimated` — a starting point, not a claim about
+ * where the windows are. The room read is asked for each opening individually,
+ * with the wall it is on and how far along it sits, because indoors that is
+ * precisely the thing that decides whether a layout is possible. So when the
+ * analysis gives a real offset, it is kept and marked `photos`.
+ *
+ * Only openings on the room's long wall are carried across. `HouseView` models
+ * one wall's worth of openings, which is right for an elevation and a
+ * simplification indoors; the rest are preserved in the analysis itself, which
+ * the panel shows alongside. Inventing a second view per wall would be a bigger
+ * change than this is worth until somebody asks for it.
+ */
+export function roomViewFromAnalysis(analysis: any, name = 'Room'): HouseView {
+  const base = blankView(name, 'room');
+  if (!analysis || typeof analysis !== 'object') return base;
+
+  const room = analysis.room || analysis;
+  const view: HouseView = { ...base, source: { ...base.source }, capturedAt: new Date().toISOString() };
+
+  // The long dimension is the view's width, matching how `HouseView` is
+  // documented; the short one is its depth. Sorting rather than trusting the
+  // labels, because "length" and "width" are used interchangeably by people
+  // describing rooms and the model will echo whichever the customer said.
+  const a = Number(room?.lengthFt);
+  const b = Number(room?.widthFt);
+  if (Number.isFinite(a) && a > 0 && Number.isFinite(b) && b > 0) {
+    view.widthFt = Math.max(a, b);
+    view.depthFt = Math.min(a, b);
+    view.source.widthFt = 'photos';
+    view.source.depthFt = 'photos';
+  } else if (Number.isFinite(a) && a > 0) {
+    view.widthFt = a;
+    view.source.widthFt = 'photos';
+  }
+
+  const ceiling = Number(room?.ceilingHeightFt);
+  if (Number.isFinite(ceiling) && ceiling > 0) {
+    view.heightFt = ceiling;
+    view.source.heightFt = 'photos';
+  }
+
+  // A room is one storey by definition. Said rather than left as the blank
+  // default so nothing downstream doubles an area.
+  view.storeys = 1;
+  view.source.storeys = 'photos';
+
+  const openings = Array.isArray(analysis.openings) ? analysis.openings : [];
+
+  /**
+   * One wall's worth, and which wall is decided rather than assumed.
+   *
+   * The busiest wall is the one worth carrying: it is where the layout is most
+   * constrained, and it is the wall somebody will ask about first. Picking the
+   * door wall instead would usually carry a single door and drop the windows
+   * that actually decide whether a run of units fits.
+   */
+  const byWall = new Map<string, any[]>();
+  for (const o of openings) {
+    const wall = String(o?.wall || 'unknown');
+    byWall.set(wall, [...(byWall.get(wall) || []), o]);
+  }
+  let busiest: any[] = [];
+  for (const group of byWall.values()) {
+    if (group.length > busiest.length) busiest = group;
+  }
+
+  let placed = 0;
+  for (const o of busiest) {
+    const widthFt = Number(o?.widthFt);
+    const heightFt = Number(o?.heightFt);
+    if (!Number.isFinite(widthFt) || widthFt <= 0) continue;
+    const kindRaw = String(o?.kind || 'window');
+    const kind: OpeningKind = kindRaw === 'door' || kindRaw === 'slider' || kindRaw === 'garage'
+      ? kindRaw
+      : 'window';
+    view.openings.push({
+      id: newId('OP'),
+      kind,
+      widthFt,
+      heightFt: Number.isFinite(heightFt) && heightFt > 0 ? heightFt : 4,
+      offsetFt: Math.max(0, num(o?.offsetFt, 0) - widthFt / 2),
+      sillFt: kind === 'door' || kind === 'slider' ? 0 : num(o?.sillHeightFt, 3),
+    });
+    placed += 1;
+  }
+  // Marked `photos` rather than `estimated` only because each one was reported
+  // individually with its own position, which is not true of the elevation read.
+  if (placed > 0) view.source.openings = 'photos';
+
+  return view;
+}
+
+/**
  * Type a real measurement over a field.
  *
  * Marks it `measured`, which is what stops a later photo read from overwriting
@@ -236,7 +348,13 @@ export function mergeRead(existing: HouseView, fresh: HouseView): HouseView {
   const out: any = { ...existing };
   const source = { ...existing.source };
 
-  for (const field of ['widthFt', 'heightFt', 'storeys', 'sidingType', 'sillHeightInches'] as const) {
+  // `depthFt` is here because a room has two floor dimensions and this list
+  // once had only one. A second read of a room updated its length and its
+  // ceiling and silently left the depth at whatever the first read said — or at
+  // the blank default, if the first read had missed it. Harmless on an
+  // elevation, which has no depth: both sides are undefined and the loop does
+  // nothing.
+  for (const field of ['widthFt', 'heightFt', 'depthFt', 'storeys', 'sidingType', 'sillHeightInches'] as const) {
     if (existing.source[field] === 'measured') continue;
     if (fresh.source[field] === 'photos') { out[field] = fresh[field]; source[field] = 'photos'; }
   }

@@ -63,6 +63,7 @@ import { DESIGN_OWNER_KEY, ownerKeyForCurrentUser } from '../lib/designProjectSe
 import SectionCapture from '../components/design/SectionCapture';
 import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
 import HousePanel from '../components/HousePanel';
+import RoomCapture from '../components/RoomCapture';
 import { TRADES, type TradeId } from '../lib/trades';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
@@ -1487,10 +1488,22 @@ function DesignerSession({ session, onSession }: {
                 recording what is there — and the half an addition needs, since
                 you cannot photograph a room that does not exist yet. */}
             <div className={stage === 'capture' ? '' : 'hidden'}>
-              <PanelErrorBoundary name="Floor plan">
-                <FloorPlanEditor plan={plan} onChange={setPlan}
-                  onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
+              {/* ── Reading a room ───────────────────────────────────────────
+                  The other half of the capture story. Elevations could always
+                  be photographed and read; rooms could only be typed in by
+                  hand, so every interior trade started from somebody's guess.
+                  Above the floor plan because it is the easier of the two and
+                  produces a measured room the plan can then be drawn around. */}
+              <PanelErrorBoundary name="Read a room">
+                <RoomCapture house={house} onChange={setHouse} />
               </PanelErrorBoundary>
+
+              <div className="mt-4">
+                <PanelErrorBoundary name="Floor plan">
+                  <FloorPlanEditor plan={plan} onChange={setPlan}
+                    onAddToScope={lines => setScope(prev => lines.reduce((acc, l) => addScopeLine(acc, l), prev))} />
+                </PanelErrorBoundary>
+              </div>
 
               {/* ── An existing drawing ──────────────────────────────────────
                   The drawing becomes the building record rather than yielding
