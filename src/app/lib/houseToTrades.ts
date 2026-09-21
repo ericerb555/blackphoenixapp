@@ -24,7 +24,9 @@
  * measured width would launder an estimated height into looking measured.
  */
 import type { House, HouseView, Opening as HouseOpening, Provenance } from './houseModel';
-import { activeView } from './houseModel';
+import { activeView, blankView } from './houseModel';
+import type { FloorPlan } from './floorPlanModel';
+import { additionExteriorWalls, additionExteriorTotals } from './floorPlanModel';
 import type { Elevation, Opening as SidingOpening, DimensionSource } from './exteriorModel';
 import type { OpeningSpec, OpeningType } from './openingSpec';
 import type { FloorRoom } from './flooringModel';
@@ -256,4 +258,73 @@ export function hardscapeOffer(house: House | null | undefined): HouseOffer | nu
 export function deckWall(house: House | null | undefined): HouseView | null {
   const v = activeView(house);
   return v && v.kind === 'elevation' ? v : (elevationViews(house)[0] || null);
+}
+
+/* ── an addition's new outside walls ─────────────────────────────────────
+ *
+ * WHY THESE BECOME HOUSE VIEWS RATHER THAN A FOURTH TRANSLATION
+ *
+ * Because everything above already reads elevations off the house. Siding,
+ * the opening schedule, structures and hardscape all start from
+ * `elevationViews(house)`, so an addition's walls arriving as elevations are
+ * quoted by every one of them without a line of new code — which is the whole
+ * argument for the house being the single record in the first place.
+ *
+ * The alternative was a fifth bridge function per trade, four more places to
+ * remember that an addition exists, and the certainty that one of them would
+ * be forgotten.
+ *
+ * WHY IT IS AN EXPLICIT ACT AND NOT AUTOMATIC
+ *
+ * Drawing a proposed room is thinking out loud. Adding its walls to the house
+ * says the addition is real enough to quote, and the panel makes somebody press
+ * that. A footprint that silently started generating siding line items the
+ * moment it was sketched would be worse than useless.
+ */
+
+/**
+ * Turn an addition's exposed walls into elevations.
+ *
+ * Each run becomes its own view rather than being summed per side, because
+ * they are separate stretches of wall that will be sided, flashed and trimmed
+ * separately — and because a 6ft return and a 20ft face have very different
+ * waste factors.
+ *
+ * No openings are placed. Nobody has said where the windows in the addition go
+ * yet, and inventing them would put units on a schedule that nobody specified.
+ * They are added in the openings trade, on the elevation, like any other wall.
+ */
+export function elevationsFromAddition(plan: FloorPlan): HouseView[] {
+  return additionExteriorWalls(plan).map(run => {
+    const base = blankView(`${run.roomName} — ${run.side}`, 'elevation');
+    return {
+      ...base,
+      widthFt: run.lengthFt,
+      heightFt: run.ceilingFt,
+      storeys: 1,
+      openings: [],
+      source: {
+        ...base.source,
+        // As good as the room that implied it, never better. A wall derived
+        // from a footprint somebody dragged out with a mouse is a guess, and
+        // it has to keep saying so once it is sitting beside walls that were
+        // measured at the house.
+        widthFt: run.source,
+        heightFt: run.source,
+        storeys: 'measured',
+      },
+      capturedAt: new Date().toISOString(),
+    };
+  });
+}
+
+export function additionOffer(plan: FloorPlan | null | undefined): HouseOffer | null {
+  if (!plan) return null;
+  const runs = additionExteriorWalls(plan);
+  if (!runs.length) return null;
+  const { runFt } = additionExteriorTotals(plan);
+  return {
+    count: runs.length,
+    summary: `${runs.length} new outside wall${runs.length === 1 ? '' : 's'}, ${runFt}ft in total`,
+  };
 }

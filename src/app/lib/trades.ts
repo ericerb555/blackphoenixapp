@@ -15,9 +15,9 @@
  * the order staff think about them. `PROJECT_KINDS` is what a customer picks
  * from, and it is deliberately not the same shape. A homeowner does not think
  * "openings", they think "new windows"; they do not think "structures", they
- * think "a covered porch". And two of the things they most often want — an
- * addition, and moving walls around — are not trades at all. They are the floor
- * plan, which lives on the capture stage and is reached by landing there.
+ * think "a covered porch". Two customer-facing entries — an addition, and
+ * changing the layout — open the same trade, because they are the same work
+ * seen from two directions and both are the floor plan.
  *
  * So each customer-facing entry names the trade it opens and the stage it opens
  * on, and the designer is told both in the URL. Nothing here duplicates what
@@ -30,7 +30,7 @@ import {
 
 export type TradeId =
   | 'deck' | 'structures' | 'hardscape' | 'siding' | 'openings'
-  | 'kitchen' | 'bathroom' | 'flooring' | 'roofing';
+  | 'kitchen' | 'bathroom' | 'flooring' | 'roofing' | 'addition';
 
 /**
  * `built: false` means the tab is shown and says it is not ready. That is the
@@ -39,6 +39,17 @@ export type TradeId =
  */
 export const TRADES: Array<{ id: TradeId; label: string; icon: any; built: boolean }> = [
   { id: 'deck', label: 'Decks', icon: Hammer, built: true },
+  /**
+   * Additions and layout changes, which are the floor plan rather than a
+   * takeoff of their own.
+   *
+   * It is a trade here because the customer walkthrough needed somewhere
+   * truthful to send "an addition" and "changing the layout", and was pointing
+   * both at the deck section with a note to start on Capture. That worked and
+   * it was a lie: somebody who said they wanted an addition landed on a screen
+   * headed Decks.
+   */
+  { id: 'addition', label: 'Additions & layout', icon: Blocks, built: true },
   { id: 'structures', label: 'Structures', icon: Warehouse, built: true },
   { id: 'hardscape', label: 'Hardscape', icon: Layers3, built: true },
   { id: 'siding', label: 'Siding', icon: Home, built: true },
@@ -84,7 +95,7 @@ export const PROJECT_KINDS: ProjectKind[] = [
   {
     id: 'addition', label: 'An addition', icon: Blocks,
     blurb: 'More space added onto the house. Starts by drawing what is there now.',
-    trade: 'deck', stage: 'capture', interior: true,
+    trade: 'addition', stage: 'capture', interior: true,
   },
   {
     id: 'kitchen', label: 'A new kitchen', icon: ChefHat,
@@ -99,7 +110,7 @@ export const PROJECT_KINDS: ProjectKind[] = [
   {
     id: 'layout', label: 'Changing the layout', icon: LayoutGrid,
     blurb: 'Taking a wall out, opening rooms up, moving things around.',
-    trade: 'deck', stage: 'capture', interior: true,
+    trade: 'addition', stage: 'capture', interior: true,
   },
   {
     id: 'siding', label: 'New siding', icon: Home,

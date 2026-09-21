@@ -17,7 +17,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  readTrade, systemFor, describe, describeHouse, TRADE_BRIEF, CHANGE_FIELDS,
+  readTrade, systemFor, describe, describeHouse, describePlan, TRADE_BRIEF, CHANGE_FIELDS,
 } from '../supabase/functions/server/assistantPrompt.ts';
 
 // ── picking a trade ────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ test('every trade the design centre lists has knowledge behind it', () => {
   // Kept in step with lib/trades.ts by hand; a trade with no brief would get a
   // prompt containing the word "undefined".
   for (const id of [
-    'deck', 'structures', 'hardscape', 'siding', 'openings',
+    'deck', 'addition', 'structures', 'hardscape', 'siding', 'openings',
     'kitchen', 'bathroom', 'flooring', 'roofing',
   ]) {
     assert.ok(TRADE_BRIEF[id], `${id} has no brief`);
@@ -173,4 +173,55 @@ test('a missing site figure is reported as missing, never defaulted', () => {
   const text = describe({ model: {}, loads: {}, house }, 'deck');
   assert.match(text, /Ground snow load: NOT SUPPLIED/);
   assert.match(text, /Frost depth: NOT SUPPLIED/);
+});
+
+// ── additions, and the question that decides the price ─────────────────────
+
+test('an addition question leads with the bearing problem', () => {
+  const prompt = systemFor('addition');
+  assert.match(prompt, /bearing/i);
+  assert.match(prompt, /joists run/i, 'it must say how the question is actually settled');
+  assert.match(prompt, /egress/i);
+});
+
+test('a wall whose role nobody has established is reported as unknown, loudly', () => {
+  const text = describePlan({
+    rooms: [],
+    walls: [{ label: 'kitchen/dining wall', state: 'removed', bearing: 'unknown' }],
+  }).join('\n');
+  assert.match(text, /BEARING STATUS UNKNOWN/);
+  assert.match(text, /nobody has looked/);
+});
+
+test('a wall known to carry load is not softened', () => {
+  const text = describePlan({
+    rooms: [],
+    walls: [{ label: 'centre wall', state: 'removed', bearing: 'bearing' }],
+  }).join('\n');
+  assert.match(text, /KNOWN TO BE CARRYING LOAD/);
+});
+
+test('a proposed room is marked as not existing yet', () => {
+  const text = describePlan({
+    rooms: [{ name: 'New family room', state: 'proposed', widthFt: 20, depthFt: 14, ceilingFt: 9 }],
+    walls: [],
+  }).join('\n');
+  assert.match(text, /PROPOSED room/);
+  assert.match(text, /does not exist yet/);
+});
+
+test('the plan reaches every trade, not just additions', () => {
+  const p = {
+    rooms: [{ name: 'Kitchen', state: 'existing', widthFt: 12, depthFt: 10, ceilingFt: 8 }],
+    walls: [{ label: 'back wall', state: 'removed', bearing: 'unknown' }],
+  };
+  for (const trade of ['kitchen', 'bathroom', 'addition']) {
+    const text = describe({ model: {}, plan: p }, trade);
+    assert.match(text, /BEARING STATUS UNKNOWN/, `${trade} was not told about the wall`);
+  }
+});
+
+test('no plan produces no section rather than an empty heading', () => {
+  assert.deepEqual(describePlan(null), []);
+  assert.deepEqual(describePlan({ rooms: [], walls: [] }), []);
 });

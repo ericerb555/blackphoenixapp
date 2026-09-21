@@ -337,3 +337,138 @@ export function planNote(plan: FloorPlan): string {
   }
   return `${t.existingSqFt} sq ft across ${t.roomCount} room${t.roomCount === 1 ? '' : 's'}.`;
 }
+
+/* ── what an addition puts on the outside of the building ────────────────
+ *
+ * WHY THIS IS COMPUTED RATHER THAN DRAWN
+ *
+ * An addition's exterior walls are not a thing anybody wants to draw twice.
+ * They are implied by the footprint: every side of a proposed room that is not
+ * up against another room is, by definition, outside. Asking somebody to trace
+ * them again is asking them to make a mistake — and the mistake is invisible,
+ * because a wall missed here is simply a wall the siding quote does not
+ * mention.
+ *
+ * WHY PARTIAL ABUTMENT IS HANDLED PROPERLY
+ *
+ * A 20ft addition against a 12ft existing wall has 8ft outside and 12ft
+ * covered, and treating that side as all-or-nothing is wrong either way: count
+ * it whole and the quote gains 12ft of siding nobody will fit, drop it and the
+ * quote is short by 8ft. So each side is reduced by the spans that abut it and
+ * whatever survives is what is exposed.
+ */
+
+export type Side = 'north' | 'south' | 'east' | 'west';
+
+export interface ExteriorRun {
+  id: string;
+  roomId: string;
+  roomName: string;
+  side: Side;
+  /** Feet of wall genuinely on the outside. */
+  lengthFt: number;
+  /** Floor to ceiling of the room behind it. */
+  ceilingFt: number;
+  /** As good as the room it came from, never better. */
+  source: Provenance;
+}
+
+/** Two rectangles touch along a line when their coordinates land this close. */
+const TOUCH_TOLERANCE_FT = 0.05;
+
+/**
+ * Remove the covered spans from one span, returning whatever is left.
+ *
+ * Exported because it is the part worth testing on its own: every wrong
+ * exterior-wall length traces back to this arithmetic, and it is much easier to
+ * see a bug in `[0,20] minus [4,12]` than in a plan.
+ */
+export function subtractSpans(
+  span: [number, number],
+  covers: Array<[number, number]>,
+): Array<[number, number]> {
+  let out: Array<[number, number]> = [span];
+  for (const [cLo, cHi] of covers) {
+    const next: Array<[number, number]> = [];
+    for (const [lo, hi] of out) {
+      // No overlap — the piece survives whole.
+      if (cHi <= lo || cLo >= hi) { next.push([lo, hi]); continue; }
+      if (cLo > lo) next.push([lo, cLo]);
+      if (cHi < hi) next.push([cHi, hi]);
+    }
+    out = next;
+  }
+  // Slivers are measurement noise, not walls.
+  return out.filter(([lo, hi]) => hi - lo > TOUCH_TOLERANCE_FT);
+}
+
+/**
+ * The exterior walls a proposed footprint creates.
+ *
+ * Removed rooms do not shelter a wall — if the room next door is coming out,
+ * the wall between them ends up outside, and pretending otherwise understates
+ * the job.
+ */
+export function additionExteriorWalls(plan: FloorPlan): ExteriorRun[] {
+  const rooms = (plan?.rooms || []).filter(r => r.state !== 'removed');
+  const proposed = rooms.filter(r => r.state === 'proposed');
+  const out: ExteriorRun[] = [];
+
+  const near = (a: number, b: number) => Math.abs(a - b) < TOUCH_TOLERANCE_FT;
+
+  for (const r of proposed) {
+    const left = r.x, right = r.x + r.widthFt;
+    const top = r.y, bottom = r.y + r.depthFt;
+
+    const sides: Array<{ side: Side; span: [number, number]; covers: Array<[number, number]> }> = [
+      // North is the top edge: covered by any room whose bottom lands on it.
+      {
+        side: 'north', span: [left, right],
+        covers: rooms.filter(o => o.id !== r.id && near(o.y + o.depthFt, top))
+          .map(o => [o.x, o.x + o.widthFt] as [number, number]),
+      },
+      {
+        side: 'south', span: [left, right],
+        covers: rooms.filter(o => o.id !== r.id && near(o.y, bottom))
+          .map(o => [o.x, o.x + o.widthFt] as [number, number]),
+      },
+      {
+        side: 'west', span: [top, bottom],
+        covers: rooms.filter(o => o.id !== r.id && near(o.x + o.widthFt, left))
+          .map(o => [o.y, o.y + o.depthFt] as [number, number]),
+      },
+      {
+        side: 'east', span: [top, bottom],
+        covers: rooms.filter(o => o.id !== r.id && near(o.x, right))
+          .map(o => [o.y, o.y + o.depthFt] as [number, number]),
+      },
+    ];
+
+    for (const { side, span, covers } of sides) {
+      for (const [lo, hi] of subtractSpans(span, covers)) {
+        out.push({
+          id: `${r.id}-${side}-${Math.round(lo * 100)}`,
+          roomId: r.id,
+          roomName: r.name,
+          side,
+          lengthFt: Math.round((hi - lo) * 100) / 100,
+          ceilingFt: Math.max(0, r.ceilingFt),
+          // A wall is only as well known as the room that implies it. Rooms
+          // drawn before provenance existed have none, and a room somebody
+          // dragged out with a mouse is a guess.
+          source: r.source || 'estimated',
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+/** Feet of new exterior wall, and its area at the rooms' ceiling heights. */
+export function additionExteriorTotals(plan: FloorPlan): { runFt: number; areaSqFt: number } {
+  const runs = additionExteriorWalls(plan);
+  const runFt = runs.reduce((s, w) => s + w.lengthFt, 0);
+  const areaSqFt = runs.reduce((s, w) => s + w.lengthFt * w.ceilingFt, 0);
+  return { runFt: Math.round(runFt * 10) / 10, areaSqFt: Math.round(areaSqFt * 10) / 10 };
+}

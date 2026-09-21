@@ -64,6 +64,7 @@ import SectionCapture from '../components/design/SectionCapture';
 import { uploadDesignPhotos, listDesignPhotos, photosAsFiles } from '../lib/designPhotos';
 import HousePanel from '../components/HousePanel';
 import RoomCapture from '../components/RoomCapture';
+import AdditionPanel from '../components/AdditionPanel';
 import { TRADES, type TradeId } from '../lib/trades';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
@@ -1364,6 +1365,22 @@ function DesignerSession({ session, onSession }: {
               </PanelErrorBoundary>
             )}
 
+            {/* Additions and layout changes. The plan is drawn on Capture with
+                the photographs — an addition is the one case where part of
+                "what is there" does not exist yet — and this reads it back:
+                what is being added, what outside wall that creates, and which
+                walls are coming out with the bearing question still open. */}
+            {trade === 'addition' && (
+              <PanelErrorBoundary name="Additions and layout">
+                <AdditionPanel
+                  plan={plan}
+                  house={house}
+                  onHouse={setHouse}
+                  onGoToCapture={() => setStage('capture')}
+                />
+              </PanelErrorBoundary>
+            )}
+
             {trade === 'structures' && (
               <PanelErrorBoundary name="Structures">
                 <StructureDesigner
@@ -1463,7 +1480,7 @@ function DesignerSession({ session, onSession }: {
             <PanelErrorBoundary name="Assistant">
               <DesignAssistant model={model} site={site} loads={loads} takeoff={bom}
                 structural={struct} advisories={advisories} findings={findings}
-                trade={trade} house={house}
+                trade={trade} house={house} plan={plan}
                 onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
 

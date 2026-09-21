@@ -39,6 +39,24 @@ connection that kills people when it fails. Then joist and beam spans past the
 table, undersized footings, frost depth, guard height and infill spacing, and
 stair rise and run consistency.`,
 
+  addition: `You know additions and interior layout changes — footprint, foundation,
+framing, and what happens when a wall comes out.
+
+The bearing question dominates everything else here and the rule above is
+absolute: you do not know what a wall is holding up and neither does the plan.
+Answer both ways, say what it costs each way, and say plainly that it is settled
+on site by opening the ceiling and looking at which way the joists run.
+
+What else goes wrong: a new footprint tied to the existing foundation without
+thinking about differential settlement or frost depth; headers sized for the
+opening but not for what sits above them; egress forgotten in a new bedroom; the
+existing heating system asked to cover more house than it can; and roof tie-ins,
+which leak at the valley if the flashing is an afterthought.
+
+The floor plan gives you rooms marked existing or proposed and walls carrying a
+bearing state of bearing, non-bearing or unknown. Unknown means nobody has
+looked, not that it is safe.`,
+
   structures: `You know post-and-beam roofed structures — pavilions, carports, pergolas, porch
 roofs, lean-tos — and the snow and wind loading that sizes them.
 
@@ -270,6 +288,52 @@ export function describeHouse(house: any): string[] {
   return lines;
 }
 
+/**
+ * The floor plan, when there is one.
+ *
+ * Sent for every trade rather than only for additions, because "can this wall
+ * come out" gets asked while somebody is laying out a kitchen at least as often
+ * as while they are drawing an addition.
+ *
+ * Every wall states its bearing status including `unknown`, and `unknown` is
+ * reported as nobody having looked rather than being quietly omitted. A wall
+ * missing from this list and a wall whose role is unestablished would otherwise
+ * read identically, and the second is the one that costs thousands.
+ */
+export function describePlan(plan: any): string[] {
+  const rooms: any[] = Array.isArray(plan?.rooms) ? plan.rooms : [];
+  const walls: any[] = Array.isArray(plan?.walls) ? plan.walls : [];
+  if (!rooms.length && !walls.length) return [];
+
+  const lines = ["", "THE FLOOR PLAN"];
+  const existing = rooms.filter(r => r?.state === "existing");
+  const proposed = rooms.filter(r => r?.state === "proposed");
+  const removedRooms = rooms.filter(r => r?.state === "removed");
+
+  for (const r of existing) {
+    lines.push(`· Existing room "${r.name}": ${r.widthFt}ft by ${r.depthFt}ft, ceiling ${r.ceilingFt}ft.`);
+  }
+  for (const r of proposed) {
+    lines.push(`· PROPOSED room "${r.name}": ${r.widthFt}ft by ${r.depthFt}ft, ceiling ${r.ceilingFt}ft — does not exist yet.`);
+  }
+  for (const r of removedRooms) {
+    lines.push(`· Room "${r.name}" is marked to come out.`);
+  }
+
+  const removedWalls = walls.filter(w => w?.state === "removed");
+  if (removedWalls.length) {
+    lines.push("", "WALLS MARKED TO COME OUT");
+    for (const w of removedWalls) {
+      const state = w?.bearing === "bearing" ? "KNOWN TO BE CARRYING LOAD"
+        : w?.bearing === "non-bearing" ? "established as non-bearing"
+          : "BEARING STATUS UNKNOWN — nobody has looked yet";
+      lines.push(`· ${w.label || "unnamed wall"}: ${state}.`);
+    }
+  }
+
+  return lines;
+}
+
 /** Everything the model needs to reason about what is on screen. */
 export function describe(body: any, trade: string): string {
   const m = body?.model || {};
@@ -310,6 +374,7 @@ export function describe(body: any, trade: string): string {
 
   // The building itself, whatever trade is open — see the note on describeHouse.
   lines.push(...describeHouse(body?.house));
+  lines.push(...describePlan(body?.plan));
 
   if (struct?.computable) {
     lines.push(

@@ -60,6 +60,12 @@ const STARTERS: Record<string, string[]> = {
     'How do I attach the ledger on this one?',
     'What will the inspector look for?',
   ],
+  addition: [
+    'Can this wall come out?',
+    'What does tying into the existing roof involve?',
+    'Does this new bedroom meet egress?',
+    'Will the existing heating cover this?',
+  ],
   structures: [
     'What size rafters for this span?',
     'How does this attach to the house?',
@@ -133,6 +139,11 @@ interface Props {
    * came from. Every trade works on this; only the deck has a model of its own.
    */
   house?: any;
+  /**
+   * The floor plan. Sent for every trade, not only additions: "can this wall
+   * come out" gets asked while laying out a kitchen at least as often.
+   */
+  plan?: any;
 }
 
 /**
@@ -160,7 +171,7 @@ const FIX_Q =
   + 'working around it.';
 
 export default function DesignAssistant({
-  model, site, loads, takeoff, structural, advisories, onApply, findings, trade, house,
+  model, site, loads, takeoff, structural, advisories, onApply, findings, trade, house, plan,
 }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState('');
@@ -197,7 +208,7 @@ export default function DesignAssistant({
           // the assistant answered every question as a deck question; without
           // the second it knew the deck's dimensions and nothing about the
           // house every other trade is working on.
-          trade, house,
+          trade, house, plan,
         }),
       });
       const json = await res.json();
