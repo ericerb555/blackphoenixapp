@@ -68,7 +68,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -421,6 +421,17 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'notifications' as MainTab, label: 'Notification Recipients', icon: Mail },
     { id: 'transfers' as MainTab, label: 'Transfer Approvals', icon: RefreshCw },
     { id: 'users' as MainTab, label: 'User Management', icon: Users },
+    /**
+     * Its own tab, because it was not findable inside another one.
+     *
+     * It lived at the bottom of User Management — which is where it happened to
+     * be added, next to the portal invite form, on the reasoning that an invite
+     * is where a plan is first offered. That reasoning was fine and the
+     * placement was still wrong: nobody looking for what their portals sell
+     * would think to open User Management, and being told "go to Portal plans"
+     * three times is no help when the tab it is under is never named.
+     */
+    { id: 'plans' as MainTab, label: 'Portal Plans', icon: CreditCard },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
     { id: 'tier-features' as MainTab, label: 'Tier Features', icon: Layers },
@@ -684,6 +695,12 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         {/* ALERTS TAB */}
         {activeTab === 'notifications' && <NotificationRecipientsPanel />}
 
+        {/* What each portal sells, whether it can actually be bought, and the
+            Stripe webhook events without which a cancellation never reaches
+            us. One screen, because those three questions are always asked
+            together and answering one without the others is misleading. */}
+        {activeTab === 'plans' && <PlanTierAdmin />}
+
         {activeTab === 'alerts' && (
           <div className="space-y-6">
             <div>
@@ -756,11 +773,6 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 )}
               </form>
             )}
-
-            {/* What each portal sells, and whether it can actually be bought.
-                Beside the invite editor because the invite is where a plan is
-                first offered — the two are read together. */}
-            <PlanTierAdmin />
 
             {/* Portal invitation emails — see & edit what each invite sends */}
             <PortalInviteEmailEditor />
