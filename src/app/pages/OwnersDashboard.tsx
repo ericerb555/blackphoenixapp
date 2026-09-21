@@ -55,6 +55,7 @@ import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
+import PlanTierAdmin from '../components/PlanTierAdmin';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
@@ -755,6 +756,11 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 )}
               </form>
             )}
+
+            {/* What each portal sells, and whether it can actually be bought.
+                Beside the invite editor because the invite is where a plan is
+                first offered — the two are read together. */}
+            <PlanTierAdmin />
 
             {/* Portal invitation emails — see & edit what each invite sends */}
             <PortalInviteEmailEditor />
