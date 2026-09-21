@@ -7419,3 +7419,30 @@ The last of those is the least reliable thing to read off a photograph, so when
 C is built it must be labelled hardest — it feeds a quote, and a confident wrong
 answer about counter material costs real money.
 
+
+### A, done — with one change of approach mid-way
+
+- [x] A1. `/photoreal` was registered twice in `house-capture.tsx`; the 3D
+      render now has its own path, `/photoreal-3d`. Verified against the
+      deployed function: each handler answers with its own distinctive refusal,
+      which is the thing that was broken.
+- [x] A2. **Not proven by generating an image, deliberately.** Eric stopped the
+      verification: *"lets only do the 3d rendering after the house is full into
+      the cad design correctly? so no money is spent?"* He was right — the model
+      on screen was the designer's default, so the image would have cost money
+      to render a building nobody owns. Routing is proven by the free probe
+      above; the generation call behind it is unchanged code that will run the
+      first time somebody renders a real house.
+- [x] A3 *(added on his instruction)*. The render button now waits until the
+      house's width, height and storeys are each measured or photo-read rather
+      than estimated, with the reason shown on screen beside it.
+
+One other duplicate route exists — `GET /applications` twice in
+`make-server-57095a78/index-full.tsx` — but that directory is an archive whose
+function is pointed at a stub entrypoint in `config.toml`, so it is dead code
+either way and was left alone. The scanner that found both is at
+`scratchpad/dupe-routes.mjs` and is worth keeping: this was the sixth silently
+shadowed route in this codebase.
+
+**Next: B, the walkthrough.**
+
