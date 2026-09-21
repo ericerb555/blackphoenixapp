@@ -135,6 +135,7 @@ const CodeTracker = lazy(() => import("./pages/CodeTracker"));
 const ProductDataSources = lazy(() => import("./pages/ProductDataSources"));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders"));
 const JobsCenter = lazy(() => import("./pages/JobsCenter"));
+const DiscountGrants = lazy(() => import("./pages/DiscountGrants"));
 const EnterpriseEmailManagement = lazy(() => import("./pages/EnterpriseEmailManagement"));
 const SocialMediaManager = lazy(() => import("./pages/SocialMediaManager"));
 const ModuleManager = lazy(() => import("./pages/ModuleManager"));
@@ -515,6 +516,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "purchase-orders":      PurchaseOrders,
   "jobs":                 JobsCenter,
   "job-center":           JobsCenter,
+  "discount-grants":      DiscountGrants,
+  "discounts":            DiscountGrants,
 
   // Communication
   "messaging":        Messaging,

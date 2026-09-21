@@ -174,7 +174,7 @@ that never ends is a price change that never went through pricing.
 - [x] **D4. One route to ask** for the resolved figure.
 - [x] **D5. Quoting reads it**, and `subscriptionDiscount.ts` with its
       `localStorage` path is deleted rather than left beside the new one.
-- [ ] **D6. A grants screen.**
+- [x] **D6. A grants screen.**
 
 The broken system in section 1 is deleted. What remains unbuilt is D6, the
 grants screen — grants are created and revoked through the routes until then.

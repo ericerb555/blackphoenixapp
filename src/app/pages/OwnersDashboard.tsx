@@ -22,7 +22,7 @@ import { useState, useEffect } from 'react';
 import * as CompanyStore from '../lib/simpleCompanyStore';
 import { setActiveCompanyInfoFromStore } from '../lib/config/companyInfo';
 import {
-  Crown, TrendingUp, DollarSign, Users, Briefcase, Target,
+  Crown, TrendingUp, DollarSign, Users, Briefcase, Target, Percent,
   ArrowUp, ArrowDown, Activity, BarChart3, PieChart, Calendar,
   Building2, Wallet, Shield, Bell, Settings, ChevronRight,
   Clock, CheckCircle, AlertTriangle, Package, CreditCard,
@@ -251,6 +251,9 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         // Everything for one piece of work in one place — the question that
         // could not be asked before jobs existed.
         { name: 'Jobs', path: 'jobs', icon: Briefcase },
+        // What has been given away, to whom and why — the open-ended ones
+        // are the ones nobody thinks about again.
+        { name: 'Discount Grants', path: 'discount-grants', icon: Percent },
         { name: 'Materials Database', path: 'materials-database', icon: Database },
         { name: 'Materials Hub', path: 'materials-hub', icon: Package },
         { name: 'Purchase Orders', path: 'purchase-orders', icon: FileText },
