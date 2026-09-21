@@ -474,12 +474,19 @@ export default function PlanTierAdmin() {
 
   useEffect(() => { void load(); }, [load]);
 
-  /** Create the Stripe product and recurring price for one tier. */
-  const createPrice = async (tierId: string, replace = false) => {
+  /**
+   * Create the Stripe product and recurring price for one tier or add-on.
+   *
+   * The same call either way — the server runs one handler for both and only
+   * the path segment differs. An add-on with no Stripe price cannot be sold,
+   * exactly like a tier, which is why this button had to exist for both.
+   */
+  const createPrice = async (kind: 'tier' | 'addon', tierId: string, replace = false) => {
     setWorking(tierId);
     try {
+      const where = kind === 'tier' ? 'plan-tiers' : 'plan-addons';
       const res = await fetch(
-        `${SERVER}/plan-tiers/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/stripe-price?mode=${mode}${replace ? '&replace=1' : ''}`,
+        `${SERVER}/${where}/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/stripe-price?mode=${mode}${replace ? '&replace=1' : ''}`,
         { method: 'POST', headers: await headers() },
       );
       const json = await res.json().catch(() => ({}));
@@ -487,7 +494,7 @@ export default function PlanTierAdmin() {
         // 409 means it already has one. Surfaced as a question rather than an
         // error, because replacing is a real and deliberate thing to want.
         if (res.status === 409) {
-          toast.error(json?.error || 'That plan already has a price.', { duration: 8000 });
+          toast.error(json?.error || 'That already has a price.', { duration: 8000 });
         } else {
           toast.error(json?.error || `Could not create the price (${res.status}).`);
         }
@@ -643,11 +650,12 @@ export default function PlanTierAdmin() {
     }
   };
 
-  const attachPrice = async (tierId: string, priceId: string) => {
+  const attachPrice = async (kind: 'tier' | 'addon', tierId: string, priceId: string) => {
     setAttaching(tierId);
     try {
+      const where = kind === 'tier' ? 'plan-tiers' : 'plan-addons';
       const res = await fetch(
-        `${SERVER}/plan-tiers/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/attach-price?mode=${mode}`,
+        `${SERVER}/${where}/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/attach-price?mode=${mode}`,
         { method: 'POST', headers: await headers(), body: JSON.stringify({ stripePriceId: priceId }) },
       );
       const json = await res.json().catch(() => ({}));
@@ -1020,7 +1028,7 @@ export default function PlanTierAdmin() {
                           <AlertTriangle className="h-3.5 w-3.5" /> Not on sale
                         </p>
                         <button
-                          onClick={() => createPrice(t.id)}
+                          onClick={() => createPrice('tier', t.id)}
                           disabled={working !== null || !Number(t.priceCents)}
                           className="block w-full rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
                         >
@@ -1038,7 +1046,7 @@ export default function PlanTierAdmin() {
                           <select
                             defaultValue=""
                             disabled={attaching !== null}
-                            onChange={e => { if (e.target.value) attachPrice(t.id, e.target.value); }}
+                            onChange={e => { if (e.target.value) attachPrice('tier', t.id, e.target.value); }}
                             className="mt-1.5 block w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-2 py-1.5 text-[11px] text-gray-300 focus:border-orange-500 focus:outline-none"
                           >
                             <option value="">…or attach an existing one</option>
@@ -1106,12 +1114,43 @@ export default function PlanTierAdmin() {
                           : 'Offered on every tier billed the same way'}
                       </p>
                     </div>
-                    <button
-                      onClick={() => setDraft(draftFrom(a, false, 'addon'))}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[#2A2A2A] px-2.5 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
-                    >
-                      <Pencil className="h-3 w-3" /> Edit
-                    </button>
+                    <div className="shrink-0 space-y-1.5 text-right">
+                      <button
+                        onClick={() => setDraft(draftFrom(a, false, 'addon'))}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#2A2A2A] px-2.5 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+                      >
+                        <Pencil className="h-3 w-3" /> Edit
+                      </button>
+                      {/* An add-on with no Stripe price cannot be sold, exactly
+                          like a tier. One that a tier includes free does not need
+                          one, because nothing is being charged for it. */}
+                      {!a.purchasable && Number(a.priceCents) > 0 && (
+                        <button
+                          onClick={() => createPrice('addon', a.id)}
+                          disabled={working !== null}
+                          className="block w-full rounded-lg bg-orange-600 px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
+                        >
+                          {working === a.id
+                            ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Creating…</span>
+                            : `Create ${mode} price`}
+                        </button>
+                      )}
+                      {!a.purchasable && stripePrices && stripePrices.length > 0 && (
+                        <select
+                          defaultValue=""
+                          disabled={attaching !== null}
+                          onChange={e => { if (e.target.value) attachPrice('addon', a.id, e.target.value); }}
+                          className="block w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-2 py-1 text-[11px] text-gray-300 focus:border-orange-500 focus:outline-none"
+                        >
+                          <option value="">…or attach an existing one</option>
+                          {stripePrices.map(pr => (
+                            <option key={pr.id} value={pr.id}>
+                              {pr.productName || pr.id} — {money(pr.amountCents, pr.interval)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

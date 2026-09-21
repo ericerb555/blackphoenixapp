@@ -162,7 +162,7 @@ import { advertisingRouter } from "./advertising.tsx";
 import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
-import { notPurchasableReason, resolveEntitlement, publicTier, priceIdFor } from "./planTier.ts";
+import { notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
@@ -388,6 +388,10 @@ const ADMIN_PREFIXES = [
   // catalogue to buy from it, and only the write routes are restricted,
   // inside the handlers where a list of prefixes cannot tell them apart.
   '/plan-draft',
+  // Wholly administrative and POST-only, so unlike /plan-tiers it can sit
+  // behind the prefix gate as well as behind its own check. /plan-tiers and
+  // /plan-addons cannot: any signed-in buyer has to read the catalogue.
+  '/plan-catalog/',
   '/dev/',              // developer/purge endpoints have no business being open
 ];
 
@@ -10773,7 +10777,27 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
  * every time this was called would litter the account with near-identical
  * prices and make it impossible to tell which was live.
  */
-app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c) => {
+/**
+ * The two things this catalogue sells, and the words that differ between them.
+ *
+ * WHY A TABLE RATHER THAN A SECOND COPY OF EACH ROUTE
+ *
+ * Creating a Stripe price for an add-on is the same job as for a tier, down to
+ * the refusals: no fallback between test and live keys, no second price for
+ * something that already has one, the product reused across price changes. The
+ * only differences are which prefix the record is stored under and what to call
+ * it in a sentence.
+ *
+ * Two copies would drift. The copy that did not get the fix is the one that
+ * creates a live price while the caller believes they are rehearsing.
+ */
+type SellableKind = 'tier' | 'addon';
+const SELLABLE = {
+  tier: { prefix: 'plan_tier', noun: 'plan', metaId: 'bp_tier_id' },
+  addon: { prefix: 'plan_addon', noun: 'add-on', metaId: 'bp_addon_id' },
+} as const;
+
+const createStripePrice = (kind: SellableKind) => async (c: any) => {
   try {
     const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
     if (!token) return c.json({ error: 'Sign in required.' }, 401);
@@ -10786,17 +10810,20 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
       return c.json({ error: 'Only an administrator can create prices.' }, 403);
     }
 
+    const { prefix, noun, metaId } = SELLABLE[kind];
     const audience = String(c.req.param('audience') || '').trim();
     const tierId = String(c.req.param('id') || '').trim();
-    const key = `plan_tier:${audience}:${tierId}`;
+    const key = `${prefix}:${audience}:${tierId}`;
     const tier = await kv.get(key) as any;
-    if (!tier) return c.json({ error: 'No such plan.' }, 404);
+    if (!tier) return c.json({ error: `No such ${noun}.` }, 404);
 
     const amount = Number(tier.priceCents);
     if (!Number.isFinite(amount) || amount <= 0) {
       return c.json({
-        error: 'This plan has no price set, so there is nothing to create in Stripe. '
-          + 'A free tier is granted rather than sold.',
+        error: `This ${noun} has no price set, so there is nothing to create in Stripe. `
+          + (kind === 'tier'
+            ? 'A free tier is granted rather than sold.'
+            : 'An add-on a tier includes for free needs no price of its own.'),
       }, 400);
     }
 
@@ -10815,9 +10842,9 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
     const replace = c.req.query('replace') === '1';
     if (tier[priceField] && !replace) {
       return c.json({
-        error: `This plan already has a ${mode}-mode Stripe price. Prices in Stripe cannot be `
+        error: `This ${noun} already has a ${mode}-mode Stripe price. Prices in Stripe cannot be `
           + 'edited — to change the amount, call this again with ?replace=1, which creates a new '
-          + 'price and leaves the old one for anybody already subscribed to it.',
+          + 'price and leaves the old one for anybody already paying for it.',
         stripePriceId: tier[priceField],
       }, 409);
     }
@@ -10847,7 +10874,9 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
     } else {
       stripeKey = stripeKeyFor('services');
     }
-    const interval = tier.interval === 'year' ? 'year' : 'month';
+    // Through the shared reader, so a weekly price stays weekly. Inline this
+    // was `=== 'year' ? 'year' : 'month'`, which silently made it monthly.
+    const interval = readInterval(tier.interval);
 
     const post = async (path: string, params: URLSearchParams) => {
       const res = await fetch(`https://api.stripe.com/v1/${path}`, {
@@ -10868,10 +10897,11 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
     let productId = String(tier[productField] || '');
     if (!productId) {
       const product = await post('products', new URLSearchParams({
-        name: `${String(tier.name)} — ${audience}`,
-        description: String(tier.blurb || `${tier.name} plan for the ${audience} portal`).slice(0, 350),
+        name: `${String(tier.name)} — ${audience}${kind === 'addon' ? ' add-on' : ''}`,
+        description: String(tier.blurb || `${tier.name} ${noun} for the ${audience} portal`).slice(0, 350),
         'metadata[bp_audience]': audience,
-        'metadata[bp_tier_id]': tierId,
+        [`metadata[${metaId}]`]: tierId,
+        'metadata[bp_kind]': kind,
       }));
       productId = String(product.id);
     }
@@ -10882,7 +10912,8 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
       unit_amount: String(Math.round(amount)),
       'recurring[interval]': interval,
       'metadata[bp_audience]': audience,
-      'metadata[bp_tier_id]': tierId,
+      [`metadata[${metaId}]`]: tierId,
+      'metadata[bp_kind]': kind,
     }));
 
     const now = new Date().toISOString();
@@ -10899,7 +10930,7 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
       updatedBy: String(user.email || '').toLowerCase(),
     });
 
-    console.log(`[PlanCatalog] ${user.email} created ${price.id} (${amount} ${interval}) for ${audience}/${tierId}`);
+    console.log(`[PlanCatalog] ${user.email} created ${price.id} (${amount} ${interval}) for ${noun} ${audience}/${tierId}`);
     return c.json({
       success: true,
       stripeProductId: productId,
@@ -10908,14 +10939,17 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', async (c
       interval,
       livemode: Boolean(price.livemode),
       note: price.livemode
-        ? 'Created on the LIVE Stripe account. This plan can now be bought for real money.'
+        ? `Created on the LIVE Stripe account. This ${noun} can now be bought for real money.`
         : 'Created in Stripe TEST mode. Swap the secret key to go live.',
     });
   } catch (error: any) {
     console.error('[PlanCatalog] stripe price error:', error?.message || error);
     return c.json({ error: error?.message || 'Could not create the Stripe price.' }, 500);
   }
-});
+};
+
+app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', createStripePrice('tier'));
+app.post('/make-server-3eae23a6/plan-addons/:audience/:id/stripe-price', createStripePrice('addon'));
 
 
 /**
@@ -10982,6 +11016,8 @@ app.get('/make-server-3eae23a6/stripe-prices', async (c) => {
         livemode: Boolean(p.livemode),
         // Set when this app created it, absent when the dashboard did.
         bpTierId: p.metadata?.bp_tier_id || null,
+        bpAddOnId: p.metadata?.bp_addon_id || null,
+        bpKind: p.metadata?.bp_kind || (p.metadata?.bp_tier_id ? 'tier' : null),
         bpAudience: p.metadata?.bp_audience || null,
       }));
 
@@ -10992,7 +11028,7 @@ app.get('/make-server-3eae23a6/stripe-prices', async (c) => {
 });
 
 /** Attach an existing Stripe price to a tier. */
-app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c) => {
+const attachStripePrice = (kind: SellableKind) => async (c: any) => {
   try {
     const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
     if (!token) return c.json({ error: 'Sign in required.' }, 401);
@@ -11004,11 +11040,12 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c
       return c.json({ error: 'Only an administrator can attach a price.' }, 403);
     }
 
+    const { prefix, noun } = SELLABLE[kind];
     const audience = String(c.req.param('audience') || '').trim();
     const tierId = String(c.req.param('id') || '').trim();
-    const tierKey = `plan_tier:${audience}:${tierId}`;
+    const tierKey = `${prefix}:${audience}:${tierId}`;
     const tier = await kv.get(tierKey) as any;
-    if (!tier) return c.json({ error: 'No such plan.' }, 404);
+    if (!tier) return c.json({ error: `No such ${noun}.` }, 404);
 
     const body = await c.req.json().catch(() => ({}));
     const priceId = String(body?.stripePriceId || '').trim();
@@ -11042,9 +11079,9 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c
     const tierAmount = Number(tier.priceCents ?? 0);
     if (stripeAmount !== tierAmount && c.req.query('force') !== '1') {
       return c.json({
-        error: `The plan says ${(tierAmount / 100).toFixed(2)} and that Stripe price charges `
+        error: `The ${noun} says ${(tierAmount / 100).toFixed(2)} and that Stripe price charges `
           + `${(stripeAmount / 100).toFixed(2)}. Refusing: the portal would advertise one number `
-          + 'and the card would be charged another. Fix the plan price to match, pick a different '
+          + `and the card would be charged another. Fix the ${noun} price to match, pick a different `
           + 'price, or repeat with ?force=1 if the Stripe amount is the correct one.',
         tierCents: tierAmount,
         stripeCents: stripeAmount,
@@ -11060,13 +11097,15 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c
       // Follow Stripe when forced, so the two cannot stay out of step.
       priceCents: stripeAmount,
       stripePriceCents: stripeAmount,
-      interval: price.recurring.interval === 'year' ? 'year' : 'month',
+      // Whatever Stripe says it is, through the shared reader — a weekly
+      // price attached here used to be stored as monthly.
+      interval: readInterval(price.recurring.interval),
       stripePriceCreatedAt: tier.stripePriceCreatedAt || now,
       updatedAt: now,
       updatedBy: String(user.email || '').toLowerCase(),
     });
 
-    console.log(`[PlanCatalog] ${user.email} attached ${priceId} (${mode}) to ${audience}/${tierId}`);
+    console.log(`[PlanCatalog] ${user.email} attached ${priceId} (${mode}) to ${noun} ${audience}/${tierId}`);
     return c.json({
       success: true,
       stripePriceId: priceId,
@@ -11078,7 +11117,10 @@ app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', async (c
   } catch (error: any) {
     return c.json({ error: error?.message || 'Could not attach that price.' }, 500);
   }
-});
+};
+
+app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', attachStripePrice('tier'));
+app.post('/make-server-3eae23a6/plan-addons/:audience/:id/attach-price', attachStripePrice('addon'));
 
 
 async function stripeSessionWithKey(params: URLSearchParams, key: string) {

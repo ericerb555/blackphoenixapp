@@ -142,11 +142,23 @@ constants are deleted last.
       brings those rows in — everything **inactive**, nothing ever overwritten,
       nothing guessed — with a dry run first. The Portal Plans tab shows add-ons,
       edits them in the same form as tiers, and runs the import.
-- [ ] **U2b. Stripe prices for add-ons.** NOT DONE, and it is what stands
-      between an add-on and being sellable. The `stripe-price` and
-      `attach-price` routes are written against tiers specifically; they need
-      generalising to take either. Worth doing as one generalisation rather than
-      a second copy, since the two records now share `Sellable`.
+- [x] **U2b. Stripe prices for add-ons.** The create and attach routes are now
+      one handler each, parameterised by kind, registered at both
+      `/plan-tiers/…` and `/plan-addons/…`. A `SELLABLE` table holds the only
+      things that actually differ: the storage prefix, the noun for a sentence,
+      and the Stripe metadata key. Two copies would have drifted, and the copy
+      that missed a fix is the one that creates a LIVE price while the caller
+      believes they are rehearsing.
+
+      Doing it this way caught the interval bug a third and fourth time — both
+      routes read `=== 'year' ? 'year' : 'month'` inline, so a weekly price
+      created or attached through either would have been stored as monthly.
+      Both now go through `readInterval`.
+
+      The tab gained the matching buttons, so an add-on can be priced the same
+      way a tier can. `/plan-catalog/` also went into `ADMIN_PREFIXES`: it is
+      wholly administrative and POST-only, unlike `/plan-tiers`, which any
+      signed-in buyer must be able to read.
 - [ ] **U3. Point `/me/upgrade-options` at the catalogue.** Read-only surface,
       so it can switch before checkout does and any gap shows up as a missing
       row rather than a failed purchase.
