@@ -7698,3 +7698,138 @@ is waiting on data, not on code.
 our negotiated cost, so no screen built on this model can leak one by accident.
 That is asserted by a test rather than left as an intention.
 
+
+---
+
+## Plan — selling subscriptions through the portals
+
+**Status: waiting on Eric's approval. Nothing built.**
+
+### The path that already exists
+
+More of this is built than it looks. An invite already walks somebody all the
+way into a working portal:
+
+```
+  invite email                    editable per portal type, with {firstName},
+  (PortalInviteEmailEditor)       {company}, {label}, {trialPeriod}, {trialMonths}
+        │
+        ▼  link carries ?token= and ?email=
+  /portal-onboarding              create password → profile → checklist
+        │
+        ▼  owner provisioning writes
+  feature_grant:{email}           level 'full', trialStart, trialEnd, status
+        │
+        ▼
+  the portal opens
+```
+
+`PortalOnboarding` even collects `planInterest`, and says on screen that plan
+selection "is optional and never creates a charge from this screen".
+
+### The gap, in the code's own words
+
+The provisioning route carries this comment:
+
+> `// Feature grant: full access for the trial window, then requires a plan.`
+
+The trial window was built. **"Then requires a plan" never was.** `feature_grant`
+has a `trialEnd` and nothing reads it to sell anything, because there is no plan
+to sell. When a trial lapses today the grant simply sits there.
+
+So the answer to "how do we sell through the email invites" is not a new
+funnel. It is four missing pieces bolted onto the one that already runs.
+
+### The four missing pieces
+
+**1. One plan catalogue, owned by the server.**
+Today there are at least two hardcoded ladders — `SUBSCRIPTION_PLANS` inside
+`DealsOffersSection.tsx` ($29 / $69 / $149 plus $9 pay-as-you-post) and another
+`PLANS` inside `PropertyAIStudio.tsx`. Two copies of a price list is how a
+customer gets quoted one number and charged another. The catalogue moves to the
+server, every portal reads it, and changing a price is one edit.
+
+**2. Real Stripe recurring Prices.**
+Every checkout in this codebase builds `price_data` inline — a one-off amount
+invented at request time. That is correct for a deposit or an invoice and wrong
+for a subscription: recurring billing needs a Price created in Stripe, and its
+id stored against the plan. **Eric creates the Products and Prices in Stripe;
+this app stores the ids and never invents them.**
+
+**3. Checkout → webhook → entitlement.**
+`stripe-webhooks` already handles `customer.subscription.updated` and
+`.deleted`. What it does not do is write `feature_grant`. That is the join:
+subscription active → grant stays full; subscription gone → grant drops to the
+free level. One writer, the webhook, so the portal never has to ask Stripe
+anything at render time.
+
+**4. The portal actually gating on it.**
+`feature_grant` exists and is largely decorative. Each portal needs to read it
+and know what its own tiers unlock.
+
+### What the invite changes
+
+Very little, which is the point. The template gains a plan block and two
+tokens — `{planName}` and `{planPrice}` — so the email offers something
+specific rather than only announcing a trial. The link is unchanged. Onboarding
+gains a plan step that can still be skipped, because a portal that refuses to
+open until somebody pays is a portal nobody finishes signing up for.
+
+**The trial stays free and stays first.** 90 days, once per account, already
+built this session. The sale happens when it has already been useful.
+
+### Proposed plans
+
+Prices below are a starting point, not a recommendation I can make for you —
+they reuse the $29/$69/$149 ladder already written into the deals component so
+the vendor-facing numbers do not change under anybody who has seen them.
+
+**Vendors** — catalogue in the materials hub, deals, bid room
+| | Free | Listed · $29 | Stocked · $69 | Preferred · $149 |
+|---|---|---|---|---|
+| Catalogue products | 25 | 250 | unlimited | unlimited |
+| Deals live at once | 1 | 3 | 10 | unlimited |
+| Bid room | view | quote | quote + alerts | first look |
+| Placement | — | standard | priority | spotlight |
+
+**Subcontractors** — the bid room is the product
+| | Free | Trade · $29 | Crew · $79 |
+|---|---|---|---|
+| Bid room | view only | quote 5/mo | unlimited |
+| Radius alerts | — | 25 mi | 50 mi |
+| Insurance/licence vault | ✓ | ✓ | ✓ |
+
+**Advertisers** — unchanged from what is already written
+$29 / $69 / $149, plus Pay As You Post at $9 per deal.
+
+**Content centre** — sold to other companies, per `platform-priorities`
+| | Studio · $199 | Agency · $499 |
+|---|---|---|
+| Reels / month | 20 | unlimited |
+| Seats | 3 | 15 |
+| SEO engine | ✓ | ✓ + multi-site |
+| White label | — | ✓ |
+
+**Homeowners** — deliberately thin
+The design centre is a sales tool, not a product to meter. Free for anybody
+with a job, with the paid line being work rather than software.
+
+### Build order
+
+- [ ] S1. The catalogue on the server, with the two hardcoded ladders reading
+      from it instead of their own copies.
+- [ ] S2. Stripe Price ids stored per plan. Nothing invented — Eric creates
+      them, this stores them, and a plan with no price id cannot be bought.
+- [ ] S3. Subscription checkout from a portal, and the webhook writing
+      `feature_grant` on activate, change and cancel.
+- [ ] S4. Portals gate on the grant; a lapsed trial shows the ladder instead of
+      silently keeping everything.
+- [ ] S5. The invite template's plan block and the onboarding plan step.
+
+S1 and S2 are worth doing whatever is decided about the tiers, because the
+duplicate price lists are a live hazard.
+
+### What needs deciding before any of it
+
+The tier contents above are a proposal from what the app can already do. The
+prices are Eric's call, and so is which audience is worth selling to first.
