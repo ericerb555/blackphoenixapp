@@ -159,6 +159,19 @@ export async function ensureJobId(
       inherited = await parentJobId(key);
       if (inherited) break;
     }
+    /**
+     * Naming a parent and getting nothing back is a different fact from
+     * naming no parent at all, and it is the one worth hearing about.
+     *
+     * It means a link exists in the caller and does not resolve — a stale id,
+     * a record deleted, or an id of the wrong kind, which is how a purchase
+     * order came to be sent a work request id in the `quoteId` field. Opening
+     * a job is still the right outcome, but silently is not: the document
+     * would look attached while standing alone.
+     */
+    if (!inherited && keys.length) {
+      console.log(`[Jobs] parent(s) named but none resolved: ${keys.join(', ')} — opening a new job instead`);
+    }
   }
 
   const { jobId } = await resolveJobFor(
@@ -196,6 +209,60 @@ jobsRouter.get("/make-server-3eae23a6/jobs", async (c) => {
   filtered.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return c.json({ success: true, count: filtered.length, jobs: filtered.slice(0, 500) });
 });
+
+/*
+ * NOTE ON ORDER: every literal /jobs/... path must be registered BEFORE the
+ * parameterised /jobs/:id below. Hono takes the first route that matches, so
+ * a literal registered after it is unreachable — /jobs/orphans would resolve
+ * as a job with the id "orphans" and answer 404.
+ */
+/**
+ * What is not on a job.
+ *
+ * J6 of `tasks/one-job-identity.md`: the point is that an unattached document
+ * should say so rather than sit there silently. Every creation path now stamps
+ * a job, but not every path goes through those routes — a subscription invoice
+ * raised from a plan proposal has no job because it is not job work, and
+ * anything written before this existed has none because there was nothing to
+ * carry.
+ *
+ * So rather than assert that orphans cannot happen, this counts them. A number
+ * that should be going down and is not is the signal worth having.
+ */
+jobsRouter.get("/make-server-3eae23a6/jobs/orphans", async (c) => {
+  const who = await jobActor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+  if (!who.isStaff) return c.json({ success: false, error: "Staff access is required." }, 403);
+
+  const report: any[] = [];
+  let total = 0;
+
+  for (const { prefix, as } of DOCUMENTS) {
+    const rows = ((await kv.getByPrefix(prefix)) as any[] || []).filter(Boolean);
+    const orphaned = rows.filter((r) => !jobIdOf(r));
+    total += orphaned.length;
+    report.push({
+      collection: as,
+      records: rows.length,
+      onAJob: rows.length - orphaned.length,
+      unattached: orphaned.length,
+      // Enough to find them, not enough to be a data dump.
+      examples: orphaned.slice(0, 5).map((r) => ({
+        id: r.id,
+        createdAt: r.createdAt || r.created_at || null,
+      })),
+    });
+  }
+
+  return c.json({
+    success: true,
+    unattached: total,
+    report,
+    note: total === 0
+      ? "Every document is on a job."
+      : "These carry no job. Most will be records written before jobs existed — "
+        + "run POST /jobs/backfill to see what following their links would fix.",
+  });
 
 /**
  * One job with everything attached to it.
@@ -321,9 +388,21 @@ const BACKFILL_PASSES: Array<{
   /** Keys of the possible parents, most specific first. */
   parents: (r: any) => string[];
   seed: (r: any) => JobSeed;
+  /**
+   * Where this record actually lives.
+   *
+   * Not every collection keys on the id alone. A design project is stored at
+   * `design_project:{ownerKey}:{id}` so that one customer cannot read
+   * another's, and rebuilding its key as prefix + id would have written a NEW
+   * record at a key nobody reads instead of updating the real one — silently
+   * doubling the collection. Returning an empty string means the key cannot
+   * be derived, and the record is reported rather than guessed at.
+   */
+  keyOf: (r: any) => string;
 }> = [
   {
     prefix: "wr:",
+    keyOf: (r) => (r?.id ? `wr:${r.id}` : ""),
     as: "workRequests",
     doorway: "work_request",
     parents: () => [],
@@ -340,6 +419,7 @@ const BACKFILL_PASSES: Array<{
   },
   {
     prefix: "quote:",
+    keyOf: (r) => (r?.id ? `quote:${r.id}` : ""),
     as: "quotes",
     doorway: "quote",
     parents: (r) => {
@@ -359,6 +439,7 @@ const BACKFILL_PASSES: Array<{
   },
   {
     prefix: "invoice:",
+    keyOf: (r) => (r?.id ? `invoice:${r.id}` : ""),
     as: "invoices",
     doorway: "invoice",
     parents: (r) => {
@@ -378,6 +459,7 @@ const BACKFILL_PASSES: Array<{
   },
   {
     prefix: "purchase_order:",
+    keyOf: (r) => (r?.id ? `purchase_order:${r.id}` : ""),
     as: "purchaseOrders",
     doorway: "purchase_order",
     parents: (r) => {
@@ -395,6 +477,8 @@ const BACKFILL_PASSES: Array<{
   },
   {
     prefix: "design_project:",
+    // Three parts, not two — see the note on keyOf.
+    keyOf: (r) => (r?.ownerKey && r?.id ? `design_project:${r.ownerKey}:${r.id}` : ""),
     as: "designProjects",
     doorway: "design_project",
     parents: (r) => {
@@ -434,6 +518,7 @@ jobsRouter.post("/make-server-3eae23a6/jobs/backfill", async (c) => {
   const jobOf = new Map<string, string>();
   const created: any[] = [];
   const summary: any[] = [];
+  const unkeyed: any[] = [];
 
   for (const pass of BACKFILL_PASSES) {
     const rows = ((await kv.getByPrefix(pass.prefix)) as any[] || []).filter(Boolean);
@@ -443,7 +528,13 @@ jobsRouter.post("/make-server-3eae23a6/jobs/backfill", async (c) => {
     const samples: any[] = [];
 
     for (const row of rows) {
-      const key = `${pass.prefix}${row.id}`;
+      const key = pass.keyOf(row);
+      if (!key) {
+        // Cannot work out where it lives, so it is not touched. Reported
+        // rather than written to a guessed key.
+        unkeyed.push({ collection: pass.as, id: row?.id || null });
+        continue;
+      }
 
       const existing = jobIdOf(row);
       if (existing) {
@@ -498,6 +589,8 @@ jobsRouter.post("/make-server-3eae23a6/jobs/backfill", async (c) => {
     dryRun,
     summary,
     jobsOpened: totalOpened,
+    // Records whose storage key could not be derived. Left untouched.
+    unkeyed,
     sampleJobs: created.slice(0, 20),
     note: dryRun
       ? "Nothing was written. This is what a back-fill would do. Repeat with ?dry=0 to apply it."
@@ -505,4 +598,5 @@ jobsRouter.post("/make-server-3eae23a6/jobs/backfill", async (c) => {
   });
 });
 
+});
 export default jobsRouter;
