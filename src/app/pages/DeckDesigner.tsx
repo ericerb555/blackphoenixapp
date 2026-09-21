@@ -55,7 +55,7 @@ import { type Proposal } from '../lib/jurisdictionModel';
 import AlignAndRender from '../components/AlignAndRender';
 import { type AlignedCamera } from '../lib/renderPipeline';
 import ProjectLinkPanel, { type DesignLink } from '../components/ProjectLinkPanel';
-import DeckAssistant from '../components/DeckAssistant';
+import DesignAssistant from '../components/DesignAssistant';
 import DesignWorkspaceNav from '../components/DesignWorkspaceNav';
 import { DEFAULT_SITE_LOADS, computeStructural, type SiteLoads } from '../lib/deckStructural';
 import { lookupTownLoads, hasUsableLoads, type TownLoadCase } from '../lib/townLoads';
@@ -1453,14 +1453,19 @@ function DesignerSession({ session, onSession }: {
             {/* The assistant and the customer apply whatever you are doing and
                 whichever trade it is, so they belong to neither a stage nor a
                 trade. The customer especially: a job has one, not one per
-                trade. */}
-            {trade === 'deck' && (
+                trade.
+
+                That was the comment, and the code underneath it read
+                `trade === 'deck'`, so seven of the eight trades had no
+                assistant at all. It is ungated now and told which section it is
+                in, so it answers a bathroom question about bathrooms instead of
+                about joist spans. */}
             <PanelErrorBoundary name="Assistant">
-              <DeckAssistant model={model} site={site} loads={loads} takeoff={bom}
+              <DesignAssistant model={model} site={site} loads={loads} takeoff={bom}
                 structural={struct} advisories={advisories} findings={findings}
+                trade={trade} house={house}
                 onApply={patch => setModel(m => ({ ...m, ...patch }))} />
             </PanelErrorBoundary>
-            )}
 
             <PanelErrorBoundary name="Customer and job">
               {/* The filer was exposed by this panel and never picked up, so

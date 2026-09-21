@@ -16,14 +16,20 @@
  * be the one that was reviewed.
  *
  * It works from the real numbers. The current model, the site loads, the
- * computed takeoff and every advisory the app has already raised are all sent
- * with the question, so it is reasoning about this deck rather than decks in
- * general. Where the app has already calculated something — a footing size, a
- * load per post — the assistant is told to use that number rather than
- * recomputing it, so the two can never contradict each other on the same page.
+ * computed takeoff, every advisory the app has already raised and the building
+ * itself are all sent with the question, so it is reasoning about this job
+ * rather than about construction in general. Where the app has already
+ * calculated something — a footing size, a load per post — the assistant is
+ * told to use that number rather than recomputing it, so the two can never
+ * contradict each other on the same page.
+ *
+ * This file is the route. The prompt it sends lives in `assistantPrompt.ts`,
+ * which has no Hono import and can therefore be unit-tested; see the note at
+ * the top of that file for why that mattered enough to split them.
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { readTrade, systemFor, describe, CHANGE_FIELDS } from "./assistantPrompt.ts";
 
 const app = new Hono();
 
@@ -44,179 +50,12 @@ async function requireSignedIn(c: any, next: any) {
 
 app.use("*", requireSignedIn);
 
-const SYSTEM = `You are sitting with a deck builder while they design a deck on screen. You
-know framing, the IRC, and AWC DCA 6, and you talk like someone who has built
-decks rather than someone reading a code book aloud.
-
-HOW TO ANSWER
-Be brief. A builder mid-design wants the answer, then the reason, then nothing
-else. Two or three sentences is usually right; use a short list only when the
-answer genuinely is a list of steps or parts. Do not restate their question back
-to them, do not open with a pleasantry, and do not close by offering further
-help.
-
-Give the number, then why it is that number. "Go to 2x10s — at a 12ft span a 2x8
-is over the DCA 6 table at 16in centres" beats a paragraph about span theory.
-
-THE NUMBERS IN FRONT OF YOU
-The current design, the site loads and everything the app has already computed
-are given below. Use those figures. If the app says the load per post is 2,340
-lbs, that is the number — do not recompute it and do not offer a different one,
-because the builder is looking at both on the same screen and a contradiction
-destroys their trust in the whole tool.
-
-WHEN SOMETHING IS MISSING
-Ground snow load, frost depth and soil bearing come from the building department
-and are frequently blank. If an answer depends on one that is missing, say which
-one and that it has to come from the town. Never substitute a typical value —
-a plausible number gets believed and then built.
-
-WHEN THEY ARE OUTSIDE THE TABLES
-Prescriptive tables cover most residential decks and not all of them. If this
-design is past what DCA 6 or the IRC covers, say so plainly and say an engineer
-is needed. Do not extend a table by interpolating past its last row.
-
-PROPOSING CHANGES
-When the answer implies a change to the design, put it in "changes" so it can be
-applied with one press. Only include fields that should actually change. If they
-asked a question that needs no change, return an empty array.
-
-Return ONLY a JSON object, no prose outside it and no code fence:
-{
-  "answer": "your reply, in plain text, using markdown only for lists",
-  "changes": [
-    { "field": "joistSize", "value": "2x10", "why": "one short sentence" }
-  ],
-  "needsFromTown": ["ground snow load"],
-  "engineerRequired": false
-}
-
-Valid fields for "changes": widthFt, depthFt, heightFt, joistSize, joistSpacing,
-beamSize, beamPlies, postSize, postSpacingFt, ledgerAttached, cantileverFt,
-deckingDirection, guardrail, stairs, stairWidthFt, deckingFinish, railFinish,
-innerHandrail.
-joistSize and beamSize are one of 2x6, 2x8, 2x10, 2x12. postSize is 4x4 or 6x6.
-joistSpacing is 12, 16 or 24. deckingDirection is "parallel" or "perpendicular".`;
-
-/** Everything the model needs to reason about this specific deck. */
-function describe(body: any): string {
-  const m = body?.model || {};
-  const site = body?.site || {};
-  const loads = body?.loads || {};
-  const bom = body?.takeoff || {};
-  const struct = body?.structural || null;
-  const advisories: any[] = Array.isArray(body?.advisories) ? body.advisories : [];
-
-  const lines = [
-    "THE DESIGN AS IT STANDS",
-    `${m.widthFt}ft along the house by ${m.depthFt}ft out, ${m.heightFt}ft above grade.`,
-    `${m.joistSize} joists at ${m.joistSpacing}in on centre, spanning ${bom.joistSpanFt}ft.`,
-    `(${m.beamPlies}) ${m.beamSize} built-up beam on ${m.postSize} posts at ${m.postSpacingFt}ft centres.`,
-    m.ledgerAttached ? "Ledger-attached to the house." : "Free-standing, not ledger-attached.",
-    `${m.cantileverFt}ft cantilever past the beam. Decking runs ${m.deckingDirection} to the house.`,
-    m.guardrail ? "Guardrail fitted." : "No guardrail.",
-    m.stairs ? `Stairs ${m.stairWidthFt}ft wide.` : "No stairs.",
-    `Decking finish: ${m.deckingFinish}. Railing: ${m.railFinish}.`,
-    "",
-    "WHERE IT IS",
-    `${site.projectName || "Unnamed"} — ${site.address || "no address"}, ${site.town || "no town"}${site.state ? ", " + site.state : ""}.`,
-    "",
-    "SITE VALUES FROM THE BUILDING DEPARTMENT",
-    loads.groundSnowPsf > 0 ? `Ground snow load: ${loads.groundSnowPsf} psf.` : "Ground snow load: NOT SUPPLIED.",
-    loads.frostDepthIn > 0 ? `Frost depth: ${loads.frostDepthIn} in.` : "Frost depth: NOT SUPPLIED.",
-    `Soil: ${loads.soil || "unknown"}.`,
-    loads.verified ? "These were confirmed against the town." : "These have NOT been confirmed against the town.",
-  ];
-
-  if (struct?.computable) {
-    lines.push(
-      "",
-      "WHAT THE APP HAS ALREADY CALCULATED — use these figures, do not recompute",
-      `Design live load ${struct.designLivePsf} psf${struct.snowGoverns ? " (snow governs)" : ""}, dead ${struct.deadLoadPsf} psf, total ${struct.totalLoadPsf} psf.`,
-      `Tributary area per post ${struct.tributaryAreaSqFt} sq ft, load per post ${struct.postLoadLbs} lbs.`,
-      `Soil bearing ${struct.soilPsf} psf, required footing ${struct.roundFootingDiameterIn}in round or ${struct.squareFootingSideIn}in square, minimum depth ${struct.frostDepthIn}in.`,
-    );
-    if (struct.proposed) {
-      lines.push(
-        `Proposed footing ${struct.proposed.sizeIn}in ${struct.proposed.shape} at ${struct.proposed.depthIn}in deep — ${struct.proposed.utilizationPct}% utilised, ${struct.proposed.passes ? "ADEQUATE" : "NOT ADEQUATE"}.`,
-      );
-    }
-    if (struct.failures?.length) {
-      lines.push("", "BLOCKING PROBLEMS THE APP HAS ALREADY FLAGGED", ...struct.failures.map((f: string) => `· ${f}`));
-    }
-  } else if (struct) {
-    lines.push("", `Structural figures cannot be computed yet: ${(struct.missing || []).join(" and ")} missing.`);
-  }
-
-  if (advisories.length) {
-    lines.push("", "ADVISORIES ALREADY SHOWING ON SCREEN", ...advisories.map((a: any) => `· ${a.text}`));
-  }
-
-  /**
-   * What was read off the job folder.
-   *
-   * Two sources of very different weight, and saying which is which matters more
-   * than either on its own. A drawing carries written dimensions; a photo gets
-   * measured by eye off a model looking at a picture. When they disagree the
-   * drawing wins, and where only the photo has a number it is offered as a
-   * starting point to check with a tape rather than as a measurement.
-   */
-  const findings = body?.findings || {};
-  const house = findings.house;
-  const sketch = findings.sketch;
-
-  if (house || sketch?.model) {
-    lines.push("", "READ OFF THE JOB FOLDER");
-  }
-  if (house) {
-    lines.push("From the site photos — inferred by eye, treat as approximate:");
-    if (house.house) {
-      lines.push(`· House: ${[house.house.style, house.house.sidingType, house.house.foundation].filter(Boolean).join(", ") || "not described"}.`);
-    }
-    if (house.attachment) {
-      const a = house.attachment;
-      lines.push(`· Attachment wall: ${a.wallDescription || "not described"}${a.doorType ? `, ${a.doorType}` : ""}.`);
-      if (a.sillHeightInches) lines.push(`· Sill height ${a.sillHeightInches}in (confidence: ${a.sillConfidence || "unstated"}).`);
-      if (a.ledgerRunFeet) lines.push(`· Ledger run available ${a.ledgerRunFeet}ft (confidence: ${a.ledgerRunConfidence || "unstated"}).`);
-      if (a.rimJoistNote) lines.push(`· Rim joist: ${a.rimJoistNote}`);
-    }
-    if (Array.isArray(house.obstructions) && house.obstructions.length) {
-      lines.push("· In the way: " + house.obstructions
-        .map((o: any) => [o.item, o.where].filter(Boolean).join(" at ") + (o.impact ? ` (${o.impact})` : ""))
-        .join("; "));
-    }
-    if (house.grade?.slope) {
-      lines.push(`· Ground: ${house.grade.slope}${house.grade.note ? ` — ${house.grade.note}` : ""}.`);
-    }
-  }
-  if (sketch?.model) {
-    const dims = Object.entries(sketch.model)
-      .filter(([, v]) => v !== null && v !== undefined && v !== "")
-      .map(([k, v]) => `· ${k}: ${v}`);
-    if (dims.length) {
-      lines.push(
-        "From a drawing in the folder — these are written on the paper and outrank anything inferred from a photo:",
-        ...dims,
-      );
-    }
-  }
-
-  if (bom.deckAreaSqFt) {
-    lines.push(
-      "",
-      "TAKEOFF",
-      `${bom.deckAreaSqFt} sq ft. ${bom.joists} joists, ${bom.posts} posts, ${bom.footings} footings, ${bom.deckingBoards} decking boards.`,
-    );
-  }
-
-  return lines.join("\n");
-}
-
 app.post("/ask", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const question = String(body?.question || "").trim().slice(0, 2000);
     const history: any[] = Array.isArray(body?.history) ? body.history.slice(-8) : [];
+    const trade = readTrade(body?.trade);
 
     if (!question) return c.json({ error: "Ask a question." }, 400);
 
@@ -229,14 +68,14 @@ app.post("/ask", async (c) => {
       ...history
         .filter((h: any) => h?.role === "user" || h?.role === "assistant")
         .map((h: any) => ({ role: h.role, content: String(h.content || "").slice(0, 4000) })),
-      { role: "user" as const, content: `${describe(body)}\n\n---\n\nTHEIR QUESTION\n${question}` },
+      { role: "user" as const, content: `${describe(body, trade)}\n\n---\n\nTHEIR QUESTION\n${question}` },
     ];
 
     const message = await client.messages.create({
       model: Deno.env.get("DESIGN_ASSISTANT_MODEL") || "claude-opus-5",
       max_tokens: 6000,
       thinking: { type: "adaptive" },
-      system: SYSTEM,
+      system: systemFor(trade),
       messages,
     });
 
@@ -261,11 +100,23 @@ app.post("/ask", async (c) => {
       parsed = { answer: raw, changes: [], needsFromTown: [], engineerRequired: false };
     }
 
+    /**
+     * Proposals are dropped for any trade with nothing to apply them to.
+     *
+     * The prompt already says to return none, and a prompt is a request rather
+     * than a guarantee. The client turns each proposal into an Apply button
+     * that patches the deck model, so a stray `joistSize` returned during a
+     * bathroom question would render a button that silently edits a deck
+     * nobody is looking at. Enforced here because this is the side that knows.
+     */
+    const applicable = Object.prototype.hasOwnProperty.call(CHANGE_FIELDS, trade);
+
     return c.json({
       answer: String(parsed.answer || "").trim() || "No answer came back — try asking again.",
-      changes: Array.isArray(parsed.changes) ? parsed.changes.slice(0, 8) : [],
+      changes: applicable && Array.isArray(parsed.changes) ? parsed.changes.slice(0, 8) : [],
       needsFromTown: Array.isArray(parsed.needsFromTown) ? parsed.needsFromTown : [],
       engineerRequired: !!parsed.engineerRequired,
+      trade,
     });
   } catch (err: any) {
     console.log(`[design-assistant] ask failed: ${err?.message || err}`);

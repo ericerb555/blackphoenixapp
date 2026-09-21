@@ -1,10 +1,21 @@
 /**
- * DeckAssistant — someone to ask, without leaving the design.
+ * DesignAssistant — someone to ask, without leaving the design.
  *
- * It sees the whole design: the model, the site values, the takeoff, the
- * computed loads and footings, and every advisory already on screen. So it
- * answers about this deck rather than decks in general, and it quotes the same
- * numbers the panels beside it are showing.
+ * It sees what is on screen: the model, the site values, the takeoff, the
+ * computed loads and footings, every advisory already showing, and the building
+ * itself — elevations and rooms, each number carrying whether it was measured
+ * or read off a photograph. So it answers about this job rather than about
+ * construction in general, and it quotes the same figures the panels beside it
+ * are showing.
+ *
+ * IT USED TO BE THE DECK ASSISTANT, AND ONLY THAT
+ *
+ * Its prompt opened "You are sitting with a deck builder" and reasoned in DCA 6
+ * span tables, and the designer rendered it only when the deck section was
+ * open. Seven of the eight trades had no assistant at all, and the comment
+ * above the gate in `DeckDesigner` claimed the opposite. Now the section it is
+ * in travels with the question, the server assembles the prompt from that
+ * trade's knowledge, and the openers below match where you are standing.
  *
  * It proposes; it does not edit. When the answer implies a change, the change
  * arrives as a button with the reason attached, and nothing moves until it is
@@ -33,13 +44,71 @@ interface Turn {
   applied?: boolean;
 }
 
-/** Openers worth having on a button, because they are what actually gets asked. */
-const STARTERS = [
-  'Is this framing right for the span?',
-  'What size footings do I need here?',
-  'How do I attach the ledger on this one?',
-  'What will the inspector look for?',
-];
+/**
+ * Openers worth having on a button, because they are what actually gets asked.
+ *
+ * Per trade, because the deck set was on screen in every section and a row of
+ * buttons offering to check your joist spans while you lay out a bathroom is a
+ * clear signal that the thing has not understood where it is. Four is the
+ * limit: these are a way in for somebody who does not know what to ask, not a
+ * menu of what it can do.
+ */
+const STARTERS: Record<string, string[]> = {
+  deck: [
+    'Is this framing right for the span?',
+    'What size footings do I need here?',
+    'How do I attach the ledger on this one?',
+    'What will the inspector look for?',
+  ],
+  structures: [
+    'What size rafters for this span?',
+    'How does this attach to the house?',
+    'Does this need lateral bracing?',
+    'What does the snow load do to this?',
+  ],
+  hardscape: [
+    'How deep should the base be?',
+    'Which way should this drain?',
+    'Does this wall need engineering?',
+    'What edge restraint does this need?',
+  ],
+  siding: [
+    'What goes behind this before the siding?',
+    'Where do I need kick-out flashing?',
+    'How much clearance to grade?',
+    'Can I side over what is there?',
+  ],
+  openings: [
+    'What header does this opening need?',
+    'How do I flash this sill properly?',
+    'Does this window meet egress?',
+    'What rough opening should I frame?',
+  ],
+  kitchen: [
+    'Is there enough room between these runs?',
+    'Where should the hood vent to?',
+    'Does this layout work for two cooks?',
+    'What landing space am I missing?',
+  ],
+  bathroom: [
+    'Are these fixture clearances legal?',
+    'What ventilation does this need?',
+    'Can I move the toilet here?',
+    'What goes behind the tile in the shower?',
+  ],
+  flooring: [
+    'Will this go over what is down now?',
+    'How flat does the subfloor need to be?',
+    'What expansion gap do I need?',
+    'How do I handle the transitions?',
+  ],
+  roofing: [
+    'What underlayment does this need?',
+    'How much ventilation should this roof have?',
+    'What flashing does this valley need?',
+    'Can this go over the existing layer?',
+  ],
+};
 
 interface Props {
   model: DeckModel;
@@ -51,6 +120,19 @@ interface Props {
   onApply: (patch: Partial<DeckModel>) => void;
   /** What the job folder gave up: the house read, and any drawing read. */
   findings?: { house?: any; sketch?: any };
+  /**
+   * Which section of the design centre is open.
+   *
+   * Decides which trade's knowledge the server assembles its prompt from, and
+   * which openers appear here. Defaulted rather than required so an older
+   * caller still gets the behaviour it had.
+   */
+  trade?: string;
+  /**
+   * The building — elevations and rooms, each field carrying where its number
+   * came from. Every trade works on this; only the deck has a model of its own.
+   */
+  house?: any;
 }
 
 /**
@@ -77,13 +159,16 @@ const FIX_Q =
   + 'change — a missing site figure, or something needing an engineer — list plainly instead of '
   + 'working around it.';
 
-export default function DeckAssistant({
-  model, site, loads, takeoff, structural, advisories, onApply, findings,
+export default function DesignAssistant({
+  model, site, loads, takeoff, structural, advisories, onApply, findings, trade, house,
 }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  /** The deck is the only trade with a model this panel can patch. */
+  const isDeck = (trade || 'deck') === 'deck';
 
   const ask = useCallback(async (question: string) => {
     const text = question.trim();
@@ -108,6 +193,11 @@ export default function DeckAssistant({
           // each time so the assistant never answers against a stale model.
           history: turns.map(t => ({ role: t.role, content: t.content })),
           model, site, loads, takeoff, structural, advisories, findings,
+          // The section they are in, and the building itself. Without the first
+          // the assistant answered every question as a deck question; without
+          // the second it knew the deck's dimensions and nothing about the
+          // house every other trade is working on.
+          trade, house,
         }),
       });
       const json = await res.json();
@@ -151,14 +241,23 @@ export default function DeckAssistant({
         <Sparkles className="w-4 h-4 text-[#ea580c]" /> Ask about this deck
       </h2>
       <p className="text-xs text-gray-500 mb-3">
-        It can see the whole design — spans, loads, footings and every warning showing above. It
-        suggests changes; you decide whether to take them.
+        {isDeck
+          ? 'It can see the whole design — spans, loads, footings and every warning showing '
+            + 'above. It suggests changes; you decide whether to take them.'
+          : 'It can see the rooms and elevations captured so far, and whether each number was '
+            + 'measured or read off a photograph. It answers; it does not change anything here.'}
       </p>
 
       {/* The two whole-design actions. Always available rather than only on an
           empty conversation: fixing what is wrong is most wanted after a few
-          changes have been made, which is exactly when the starters are gone. */}
-      <div className="grid sm:grid-cols-2 gap-2 mb-3">
+          changes have been made, which is exactly when the starters are gone.
+
+          Deck only, because both produce a patch for the deck model and there
+          is nothing else wired up to apply one. Offering "Design it from what
+          is here" on the bathroom section would return sound advice and then
+          have no button to press, which reads as broken rather than as
+          unfinished. */}
+      <div className={`grid sm:grid-cols-2 gap-2 mb-3 ${isDeck ? '' : 'hidden'}`}>
         <button onClick={() => ask(GENERATE_Q)} disabled={busy}
           className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold text-white transition disabled:opacity-40"
           style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
@@ -179,7 +278,7 @@ export default function DeckAssistant({
 
       {turns.length === 0 && (
         <div className="grid sm:grid-cols-2 gap-2 mb-3">
-          {STARTERS.map(s => (
+          {(STARTERS[trade || 'deck'] || STARTERS.deck).map(s => (
             <button key={s} onClick={() => ask(s)} disabled={busy}
               className="text-left text-xs text-gray-300 px-3 py-2 rounded-xl border border-[#2A2A2A] hover:border-[#ea580c] hover:text-white transition disabled:opacity-40">
               {s}
