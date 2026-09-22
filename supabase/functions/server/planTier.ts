@@ -544,6 +544,29 @@ export function withinLimit(
 ): boolean {
   const limit = tier?.limits?.[key];
   if (limit === undefined || limit === null) return true;
-  if (!Number.isFinite(Number(limit))) return true;
-  return Number(currentCount) < Number(limit);
+
+  const ceiling = Number(limit);
+  if (!Number.isFinite(ceiling)) return true;
+
+  /**
+   * ZERO MEANS UNLIMITED.
+   *
+   * That is the convention everything else in the system already uses — the
+   * tier editor says "0 means unlimited" under the limits, the drafting
+   * assistant is told the same, and the vendor tiers are written that way:
+   * Stocked and Preferred both carry `products: 0` and sell themselves as
+   * "Unlimited catalogue products".
+   *
+   * Read literally, `count < 0` is false for every count, so this function
+   * would have refused EVERYTHING for exactly the tiers that promise no
+   * limit. Enforcement built on that would have locked out the
+   * best-paying vendors on their first product, while leaving the cheapest
+   * tier working — the precise opposite of what the ladder sells.
+   *
+   * A negative ceiling is treated the same way. It cannot mean "minus three
+   * products", and the only other reading is a sentinel for no limit.
+   */
+  if (ceiling <= 0) return true;
+
+  return Number(currentCount) < ceiling;
 }

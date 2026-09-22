@@ -25,6 +25,9 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import {
+  checkPlanLimit, vendorEmailFor, vendorProductCount,
+} from "./planLimits.tsx";
 import { inspectUrl, safeFetch } from "./outboundGuard.ts";
 import { findProductArray, guessFeedMapping, buildFeedRows, missingFeedFields } from "./vendorFeed.ts";
 import { mirrorVendorImage } from "./productImages.tsx";
@@ -313,6 +316,38 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/items", async (c) => {
     return c.json({ success: false, error: "That catalogue belongs to another vendor." }, 403);
   }
   try {
+    /**
+     * The tier's ceiling, applied before anything is written.
+     *
+     * Checked here rather than after the write, because a line that has been
+     * saved and then refused is worse than one that was never saved — the
+     * vendor sees an error and their product sitting in the list.
+     *
+     * The plan belongs to the vendor's account, and the catalogue is keyed by
+     * vendor id, so the email has to be looked up. Staff are exempt: somebody
+     * fixing a vendor's catalogue for them should not be stopped by that
+     * vendor's plan.
+     */
+    const verdict = await checkPlanLimit({
+      email: who.isVendor ? who.email : await vendorEmailFor(vendorId),
+      key: "products",
+      used: await vendorProductCount(vendorId),
+      exempt: who.isAdmin,
+    });
+    if (!verdict.allowed) {
+      console.log(`[Limits] ${vendorId} refused a product: ${verdict.used}/${verdict.limit} on ${verdict.tierName}`);
+      return c.json({
+        success: false,
+        error: verdict.reason,
+        limit: { key: "products", limit: verdict.limit, used: verdict.used, tier: verdict.tierName },
+      }, 409);
+    }
+    // How often no ceiling applies is the number worth watching before this
+    // is tightened — see the note at the top of planLimits.
+    if (verdict.unenforced) {
+      console.log(`[Limits] products not enforced for ${vendorId}: ${verdict.unenforced}`);
+    }
+
     const body = await c.req.json().catch(() => ({}));
     const name = String(body.name || "").trim().slice(0, 200);
     if (!name) return c.json({ success: false, error: "Every catalogue line needs a name." }, 400);
@@ -496,6 +531,48 @@ vendorCatalogRouter.post("/vendor-catalog/:vendorId/import", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const incoming = Array.isArray(body?.items) ? body.items : [];
+
+    /**
+     * A bulk import is where a ceiling is actually met.
+     *
+     * Nobody reaches 250 products one at a time; they paste a price list. So
+     * this checks the total the import would produce rather than the count
+     * before it — refusing afterwards would mean telling a vendor their
+     * 1,800-line upload failed once it had already half-landed.
+     *
+     * An import is still allowed to REPLACE existing lines, which is why the
+     * count used is what they have now: a re-import of the same list updates
+     * rather than doubles, and importCatalogRows matches on SKU to do it. The
+     * check is therefore deliberately generous — it stops an import that
+     * clearly cannot fit, not every one that might.
+     */
+    const already = await vendorProductCount(vendorId);
+    const verdict = await checkPlanLimit({
+      email: who.isVendor ? who.email : await vendorEmailFor(vendorId),
+      key: "products",
+      used: already,
+      exempt: who.isAdmin,
+    });
+    if (!verdict.allowed) {
+      console.log(`[Limits] ${vendorId} refused an import: ${already}/${verdict.limit} on ${verdict.tierName}`);
+      return c.json({
+        success: false,
+        error: verdict.reason,
+        limit: { key: "products", limit: verdict.limit, used: already, tier: verdict.tierName },
+      }, 409);
+    }
+    if (verdict.limit && already + incoming.length > verdict.limit) {
+      // Said before the work rather than after, and it names both numbers so
+      // the vendor can decide whether to trim the file or upgrade.
+      return c.json({
+        success: false,
+        error: `Your ${verdict.tierName} plan includes ${verdict.limit} catalogue products. `
+          + `You have ${already} and this file adds up to ${incoming.length}, which would not fit. `
+          + `Trim the file or upgrade the plan.`,
+        limit: { key: "products", limit: verdict.limit, used: already, incoming: incoming.length, tier: verdict.tierName },
+      }, 409);
+    }
+
     const outcome = await importCatalogRows(vendorId, incoming);
     if (outcome.error) {
       // 413 for a batch that is too large, 409 for a catalogue that is full,

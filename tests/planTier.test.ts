@@ -430,3 +430,34 @@ test('addOnIncludedIn is false for a tier that includes nothing', () => {
   assert.ok(!addOnIncludedIn('extra-products', baseTier()));
   assert.ok(!addOnIncludedIn('extra-products', null));
 });
+
+/**
+ * ── Zero means unlimited ──────────────────────────────────────────────────
+ *
+ * The convention is stated in the tier editor, in the assistant prompt, and
+ * in the vendor tiers themselves — Stocked and Preferred carry `products: 0`
+ * and advertise "Unlimited catalogue products". It was stated everywhere
+ * except in the function that decides, which read it literally as a ceiling
+ * of nothing.
+ *
+ * That is the expensive direction of wrong: the tiers promising no limit are
+ * the ones people pay most for, so enforcement would have refused their
+ * first product while the cheapest tier carried on working.
+ */
+test('ZERO MEANS UNLIMITED — the tiers that promise no limit are the dear ones', () => {
+  const unlimited = tier({ limits: { products: 0 } });
+  assert.ok(withinLimit(unlimited, 'products', 0));
+  assert.ok(withinLimit(unlimited, 'products', 250));
+  assert.ok(withinLimit(unlimited, 'products', 100000));
+});
+
+test('a real ceiling still holds', () => {
+  const listed = tier({ limits: { products: 250 } });
+  assert.ok(withinLimit(listed, 'products', 249));
+  assert.ok(!withinLimit(listed, 'products', 250), 'at the limit is not under it');
+  assert.ok(!withinLimit(listed, 'products', 9999));
+});
+
+test('a negative ceiling cannot mean minus three products', () => {
+  assert.ok(withinLimit(tier({ limits: { products: -3 } }), 'products', 500));
+});
