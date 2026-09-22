@@ -281,6 +281,16 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
   }
 
   const audience = String(meta.bp_audience || '').trim();
+  /**
+   * The extras this subscription carries, as the checkout recorded them.
+   *
+   * Read from metadata rather than from the session line items, because the
+   * renewal and cancellation events carry no line items at all — only the
+   * subscription and its metadata. Reading them one way and one way only is
+   * what stops a renewal quietly dropping somebody's on-call.
+   */
+  const addOnIds = String(meta.bp_add_ons || '')
+    .split(',').map((a: string) => a.trim()).filter(Boolean);
   const now = new Date().toISOString();
   const key = `feature_grant:${email}`;
   const grant = (await kvGet(key)) || {};
@@ -302,6 +312,7 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
         portalType: grant.portalType || audience || undefined,
         status: 'active',
         tierId,
+        addOnIds,
         stripeSubscriptionId: subscriptionId,
         stripeCustomerId: object?.customer || grant.stripeCustomerId || null,
         subscribedAt: grant.subscribedAt || now,
@@ -326,6 +337,10 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
         email,
         status: 'active',
         tierId: live ? tierId : undefined,
+        // Dropped with the tier, and for the same reason: an extra that
+        // outlives the subscription paying for it is access nobody is
+        // billed for.
+        addOnIds: live ? addOnIds : undefined,
         stripeSubscriptionId: live ? String(object?.id || '') : undefined,
         lastSubscriptionStatus: String(object?.status || ''),
         updatedAt: now,
@@ -342,6 +357,11 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
         // Cleared, not overwritten with a level. resolveEntitlement decides
         // what no-subscription means, and it is the only thing that decides it.
         tierId: undefined,
+        // The extras go with it. `holdsAddOn` already refuses anything once the
+        // entitlement stops resolving to a subscription, so this is belt and
+        // braces — but a cancelled account left holding on-call in its record
+        // is the kind of thing somebody later reads as still owed a service.
+        addOnIds: undefined,
         stripeSubscriptionId: undefined,
         lastSubscriptionStatus: 'deleted',
         cancelledAt: now,

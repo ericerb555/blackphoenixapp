@@ -167,7 +167,8 @@ import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
-  isPurchasable, AUDIENCES,
+  isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
+  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn,
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -10903,6 +10904,34 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
     const refusal = notPurchasableReason(tier, mode);
     if (refusal) return c.json({ error: refusal }, 400);
 
+    /**
+     * The extras, decided here rather than taken from the request.
+     *
+     * `addOnIds` says what was ticked; `selectableAddOns` says what may
+     * actually be billed, by looking each record up and holding it against
+     * the tier, the interval and the Stripe mode. A posted list is a list a
+     * customer can edit.
+     *
+     * A refusal stops the whole checkout rather than quietly building a
+     * cheaper one. Somebody who ticked on-call and is sent to a checkout
+     * without it pays for a subscription that does not do the thing they
+     * asked for, and finds out during an emergency.
+     */
+    const wantedAddOns = Array.isArray(body?.addOnIds) ? body.addOnIds : [];
+    const catalogue = wantedAddOns.length
+      ? ((await kv.getByPrefix(`plan_addon:${audience}:`)) as PlanAddOn[] || []).filter(Boolean)
+      : [];
+    const { chosen: addOns, refused } = selectableAddOns(catalogue, tier, wantedAddOns, mode);
+    if (refused.length) {
+      console.log(`[Subscriptions] ${email} refused extras: ${refused.map(r => r.id).join(", ")}`);
+      return c.json({
+        error: refused.length === 1
+          ? refused[0].reason
+          : `Some of those extras cannot be added: ${refused.map(r => r.reason).join(' ')}`,
+        refused,
+      }, 400);
+    }
+
     const appOrigin = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
     const params = new URLSearchParams({
       mode: 'subscription',
@@ -10915,6 +10944,19 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
       'metadata[bp_tier_id]': tierId,
       'metadata[bp_audience]': audience,
       'metadata[bp_email]': email,
+    });
+
+    /**
+     * One Stripe line item per extra, each at quantity one.
+     *
+     * Stripe has no way to bill a total — a subscription is line items, each
+     * pointing at a Price — which is why every add-on carries its own Price
+     * rather than a number we add up.
+     */
+    addOns.forEach((addOn, i) => {
+      const at = i + 1;
+      params.set(`line_items[${at}][price]`, priceIdFor(addOn, mode));
+      params.set(`line_items[${at}][quantity]`, '1');
     });
 
     /**
@@ -10931,6 +10973,24 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
     params.set('subscription_data[metadata][bp_audience]', audience);
     params.set('subscription_data[metadata][bp_email]', email);
 
+    /**
+     * Which extras this subscription carries, in metadata on both objects.
+     *
+     * The webhook writes them onto the grant, and everything that asks "does
+     * this account have on-call" reads them from there. On the subscription
+     * as well as the session for the same reason the tier id is: Stripe does
+     * not copy session metadata onto the subscription, so without it a
+     * renewal would arrive unable to say what was renewed.
+     *
+     * A comma-joined string because Stripe metadata values are strings. The
+     * ids are slugs, so there is nothing to escape.
+     */
+    if (addOns.length) {
+      const ids = addOns.map(a => a.id).join(",");
+      params.set('metadata[bp_add_ons]', ids);
+      params.set('subscription_data[metadata][bp_add_ons]', ids);
+    }
+
     const session = rehearsing
       ? await stripeSessionWithKey(params, stripeTestKey())
       : await stripeCheckoutSession(params, 'services');
@@ -10939,6 +10999,162 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
   } catch (error: any) {
     console.error('[Subscriptions] checkout error:', error?.message || error);
     return c.json({ error: error?.message || 'Could not start checkout.' }, 500);
+  }
+});
+
+
+/**
+ * POST /plan-add-on — add an extra to the subscription somebody already has.
+ *
+ * WHY THIS IS NOT A CHECKOUT
+ *
+ * `/me/upgrade-options` has carried a note for a while explaining why
+ * catalogue add-ons were not offered: sending one through `/plan-checkout`
+ * would open a SECOND subscription, and the webhook would read the add-on's id
+ * as `bp_tier_id` and overwrite the record of which plan the person is on. They
+ * would pay for an extra and lose their tier.
+ *
+ * That note was right, and it describes a checkout. The answer is not a safer
+ * checkout — it is not opening one. Stripe bills a subscription as line items,
+ * so adding an extra to an existing subscription is adding a line item to it.
+ * The tier stays exactly where it is, in line item zero, and `bp_tier_id` is
+ * never touched.
+ *
+ * WHY THE SUBSCRIPTION'S METADATA IS UPDATED TOO
+ *
+ * Because that is what the grant is written from. Adding the item makes Stripe
+ * fire `customer.subscription.updated`, the webhook reads `bp_add_ons` off the
+ * subscription, and the grant gets the new list. Add the item without the
+ * metadata and the very event announcing the purchase would arrive saying the
+ * account holds nothing — and the next renewal would confirm it.
+ *
+ * PRORATION IS STRIPE'S DEFAULT, DELIBERATELY
+ *
+ * `create_prorations`: the part-month is added to the next invoice rather than
+ * charged immediately. Somebody adding on-call at 2am during an emergency
+ * should not have a card charged in that moment by a button they pressed to
+ * get help.
+ */
+app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in first.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user?.email) return c.json({ error: 'Sign in first.' }, 401);
+
+    // From the verified token, never the body: otherwise anybody could add a
+    // billable line to somebody else's subscription.
+    const email = String(user.email).toLowerCase();
+
+    const body = await c.req.json().catch(() => ({}));
+    const addOnId = String(body?.addOnId || '').trim();
+    if (!addOnId) return c.json({ error: 'Which add-on?' }, 400);
+
+    const grant = await kv.get(`feature_grant:${email}`) as any;
+    const entitlement = resolveEntitlement(grant);
+    /**
+     * There has to be something to add it to.
+     *
+     * An account on a trial or on the free floor has no Stripe subscription, so
+     * there is no line item to add and no invoice to put it on. They are sent
+     * to buy a plan instead, which is the honest answer rather than a failure.
+     */
+    if (entitlement.source !== 'subscription' || !grant?.stripeSubscriptionId) {
+      return c.json({
+        error: 'Add-ons attach to a paid plan. Choose a plan first and you can add this to it.',
+        needsPlan: true,
+      }, 409);
+    }
+
+    const audience = String(grant.portalType || '').trim();
+    const tier = await kv.get(`plan_tier:${audience}:${grant.tierId}`) as any;
+    if (!tier) return c.json({ error: 'The plan on your account no longer exists. Tell us and we will sort it out.' }, 409);
+
+    /**
+     * Already held? Say so rather than billing again.
+     *
+     * Two ways to hold it and both count — bought before, or included in the
+     * tier. A second line item for something already granted is a duplicate
+     * charge, which is the one mistake here a customer sees on a statement.
+     */
+    if (holdsAddOn(addOnId, grant, tier)) {
+      return c.json({ error: 'That is already on your plan.', alreadyHeld: true }, 409);
+    }
+
+    const mode = isStripeTestAccount(email) && Boolean(stripeTestKey()) ? 'test' : activeStripeMode();
+    const catalogue = ((await kv.getByPrefix(`plan_addon:${audience}:`)) as PlanAddOn[] || []).filter(Boolean);
+    const { chosen, refused } = selectableAddOns(catalogue, tier, [addOnId], mode);
+    if (!chosen.length) {
+      return c.json({ error: refused[0]?.reason || 'That add-on cannot be added to your plan.' }, 400);
+    }
+    const addOn = chosen[0];
+
+    const stripeKey = mode === 'test' ? stripeTestKey() : stripeKeyFor('services');
+    if (!stripeKey) return c.json({ error: 'Subscriptions are not configured on this server.' }, 500);
+
+    const post = async (path: string, params: URLSearchParams) => {
+      const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${btoa(`${stripeKey}:`)}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error?.message || `Stripe refused: ${res.status}`);
+      return payload;
+    };
+
+    const subscriptionId = String(grant.stripeSubscriptionId);
+    await post('subscription_items', new URLSearchParams({
+      subscription: subscriptionId,
+      price: priceIdFor(addOn, mode),
+      quantity: '1',
+      proration_behavior: 'create_prorations',
+    }));
+
+    /**
+     * The new list, written back where the webhook reads it.
+     *
+     * Every key is sent, not only the changed one. Stripe merges metadata
+     * updates, but the tier id and the email are what make a renewal
+     * identifiable at all, and re-stating them costs nothing next to the cost
+     * of one of them going missing.
+     */
+    const ids = [...new Set([...(Array.isArray(grant.addOnIds) ? grant.addOnIds : []), addOn.id])];
+    await post(`subscriptions/${encodeURIComponent(subscriptionId)}`, new URLSearchParams({
+      'metadata[bp_tier_id]': String(grant.tierId),
+      'metadata[bp_audience]': audience,
+      'metadata[bp_email]': email,
+      'metadata[bp_add_ons]': ids.join(','),
+    }));
+
+    /**
+     * The grant is written here as well as by the webhook.
+     *
+     * Not a duplicate so much as a floor. The webhook is the record of truth
+     * and it will arrive, but "arrive" is a network event and this route has
+     * just told somebody their on-call is on. Waiting for a webhook to make
+     * that true means a window where the screen says yes and the server says
+     * no — during which an emergency would be refused.
+     */
+    await kv.set(`feature_grant:${email}`, {
+      ...grant, addOnIds: ids, updatedAt: new Date().toISOString(),
+    });
+
+    console.log(`[Subscriptions] ${email} added ${addOn.id} to ${subscriptionId} (${mode})`);
+    return c.json({
+      success: true,
+      addOnIds: ids,
+      addOn: publicAddOn(addOn, mode),
+      // Said plainly, because nothing was charged in this moment and somebody
+      // watching their card would otherwise wonder.
+      message: `${addOn.name} is on your plan. The part-month is added to your next invoice.`,
+    });
+  } catch (error: any) {
+    console.error('[Subscriptions] add-on error:', error?.message || error);
+    return c.json({ error: error?.message || 'Could not add that to your plan.' }, 500);
   }
 });
 
@@ -10957,10 +11173,24 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
     // The tier they are on, when they are on one, so the portal can show what
     // they bought without a second request.
     let tier: any = null;
+    let tierRecord: any = null;
     if (entitlement.source === 'subscription' && grant?.tierId && grant?.portalType) {
       const found = await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`) as any;
-      if (found) tier = publicTier(found, activeStripeMode());
+      if (found) { tierRecord = found; tier = publicTier(found, activeStripeMode()); }
     }
+
+    /**
+     * The extras this account holds, bought or included in the tier.
+     *
+     * Answered here as well as inside the server because a portal has to
+     * decide what to draw — an on-call setup screen for an account that has
+     * no on-call is a promise the software will not keep. The screen uses it
+     * to choose what to show; nothing that decides money or access may rely
+     * on it, because it arrives in a browser. The server asks the same
+     * question of the same grant when it matters.
+     */
+    const addOns = heldAddOnIds(grant, tierRecord);
+    const onCall = holdsAddOn(ON_CALL_ADD_ON_ID, grant, tierRecord);
 
     /**
      * Would a checkout from this account be a rehearsal, or real money?
@@ -10991,6 +11221,8 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
     return c.json({
       entitlement,
       tier,
+      addOns,
+      onCall,
       portalType: grant?.portalType || null,
       rehearsal,
       stripeMode: rehearsal ? 'test' : activeStripeMode(),
@@ -15286,8 +15518,7 @@ app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
     const stripeMode = activeStripeMode();
     const audience = AUDIENCES.includes(planKey as any) ? planKey : null;
 
-    // Takes a kind because U3b will need the add-on side; only tiers are
-    // offered today, for the reason given below.
+    // Both kinds now. See the note below the tiers for what changed.
     const fromCatalogue = async (kind: 'tier' | 'addon') => {
       if (!audience) return [];
       const prefix = kind === 'tier' ? 'plan_tier' : 'plan_addon';
@@ -15312,22 +15543,25 @@ app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
     const catalogueTiers = await fromCatalogue('tier');
 
     /**
-     * Catalogue TIERS are offered. Catalogue ADD-ONS are deliberately not, yet.
+     * Catalogue add-ons are offered now, and the reason they were not is worth
+     * keeping because it explains the shape of what replaced it.
      *
-     * Not an oversight and not laziness — it is the grant model. A checkout
-     * started here ends at the webhook, which reads `bp_tier_id` off the
-     * subscription and writes the entitlement grant from it. Send an add-on
-     * down that path and the grant lands pointing at the add-on, so buying
-     * "500 more products" would overwrite the record of which plan the person
-     * is actually on. They would pay for an extra and lose their tier.
+     * They could not go through `/plan-checkout`: that opens a SECOND
+     * subscription, and the webhook reads `bp_tier_id` off it, so buying "500
+     * more products" would overwrite the record of which plan the person is on.
+     * They would pay for an extra and lose their tier.
      *
-     * Selling an add-on properly means adding a line item to the subscription
-     * they already have, not opening a second one. That is real work and it is
-     * not done, so the old rows keep serving add-ons exactly as they do today.
-     * Logged as U3b in `tasks/plan-catalogue-unification.md`.
+     * The answer was not a safer checkout but no checkout. `/plan-add-on` adds
+     * a line item to the subscription they already have, leaving the tier in
+     * line item zero and `bp_tier_id` untouched. So these rows are offered
+     * against that route, which is what `addOnsFrom` now says.
+     *
+     * The legacy maintenance-plan rows are still offered alongside, because
+     * they are a different product rather than an older copy of this one.
      */
+    const catalogueAddOns = await fromCatalogue('addon');
     const plans = catalogueTiers.length ? catalogueTiers : shape(planKey);
-    const addOns = shape(addonKey);
+    const addOns = [...catalogueAddOns, ...shape(addonKey)];
 
     // Said out loud, because "the old map is still doing the work" is exactly
     // the thing that otherwise goes unnoticed for months.
@@ -15348,9 +15582,12 @@ app.get('/make-server-3eae23a6/me/upgrade-options', async (c) => {
       // Which checkout the panel should use, per list. An option carries its own
       // `source` too, so a mixed list still routes correctly item by item.
       plansFrom: catalogueTiers.length ? 'catalogue' : 'legacy',
-      // Always legacy until an add-on can be added to an existing
-      // subscription rather than opening a competing one. See above.
-      addOnsFrom: 'legacy' as const,
+      // Which route the add-on rows belong to. Catalogue rows go to
+      // /plan-add-on, which adds a line to the subscription they already
+      // have; the legacy maintenance rows still go to the old checkout.
+      // Each row carries its own `source` as well, so a mixed list routes
+      // item by item.
+      addOnsFrom: catalogueAddOns.length ? 'catalogue' : ('legacy' as const),
       stripeMode,
       current: current ? { plan: current.plan || null, status: current.status || null, amount: current.amount ?? null } : null,
     });

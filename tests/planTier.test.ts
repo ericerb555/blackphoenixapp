@@ -19,6 +19,7 @@ import {
   withinLimit, carryStripeLinkage, FREE_LEVEL, AUDIENCES,
   readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
   addOnsForTier, publicAddOn, type PlanAddOn,
+  selectableAddOns, holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -460,4 +461,78 @@ test('a real ceiling still holds', () => {
 
 test('a negative ceiling cannot mean minus three products', () => {
   assert.ok(withinLimit(tier({ limits: { products: -3 } }), 'products', 500));
+});
+
+/* ── which extras a checkout may bill for ────────────────────────────────── */
+
+/**
+ * The posted list is a list the customer can edit. These pin the four ways a
+ * ticked extra must not become a Stripe line item, because each of them bills
+ * somebody for something they are not entitled to or cannot use.
+ */
+
+test('an extra that is offered and priced is selectable', () => {
+  const { chosen, refused } = selectableAddOns([addOn()], tier(), ['extra-products']);
+  assert.deepEqual(chosen.map(a => a.id), ['extra-products']);
+  assert.equal(refused.length, 0);
+});
+
+test('an id nobody offers is refused rather than ignored', () => {
+  const { chosen, refused } = selectableAddOns([addOn()], tier(), ['on-call']);
+  assert.equal(chosen.length, 0);
+  assert.equal(refused[0].id, 'on-call');
+});
+
+test('an extra restricted to another tier cannot be bought on this one', () => {
+  const only = addOn({ availableOn: ['preferred'] });
+  const { chosen, refused } = selectableAddOns([only], tier({ id: 'listed' }), ['extra-products']);
+  assert.equal(chosen.length, 0);
+  assert.match(refused[0].reason, /not offered on this plan/);
+});
+
+test('an extra the tier already includes is refused, not charged for', () => {
+  const t = tier({ includedAddOns: ['extra-products'] });
+  const { chosen, refused } = selectableAddOns([addOn()], t, ['extra-products']);
+  assert.equal(chosen.length, 0, 'billing for something the plan grants is the visible failure');
+  assert.match(refused[0].reason, /already included/);
+});
+
+test('an extra with no price in the mode we are in is refused, and says so', () => {
+  const liveOnly = addOn({ stripePriceId: 'price_live', stripePriceIdTest: undefined });
+  const { chosen, refused } = selectableAddOns([liveOnly], tier(), ['extra-products'], 'test');
+  assert.equal(chosen.length, 0, 'a rehearsal must not quietly build a cheaper checkout');
+  assert.match(refused[0].reason, /test/);
+});
+
+test('the same extra ticked twice bills once', () => {
+  const { chosen } = selectableAddOns([addOn()], tier(), ['extra-products', 'extra-products']);
+  assert.equal(chosen.length, 1);
+});
+
+/* ── and what an account holds once it has paid ──────────────────────────── */
+
+const paid = (over: Record<string, any> = {}) => ({
+  email: 'a@b.com', portalType: 'vendor', status: 'active',
+  tierId: 'listed', stripeSubscriptionId: 'sub_1', ...over,
+});
+
+test('an extra bought alongside the subscription is held', () => {
+  assert.ok(holdsAddOn(ON_CALL_ADD_ON_ID, paid({ addOnIds: ['on-call'] }), tier()));
+});
+
+test('an extra the tier includes is held without ever being bought', () => {
+  const t = tier({ includedAddOns: ['on-call'] });
+  assert.ok(holdsAddOn(ON_CALL_ADD_ON_ID, paid(), t),
+    'the dearest plan is the one most likely to bundle on-call');
+});
+
+test('a cancelled subscription holds nothing, whatever ids are left on the grant', () => {
+  const cancelled = paid({ tierId: undefined, stripeSubscriptionId: undefined, addOnIds: ['on-call'] });
+  assert.ok(!holdsAddOn(ON_CALL_ADD_ON_ID, cancelled, tier()),
+    'we would still be answering emergencies for an account that stopped paying');
+});
+
+test('no grant at all holds nothing', () => {
+  assert.ok(!holdsAddOn(ON_CALL_ADD_ON_ID, null, tier()));
+  assert.ok(!holdsAddOn('', paid({ addOnIds: [''] }), tier()));
 });

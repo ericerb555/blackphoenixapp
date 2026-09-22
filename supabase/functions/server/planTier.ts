@@ -343,6 +343,114 @@ export function addOnsForTier(
     .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
 }
 
+/**
+ * The add-ons a checkout may actually bill for, decided here rather than taken
+ * from the request.
+ *
+ * WHY THE POSTED LIST IS NOT THE ANSWER
+ *
+ * The browser sends which extras somebody ticked. Believed as sent, that is a
+ * list a customer can edit — into an add-on offered on a dearer tier, one that
+ * has been retired, or one belonging to a different portal entirely. So the
+ * ids are used only to look records up, and every record is then held against
+ * the same three questions the catalogue asks: is it offered on this tier, is
+ * the tier already giving it away, and does Stripe have a price for it in the
+ * mode this server is in.
+ *
+ * WHY REFUSALS COME BACK RATHER THAN BEING DROPPED
+ *
+ * Because the commonest one is honest and needs saying. An add-on with a live
+ * price and no test price is invisible during a rehearsal, and silently
+ * building a cheaper checkout teaches you that the rehearsal passed. The caller
+ * gets both lists and can say so.
+ *
+ * An add-on the tier includes is refused with a reason that is good news, and
+ * deliberately not billed: charging for something the plan already grants is
+ * the one failure here a customer would notice on their statement.
+ */
+export function selectableAddOns(
+  addOns: PlanAddOn[],
+  tier: Partial<PlanTier> | null | undefined,
+  wanted: string[] = [],
+  mode: StripeMode = 'live',
+): { chosen: PlanAddOn[]; refused: Array<{ id: string; reason: string }> } {
+  const chosen: PlanAddOn[] = [];
+  const refused: Array<{ id: string; reason: string }> = [];
+  const byId = new Map((addOns || []).filter(Boolean).map((a) => [String(a.id), a]));
+
+  // De-duplicated, because a list sent twice must not bill twice.
+  for (const id of [...new Set((wanted || []).map((w) => String(w || '').trim()).filter(Boolean))]) {
+    const addOn = byId.get(id);
+    if (!addOn) { refused.push({ id, reason: 'No such extra.' }); continue; }
+    if (!addOnAvailableOn(addOn, tier)) {
+      refused.push({ id, reason: `${addOn.name} is not offered on this plan.` });
+      continue;
+    }
+    if (addOnIncludedIn(id, tier)) {
+      refused.push({ id, reason: `${addOn.name} is already included in this plan.` });
+      continue;
+    }
+    const why = notPurchasableReason(addOn, mode);
+    if (why) { refused.push({ id, reason: why }); continue; }
+    chosen.push(addOn);
+  }
+  return { chosen, refused };
+}
+
+/**
+ * The canonical id of the on-call add-on.
+ *
+ * On-call is sold per portal audience, so there is one record per audience —
+ * but they share this id, because the question asked of a grant is always
+ * "does this account have on-call", never "which audience's version". Naming it
+ * once means a typo cannot make a paid account look unpaid.
+ */
+export const ON_CALL_ADD_ON_ID = 'on-call';
+
+/**
+ * Which extras this account actually holds.
+ *
+ * Two ways to hold one, and both count: bought alongside the subscription, or
+ * included in the tier at no extra cost. Missing the second would mean the
+ * dearest plan — the one most likely to bundle on-call — behaving as though it
+ * had never paid for it.
+ *
+ * Read from the grant the webhook wrote, so it reflects the subscription that
+ * is actually being paid for rather than anything a browser remembers.
+ */
+export function heldAddOnIds(
+  grant: FeatureGrant | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+): string[] {
+  const bought = Array.isArray(grant?.addOnIds)
+    ? grant!.addOnIds!.map((a) => String(a || '').trim()).filter(Boolean)
+    : [];
+  const included = Array.isArray(tier?.includedAddOns)
+    ? tier!.includedAddOns!.map((a) => String(a || '').trim()).filter(Boolean)
+    : [];
+  return [...new Set([...bought, ...included])];
+}
+
+/**
+ * Does this account hold this extra, right now?
+ *
+ * Gated on the entitlement rather than on the grant's fields alone: a
+ * cancelled subscription leaves its add-on ids behind on the record, and
+ * reading those without asking whether anything is still being paid for would
+ * keep answering emergency calls for an account that stopped paying months
+ * ago. `resolveEntitlement` is the single place that judgement lives.
+ */
+export function holdsAddOn(
+  addOnId: string,
+  grant: FeatureGrant | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+): boolean {
+  const id = String(addOnId || '').trim();
+  if (!id) return false;
+  if (resolveEntitlement(grant).source !== 'subscription') return false;
+  return heldAddOnIds(grant, tier).includes(id);
+}
+
 /** An add-on as a customer may see it — never a Stripe price id. */
 export function publicAddOn(
   addOn: PlanAddOn,
@@ -364,6 +472,16 @@ export interface FeatureGrant {
   /** Set once a subscription is paying for this grant. */
   tierId?: string;
   stripeSubscriptionId?: string;
+  /**
+   * The extras that subscription carries, written by the Stripe webhook from
+   * the metadata the checkout set.
+   *
+   * Recorded on the grant rather than re-read from Stripe on every question,
+   * because the questions are asked in places that must answer fast and offline
+   * — "do we answer this emergency" among them. The webhook clears it the same
+   * way it clears the tier when a subscription ends.
+   */
+  addOnIds?: string[];
 }
 
 export interface Entitlement {

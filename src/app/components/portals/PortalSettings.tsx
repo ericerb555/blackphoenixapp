@@ -154,6 +154,33 @@ export default function PortalSettings({
     setSaving(true);
     try {
       const catalogue = option.source === 'catalogue';
+
+      /**
+       * A catalogue add-on is not a checkout at all.
+       *
+       * It attaches to the subscription already being paid for, as another
+       * line item, so there is no Stripe page to send anybody to — the server
+       * does it and the answer comes straight back. Sending it to
+       * `/plan-checkout` instead would open a second subscription and the
+       * webhook would read the add-on as the tier, which costs somebody their
+       * plan in exchange for an extra.
+       */
+      if (catalogue && option.kind === 'addon') {
+        const res = await fetch(`${SERVER}/plan-add-on`, {
+          method: 'POST',
+          headers: await authedHeaders(),
+          body: JSON.stringify({ addOnId: option.plan }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.success) throw new Error(data?.error || 'Could not add that to your plan.');
+        toast.success(data.message || 'Added to your plan.');
+        // Re-read rather than patch what is on screen, so what is shown is
+        // what the server now holds.
+        await load();
+        setSaving(false);
+        return;
+      }
+
       const res = await fetch(`${SERVER}/${catalogue ? 'plan-checkout' : 'subscriptions/checkout'}`, {
         method: 'POST',
         headers: await authedHeaders(),
