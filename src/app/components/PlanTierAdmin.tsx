@@ -758,7 +758,12 @@ export default function PlanTierAdmin() {
   };
 
   const askForDraft = async () => {
-    if (!brief.trim()) return;
+    if (!brief.trim()) {
+      toast.error(
+        'Tell it what these plans should do first — a sentence or two in the box is enough.',
+      );
+      return;
+    }
     setDrafting(true);
     setProposal(null);
     try {
@@ -920,8 +925,8 @@ export default function PlanTierAdmin() {
           </p>
           <p className="mt-1 text-[11px] text-gray-500">
             Say what these plans should do for a {audience.replace(/_/g, ' ')} and what
-            you want to charge. It proposes; nothing is saved until you press Save on
-            a plan.
+            you want to charge — <b className="text-gray-400">the box below is required</b>.
+            It proposes; nothing is saved until you press Save on a plan.
           </p>
           <textarea
             className="mt-2 min-h-[72px] w-full rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-orange-500 focus:outline-none"
@@ -931,7 +936,9 @@ export default function PlanTierAdmin() {
           />
           <button
             onClick={askForDraft}
-            disabled={drafting || !brief.trim()}
+            // Only disabled while it is actually working. An empty brief is
+            // answered with a sentence rather than with silence.
+            disabled={drafting}
             className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
           >
             {drafting
