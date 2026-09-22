@@ -132,10 +132,27 @@ the quote, the purchase orders and the invoice all sit on one job.
       account that has not bought it — then press the button that creates its
       Stripe price. Nothing is sellable until that price exists, and the badge
       says so.
-- [ ] **2. The per-account record.** `on_call_config:{audience}:{accountId}`:
-      on or off, hours covered, the rota, the escalation ladder with wait
-      times, the per-call extras, contracted vendors by trade, and who to
-      reach. Readable and writable only by that account and by staff.
+- [x] **2. The per-account record.** On or off, hours covered, the rota, the
+      escalation ladder with wait times, the per-call extras, contracted
+      vendors by trade, and who to reach. Readable and writable only by that
+      account and by staff.
+
+      Keyed `on_call_config:{email}` rather than by audience and account. A
+      grant carries one `portalType`, so an account has one of these, and
+      putting the audience in the key means the day somebody's portal type is
+      corrected their rota becomes unreachable while a stale one keeps
+      answering. The audience lives inside the record instead.
+
+      The judging is in `onCallConfig.ts`, pure and pinned by 29 tests, because
+      every rule in it fails silently: a rota switched on with an empty ladder
+      throws nothing and looks finished; business hours answered backwards page
+      the night engineer on a Tuesday morning and leave nobody at two on a
+      Sunday; a contracted vendor missed by a trade-name mismatch sends work
+      somebody holds a signed agreement for out to the open market.
+
+      **Not built yet, and item 2 is not usable without it:** the screen a
+      portal holder edits this on. The record, its guard and its rules exist
+      and answer; nothing draws them.
 - [ ] **3. The org-type enum**, on a branch first, so condo associations and
       property managers can own an organisation.
 - [ ] **4. One routing function** that takes a call and applies the three steps
