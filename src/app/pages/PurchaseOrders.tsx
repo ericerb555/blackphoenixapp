@@ -21,6 +21,58 @@ interface PurchaseOrder {
   createdAt: string;
 }
 
+/**
+ * The two shapes a purchase order arrives in.
+ *
+ * This page writes one shape — `items` is the array of lines, `vendor` is the
+ * supplier, `date` and `dueDate` are the dates. `purchase-orders/from-materials`
+ * writes another: the lines are in `lineItems`, `items` is their COUNT, and the
+ * fields are called `supplier`, `orderDate` and `expectedDate`.
+ *
+ * The page used to keep only orders where `items` was an array, which read as
+ * "skip the summary-only records from the supplier hub" and in practice threw
+ * away every purchase order a job produced — because a count is not an array.
+ * So the orders raised from a materials list could not be seen, sent, approved
+ * or deleted here at all, on the only screen that can send one.
+ *
+ * Translated on the way in rather than read defensively in twenty places, so
+ * the rest of the page keeps working on one shape.
+ */
+function normalizeOrder(o: any): PurchaseOrder | null {
+  if (!o || typeof o !== 'object') return null;
+
+  const lines = Array.isArray(o.items)
+    ? o.items
+    : Array.isArray(o.lineItems) ? o.lineItems : null;
+
+  // An order still has to have lines to appear, which is what the old filter
+  // was really for: the supplier hub writes summary records with a total and
+  // no detail, and there is nothing to view, approve or send on one of those.
+  if (!lines) return null;
+
+  return {
+    ...o,
+    id: String(o.id || ''),
+    poNumber: String(o.poNumber || o.id || ''),
+    vendor: String(o.vendor || o.supplier || ''),
+    vendorId: String(o.vendorId || ''),
+    date: String(o.date || o.orderDate || o.createdAt || '').slice(0, 10),
+    dueDate: String(o.dueDate || o.expectedDate || '').slice(0, 10),
+    status: (o.status || 'draft') as PurchaseOrder['status'],
+    total: Number(o.total) || 0,
+    items: lines.map((l: any, i: number) => ({
+      id: String(l?.id || i),
+      description: String(l?.description || l?.name || l?.productName || ''),
+      quantity: Number(l?.quantity ?? l?.qty) || 0,
+      unitPrice: Number(l?.unitPrice ?? l?.price ?? l?.unit_price) || 0,
+      total: Number(l?.total) || (Number(l?.quantity ?? l?.qty) || 0) * (Number(l?.unitPrice ?? l?.price ?? l?.unit_price) || 0),
+      category: String(l?.category || 'Materials'),
+    })),
+    createdBy: String(o.createdBy || o.raisedBy || ''),
+    createdAt: String(o.createdAt || ''),
+  };
+}
+
 interface POItem {
   id: string;
   description: string;
@@ -36,6 +88,23 @@ export default function PurchaseOrders() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  /**
+   * The job we were sent here to look at, from `?job=`.
+   *
+   * The Jobs screen lists a job's purchase orders and used to link to this
+   * page bare, so you arrived at every order in the company with no way of
+   * telling which three belonged to the job you had open. Read once at mount:
+   * arriving here is always a fresh mount of this page.
+   */
+  const [jobFilter, setJobFilter] = useState<{ id: string; number: string } | null>(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const id = (q.get('job') || '').trim();
+      return id ? { id, number: (q.get('jobNumber') || '').trim() || id } : null;
+    } catch {
+      return null;
+    }
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
@@ -63,10 +132,12 @@ export default function PurchaseOrders() {
       if (!response.ok) throw new Error(`Failed to fetch purchase orders (${response.status})`);
 
       const data = await response.json();
-      // Show only rich purchase orders (created via this page). Light summary-only
-      // records from the supplier hub are filtered out since they lack line items.
-      const richOrders = (data.orders || []).filter((o: any) => Array.isArray(o.items));
-      setOrders(richOrders);
+      // Both shapes, translated on the way in — see normalizeOrder. Orders
+      // with no lines at all are still left out; there is nothing to send.
+      const rows = (data.orders || [])
+        .map(normalizeOrder)
+        .filter((o: PurchaseOrder | null): o is PurchaseOrder => Boolean(o));
+      setOrders(rows);
     } catch (error) {
       console.error('Error fetching purchase orders:', error);
       setOrders([]);
@@ -274,7 +345,9 @@ export default function PurchaseOrders() {
     const matchesSearch = order.poNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          order.vendor.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    // Every order raised from a materials list carries the job it belongs to.
+    const matchesJob = !jobFilter || String((order as any).jobId || '') === jobFilter.id;
+    return matchesSearch && matchesStatus && matchesJob;
   });
 
   return (
@@ -337,11 +410,36 @@ export default function PurchaseOrders() {
           </div>
         </div>
 
+        {/* Which job, when we were sent here from one. Said plainly rather
+            than left as a URL parameter nobody can see — an empty list under
+            a silent filter reads as "there are no purchase orders". */}
+        {jobFilter && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#ea580c]/30 bg-[#ea580c]/5 px-4 py-3">
+            <p className="text-sm">
+              Showing the purchase orders on job{' '}
+              <span className="font-mono text-[#ea580c]">{jobFilter.number}</span>
+              <span className="text-gray-400">
+                {' '}— {filteredOrders.length} of {orders.length} order{orders.length === 1 ? '' : 's'}.
+              </span>
+            </p>
+            <button
+              onClick={() => setJobFilter(null)}
+              className="text-xs text-gray-300 underline hover:text-white transition-colors"
+            >
+              Show every order
+            </button>
+          </div>
+        )}
+
         {/* Orders List */}
         {loading ? (
           <div className="text-center py-12 text-gray-400">Loading purchase orders...</div>
         ) : filteredOrders.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">No purchase orders found</div>
+          <div className="text-center py-12 text-gray-400">
+            {jobFilter
+              ? 'No purchase orders on this job yet. Raise them from the job\u2019s materials list.'
+              : 'No purchase orders found'}
+          </div>
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => (

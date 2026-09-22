@@ -318,8 +318,19 @@ export default function JobsCenter() {
                           {section.page && (
                             // Links out rather than editing here. Each document
                             // already has a screen that knows how to work on it.
+                            //
+                            // Purchase orders carry the job across, because that
+                            // screen is where an order is actually sent to the
+                            // vendor and arriving at every order in the company
+                            // leaves you hunting for the three that were on the
+                            // job you had open.
                             <button
-                              onClick={() => navigate(section.page!)}
+                              onClick={() => navigate(
+                                section.key === 'purchaseOrders'
+                                  ? `${section.page}?job=${encodeURIComponent(selected.id)}`
+                                    + `&jobNumber=${encodeURIComponent(selected.jobNumber || selected.id)}`
+                                  : section.page!,
+                              )}
                               className="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition"
                             >
                               Open <ExternalLink className="w-3 h-3" />
