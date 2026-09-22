@@ -62,11 +62,11 @@ export default function PlansRecordsPanel() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {statCards.map(s => (
-          <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4">
+          <div key={s.label} className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
             <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
               <s.icon className="w-4 h-4" /> {s.label}
             </div>
-            <div className="text-xl font-bold text-gray-900">{s.value}</div>
+            <div className="text-xl font-bold text-white">{s.value}</div>
           </div>
         ))}
       </div>
@@ -79,12 +79,12 @@ export default function PlansRecordsPanel() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search plans, owners, service, gift code, promo…"
-            className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full"
+            className="pl-10 pr-4 py-2 border border-[#2A2A2A] bg-[#1A1A1A] text-white placeholder-gray-500 rounded-lg w-full focus:outline-none focus:border-orange-500"
           />
         </div>
         <button
           onClick={load}
-          className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+          className="inline-flex items-center gap-2 px-3 py-2 border border-[#2A2A2A] rounded-lg text-sm text-gray-300 hover:bg-white/5"
         >
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
@@ -92,10 +92,10 @@ export default function PlansRecordsPanel() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-left">
+            <thead className="bg-white/5 text-gray-500 text-left">
               <tr>
                 <th className="px-4 py-3 font-medium">Plan</th>
                 <th className="px-4 py-3 font-medium">Owner</th>
@@ -115,16 +115,16 @@ export default function PlansRecordsPanel() {
                 <React.Fragment key={p.id}>
                   <tr
                     onClick={() => setExpanded(expanded === p.id ? null : p.id)}
-                    className="cursor-pointer hover:bg-gray-50"
+                    className="cursor-pointer hover:bg-white/5"
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{p.planName}</div>
+                      <div className="font-medium text-white">{p.planName}</div>
                       <div className="text-xs text-gray-400">{p.id}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{p.owner || '—'}</td>
-                    <td className="px-4 py-3 text-gray-700 capitalize">{p.portalType?.replace('_', ' ')}</td>
-                    <td className="px-4 py-3 text-gray-900">${p.monthlyTotal.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-gray-700">{p.hours?.used || 0}/{p.hours?.included || 0}</td>
+                    <td className="px-4 py-3 text-gray-300">{p.owner || '—'}</td>
+                    <td className="px-4 py-3 text-gray-300 capitalize">{p.portalType?.replace('_', ' ')}</td>
+                    <td className="px-4 py-3 text-white">${p.monthlyTotal.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-gray-300">{p.hours?.used || 0}/{p.hours?.included || 0}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 text-gray-500">
                         <span className="inline-flex items-center gap-0.5"><Gift className="w-3.5 h-3.5" />{(p.giftCards || []).length}</span>
@@ -134,36 +134,36 @@ export default function PlansRecordsPanel() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        p.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                        p.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-white/10 text-gray-400'
                       }`}>{p.status}</span>
                     </td>
                   </tr>
                   {expanded === p.id && (
-                    <tr className="bg-gray-50">
+                    <tr className="bg-white/5">
                       <td colSpan={7} className="px-4 py-4">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                           <div>
                             <div className="text-gray-500 font-medium mb-1">Services ({p.serviceNames?.length || 0})</div>
-                            <ul className="text-gray-700 space-y-0.5">
+                            <ul className="text-gray-300 space-y-0.5">
                               {(p.serviceNames || []).map(n => <li key={n}>• {n}</li>)}
                             </ul>
                           </div>
                           <div>
                             <div className="text-gray-500 font-medium mb-1">Gift Cards</div>
                             {(p.giftCards || []).map(g => (
-                              <div key={g.code} className="text-gray-700">${g.balance} · <span className="font-mono">{g.code}</span></div>
+                              <div key={g.code} className="text-gray-300">${g.balance} · <span className="font-mono">{g.code}</span></div>
                             )) || <span className="text-gray-400">None</span>}
                           </div>
                           <div>
                             <div className="text-gray-500 font-medium mb-1">Promotions</div>
                             {(p.promotions || []).map(pr => (
-                              <div key={pr.code} className="text-gray-700"><span className="font-mono">{pr.code}</span> — {pr.discount}</div>
+                              <div key={pr.code} className="text-gray-300"><span className="font-mono">{pr.code}</span> — {pr.discount}</div>
                             ))}
                           </div>
                           <div>
                             <div className="text-gray-500 font-medium mb-1">Offers</div>
                             {(p.offers || []).map(o => (
-                              <div key={o.code} className="text-gray-700">{o.title}</div>
+                              <div key={o.code} className="text-gray-300">{o.title}</div>
                             ))}
                           </div>
                         </div>
