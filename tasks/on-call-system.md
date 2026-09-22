@@ -110,9 +110,28 @@ the quote, the purchase orders and the invoice all sit on one job.
 ## The work
 
 - [x] **0. Guard the portal-settings write** before anybody mounts that router.
-- [ ] **1. On-call as an add-on** in the existing plan catalogue, per audience,
+- [x] **1. On-call as an add-on** in the existing plan catalogue, per audience,
       with its own Stripe price — so "do we answer for this account" is a
       question about their subscription and nothing else.
+
+      Building it turned up that add-ons could be published, priced in Stripe
+      and displayed, and **not bought**: `/plan-checkout` hardcoded one line
+      item, and `/me/upgrade-options` carried a note explaining that sending an
+      add-on through a checkout would open a second subscription whose webhook
+      would overwrite the record of which plan the person is on. That note was
+      right, and the answer was no checkout: `POST /plan-add-on` adds a line
+      item to the subscription they already have. At first purchase the extras
+      ride along as line items 1..n beside the tier. `bp_tier_id` is untouched
+      either way, which is what the old note was protecting.
+
+      This closes **U3b** from `tasks/plan-catalogue-unification.md`.
+
+      **What is left to you, in Owners Dashboard → Portal Plans:** create an
+      add-on per audience with the id exactly **`on-call`** — the id is what
+      the server asks the grant about, so a different spelling reads as an
+      account that has not bought it — then press the button that creates its
+      Stripe price. Nothing is sellable until that price exists, and the badge
+      says so.
 - [ ] **2. The per-account record.** `on_call_config:{audience}:{accountId}`:
       on or off, hours covered, the rota, the escalation ladder with wait
       times, the per-call extras, contracted vendors by trade, and who to
