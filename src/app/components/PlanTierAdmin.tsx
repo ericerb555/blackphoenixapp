@@ -480,7 +480,10 @@ export default function PlanTierAdmin() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${SERVER}/plan-tiers?audience=${encodeURIComponent(audience)}`, {
+      // The mode is sent so the badges answer for what is on screen. Without
+      // it a freshly created test price still reads "Not on sale", because the
+      // server would answer for live.
+      const res = await fetch(`${SERVER}/plan-tiers?audience=${encodeURIComponent(audience)}&mode=${mode}`, {
         headers: await headers(),
       });
       const json = await res.json().catch(() => ({}));
@@ -508,7 +511,7 @@ export default function PlanTierAdmin() {
     } finally {
       setLoading(false);
     }
-  }, [audience]);
+  }, [audience, mode]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -1020,7 +1023,14 @@ export default function PlanTierAdmin() {
             </p>
           )}
           <p className="mb-3 text-xs text-gray-500">
-            {sellable} of {tiers.length} can currently be bought.
+            {sellable} of {tiers.length} {mode === 'test' ? 'can be rehearsed' : 'can currently be bought'}.
+            {/* Said whichever mode is on screen, because "ready to rehearse"
+                must never be mistaken for "a customer can buy this". */}
+            {mode === 'test' && (
+              <span className="ml-2 text-gray-500">
+                Real customers cannot buy a test price — create the live ones when you are ready.
+              </span>
+            )}
             {mode === 'live' && (
               <span className="ml-2 font-semibold text-red-400">
                 LIVE mode — a price created now can be bought for real money.
@@ -1067,7 +1077,8 @@ export default function PlanTierAdmin() {
                     {t.purchasable ? (
                       <>
                         <p className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-xs font-bold text-green-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> On sale
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          {mode === 'test' ? 'Ready to rehearse' : 'On sale'}
                         </p>
                         {/* An administrator never sees the banner that sells
                             this, so without a button here the one person who
@@ -1085,7 +1096,8 @@ export default function PlanTierAdmin() {
                     ) : (
                       <>
                         <p className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-400">
-                          <AlertTriangle className="h-3.5 w-3.5" /> Not on sale
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {mode === 'test' ? 'No test price' : 'Not on sale'}
                         </p>
                         <button
                           onClick={() => createPrice('tier', t.id)}

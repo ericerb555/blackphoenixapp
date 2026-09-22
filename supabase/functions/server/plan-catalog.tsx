@@ -145,7 +145,21 @@ planCatalogRouter.get("/make-server-3eae23a6/plan-tiers", async (c) => {
     return c.json({ error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
   }
 
-  const mode = activeMode();
+  /**
+   * Which mode the caller is asking about, not only which one this server
+   * sells in.
+   *
+   * `purchasable` means "could somebody buy this", and that is a different
+   * question in test and in live. An administrator rehearsing has just made a
+   * test price and wants to know it worked; answering with the live mode tells
+   * them their plan is still unsellable, which is true of live and reads as
+   * though the button failed.
+   *
+   * Defaults to the server's own mode, so nothing that does not ask is
+   * affected — a portal still gets the only answer that matters to a customer.
+   */
+  const asked = c.req.query("mode");
+  const mode: StripeMode = asked === "test" || asked === "live" ? asked : activeMode();
   const rows = ((await kv.getByPrefix(`plan_tier:${audience}:`)) as PlanTier[] || []).filter(Boolean);
   const visible = who.isAdmin ? rows : rows.filter((t) => t.active !== false);
   visible.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
