@@ -9,6 +9,7 @@ import { X, ArrowRight, Clock, User, AlertCircle, CheckCircle, Loader2, Phone, S
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import * as SupabaseData from '../lib/supabase-data';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface HourTransferModalProps {
   isOpen: boolean;
@@ -114,10 +115,7 @@ export default function HourTransferModal({
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/send-verification`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             phone: phone.trim(),
             fromSubscriptionId: sourceSubscription.id,
@@ -172,10 +170,7 @@ export default function HourTransferModal({
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/verify-and-request`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             verificationId,
             code: verificationCode.trim()

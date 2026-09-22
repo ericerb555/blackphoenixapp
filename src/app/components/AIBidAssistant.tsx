@@ -3,6 +3,7 @@ import { Brain, Sparkles, Package, Wrench, TrendingUp, Users, Send, CheckCircle,
 import { StandardButton } from './ui/button/StandardButton';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface AIBidAssistantProps {
   job: {
@@ -34,10 +35,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/simple-test`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ test: true })
         }
       );
@@ -59,10 +57,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/ai-analyze`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             title: job.title,
             description: job.description,
@@ -122,10 +117,7 @@ export default function AIBidAssistant({ job, onRouted }: AIBidAssistantProps) {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-router/ai-route`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             requestId: job.id,
             title: job.title,

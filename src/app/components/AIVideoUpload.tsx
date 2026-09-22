@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react';
 import { Upload, Camera, Video, Image as ImageIcon, Wand2, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface CanvasElement {
   id: string;
@@ -96,10 +97,7 @@ export default function AIVideoUpload({
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/analyze-image`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             imageBase64,
             analysisType: 'full-analysis'
@@ -152,10 +150,7 @@ export default function AIVideoUpload({
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/generate-from-description`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ description })
         }
       );

@@ -9,6 +9,7 @@ import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../contexts/AuthContext';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface Company {
   id: string;
@@ -215,7 +216,7 @@ export default function BusinessProfilesHub() {
           `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+            headers: await authedHeadersOrAnon(publicAnonKey),
             body: JSON.stringify({ logo_base64: base64String, filename: file.name }),
           }
         );

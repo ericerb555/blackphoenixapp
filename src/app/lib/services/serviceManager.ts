@@ -5,6 +5,7 @@
 
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
+import { authedHeadersOrAnon } from '../../utils/authHeaders';
 
 export interface ServiceData {
   id?: string;
@@ -100,10 +101,7 @@ export class ServiceManager {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify(service)
         }
       );
@@ -145,10 +143,7 @@ export class ServiceManager {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
         {
           method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify(updates)
         }
       );
@@ -191,10 +186,7 @@ export class ServiceManager {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+          headers: await authedHeadersOrAnon(publicAnonKey)
         }
       );
 
@@ -237,10 +229,7 @@ export class ServiceManager {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+          headers: await authedHeadersOrAnon(publicAnonKey)
         }
       );
 

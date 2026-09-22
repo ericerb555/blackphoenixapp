@@ -8,6 +8,7 @@ import { Globe, Lock, CheckCircle, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 export default function PublishMyBranding() {
   const [loading, setLoading] = useState(false);
@@ -92,10 +93,7 @@ export default function PublishMyBranding() {
           `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding/refresh`,
           {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json'
-            }
+            headers: await authedHeadersOrAnon(publicAnonKey)
           }
         );
 

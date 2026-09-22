@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Mail, Send, FileText, Save, Trash2, Clock, CheckCircle2, XCircle, RefreshCw, Eye } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center`;
 
@@ -37,10 +38,14 @@ interface SentEmail {
 
 type SubTab = 'sent' | 'templates' | 'compose';
 
-const authHeaders = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${publicAnonKey}`,
-};
+/**
+ * The signed-in staff member, not the publishable key.
+ *
+ * /email-center is staff-only, so the anon key resolved to nobody and every
+ * call answered 401 to somebody who was signed in. A function rather than a
+ * constant because reading the session is asynchronous.
+ */
+const authHeaders = () => authedHeadersOrAnon(publicAnonKey);
 
 export function EmailCenter() {
   const [subTab, setSubTab] = useState<SubTab>('sent');
@@ -66,7 +71,7 @@ export function EmailCenter() {
 
   const loadTemplates = async () => {
     try {
-      const res = await fetch(`${SERVER}/templates`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/templates`, { headers: await authHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setTemplates(data.templates || []);
@@ -78,7 +83,7 @@ export function EmailCenter() {
 
   const loadSent = async () => {
     try {
-      const res = await fetch(`${SERVER}/log`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/log`, { headers: await authHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setSent(data.emails || []);
@@ -124,7 +129,7 @@ export function EmailCenter() {
     try {
       const res = await fetch(`${SERVER}/templates/${encodeURIComponent(key)}`, {
         method: 'PUT',
-        headers: authHeaders,
+        headers: await authHeaders(),
         body: JSON.stringify({ name: draft.name || key, subject: draft.subject, html: draft.html }),
       });
       const data = await res.json();
@@ -145,7 +150,7 @@ export function EmailCenter() {
     try {
       const res = await fetch(`${SERVER}/templates/${encodeURIComponent(key)}`, {
         method: 'DELETE',
-        headers: authHeaders,
+        headers: await authHeaders(),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -176,7 +181,7 @@ export function EmailCenter() {
     try {
       const res = await fetch(`${SERVER}/send`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: await authHeaders(),
         body: JSON.stringify({
           to: composeTo.split(',').map((s) => s.trim()).filter(Boolean),
           subject: composeSubject,

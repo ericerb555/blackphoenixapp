@@ -17,6 +17,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface ProjectInfo {
   quoteId: string;
@@ -90,10 +91,7 @@ export default function ProjectInfoPanel({ quoteId, onClose }: ProjectInfoPanelP
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/project-info/${quoteId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          }
+          headers: await authedHeadersOrAnon(publicAnonKey)
         }
       );
 

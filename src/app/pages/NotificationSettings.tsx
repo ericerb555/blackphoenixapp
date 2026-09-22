@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Mail, Phone, Bell, Check, AlertCircle, Send, Settings, Users, UserPlus, CreditCard, AlertTriangle, Plus, Trash2, Crown } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface NotificationTriggers {
   customerSignup: boolean;
@@ -118,10 +119,7 @@ export default function NotificationSettings() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-email`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ email: testEmail })
         }
       );
@@ -159,10 +157,7 @@ export default function NotificationSettings() {
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-sms`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({ phone: testPhone })
         }
       );

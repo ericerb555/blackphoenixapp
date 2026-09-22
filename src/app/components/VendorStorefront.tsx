@@ -32,6 +32,7 @@ import type { Product } from '../types/ecommerce';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface VendorStorefrontProps {
   vendorId: string;
@@ -99,10 +100,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
       const vendorResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-profile/${vendorId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         }
       );
 
@@ -110,10 +108,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
       const productsResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/products?vendorId=${vendorId}&isActive=true`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
         }
       );
 

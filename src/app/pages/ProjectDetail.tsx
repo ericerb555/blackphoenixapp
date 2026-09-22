@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -62,7 +63,7 @@ export default function ProjectDetail({ projectId, onBack, onEdit }: ProjectDeta
       setLoading(true);
       const res = await fetch(
         `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6/projects/${encodeURIComponent(projectId)}`,
-        { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+        { headers: await authedHeadersOrAnon(publicAnonKey) }
       );
       if (!res.ok) {
         const errText = await res.text();

@@ -383,14 +383,14 @@ class UnifiedPaymentService {
     if (companyId) {
       try {
         const { projectId, publicAnonKey } = await import('../../utils/supabase/info');
+        // Dynamically, like the line above — this file deliberately carries no
+        // static imports.
+        const { authedHeadersOrAnon } = await import('../../utils/authHeaders');
         const res = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/stripe/charge`,
           {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${publicAnonKey}`,
-              'Content-Type': 'application/json',
-            },
+            headers: await authedHeadersOrAnon(publicAnonKey),
             body: JSON.stringify({
               companyId,
               amount: data.amount,

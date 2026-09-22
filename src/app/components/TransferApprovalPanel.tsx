@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface HourTransferRequest {
   id: string;
@@ -63,9 +64,7 @@ export default function TransferApprovalPanel({
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: await authedHeadersOrAnon(publicAnonKey)
         }
       );
 
@@ -107,10 +106,7 @@ export default function TransferApprovalPanel({
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/review/${transferId}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             action,
             reviewedBy: adminName,

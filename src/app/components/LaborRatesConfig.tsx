@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useNavigate } from '../hooks/useNavigate';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface LaborRate {
   id: string;
@@ -87,9 +88,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/labor-rates/get`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          }
+          headers: await authedHeadersOrAnon(publicAnonKey)
         }
       );
 
@@ -130,10 +129,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
         `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/labor-rates/save`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: await authedHeadersOrAnon(publicAnonKey),
           body: JSON.stringify({
             laborRates: laborRates.map(({ id, category, hourlyRate, visible }) => ({
               id,
