@@ -164,8 +164,27 @@ the quote, the purchase orders and the invoice all sit on one job.
       escalation is also off.
 - [ ] **3. The org-type enum**, on a branch first, so condo associations and
       property managers can own an organisation.
-- [ ] **4. One routing function** that takes a call and applies the three steps
+- [x] **4. One routing function** that takes a call and applies the three steps
       above in order, on the server, returning what it did and why.
+
+      `onCallRouting.ts`, pure and pinned by 17 tests. Five outcomes:
+      `contracted` (an exclusive agreement takes it and nothing else runs),
+      `rota`, `office-hours`, `escalate`, `nobody`.
+
+      **`office-hours` is the one worth knowing about.** A service covering
+      outside business hours is deliberately not covering at eleven on a
+      Tuesday, and that is not a failure — the office is open and this is an
+      ordinary work request. Treated as an unanswered emergency it would page a
+      night engineer during the working day. So it rings nobody, goes nowhere,
+      and is not charged the out-of-hours addition.
+
+      A rota nobody can be rung on escalates **at once** rather than after its
+      minutes, and `nobody` is its own outcome rather than an escalation to a
+      destination that does not exist.
+
+      **It rings nobody and writes nothing** — the paging (item 7) and the bid
+      request (items 3 and 8) are separate. Today it answers "what would
+      happen", in words.
 - [ ] **5. Real intake.** An urgent work request from any portal opens a call
       against that account's config, carrying the job id.
 - [ ] **6. Per-call extras that reach the pipeline.** Callout fee, after-hours
