@@ -31,7 +31,8 @@ import {
   UserCheck, Lock, Eye, Edit2, TrendingDown, UserPlus, Layers,
   Megaphone, Store, ShoppingCart, Truck, RefreshCw, Filter,
   LayoutDashboard, Network, HardDrive, Cpu, Server, Terminal,
-  Camera, Cloud, Wrench, Smartphone
+  Camera, Cloud, Wrench, Smartphone,
+  PhoneCall,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import RoleManagementSystem from '../components/RoleManagementSystem';
@@ -56,6 +57,7 @@ import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
 import PlanTierAdmin from '../components/PlanTierAdmin';
+import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
@@ -68,7 +70,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -438,6 +440,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
      * three times is no help when the tab it is under is never named.
      */
     { id: 'plans' as MainTab, label: 'Portal Plans', icon: CreditCard },
+    { id: 'on-call-pricing' as MainTab, label: 'On-Call Pricing', icon: PhoneCall },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
     { id: 'tier-features' as MainTab, label: 'Tier Features', icon: Layers },
@@ -706,6 +709,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             us. One screen, because those three questions are always asked
             together and answering one without the others is misleading. */}
         {activeTab === 'plans' && <PlanTierAdmin />}
+        {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
 
         {activeTab === 'alerts' && (
           <div className="space-y-6">

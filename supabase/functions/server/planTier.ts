@@ -629,6 +629,37 @@ export function addOnCharge(
   };
 }
 
+/**
+ * Carry each band`s Stripe linkage across a save, band by band.
+ *
+ * The same rule as a plan`s own linkage, applied per band, and needed for the
+ * same reason: an edit posts the whole record back, so a band that arrives
+ * without its price id would silently lose the Stripe price it was selling
+ * against — and the first anybody would know is a checkout that cannot open.
+ *
+ * A band whose amount CHANGED detaches, because Stripe prices are immutable: the
+ * stored id still charges the old figure, so keeping it would bill yesterday`s
+ * number while the screen shows today`s. Detaching makes it visibly unsellable
+ * until a new price is created, which is the honest state.
+ */
+export function carryBandLinkage(
+  existing: SizeBand[] | null | undefined,
+  incoming: SizeBand[] | null | undefined,
+): { bands: SizeBand[]; detached: string[] } {
+  const before = new Map((existing || []).map((b) => [String(b?.id), b]));
+  const detached: string[] = [];
+
+  const bands = (incoming || []).map((band) => {
+    const was = before.get(String(band?.id));
+    if (!was) return band;
+    const { linkage, detached: lost } = carryStripeLinkage(was, band?.priceCents);
+    if (lost.length) detached.push(String(band.id));
+    return { ...band, ...linkage };
+  });
+
+  return { bands, detached };
+}
+
 /** An add-on as a customer may see it — never a Stripe price id. */
 export function publicAddOn(
   addOn: PlanAddOn,

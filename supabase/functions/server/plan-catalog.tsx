@@ -33,7 +33,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
-  AUDIENCES, carryStripeLinkage, isPurchasable, publicAddOn, publicTier, readInterval,
+  AUDIENCES, carryStripeLinkage, carryBandLinkage, isPurchasable, publicAddOn, publicTier, readInterval,
   type Audience, type PlanAddOn, type PlanTier, type StripeMode,
 } from "./planTier.ts";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
@@ -506,6 +506,33 @@ function readAddOn(raw: any, audience: Audience): PlanAddOn | null {
       .map((t: any) => String(t || "").trim())
       .filter(Boolean)
       .slice(0, 40),
+    /**
+     * How this add-on is priced, carried through the save.
+     *
+     * An edit posts the whole record back, so anything this function does not
+     * name is destroyed on the next save. Left out, a banded add-on would
+     * lose its bands — and with them every Stripe price id they were selling
+     * against — the first time somebody corrected a typo in its blurb.
+     */
+    perUnit: raw?.perUnit === true || undefined,
+    sizeBands: (Array.isArray(raw?.sizeBands) ? raw.sizeBands : [])
+      .map((b: any, i: number) => ({
+        id: String(b?.id || `band-${i + 1}`).trim().toLowerCase()
+          .replace(/[^a-z0-9_-]/g, "").slice(0, 40) || `band-${i + 1}`,
+        label: String(b?.label || "").trim().slice(0, 80) || undefined,
+        upToUnits: Number.isFinite(Number(b?.upToUnits)) && Number(b.upToUnits) > 0
+          ? Math.floor(Number(b.upToUnits)) : undefined,
+        quoteOnly: b?.quoteOnly === true || undefined,
+        // A quoted band has no price by definition; storing one would make it
+        // sellable at a number nobody agreed to.
+        priceCents: b?.quoteOnly === true
+          ? undefined
+          : (Number.isFinite(Number(b?.priceCents)) && Number(b.priceCents) >= 0
+            ? Math.round(Number(b.priceCents)) : undefined),
+        stripePriceId: String(b?.stripePriceId || "").trim().slice(0, 120) || undefined,
+        stripePriceIdTest: String(b?.stripePriceIdTest || "").trim().slice(0, 120) || undefined,
+      }))
+      .slice(0, 12),
     sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Number(raw.sortOrder) : 0,
     active: raw?.active !== false,
   };
@@ -555,19 +582,31 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-addons/:audience", async (c) 
   // price that can only ever charge the old one.
   const { linkage: carried, detached } = carryStripeLinkage(existing, addOn.priceCents);
 
+  /**
+   * And once per band, for a size-banded add-on.
+   *
+   * Each band sells against its own Stripe price, so each needs the same
+   * treatment the record gets: kept across a save, detached when the amount
+   * changed. Without this a band would keep an id that charges yesterday's
+   * figure while the screen shows today's.
+   */
+  const { bands, detached: bandsDetached } = carryBandLinkage(existing?.sizeBands, addOn.sizeBands);
+
   await kv.set(ADDON(audience, addOn.id), {
     ...addOn,
     ...carried,
+    sizeBands: bands.length ? bands : undefined,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     updatedBy: who.email,
   });
 
-  const saved = { ...addOn, ...carried } as PlanAddOn;
+  const saved = { ...addOn, ...carried, sizeBands: bands.length ? bands : undefined } as PlanAddOn;
   const mode = activeMode();
   console.log(
     `[PlanCatalog] ${who.email} published add-on ${audience}/${addOn.id}`
-    + (detached.length ? ` (detached ${detached.join(" and ")} price: amount changed)` : ""),
+    + (detached.length ? ` (detached ${detached.join(" and ")} price: amount changed)` : "")
+    + (bandsDetached.length ? ` (bands repriced, prices detached: ${bandsDetached.join(", ")})` : ""),
   );
   return c.json({
     success: true,
