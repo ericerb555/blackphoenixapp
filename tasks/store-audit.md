@@ -23,8 +23,29 @@ API token, and then stopped — and **nothing told anybody**. There is no alert,
 no staff notification and no console error on that path; the failure is a field
 on a record nobody opens.
 
-Before anything else is built, that order needs settling with the customer and
-that token needs its scope fixed.
+**CORRECTION, after looking properly — there is no token to fix.**
+
+The stored cause was wrong.  and the
+ scope do not appear anywhere in the current code: that
+error came from an older version of the forwarding logic picking the wrong
+tool. The real cause is worse and permanent.
+
+**Zendrop MCP exposes no order-creation tool at all.** It can only FULFIL
+orders that already exist inside a connected Zendrop store; a standalone
+store’s order cannot be injected through their API. Regenerating the token
+with broader scope cannot help, because the capability is not missing from the
+token — it is missing from Zendrop. The current code already knows this and
+raises a typed manual-fulfilment error instead of retrying forever.
+
+Denise’s item is , so CJ’s REST API is no help either.
+There are exactly two ways to settle it: **fulfil it by hand in the Zendrop
+dashboard, or refund her.** Both spend real money on a real customer, so both
+are yours to do rather than mine.
+
+What has been done: the order record carried a misleading cause and a status of
+, which reads as “still trying”. It now says  with
+the true reason, which is the state the current code would produce, and it
+keeps a note of what the old cause said and why it was wrong.
 
 ## What does work, and works properly
 
@@ -75,8 +96,9 @@ automated writes to either.
 
 In the order that unblocks the most:
 
-1. **Fix the paid order and the Zendrop token.** Nothing else matters while a
-   customer is out of pocket.
+1. **Settle Denise’s order — fulfil it in Zendrop or refund it.** Nothing else
+   matters while a customer is out of pocket. There is no token fix; see the
+   correction above.
 2. **Alert on fulfilment failure.** The notification engine already exists and
    already knows who to tell. A silent failure on a paid order is the worst
    thing this system currently does.

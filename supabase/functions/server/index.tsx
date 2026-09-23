@@ -15362,6 +15362,49 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
   // the real record stale.
   await kv.set(storageKey || storeOrderKey(order.id), order);
 
+  /**
+   * Tell somebody when a PAID order did not reach the supplier.
+   *
+   * This is the gap that let a real order sit unshipped for six weeks. A
+   * customer paid, the forward was refused, the failure was written to a
+   * field on a record nobody opens, and no other trace of it existed —
+   * not an alert, not a staff email, not even a log line. The money was
+   * taken and the silence was total.
+   *
+   * Both outcomes are announced, because both mean nothing has shipped:
+   * a retryable failure, and a supplier that cannot accept the order
+   * remotely at all. The second is the more dangerous of the two — it
+   * reads as an orderly state and it will never resolve on its own.
+   *
+   * Keyed on the order so re-running the sweep does not re-alert about the
+   * same order every day, and sent in the background so telling somebody
+   * can never be what stops an order being saved.
+   */
+  if (!result.success) {
+    const reason = manualOnly
+      ? (result.manualRequired || []).join('; ')
+      : (result.error || (result.skipped || []).join('; ') || 'no reason given');
+    console.log(`[Fulfillment][UNSHIPPED] paid order ${order.id}: ${order.fulfillment_status} — ${reason}`);
+    notifyStaffInBackground('payment', {
+      subject: `Paid order not shipped: ${order.id}`,
+      heading: manualOnly ? '📦 Paid order needs fulfilling by hand' : '⚠️ Paid order could not be sent to the supplier',
+      rows: [
+        ['Order', order.id],
+        ['Paid', `${Number(order.amount_total ?? order.total ?? 0).toFixed(2)}`],
+        ['Customer', order.customer_name || order.customer_email || '—'],
+        ['Status', order.fulfillment_status],
+        ['Why', reason],
+        ['Attempts', String(order.fulfillment_attempts || 1)],
+      ],
+      note: manualOnly
+        ? 'This will not resolve on its own. Fulfil it in the supplier dashboard.'
+        : 'The sweep will try again, but the customer is waiting now.',
+      ctaLabel: 'Open the order',
+      ctaPath: `/order-manager`,
+      dedupeKey: `unshipped:${order.id}`,
+    });
+  }
+
   return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: manualOnly ? undefined : result.error, manualRequired: manualOnly ? result.manualRequired : undefined, status: order.fulfillment_status };
 }
 
