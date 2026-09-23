@@ -38,6 +38,7 @@ import {
   hoursFor, afterTheRota,
   type OnCallConfig,
 } from "./onCallConfig.ts";
+import { routeEmergency, goesToExchange, escalateAfterMinutes } from "./onCallRouting.ts";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -168,6 +169,93 @@ onCallRouter.put(`${PREFIX}/on-call`, async (c) => {
     return c.json({ success: true, ...described });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Could not save your on-call setup." }, 500);
+  }
+});
+
+
+/* ── routing one emergency ───────────────────────────────────────────────── */
+
+/**
+ * The plan for one emergency against one account, resolved server-side.
+ *
+ * Exported so the intake path can ask the same question without an HTTP round
+ * trip to itself. Everything that decides the answer is read here — the record,
+ * and whether the subscription has paid us to answer — so no caller can supply
+ * either and get a different result.
+ */
+export async function planFor(
+  email: string,
+  trade: string,
+  at: Date = new Date(),
+  hours?: number,
+) {
+  const address = String(email || "").trim().toLowerCase();
+  const stored = address ? ((await kv.get(KEY(address))) as any) : null;
+  const config = stored
+    ? normalizeConfig(stored, { email: address, audience: stored.audience || "" })
+    : emptyConfig(address, "");
+
+  /**
+   * Whether we answer comes from the subscription, every time.
+   *
+   * Not from the record and not from the request. An account that cancelled
+   * last month still has a rota stored; what it no longer has is us.
+   */
+  const ours = await runsOurOnCall(address);
+  const plan = routeEmergency(config, { trade, at, weAnswer: ours.held, hours });
+
+  return {
+    plan,
+    /** Convenience for the caller, resolved here so the rules live in one place. */
+    exchange: goesToExchange(plan),
+    escalateAfterMinutes: escalateAfterMinutes(plan),
+    /** Whether the account has a record at all, which changes what to say to them. */
+    configured: Boolean(stored),
+  };
+}
+
+/**
+ * POST /on-call/route — what would happen to an emergency right now.
+ *
+ * Registered before `/on-call/:email` as a matter of habit. It is a POST and
+ * that one is a GET, so nothing is shadowed today — but a GET added to this
+ * path later would be swallowed by the parameterised route without a word,
+ * which is how `/jobs/orphans` was lost.
+ *
+ * IT DECIDES AND REPORTS. IT DOES NOT RING ANYBODY.
+ *
+ * No call is placed, no bid request is posted, nothing is written. That is
+ * deliberate for now: the paging and the exchange post are separate pieces, and
+ * a routing decision somebody can look at before it acts is worth having on its
+ * own. The plan says what WOULD happen, in words, and the caller decides.
+ */
+onCallRouter.post(`${PREFIX}/on-call/route`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const trade = String(body?.trade || "").trim();
+
+    /**
+     * Whose account. Their own unless they are staff.
+     *
+     * A router that took the account from the body unchecked would let anybody
+     * signed in read another account's rota — every name and mobile number on
+     * it — by asking what would happen to an imaginary emergency.
+     */
+    const wanted = String(body?.email || "").trim().toLowerCase() || who.email;
+    if (wanted !== who.email && !who.isAdmin) {
+      return c.json({ success: false, error: "That is not your on-call setup." }, 403);
+    }
+
+    const at = body?.at ? new Date(String(body.at)) : new Date();
+    const when = Number.isFinite(at.getTime()) ? at : new Date();
+
+    const answer = await planFor(wanted, trade, when, Number(body?.hours) || undefined);
+    console.log(`[OnCall] ${wanted} / ${trade || "no trade"} → ${answer.plan.outcome}: ${answer.plan.reason}`);
+    return c.json({ success: true, ...answer });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not work out where this would go." }, 500);
   }
 });
 
