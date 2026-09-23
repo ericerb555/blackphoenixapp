@@ -230,9 +230,22 @@ the quote, the purchase orders and the invoice all sit on one job.
       already works, then Twilio SMS and voice behind one send function. Needs
       `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER` set by
       you as Supabase secrets — I never see them.
-- [ ] **8. Repair the on-call page.** The same screen, real calls, Take and
+- [x] **8. Repair the on-call page.** The same screen, real calls, Take and
       View doing what they say, and Send to Exchange writing a `bid_requests`
       row. Repair, not a second screen alongside.
+
+      The design is kept — the trade colours and card layout were never the
+      problem. The card now shows where the routing sent it and why, the first
+      person on the rota with their number as a `tel:` link, and the job id.
+      `nobody` is critical by definition and gets a banner of its own.
+
+      Send to Exchange writes a real `bid_requests` row, `is_emergency`, with
+      Black Phoenix holding first refusal for fifteen minutes, and invites
+      contracted contractors by name where they have an organisation.
+
+      **The two refusals come from the routing, not from the posting route** —
+      an exclusive contract and an in-hours request. Re-deciding them there
+      would be two places disagreeing about the one rule that must not bend.
 - [ ] **9. Expiry that runs with nobody watching.** The first-refusal window
       has to lapse on its own, which means pg_cron rather than a request — read
       the security note below before anything is added there.
