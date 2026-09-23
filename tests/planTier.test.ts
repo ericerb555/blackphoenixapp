@@ -21,6 +21,7 @@ import {
   addOnsForTier, publicAddOn, type PlanAddOn,
   selectableAddOns, holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
+  ON_CALL_ANSWERED_ADD_ON_ID, holdsOnCallFeature,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -711,4 +712,48 @@ test('a priced band with no Stripe price is a fault, and stays distinguishable f
   const charge = addOnCharge(broken, 10);
   assert.equal(charge.shape, 'banded', 'it is priced, so it is not a quote');
   assert.equal(charge.priceId, '', 'and it cannot be sold, which the caller must report differently');
+});
+
+/* ── two on-call products, and only one of them means we answer ─────────── */
+
+/**
+ * The software and the service are sold separately: an account can buy the
+ * rotas, set up its own people, and never want us near the phone. Asking the
+ * wrong id would have us turning out for somebody who never paid us to — and
+ * charging them our callout for the privilege.
+ */
+
+test('the two on-call products have different ids', () => {
+  assert.notEqual(ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID);
+});
+
+test('the software alone does not mean Black Phoenix answers', () => {
+  const grant = paid({ addOnIds: [ON_CALL_ADD_ON_ID] });
+  assert.ok(holdsOnCallFeature(grant, tier()), 'they can use the rotas');
+  assert.ok(!holdsAddOn(ON_CALL_ANSWERED_ADD_ON_ID, grant, tier()),
+    'but we are not the ones turning out');
+});
+
+test('paying us to answer also gets the rota screen', () => {
+  const grant = paid({ addOnIds: [ON_CALL_ANSWERED_ADD_ON_ID] });
+  assert.ok(holdsOnCallFeature(grant, tier()),
+    'refusing the screen to the customer paying more would be absurd');
+  assert.ok(holdsAddOn(ON_CALL_ANSWERED_ADD_ON_ID, grant, tier()));
+});
+
+test('neither product means no on-call at all', () => {
+  assert.ok(!holdsOnCallFeature(paid({ addOnIds: ['extra-products'] }), tier()));
+  assert.ok(!holdsOnCallFeature(paid(), tier()));
+});
+
+test('a tier that includes on-call grants the feature without a purchase', () => {
+  assert.ok(holdsOnCallFeature(paid(), tier({ includedAddOns: [ON_CALL_ADD_ON_ID] })));
+});
+
+test('a cancelled subscription holds neither', () => {
+  const cancelled = paid({
+    tierId: undefined, stripeSubscriptionId: undefined,
+    addOnIds: [ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID],
+  });
+  assert.ok(!holdsOnCallFeature(cancelled, tier()));
 });

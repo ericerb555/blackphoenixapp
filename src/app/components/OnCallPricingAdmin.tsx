@@ -49,6 +49,19 @@ const AUDIENCES = [
   { id: 'property_manager', label: 'Property manager' },
 ];
 
+/**
+ * On-call is two products and they are priced on different principles.
+ *
+ * The software is a flat fee whatever the building, because it is the same
+ * system either way — we are not the ones driving to it. The answered
+ * service is banded by size and carries per-call and per-hour charges,
+ * because those are our people and our vans.
+ */
+const PRODUCTS = [
+  { id: 'on-call', label: 'Their own people', banded: false },
+  { id: 'on-call-answered', label: 'Black Phoenix answers', banded: true },
+];
+
 interface Band {
   id: string;
   label?: string;
@@ -64,7 +77,50 @@ interface AddOn {
   audience: string;
   name: string;
   active?: boolean;
+  /** Flat products carry their own price; banded ones carry it per band. */
+  priceCents?: number;
+  stripePriceId?: string;
+  stripePriceIdTest?: string;
   sizeBands?: Band[];
+}
+
+/**
+ * Whether a price is actually sellable, and the two buttons that make it so.
+ *
+ * Shared by the flat product and every band, because "saved" and "sellable"
+ * are different states everywhere and the gap between them is invisible
+ * unless something says it out loud.
+ */
+function PriceState({ live, hasTest, busyTest, busyLive, onCreate }: {
+  live: boolean;
+  hasTest: boolean;
+  busyTest: boolean;
+  busyLive: boolean;
+  onCreate: (mode: 'test' | 'live') => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+        live
+          ? 'border-green-500/30 bg-green-500/10 text-green-400'
+          : 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+      }`}>
+        {live ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+        {live ? 'Live price attached' : 'No live price — not on sale'}
+      </span>
+      <button onClick={() => onCreate('test')} disabled={busyTest}
+        className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-gray-300 transition hover:border-white/20 hover:text-white disabled:opacity-50">
+        {hasTest ? 'Replace test price' : 'Create test price'}
+      </button>
+      <button onClick={() => onCreate('live')} disabled={busyLive}
+        className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold text-orange-300 transition hover:bg-orange-500/20 disabled:opacity-50">
+        {live ? 'Replace live price' : 'Create live price'}
+      </button>
+      <span className="text-[11px] text-gray-600">
+        Save the amount first — a price is created from what is stored.
+      </span>
+    </div>
+  );
 }
 
 interface Rates {
@@ -107,10 +163,14 @@ export default function OnCallPricingAdmin() {
       if (r?.success) setRates(r.rates);
       if (t?.success) setTiers(Array.isArray(t.tiers) ? t.tiers : []);
 
+      /** Keyed `audience:productId`, because there are now two per portal. */
       const next: Record<string, AddOn | null> = {};
       AUDIENCES.forEach((a, i) => {
         const list = cats[i]?.addOns || [];
-        next[a.id] = list.find((x: any) => String(x?.id) === 'on-call') || null;
+        PRODUCTS.forEach(product => {
+          next[`${a.id}:${product.id}`] =
+            list.find((x: any) => String(x?.id) === product.id) || null;
+        });
       });
       setAddOns(next);
     } catch (e: any) {
@@ -142,13 +202,13 @@ export default function OnCallPricingAdmin() {
     }
   };
 
-  const setBand = (audience: string, bandId: string, patch: Partial<Band>) => {
+  const setBand = (key: string, bandId: string, patch: Partial<Band>) => {
     setAddOns(prev => {
-      const a = prev[audience];
+      const a = prev[key];
       if (!a) return prev;
       return {
         ...prev,
-        [audience]: {
+        [key]: {
           ...a,
           sizeBands: (a.sizeBands || []).map(b => (b.id === bandId ? { ...b, ...patch } : b)),
         },
@@ -156,13 +216,13 @@ export default function OnCallPricingAdmin() {
     });
   };
 
-  const addBand = (audience: string) => setAddOns(prev => {
-    const a = prev[audience];
+  const addBand = (key: string) => setAddOns(prev => {
+    const a = prev[key];
     if (!a) return prev;
     const bands = a.sizeBands || [];
     return {
       ...prev,
-      [audience]: {
+      [key]: {
         ...a,
         sizeBands: [...bands, {
           id: `band-${bands.length + 1}-${Math.random().toString(36).slice(2, 5)}`,
@@ -173,16 +233,18 @@ export default function OnCallPricingAdmin() {
     };
   });
 
-  const removeBand = (audience: string, bandId: string) => setAddOns(prev => {
-    const a = prev[audience];
+  const removeBand = (key: string, bandId: string) => setAddOns(prev => {
+    const a = prev[key];
     if (!a) return prev;
-    return { ...prev, [audience]: { ...a, sizeBands: (a.sizeBands || []).filter(b => b.id !== bandId) } };
+    return { ...prev, [key]: { ...a, sizeBands: (a.sizeBands || []).filter(b => b.id !== bandId) } };
   });
 
-  const saveAddOn = async (audience: string) => {
-    const addOn = addOns[audience];
+  /** `key` is `audience:productId` — the record it edits is one of two per portal. */
+  const saveAddOn = async (key: string) => {
+    const addOn = addOns[key];
     if (!addOn) return;
-    setSavingAudience(audience);
+    const audience = key.split(':')[0];
+    setSavingAudience(key);
     try {
       const res = await fetch(`${SERVER}/plan-addons/${encodeURIComponent(audience)}`, {
         method: 'POST',
@@ -203,14 +265,20 @@ export default function OnCallPricingAdmin() {
     }
   };
 
-  /** Create the Stripe price for one band, in one mode. */
-  const createPrice = async (audience: string, bandId: string, mode: 'test' | 'live') => {
-    const key = `${audience}:${bandId}:${mode}`;
-    setPricing(key);
+  /**
+   * Create the Stripe price for a flat product, or for one band of a banded one.
+   *
+   * An empty `bandId` means the product itself. The server refuses a banded
+   * add-on asked for without a band rather than pricing it from a zero, so
+   * getting this wrong is caught there rather than creating a bad price.
+   */
+  const createPrice = async (productKey: string, bandId: string, mode: 'test' | 'live') => {
+    const [audience, productId] = productKey.split(':');
+    setPricing(`${productKey}:${bandId}:${mode}`);
     try {
       const res = await fetch(
-        `${SERVER}/plan-addons/${encodeURIComponent(audience)}/on-call/stripe-price`
-        + `?band=${encodeURIComponent(bandId)}&mode=${mode}`,
+        `${SERVER}/plan-addons/${encodeURIComponent(audience)}/${encodeURIComponent(productId)}/stripe-price`
+        + `?mode=${mode}${bandId ? `&band=${encodeURIComponent(bandId)}` : ""}`,
         { method: 'POST', headers: await authedHeaders(), body: JSON.stringify({}) },
       );
       const payload = await res.json().catch(() => ({}));
@@ -310,153 +378,171 @@ export default function OnCallPricingAdmin() {
         )}
       </div>
 
-      {/* ── per month, by size ─────────────────────────────────────────── */}
-      {AUDIENCES.map(audience => {
-        const addOn = addOns[audience.id];
-        return (
-          <div key={audience.id} className={card}>
-            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="flex items-center gap-2 text-sm font-bold text-white">
-                <CreditCard className="h-4 w-4 text-orange-400" />
-                Monthly — {audience.label}
-              </h3>
-              {addOn && (
-                <div className="flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-400">
-                    <input type="checkbox" checked={addOn.active !== false}
-                      onChange={e => setAddOns(prev => ({
-                        ...prev, [audience.id]: { ...addOn, active: e.target.checked },
-                      }))}
-                      className="h-4 w-4 rounded border-white/10 text-orange-600 focus:ring-orange-500" />
-                    On sale
-                  </label>
-                  <button onClick={() => void addBand(audience.id)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-400 hover:text-orange-300">
-                    <Plus className="h-3.5 w-3.5" /> Add a band
-                  </button>
-                  <button onClick={() => void saveAddOn(audience.id)}
-                    disabled={savingAudience === audience.id}
-                    className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50">
-                    {savingAudience === audience.id
-                      ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      : <Save className="h-3.5 w-3.5" />}
-                    Save
-                  </button>
-                </div>
-              )}
-            </div>
+      {/* ── per month ──────────────────────────────────────────────────── */}
+      {AUDIENCES.map(audience => (
+        <div key={audience.id} className={card}>
+          <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-white">
+            <CreditCard className="h-4 w-4 text-orange-400" /> Monthly — {audience.label}
+          </h3>
+          <p className="mb-3 text-xs text-gray-500">
+            Two products. The software is a flat fee whatever the building, because it is the
+            same system either way. The answered service is banded by size, because that is our
+            people driving to it.
+          </p>
 
-            {!addOn ? (
-              <p className="text-sm text-gray-500">
-                No on-call add-on exists for this portal yet.
-              </p>
-            ) : (
-              <>
-                <p className="mb-3 text-xs text-gray-500">
-                  A flat monthly fee, with the figure decided by how many units the account
-                  covers. We count the units from their own properties — they do not choose a band.
-                </p>
-                <div className="space-y-2">
-                  {(addOn.sizeBands || []).map(band => {
-                    const live = Boolean(band.stripePriceId);
-                    const test = Boolean(band.stripePriceIdTest);
-                    return (
-                      <div key={band.id} className="rounded-lg border border-white/10 bg-[#0A0A0A] p-3">
-                        <div className="grid gap-2 sm:grid-cols-[1fr_9rem_9rem_auto]">
-                          <div>
-                            <label className={label}>What it is called</label>
-                            <input className={input} value={band.label || ''}
-                              placeholder="Up to 25 units"
-                              onChange={e => setBand(audience.id, band.id, { label: e.target.value })} />
-                          </div>
-                          <div>
-                            <label className={label}>Up to (units)</label>
-                            <input type="number" min={0} className={input}
-                              value={band.upToUnits || ''}
-                              placeholder="no limit"
-                              onChange={e => setBand(audience.id, band.id, {
-                                upToUnits: Number(e.target.value) || undefined,
-                              })} />
-                          </div>
-                          <div>
-                            <label className={label}>Per month</label>
-                            <input type="number" min={0} step="0.01" className={input}
-                              disabled={band.quoteOnly}
-                              value={band.quoteOnly ? '' : (toDollars(band.priceCents) || '')}
-                              placeholder={band.quoteOnly ? 'quoted' : '0.00'}
-                              onChange={e => setBand(audience.id, band.id, {
-                                priceCents: toCents(e.target.value),
-                              })} />
-                          </div>
-                          <div className="flex items-end pb-1">
-                            <button onClick={() => removeBand(audience.id, band.id)}
-                              className="rounded-lg p-2 text-gray-500 transition hover:bg-white/5 hover:text-red-400"
-                              aria-label="Remove this band">
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
+          <div className="space-y-3">
+            {PRODUCTS.map(product => {
+              const key = `${audience.id}:${product.id}`;
+              const addOn = addOns[key];
+              if (!addOn) {
+                return (
+                  <div key={key} className="rounded-lg border border-white/10 bg-[#0A0A0A] p-3">
+                    <p className="text-sm text-gray-500">
+                      No <span className="text-gray-300">{product.label}</span> record for this portal yet.
+                    </p>
+                  </div>
+                );
+              }
+              const bands = addOn.sizeBands || [];
+              return (
+                <div key={key} className="rounded-lg border border-white/10 bg-[#0A0A0A] p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-white">{product.label}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {product.banded
+                          ? 'We answer. Priced by how many units we cover.'
+                          : 'They answer, with their own staff or contractors. One flat fee.'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-400">
+                        <input type="checkbox" checked={addOn.active !== false}
+                          onChange={e => setAddOns(prev => ({
+                            ...prev, [key]: { ...addOn, active: e.target.checked },
+                          }))}
+                          className="h-4 w-4 rounded border-white/10 text-orange-600 focus:ring-orange-500" />
+                        On sale
+                      </label>
+                      {product.banded && (
+                        <button onClick={() => addBand(key)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-orange-400 hover:text-orange-300">
+                          <Plus className="h-3.5 w-3.5" /> Add a band
+                        </button>
+                      )}
+                      <button onClick={() => void saveAddOn(key)}
+                        disabled={savingAudience === key}
+                        className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50">
+                        {savingAudience === key
+                          ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                          : <Save className="h-3.5 w-3.5" />}
+                        Save
+                      </button>
+                    </div>
+                  </div>
 
-                        <label className="mt-2 flex cursor-pointer items-start gap-2">
-                          <input type="checkbox" checked={Boolean(band.quoteOnly)}
-                            onChange={e => setBand(audience.id, band.id, {
-                              quoteOnly: e.target.checked, priceCents: e.target.checked ? 0 : band.priceCents,
-                            })}
-                            className="mt-0.5 h-4 w-4 rounded border-white/10 text-orange-600 focus:ring-orange-500" />
-                          <span className="text-xs text-gray-400">
-                            <span className="inline-flex items-center gap-1.5 font-semibold text-white">
-                              <MessageSquareQuote className="h-3.5 w-3.5" /> Quote this size instead
-                            </span>
-                            <span className="mt-0.5 block">
-                              No published price and no Stripe price needed. An account this size is
-                              invited to ask, and the request reaches you with the unit count we counted.
-                            </span>
-                          </span>
-                        </label>
-
-                        {/* What is actually sellable, said rather than implied. */}
-                        {!band.quoteOnly && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                              live
-                                ? 'border-green-500/30 bg-green-500/10 text-green-400'
-                                : 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-                            }`}>
-                              {live ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                              {live ? 'Live price attached' : 'No live price — not on sale'}
-                            </span>
-                            <button
-                              onClick={() => void createPrice(audience.id, band.id, 'test')}
-                              disabled={pricing === `${audience.id}:${band.id}:test`}
-                              className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-gray-300 transition hover:border-white/20 hover:text-white disabled:opacity-50">
-                              {test ? 'Replace test price' : 'Create test price'}
-                            </button>
-                            <button
-                              onClick={() => void createPrice(audience.id, band.id, 'live')}
-                              disabled={pricing === `${audience.id}:${band.id}:live`}
-                              className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold text-orange-300 transition hover:bg-orange-500/20 disabled:opacity-50">
-                              {live ? 'Replace live price' : 'Create live price'}
-                            </button>
-                            <span className="text-[11px] text-gray-600">
-                              Save the amount first — a price is created from what is stored.
-                            </span>
-                          </div>
-                        )}
+                  {/* A flat product has one price and no bands. */}
+                  {!product.banded ? (
+                    <div className="grid gap-2 sm:grid-cols-[12rem_1fr]">
+                      <div>
+                        <label className={label}>Per month</label>
+                        <input type="number" min={0} step="0.01" className={input}
+                          value={toDollars(addOn.priceCents) || ''}
+                          placeholder="0.00"
+                          onChange={e => setAddOns(prev => ({
+                            ...prev, [key]: { ...addOn, priceCents: toCents(e.target.value) },
+                          }))} />
                       </div>
-                    );
-                  })}
-                  {(addOn.sizeBands || []).length === 0 && (
+                      <div className="flex items-end gap-2 pb-1">
+                        <PriceState
+                          live={Boolean(addOn.stripePriceId)}
+                          busyTest={pricing === `${key}::test`}
+                          busyLive={pricing === `${key}::live`}
+                          hasTest={Boolean(addOn.stripePriceIdTest)}
+                          onCreate={mode => void createPrice(key, '', mode)}
+                        />
+                      </div>
+                    </div>
+                  ) : bands.length === 0 ? (
                     <p className="text-sm text-amber-400">
                       No bands, so nothing can be sold. Add one, or add a quoted band so larger
                       accounts can at least ask.
                     </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {bands.map(band => (
+                        <div key={band.id} className="rounded-lg border border-white/10 bg-[#111] p-3">
+                          <div className="grid gap-2 sm:grid-cols-[1fr_9rem_9rem_auto]">
+                            <div>
+                              <label className={label}>What it is called</label>
+                              <input className={input} value={band.label || ''}
+                                placeholder="Up to 25 units"
+                                onChange={e => setBand(key, band.id, { label: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className={label}>Up to (units)</label>
+                              <input type="number" min={0} className={input}
+                                value={band.upToUnits || ''} placeholder="no limit"
+                                onChange={e => setBand(key, band.id, {
+                                  upToUnits: Number(e.target.value) || undefined,
+                                })} />
+                            </div>
+                            <div>
+                              <label className={label}>Per month</label>
+                              <input type="number" min={0} step="0.01" className={input}
+                                disabled={band.quoteOnly}
+                                value={band.quoteOnly ? '' : (toDollars(band.priceCents) || '')}
+                                placeholder={band.quoteOnly ? 'quoted' : '0.00'}
+                                onChange={e => setBand(key, band.id, { priceCents: toCents(e.target.value) })} />
+                            </div>
+                            <div className="flex items-end pb-1">
+                              <button onClick={() => removeBand(key, band.id)}
+                                className="rounded-lg p-2 text-gray-500 transition hover:bg-white/5 hover:text-red-400"
+                                aria-label="Remove this band">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <label className="mt-2 flex cursor-pointer items-start gap-2">
+                            <input type="checkbox" checked={Boolean(band.quoteOnly)}
+                              onChange={e => setBand(key, band.id, {
+                                quoteOnly: e.target.checked,
+                                priceCents: e.target.checked ? 0 : band.priceCents,
+                              })}
+                              className="mt-0.5 h-4 w-4 rounded border-white/10 text-orange-600 focus:ring-orange-500" />
+                            <span className="text-xs text-gray-400">
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-white">
+                                <MessageSquareQuote className="h-3.5 w-3.5" /> Quote this size instead
+                              </span>
+                              <span className="mt-0.5 block">
+                                No published price and no Stripe price needed. An account this size is
+                                invited to ask, and the request reaches you with the units we counted.
+                              </span>
+                            </span>
+                          </label>
+
+                          {!band.quoteOnly && (
+                            <div className="mt-2 border-t border-white/10 pt-2">
+                              <PriceState
+                                live={Boolean(band.stripePriceId)}
+                                busyTest={pricing === `${key}:${band.id}:test`}
+                                busyLive={pricing === `${key}:${band.id}:live`}
+                                hasTest={Boolean(band.stripePriceIdTest)}
+                                onCreate={mode => void createPrice(key, band.id, mode)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </>
-            )}
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

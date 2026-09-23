@@ -456,14 +456,43 @@ export function selectableAddOns(
 }
 
 /**
- * The canonical id of the on-call add-on.
+ * On-call is TWO products, and the difference is who answers the phone.
  *
- * On-call is sold per portal audience, so there is one record per audience —
- * but they share this id, because the question asked of a grant is always
- * "does this account have on-call", never "which audience's version". Naming it
- * once means a typo cannot make a paid account look unpaid.
+ * `on-call` is the software: rotas, escalation ladders, paging, the call log
+ * and the route out to Phoenix Exchange. The account sets up its own people
+ * or its own contractors and they are the ones who turn out. A flat fee,
+ * because what is being sold is the same system whatever size the building —
+ * we are not the ones driving to it.
+ *
+ * `on-call-answered` is us. Black Phoenix picks up the phone, which is why it
+ * is priced by the size of what we are covering and carries a charge per call
+ * and per hour on top: those are our people and our vans.
+ *
+ * Holding the second does not imply the first as a separate purchase — the
+ * feature check accepts either — but they are distinct records with distinct
+ * prices, and only one of them means WE answer.
+ *
+ * Sold per portal audience, so there is one record per audience per product.
+ * The ids are shared across audiences on purpose: the question asked of a
+ * grant is "does this account have on-call", never "which audience's version".
  */
 export const ON_CALL_ADD_ON_ID = 'on-call';
+export const ON_CALL_ANSWERED_ADD_ON_ID = 'on-call-answered';
+
+/**
+ * Does this account have the on-call FEATURE at all?
+ *
+ * Either product grants it. Somebody paying us to answer obviously has the
+ * rota screen too — refusing them the thing they are paying more for would
+ * be an absurd reading of an allowlist.
+ */
+export function holdsOnCallFeature(
+  grant: FeatureGrant | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+): boolean {
+  return holdsAddOn(ON_CALL_ADD_ON_ID, grant, tier)
+    || holdsAddOn(ON_CALL_ANSWERED_ADD_ON_ID, grant, tier);
+}
 
 /**
  * Which extras this account actually holds.

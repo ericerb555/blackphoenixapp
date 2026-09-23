@@ -23,7 +23,8 @@
  */
 import * as kv from "./kv_store.tsx";
 import {
-  holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
+  holdsAddOn, heldAddOnIds, holdsOnCallFeature,
+  ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID,
   type FeatureGrant, type PlanTier,
 } from "./planTier.ts";
 
@@ -88,17 +89,41 @@ export async function checkAddOn(email: string, addOnId: string): Promise<AddOnV
 }
 
 /**
- * The question this was built for, named so the call sites read as English.
+ * Does BLACK PHOENIX answer for this account?
  *
- * "Do we answer for this account" is one question with one answer, and every
- * place that asks it should be asking the same one.
+ * Deliberately the answered product and not the plain one. An account can
+ * buy the on-call software, set up its own people, and never want us near
+ * the phone — asking the wrong id here would have us turning out for
+ * somebody who never paid us to, and charging them for it.
  */
 export async function runsOurOnCall(email: string): Promise<AddOnVerdict> {
-  const verdict = await checkAddOn(email, ON_CALL_ADD_ON_ID);
+  const verdict = await checkAddOn(email, ON_CALL_ANSWERED_ADD_ON_ID);
   if (!verdict.held) {
     console.log(`[OnCall] not ours to answer: ${verdict.reason}`);
   }
   return verdict;
 }
 
-export { ON_CALL_ADD_ON_ID };
+/**
+ * May this account use on-call at all?
+ *
+ * Either product. This is what gates the setup screen and the rota; only
+ * `runsOurOnCall` decides whose people turn out.
+ */
+export async function hasOnCallFeature(email: string): Promise<AddOnVerdict> {
+  const address = String(email || "").trim().toLowerCase();
+  if (!address) return NOT_HELD("no account resolved");
+
+  const { grant, tier } = await grantAndTier(address);
+  if (!grant) return NOT_HELD("no grant for this account");
+
+  const held = holdsOnCallFeature(grant, tier);
+  return {
+    held,
+    addOnIds: held ? heldAddOnIds(grant, tier) : [],
+    tierId: grant.tierId ? String(grant.tierId) : null,
+    reason: held ? null : `${address} holds neither on-call product`,
+  };
+}
+
+export { ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID };
