@@ -20,7 +20,7 @@ import {
   readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
   addOnsForTier, publicAddOn, type PlanAddOn,
   selectableAddOns, holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
-  addOnQuantity, addOnMonthlyCents,
+  addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -571,4 +571,96 @@ test('the monthly figure multiplies, so nobody is shown a per-unit price as the 
   assert.equal(addOnMonthlyCents(perUnit, 120), 48000, '$4 a unit across 120 units is $480');
   assert.equal(addOnMonthlyCents(perUnit, 0), 400, 'the floor of one unit');
   assert.equal(addOnMonthlyCents(addOn({ priceCents: 4900 }), 120), 4900, 'flat stays flat');
+});
+
+/* ── a flat fee whose number depends on size ─────────────────────────────── */
+
+/**
+ * Eric's model for on-call: the flat rate is determined by size. Not one price
+ * for everybody, and not a price multiplied by a unit count — a flat monthly
+ * fee, with which fee decided by how much is covered.
+ *
+ * The failures here all produce a perfectly normal-looking invoice for the
+ * wrong amount, which is why the picking is pinned rather than trusted.
+ */
+
+const banded = (over: Partial<PlanAddOn> = {}): PlanAddOn => addOn({
+  id: 'on-call',
+  name: 'On-call',
+  priceCents: 0,
+  sizeBands: [
+    { id: 'small', label: 'Up to 25 units', upToUnits: 25, priceCents: 75000, stripePriceId: 'price_small' },
+    { id: 'medium', label: '26–100 units', upToUnits: 100, priceCents: 125000, stripePriceId: 'price_medium' },
+    { id: 'large', label: '101+ units', priceCents: 250000, stripePriceId: 'price_large' },
+  ],
+  ...over,
+});
+
+test('an account lands in the smallest band that still covers it', () => {
+  assert.equal(bandForUnits(banded(), 4)?.id, 'small');
+  assert.equal(bandForUnits(banded(), 25)?.id, 'small', 'the ceiling is inclusive');
+  assert.equal(bandForUnits(banded(), 26)?.id, 'medium');
+  assert.equal(bandForUnits(banded(), 100)?.id, 'medium');
+});
+
+test('anything above every ceiling falls to the open-ended band', () => {
+  assert.equal(bandForUnits(banded(), 120)?.id, 'large');
+  assert.equal(bandForUnits(banded(), 100000)?.id, 'large');
+});
+
+test('bands typed out of order are still read smallest first', () => {
+  const jumbled = banded({
+    sizeBands: [
+      { id: 'large', priceCents: 250000, stripePriceId: 'p3' },
+      { id: 'medium', upToUnits: 100, priceCents: 125000, stripePriceId: 'p2' },
+      { id: 'small', upToUnits: 25, priceCents: 75000, stripePriceId: 'p1' },
+    ],
+  });
+  assert.equal(bandForUnits(jumbled, 4)?.id, 'small',
+    'out of order, a four-unit house would be billed at the hundred-unit rate');
+});
+
+test('an account with nothing recorded is billed in the smallest band', () => {
+  assert.equal(bandForUnits(banded(), 0)?.id, 'small',
+    'they have bought the service and can ring tonight');
+});
+
+test('with no open-ended band, a very large account matches nothing rather than guessing', () => {
+  const capped = banded({
+    sizeBands: [{ id: 'small', upToUnits: 25, priceCents: 75000, stripePriceId: 'p1' }],
+  });
+  assert.equal(bandForUnits(capped, 900), null);
+});
+
+test('an add-on with no bands is not banded', () => {
+  assert.equal(bandForUnits(addOn(), 50), null);
+});
+
+/* ── and one answer for all three shapes ─────────────────────────────────── */
+
+test('a banded add-on charges the band price, once', () => {
+  const charge = addOnCharge(banded(), 60);
+  assert.equal(charge.shape, 'banded');
+  assert.equal(charge.priceId, 'price_medium');
+  assert.equal(charge.quantity, 1, 'a flat fee is billed once, not per unit');
+  assert.equal(charge.monthlyCents, 125000);
+});
+
+test('a per-unit add-on charges its price times the units', () => {
+  const charge = addOnCharge(addOn({ perUnit: true, priceCents: 400 }), 120);
+  assert.equal(charge.shape, 'per-unit');
+  assert.equal(charge.quantity, 120);
+  assert.equal(charge.monthlyCents, 48000);
+});
+
+test('an ordinary add-on is unaffected by how big the customer is', () => {
+  const charge = addOnCharge(addOn({ priceCents: 2000 }), 500);
+  assert.equal(charge.shape, 'flat');
+  assert.equal(charge.quantity, 1);
+  assert.equal(charge.monthlyCents, 2000);
+});
+
+test('a band with no price in this mode yields no price id, so the sale is refused', () => {
+  const charge = addOnCharge(banded(), 4, 'test');
+  assert.equal(charge.priceId, '', 'a rehearsal must not quietly bill the live price');
 });

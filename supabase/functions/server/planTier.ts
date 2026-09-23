@@ -270,7 +270,38 @@ export interface PlanAddOn extends Sellable {
    * anything displaying it has to say so.
    */
   perUnit?: boolean;
+  /**
+   * A flat monthly fee whose NUMBER depends on the size of what it covers.
+   *
+   * On-call is the case this exists for. Eric's rule is that the flat rate is
+   * determined by size — so it is not one price for everybody, and it is not
+   * a price multiplied by a unit count either. It is a flat fee per month,
+   * and which flat fee applies is decided by how many units the account
+   * actually covers.
+   *
+   * Each band carries its own Stripe price, because Stripe bills a
+   * subscription item against a Price object and there is no way to bill a
+   * number we worked out. The band is chosen ON THE SERVER from a count the
+   * server made — see `unitsCovered`. A band the customer picks is a
+   * discount the customer grants themselves.
+   */
+  sizeBands?: SizeBand[];
   sortOrder?: number;
+}
+
+/**
+ * One rung of a size-banded price.
+ *
+ * `upToUnits` is the TOP of the band, inclusive. Exactly one band should
+ * omit it — the open-ended top band — or the largest customers fall through
+ * every rung and cannot be billed at all.
+ */
+export interface SizeBand extends Sellable {
+  id: string;
+  /** Shown on an invoice: "Up to 25 units". */
+  label?: string;
+  /** Inclusive ceiling. Absent or zero means no ceiling — the top band. */
+  upToUnits?: number;
 }
 
 /**
@@ -498,6 +529,78 @@ export function addOnMonthlyCents(
 ): number {
   const each = Math.max(0, Number(addOn?.priceCents ?? 0) || 0);
   return each * addOnQuantity(addOn, unitsCovered);
+}
+
+/**
+ * Which size band an account of this size falls into.
+ *
+ * The smallest band that still covers them. Sorted here rather than trusting
+ * the order they were entered in, because a band list typed out of order
+ * would silently bill a four-unit house at the hundred-unit rate — and the
+ * invoice would look entirely normal.
+ *
+ * A band with no ceiling is the top one and is used only when nothing else
+ * fits. Without one, an account larger than every ceiling matches nothing,
+ * and "nothing" for a paying customer means they cannot buy the service they
+ * are asking for.
+ */
+export function bandForUnits(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  units = 0,
+): SizeBand | null {
+  const bands = (addOn?.sizeBands || []).filter(Boolean);
+  if (bands.length === 0) return null;
+
+  const covered = Math.max(0, Math.floor(Number(units)) || 0);
+  const capped = bands
+    .filter((b) => Number(b.upToUnits) > 0)
+    .sort((a, b) => Number(a.upToUnits) - Number(b.upToUnits));
+
+  // A count of zero still has to land somewhere: they have bought the
+  // service and can ring tonight, so they belong in the smallest band.
+  const wanted = covered > 0 ? covered : 1;
+  const fits = capped.find((b) => wanted <= Number(b.upToUnits));
+  if (fits) return fits;
+
+  return bands.find((b) => !(Number(b.upToUnits) > 0)) || null;
+}
+
+/**
+ * What is actually charged for this add-on, and against which Stripe price.
+ *
+ * One answer for the three shapes an add-on can take — flat, per unit, or
+ * size-banded — so that no caller has to know which it is holding. A checkout
+ * that worked this out for itself would be the place the three disagree.
+ */
+export function addOnCharge(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  units = 0,
+  mode: StripeMode = 'live',
+): {
+  priceId: string;
+  quantity: number;
+  monthlyCents: number;
+  band: SizeBand | null;
+  shape: 'flat' | 'per-unit' | 'banded';
+} {
+  const band = bandForUnits(addOn, units);
+  if (band) {
+    return {
+      priceId: priceIdFor(band, mode),
+      quantity: 1,
+      monthlyCents: Math.max(0, Number(band.priceCents ?? 0) || 0),
+      band,
+      shape: 'banded',
+    };
+  }
+  const quantity = addOnQuantity(addOn, units);
+  return {
+    priceId: priceIdFor(addOn, mode),
+    quantity,
+    monthlyCents: addOnMonthlyCents(addOn, units),
+    band: null,
+    shape: addOn?.perUnit ? 'per-unit' : 'flat',
+  };
 }
 
 /** An add-on as a customer may see it — never a Stripe price id. */

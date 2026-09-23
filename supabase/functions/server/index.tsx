@@ -171,7 +171,7 @@ import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
-  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnQuantity,
+  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -10996,21 +10996,43 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
     /**
      * The units this account covers, counted once for the whole checkout.
      *
-     * Only read when something in the basket is actually priced per unit,
-     * because it walks their portfolios and most checkouts do not need it.
+     * Only read when something in the basket is priced on size, because it
+     * walks their portfolios and most checkouts do not need it.
      */
-    const needsUnits = addOns.some((a) => a.perUnit);
+    const needsUnits = addOns.some((a) => a.perUnit || (a.sizeBands || []).length > 0);
     const covered = needsUnits ? (await unitsCovered(email)).units : 0;
 
-    addOns.forEach((addOn, i) => {
+    /**
+     * One line item per extra, priced by whichever shape it takes.
+     *
+     * `addOnCharge` answers for flat, per-unit and size-banded alike, so this
+     * does not have to know which it is holding — and the band is chosen from
+     * the count the SERVER made. A band the buyer picks is a discount the
+     * buyer grants themselves.
+     */
+    for (let i = 0; i < addOns.length; i++) {
+      const addOn = addOns[i];
       const at = i + 1;
-      const quantity = addOnQuantity(addOn, covered);
-      params.set(`line_items[${at}][price]`, priceIdFor(addOn, mode));
-      params.set(`line_items[${at}][quantity]`, String(quantity));
-      if (addOn.perUnit) {
-        console.log(`[Subscriptions] ${email} buying ${addOn.id} for ${quantity} unit(s)`);
+      const charge = addOnCharge(addOn, covered, mode);
+      if (!charge.priceId) {
+        // Refused rather than skipped: a cheaper checkout that quietly drops
+        // what somebody asked for is worse than one that does not open.
+        return c.json({
+          error: charge.band
+            ? `${addOn.name} has no ${mode}-mode Stripe price for the `
+              + `${charge.band.label || charge.band.id} size band yet, so it cannot be sold.`
+            : `${addOn.name} has no ${mode}-mode Stripe price yet, so it cannot be sold.`,
+        }, 400);
       }
-    });
+      params.set(`line_items[${at}][price]`, charge.priceId);
+      params.set(`line_items[${at}][quantity]`, String(charge.quantity));
+      if (charge.shape !== "flat") {
+        console.log(
+          `[Subscriptions] ${email} buying ${addOn.id} as ${charge.shape}`
+          + ` for ${covered} unit(s)${charge.band ? ` — band ${charge.band.id}` : ""}`,
+        );
+      }
+    }
 
     /**
      * The same metadata again, on the subscription itself.
@@ -11162,19 +11184,28 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
     const subscriptionId = String(grant.stripeSubscriptionId);
 
     /**
-     * The quantity, for an add-on priced per unit.
+     * What this costs them, by whichever shape the add-on takes.
      *
-     * Counted from the account's own properties and associations rather
-     * than asked for. A number the buyer supplies is a number the buyer
-     * chooses, and this one decides a recurring charge.
+     * Counted from the account's own properties and associations rather than
+     * asked for. A number the buyer supplies is a number the buyer chooses,
+     * and this one decides a recurring charge.
      */
-    const covered = addOn.perUnit ? (await unitsCovered(email)).units : 0;
-    const quantity = addOnQuantity(addOn, covered);
+    const sized = addOn.perUnit || (addOn.sizeBands || []).length > 0;
+    const covered = sized ? (await unitsCovered(email)).units : 0;
+    const charge = addOnCharge(addOn, covered, mode);
+    if (!charge.priceId) {
+      return c.json({
+        error: charge.band
+          ? `${addOn.name} has no ${mode}-mode Stripe price for the `
+            + `${charge.band.label || charge.band.id} size band yet.`
+          : `${addOn.name} has no ${mode}-mode Stripe price yet.`,
+      }, 400);
+    }
 
     await post('subscription_items', new URLSearchParams({
       subscription: subscriptionId,
-      price: priceIdFor(addOn, mode),
-      quantity: String(quantity),
+      price: charge.priceId,
+      quantity: String(charge.quantity),
       proration_behavior: 'create_prorations',
     }));
 
@@ -11214,7 +11245,11 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
       addOn: publicAddOn(addOn, mode),
       // Said plainly, because nothing was charged in this moment and somebody
       // watching their card would otherwise wonder.
-      message: `${addOn.name} is on your plan. The part-month is added to your next invoice.`,
+      band: charge.band ? { id: charge.band.id, label: charge.band.label || null } : null,
+      unitsCovered: covered,
+      message: `${addOn.name} is on your plan`
+        + (charge.band ? ` at the ${charge.band.label || charge.band.id} rate` : "")
+        + `. The part-month is added to your next invoice.`,
     });
   } catch (error: any) {
     console.error('[Subscriptions] add-on error:', error?.message || error);
@@ -11362,7 +11397,35 @@ const createStripePrice = (kind: SellableKind) => async (c: any) => {
     const tier = await kv.get(key) as any;
     if (!tier) return c.json({ error: `No such ${noun}.` }, 404);
 
-    const amount = Number(tier.priceCents);
+    /**
+     * Which band, when this add-on is priced by size.
+     *
+     * A size-banded add-on has no single price — it has one per band, each
+     * its own Stripe Price, because Stripe bills a subscription item against
+     * a Price object. So the caller names the band and this creates that
+     * one, and the id lands back on that band rather than on the record.
+     *
+     * Without this the button would create a price from `priceCents`, which
+     * on a banded record is zero — and the refusal below would be the only
+     * clue as to why nothing could be sold.
+     */
+    const bandId = String(c.req.query("band") || "").trim();
+    const bands: any[] = Array.isArray(tier.sizeBands) ? tier.sizeBands : [];
+    const band = bandId ? bands.find((b: any) => String(b?.id) === bandId) : null;
+    if (bandId && !band) {
+      return c.json({ error: `That ${noun} has no size band called "${bandId}".` }, 404);
+    }
+    if (!bandId && bands.length > 0) {
+      return c.json({
+        error: `${tier.name} is priced by size, so a price belongs to a band rather than `
+          + `to the plan. Name one with ?band=<id>. It has: `
+          + bands.map((b: any) => b.id).join(", ") + ".",
+        bands: bands.map((b: any) => ({ id: b.id, label: b.label || null, priceCents: b.priceCents || 0 })),
+      }, 400);
+    }
+
+    const priced = band || tier;
+    const amount = Number(priced.priceCents);
     if (!Number.isFinite(amount) || amount <= 0) {
       return c.json({
         error: `This ${noun} has no price set, so there is nothing to create in Stripe. `
@@ -11385,12 +11448,12 @@ const createStripePrice = (kind: SellableKind) => async (c: any) => {
     const productField = mode === 'test' ? 'stripeProductIdTest' : 'stripeProductId';
 
     const replace = c.req.query('replace') === '1';
-    if (tier[priceField] && !replace) {
+    if (priced[priceField] && !replace) {
       return c.json({
         error: `This ${noun} already has a ${mode}-mode Stripe price. Prices in Stripe cannot be `
           + 'edited — to change the amount, call this again with ?replace=1, which creates a new '
           + 'price and leaves the old one for anybody already paying for it.',
-        stripePriceId: tier[priceField],
+        stripePriceId: priced[priceField],
       }, 409);
     }
 
@@ -11462,7 +11525,29 @@ const createStripePrice = (kind: SellableKind) => async (c: any) => {
     }));
 
     const now = new Date().toISOString();
-    await kv.set(key, {
+
+    /**
+     * The id lands on the band when there is one, on the record otherwise.
+     *
+     * Written this way round so a banded add-on ends up with one Stripe price
+     * per band and none on the record itself — which is what `addOnCharge`
+     * reads, and what stops a four-unit house being billed at whatever price
+     * happened to be created last.
+     */
+    const stamped = {
+      [productField]: productId,
+      [priceField]: String(price.id),
+      stripePriceCents: Math.round(amount),
+      stripePriceCreatedAt: now,
+    };
+    await kv.set(key, band ? {
+      ...tier,
+      // The product is shared across every band, so it stays on the record.
+      [productField]: productId,
+      sizeBands: bands.map((b: any) => (String(b?.id) === band.id ? { ...b, ...stamped } : b)),
+      updatedAt: now,
+      updatedBy: String(user.email || '').toLowerCase(),
+    } : {
       ...tier,
       [productField]: productId,
       [priceField]: String(price.id),
@@ -11475,9 +11560,10 @@ const createStripePrice = (kind: SellableKind) => async (c: any) => {
       updatedBy: String(user.email || '').toLowerCase(),
     });
 
-    console.log(`[PlanCatalog] ${user.email} created ${price.id} (${amount} ${interval}) for ${noun} ${audience}/${tierId}`);
+    console.log(`[PlanCatalog] ${user.email} created ${price.id} (${amount} ${interval}) for ${noun} ${audience}/${tierId}${band ? ` band ${band.id}` : ''}`);
     return c.json({
       success: true,
+      band: band ? { id: band.id, label: band.label || null } : null,
       stripeProductId: productId,
       stripePriceId: String(price.id),
       amountCents: Math.round(amount),
