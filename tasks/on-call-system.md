@@ -162,8 +162,31 @@ the quote, the purchase orders and the invoice all sit on one job.
       with no trades listed is the catch-all; without one, an emergency in an
       unlisted trade matches nothing, which `readiness` now warns about when
       escalation is also off.
-- [ ] **3. The org-type enum**, on a branch first, so condo associations and
+- [x] **3. The org-type enum**, on a branch first, so condo associations and
       property managers can own an organisation.
+
+      `condo_association`, `condo_manager` and `property_manager` added. Proved
+      on a throwaway branch: the enum took them, a row of each type inserted,
+      and an emergency `bid_requests` row owned by the condo association with a
+      fifteen-minute first-refusal window — the exact shape item 4's `escalate`
+      outcome needs. The only policy mentioning org types is an allowlist for
+      the invite directory, so nothing widened. Branch deleted after seventeen
+      minutes.
+
+      `tenant`, `investor` and `territory_owner` are left out on the same
+      reasoning the original schema used for `employee`: they are parties
+      inside somebody else's organisation.
+
+      **The bigger gap the data turned up:** organisations had only ever been
+      created by one back-fill migration that ran on 2026-08-15, and nothing
+      created one when a portal was provisioned. Every account invited since
+      then had a portal, a grant and a login, and nothing in the exchange —
+      silently. Provisioning now creates the organisation as it goes, without
+      letting a failure there break an invite.
+
+      **Still to run:** `POST /organizations/backfill` — dry by default. It
+      would create five today (advertiser, condo manager, property manager,
+      customer, vendor). Needs your admin token, so it is yours to press.
 - [x] **4. One routing function** that takes a call and applies the three steps
       above in order, on the server, returning what it did and why.
 
