@@ -226,10 +226,26 @@ the quote, the purchase orders and the invoice all sit on one job.
 - [ ] **6. Per-call extras that reach the pipeline.** Callout fee, after-hours
       rate and the work done, as real lines on the job, priced on the server
       from the account's own rates — never a total posted by a browser.
-- [ ] **7. Paging.** An `emergency` event in the notification engine that
-      already works, then Twilio SMS and voice behind one send function. Needs
-      `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER` set by
-      you as Supabase secrets — I never see them.
+- [x] **7. Paging.** An `emergency` event in the notification engine that
+      already works, then Twilio SMS and voice behind one send function.
+
+      **The secrets are `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and
+      `TWILIO_PHONE_NUMBER`** — the same three the SMS invite and the marketing
+      sender already use. I had said `TWILIO_FROM_NUMBER` earlier, which was
+      wrong and would have meant a fourth secret meaning the same thing as one
+      already set. Set them yourself in the Supabase dashboard; I never see
+      them.
+
+      Fires on one thing: a routed call whose outcome is `rota`, one rung,
+      once. Text then voice. TwiML inline, so no callback URL to host — one
+      that is unreachable at 3am is a call that never happens.
+
+      Every attempt is recorded on the call, and with no credentials set it
+      logs `NOT PAGED` with the count of people who were not rung, because a
+      silent failure to page is the worst outcome here: everybody assumes the
+      rota handled it.
+
+      The next rung is a button rather than a timer — see item 9.
 - [x] **8. Repair the on-call page.** The same screen, real calls, Take and
       View doing what they say, and Send to Exchange writing a `bid_requests`
       row. Repair, not a second screen alongside.
