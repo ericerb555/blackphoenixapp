@@ -39,6 +39,7 @@ import {
   type OnCallConfig,
 } from "./onCallConfig.ts";
 import { routeEmergency, goesToExchange, escalateAfterMinutes } from "./onCallRouting.ts";
+import { isEmergency, accountForRequest, tradeOf } from "./onCallIntake.ts";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -172,6 +173,140 @@ onCallRouter.put(`${PREFIX}/on-call`, async (c) => {
   }
 });
 
+
+
+/* ── a call, opened when a real emergency arrives ────────────────────────── */
+
+const CALL = (id: string) => `on_call_call:${id}`;
+const CALL_INDEX = "on_call_call_index";
+/** One work request opens one call. See openCallFor. */
+const CALL_FOR_WR = (workRequestId: string) => `on_call_for_wr:${workRequestId}`;
+
+export interface OnCallCall {
+  id: string;
+  /** The job this belongs to, so the call, the quote and the invoice are one piece of work. */
+  jobId: string | null;
+  workRequestId: string | null;
+  /** The account whose rota answers — not necessarily who reported it. */
+  accountEmail: string;
+  reportedBy: string;
+  trade: string;
+  title: string;
+  siteAddress: string;
+  /** The routing decision, kept whole. */
+  plan: any;
+  outcome: string;
+  status: "open" | "answered" | "closed";
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+/**
+ * Open a call for a work request, once.
+ *
+ * WHY THE GUARD MATTERS
+ *
+ * `persistWorkRequest` runs on create AND on every update. Without a guard,
+ * adding a note to an urgent request would open a second call, and a third, and
+ * each one would page the rota again. The guard is a key of its own rather than
+ * a scan, so it stays O(1) and cannot be defeated by an index that has rolled
+ * over.
+ *
+ * IT NEVER THROWS INTO THE CALLER
+ *
+ * The caller is the path that saves work requests for the entire platform.
+ * Every failure here is swallowed and logged: a work request that cannot be
+ * saved because the on-call store had a bad moment is a far worse outcome than
+ * an emergency that has to be noticed by a person.
+ */
+export async function openCallFor(record: any): Promise<OnCallCall | null> {
+  try {
+    if (!isEmergency(record)) return null;
+
+    const workRequestId = String(record?.id || "").trim();
+    if (workRequestId) {
+      const already = await kv.get(CALL_FOR_WR(workRequestId));
+      if (already) return null;
+    }
+
+    const accountEmail = accountForRequest(record);
+    const trade = tradeOf(record);
+    const answer = await planFor(accountEmail, trade);
+
+    const id = `call_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+    const now = new Date().toISOString();
+    const call: OnCallCall = {
+      id,
+      // The job the work request already has. An emergency call, the quote that
+      // follows it and the invoice after that are one piece of work.
+      jobId: record?.jobId ? String(record.jobId) : null,
+      workRequestId: workRequestId || null,
+      accountEmail,
+      reportedBy: String(record?.client_email || record?.clientEmail || record?.email || "").toLowerCase(),
+      trade,
+      title: String(record?.title || record?.project_name || "Emergency").slice(0, 200),
+      siteAddress: String(record?.address || record?.site_address || record?.siteAddress || "").slice(0, 300),
+      plan: answer.plan,
+      outcome: answer.plan.outcome,
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await kv.set(CALL(id), call);
+    if (workRequestId) await kv.set(CALL_FOR_WR(workRequestId), id);
+    const index = ((await kv.get(CALL_INDEX)) as string[]) || [];
+    await kv.set(CALL_INDEX, [id, ...index].slice(0, 500));
+
+    /**
+     * Said loudly, because nothing rings yet.
+     *
+     * Until the paging is built this log line is the only thing that turns a
+     * routed call into a person knowing about it, and `nobody` is the outcome
+     * that must never be discovered later.
+     */
+    const level = call.outcome === "nobody" ? "[OnCall][NOBODY]" : "[OnCall]";
+    console.log(
+      `${level} call ${id} · ${accountEmail || "no account"} · ${trade || "no trade"}`
+      + ` · job ${call.jobId || "none"} → ${call.outcome}: ${answer.plan.reason}`,
+    );
+    return call;
+  } catch (error: any) {
+    console.log(`[OnCall] could not open a call for ${record?.id}: ${error?.message || error}`);
+    return null;
+  }
+}
+
+/**
+ * GET /on-call-calls — the calls this account has had, or all of them for staff.
+ *
+ * Registered above the parameterised on-call routes for the usual reason.
+ */
+onCallRouter.get(`${PREFIX}/on-call-calls`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const index = ((await kv.get(CALL_INDEX)) as string[]) || [];
+    const rows = ((await Promise.all(index.slice(0, 200).map((id) => kv.get(CALL(id))))) as any[])
+      .filter(Boolean);
+
+    /**
+     * An account sees its own calls and nobody else's.
+     *
+     * A call carries a site address, a reporter's email and what went wrong in
+     * somebody's building. Staff see everything because they are the escalation
+     * and cannot answer a call they cannot read.
+     */
+    const visible = who.isAdmin
+      ? rows
+      : rows.filter((r: any) => String(r?.accountEmail || "").toLowerCase() === who.email);
+
+    return c.json({ success: true, calls: visible, scopedTo: who.isAdmin ? null : who.email });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not read the call log." }, 500);
+  }
+});
 
 /* ── routing one emergency ───────────────────────────────────────────────── */
 
@@ -318,3 +453,4 @@ onCallRouter.get(`${PREFIX}/on-call/:email`, async (c) => {
 });
 
 export { KEY as onCallKey };
+export { isEmergency, accountForRequest, tradeOf } from "./onCallIntake.ts";

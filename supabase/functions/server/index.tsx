@@ -164,7 +164,7 @@ import { planCatalogRouter } from "./plan-catalog.tsx";
 import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
-import { onCallRouter } from "./on-call.tsx";
+import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
@@ -6663,6 +6663,22 @@ async function persistWorkRequest(record: any) {
       status: record.status || 'pending', data: record, created_at: record.created_at, updated_at: record.updated_at,
     }], { onConflict: 'id' });
   } catch (error: any) { console.warn('[Work Requests] Database mirror skipped:', error?.message); }
+
+  /**
+   * An urgent request is an emergency, and an emergency opens a call.
+   *
+   * Here rather than in the route because this is the one place every work
+   * request lands, whichever portal it came from — the customer form, the
+   * tenant portal, the landlord AI inspection, staff typing one in. A hook on
+   * one route would answer for one door.
+   *
+   * It runs AFTER the job id is stamped, so the call carries the job and sits
+   * with the quote and the invoice that follow it. openCallFor opens at most
+   * one call per work request and never throws: this function saves work
+   * requests for the whole platform, and losing one because the on-call store
+   * had a bad moment is far worse than an emergency a person has to notice.
+   */
+  await openCallFor(record);
 }
 
 // Authenticated customers can submit requests. Anonymous submissions are retained
