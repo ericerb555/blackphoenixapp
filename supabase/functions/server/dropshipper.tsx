@@ -7,7 +7,7 @@ import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
 import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey, importTopProducts as importZendropProducts } from './zendrop.tsx';
-import { submitCJOrder, resolveKey as resolveCJKey, importProducts as importCJProducts } from './cjdropshipping.tsx';
+import { submitCJOrder, resolveKey as resolveCJKey, storedOrSecretKey as cjKey, importProducts as importCJProducts } from './cjdropshipping.tsx';
 
 /**
  * Identify a provider so the generic sync can dispatch to the real,
@@ -124,7 +124,9 @@ export async function syncInventory(): Promise<{ success: boolean; synced: numbe
         totalSynced += imported;
         console.log(`[Dropshipper] Zendrop sync imported ${imported} products.`);
       } else if (kind === 'cj') {
-        const apiKey = resolveCJKey(provider.apiKey);
+        // Secret first — see storedOrSecretKey. The provider record holds the
+        // key in plain text and should stop being the source of it.
+        const apiKey = cjKey(provider.apiKey);
         if (!apiKey) throw new Error('No CJ API key configured (set CJ_API_KEY or save a provider key).');
         const { imported, blocked } = await importCJProducts(apiKey, provider.settings?.syncLimit || 100);
         totalSynced += imported;
@@ -410,7 +412,7 @@ async function sendOrderToProvider(
   // (createOrderV2), so — unlike Zendrop — a paid order can be forwarded
   // directly and get back a trackable supplier order id.
   if (String(provider.id) === 'cjdropshipping' || /cj\s*dropshipping/i.test(String(provider.name || ''))) {
-    const { providerOrderId } = await submitCJOrder(resolveCJKey(provider.apiKey) || undefined, {
+    const { providerOrderId } = await submitCJOrder(cjKey(provider.apiKey) || undefined, {
       orderId: orderData.orderId || 'unknown',
       items: orderData.items,
       shippingAddress: orderData.shippingAddress,

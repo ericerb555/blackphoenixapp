@@ -34,12 +34,44 @@ const API_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the CJ API key. Prefer an explicit body key, else the CJ_API_KEY
- * secret. The CJ key format is `CJUserNum@api@…`.
+ * Resolve the CJ API key for an explicit, caller-supplied attempt.
+ *
+ * Prefers the key passed in, because the only caller that passes one is
+ * "test this key for me" — and answering that with a different key would
+ * tell somebody their new credential works when it was never tried.
+ *
+ * For everything else use `storedOrSecretKey`, which is the other way round.
+ * The CJ key format is `CJUserNum@api@…`.
  */
 export function resolveKey(bodyKey?: string): string | null {
   const key = (bodyKey && bodyKey.trim()) || Deno.env.get("CJ_API_KEY") || "";
   return key.trim() || null;
+}
+
+/**
+ * The key to actually work with: the SECRET first, a stored one only if
+ * there is no secret.
+ *
+ * This precedence is the whole point of moving the key. The provider record
+ * lives in the key-value store as plain text, so anything that can read that
+ * table can read the credential. With the stored key winning — which is what
+ * `resolveKey` does — setting the secret would change nothing and the
+ * plaintext copy would quietly stay in use.
+ *
+ * Preferring the secret means the move happens the moment it is set, and the
+ * stored copy can then be deleted without an outage in between.
+ */
+export function storedOrSecretKey(storedKey?: string): string | null {
+  const secret = (Deno.env.get("CJ_API_KEY") || "").trim();
+  if (secret) return secret;
+  const stored = (storedKey || "").trim();
+  if (stored) {
+    // Said once per call rather than never: a plaintext credential still in
+    // use is a thing somebody should be able to notice from the logs.
+    console.log("[CJ] using the API key stored in the provider record — set the CJ_API_KEY secret and remove it");
+    return stored;
+  }
+  return null;
 }
 
 function num(v: any, fallback = 0): number {
