@@ -144,8 +144,49 @@ export async function ensureOrganization(opts: {
       console.log(`[Orgs] could not create ${slug}: ${error.message}`);
       return SKIPPED(error.message);
     }
+    const orgId = data?.id ? String(data.id) : null;
+
+    /**
+     * The membership, without which the organisation is useless.
+     *
+     * Every RLS policy in the exchange is written in terms of membership, not
+     * ownership of a row: `my_admin_org_ids()` returns the orgs where you are
+     * an owner or admin with an active membership, and posting a bid request
+     * checks against exactly that. An organisation with no members is one
+     * nobody can post through, read from, or be invited as — it exists and
+     * does nothing, which is worse than not existing because it looks fixed.
+     *
+     * Found by running the back-fill: five organisations were created and none
+     * of them could have been used until a membership was added by hand.
+     *
+     * A person with no auth user yet is skipped rather than guessed at — they
+     * are mid-invitation, and the next sweep picks them up once they have
+     * signed in. Same reasoning the original back-fill migration gives.
+     */
+    if (orgId) {
+      try {
+        const { data: users } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+        const user = (users?.users || []).find(
+          (u: any) => String(u?.email || "").toLowerCase() === email,
+        );
+        if (user?.id) {
+          const member = await admin.from("organization_members").insert({
+            org_id: orgId, user_id: user.id, role: "owner", status: "active",
+          });
+          if (member.error) {
+            console.log(`[Orgs] ${slug} created but membership failed: ${member.error.message}`);
+          }
+        } else {
+          console.log(`[Orgs] ${slug} created with no membership: ${email} has no account yet`);
+        }
+      } catch (e: any) {
+        // The organisation exists and is recoverable; the invite must not fail.
+        console.log(`[Orgs] ${slug} created but membership threw: ${e?.message || e}`);
+      }
+    }
+
     console.log(`[Orgs] created ${type} organisation ${slug} for ${email}`);
-    return { created: true, orgId: data?.id ? String(data.id) : null, slug, reason: null };
+    return { created: true, orgId, slug, reason: null };
   } catch (e: any) {
     console.log(`[Orgs] ensureOrganization threw for ${slug}: ${e?.message || e}`);
     return SKIPPED(e?.message || "unknown error");
