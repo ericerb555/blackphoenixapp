@@ -208,8 +208,21 @@ the quote, the purchase orders and the invoice all sit on one job.
       **It rings nobody and writes nothing** — the paging (item 7) and the bid
       request (items 3 and 8) are separate. Today it answers "what would
       happen", in words.
-- [ ] **5. Real intake.** An urgent work request from any portal opens a call
+- [x] **5. Real intake.** An urgent work request from any portal opens a call
       against that account's config, carrying the job id.
+
+      Hooked into `persistWorkRequest`, which is the one place every work
+      request lands whichever door it came through, and after the job id is
+      stamped so the call sits with the quote and the invoice. One call per
+      work request — that function also runs on every update, and without the
+      guard adding a note to an urgent request would page the rota again.
+
+      **Whose rota answers is not who reported it.** A tenant reporting a burst
+      pipe is not the account with the rota; their landlord is. Ownership
+      first, reporter last.
+
+      Still nothing rings. A call is routed, recorded and logged — `nobody`
+      logged loudly — and no phone is dialled.
 - [ ] **6. Per-call extras that reach the pipeline.** Callout fee, after-hours
       rate and the work done, as real lines on the job, priced on the server
       from the account's own rates — never a total posted by a browser.
