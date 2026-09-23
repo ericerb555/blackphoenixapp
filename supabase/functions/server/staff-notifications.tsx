@@ -25,19 +25,21 @@ import * as kv from './kv_store.tsx';
 const RECIPIENTS_KEY = 'staff_notification_recipients';
 const LOG_PREFIX = 'staff_notification_log:';
 
-export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request'] as const;
+export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency'] as const;
 export type StaffNotificationEvent = typeof STAFF_NOTIFICATION_EVENTS[number];
 
 export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, string> = {
   signup: 'New portal sign-ups',
   payment: 'Payments received',
   work_request: 'New work requests',
+  emergency: 'Emergency on-call calls',
 };
 
 export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEvent, string> = {
   signup: 'Emailed whenever someone registers for any portal — customer, vendor, contractor, tenant or landlord.',
   payment: 'Emailed whenever a payment is captured, including which Stripe account received it.',
   work_request: 'Emailed whenever a client submits a work or service request.',
+  emergency: 'Emailed whenever an urgent request opens an on-call emergency — including when the rota could not be reached.',
 };
 
 export interface StaffRecipient {

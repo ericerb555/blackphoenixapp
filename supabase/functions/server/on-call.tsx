@@ -41,6 +41,8 @@ import {
 import { routeEmergency, goesToExchange, escalateAfterMinutes } from "./onCallRouting.ts";
 import { isEmergency, accountForRequest, tradeOf } from "./onCallIntake.ts";
 import { ensureOrganization } from "./organizations.tsx";
+import { pageContacts, pagingConfigured } from "./onCallPaging.tsx";
+import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -255,6 +257,35 @@ export async function openCallFor(record: any): Promise<OnCallCall | null> {
       updatedAt: now,
     };
 
+    /**
+     * Ring the first rung, now.
+     *
+     * Only for `rota`. The other outcomes mean nobody on this account should
+     * be woken — `office-hours` most of all, where the office is open and
+     * paging a night engineer is the exact mistake the hours exist to
+     * prevent. Every page is real money and a woken person.
+     *
+     * Awaited rather than fired off, so the attempts are on the record when
+     * it is first written. A page that happened but was not recorded is a
+     * page nobody can see failed.
+     */
+    if (answer.plan.outcome === "rota") {
+      const firstRung = answer.plan.steps?.[0]?.contacts || [];
+      const outcome = await pageContacts(call, firstRung);
+      (call as any).paging = {
+        rung: 0,
+        paged: outcome.paged,
+        reason: outcome.reason,
+        attempts: outcome.attempts,
+        lastPagedAt: new Date().toISOString(),
+      };
+      if (!outcome.paged) {
+        // The loudest line in this file. Everybody assumes the rota handled
+        // it, and a silent failure to page is the worst outcome here.
+        console.log(`[OnCall][NOT PAGED] call ${id}: ${outcome.reason}`);
+      }
+    }
+
     await kv.set(CALL(id), call);
     if (workRequestId) await kv.set(CALL_FOR_WR(workRequestId), id);
     const index = ((await kv.get(CALL_INDEX)) as string[]) || [];
@@ -267,6 +298,31 @@ export async function openCallFor(record: any): Promise<OnCallCall | null> {
      * routed call into a person knowing about it, and `nobody` is the outcome
      * that must never be discovered later.
      */
+    /**
+     * Tell the team, through the engine that already knows who to tell.
+     *
+     * Not instead of paging — the rota is rung by phone because nobody reads
+     * email at three in the morning — but alongside it, so there is a record
+     * in the place the team already watches, and so an emergency that could
+     * not be paged reaches somebody by the only other route available.
+     *
+     * In the background: an emergency must not wait on an email provider.
+     */
+    notifyStaffInBackground("emergency", {
+      subject: `Emergency: ${call.title}`,
+      heading: call.outcome === "nobody" ? "🚨 Emergency that reached NOBODY" : "🚨 Emergency call",
+      rows: [
+        ["What", call.title],
+        ["Trade", call.trade || "—"],
+        ["Where", call.siteAddress || "—"],
+        ["Account", accountEmail || "—"],
+        ["Routed", answer.plan.reason],
+        ["Paged", (call as any).paging?.paged ? "yes" : `NO — ${(call as any).paging?.reason || "not a rota call"}`],
+        ["Job", call.jobId || "—"],
+      ],
+      dedupeKey: `on_call:${id}`,
+    });
+
     const level = call.outcome === "nobody" ? "[OnCall][NOBODY]" : "[OnCall]";
     console.log(
       `${level} call ${id} · ${accountEmail || "no account"} · ${trade || "no trade"}`
@@ -567,6 +623,82 @@ onCallRouter.post(`${PREFIX}/on-call-calls/:id/to-exchange`, async (c) => {
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Could not post that to the exchange." }, 500);
   }
+});
+
+
+/**
+ * POST /on-call-calls/:id/page-next — ring the next rung.
+ *
+ * WHY A BUTTON RATHER THAN A TIMER
+ *
+ * Because a timer needs a scheduler, and the scheduler this project has runs on
+ * pg_cron against a table whose row-level security is still open. Adding an
+ * unattended job that wakes people to a system in that state is the wrong order
+ * to do things in. Item 9 is where the timer belongs; until then somebody
+ * watching the call can move it on, which is better than an escalation that
+ * silently never fires.
+ *
+ * Refuses a call that is already answered: the point of a rota is that it stops
+ * when somebody picks up.
+ */
+onCallRouter.post(`${PREFIX}/on-call-calls/:id/page-next`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const call = await readCall(c.req.param("id"));
+    if (!call) return c.json({ success: false, error: "No such call." }, 404);
+    if (!mayTouch(call, who)) return c.json({ success: false, error: "That is not your call." }, 403);
+    if (call.status !== "open") {
+      return c.json({ success: false, error: "That call has already been picked up." }, 409);
+    }
+    if (call.plan?.outcome !== "rota") {
+      return c.json({ success: false, error: "There is no rota on this call to move on to." }, 409);
+    }
+
+    const steps = call.plan?.steps || [];
+    const next = Number(call.paging?.rung ?? -1) + 1;
+    if (next >= steps.length) {
+      return c.json({
+        success: false,
+        error: "Everybody on the rota has been paged. This one belongs to escalation now.",
+        exhausted: true,
+      }, 409);
+    }
+
+    const outcome = await pageContacts(call, steps[next]?.contacts || []);
+    const now = new Date().toISOString();
+    const updated = {
+      ...call,
+      paging: {
+        rung: next,
+        paged: outcome.paged,
+        reason: outcome.reason,
+        // Kept, not replaced: who was tried and when is the record of what was
+        // done about an emergency, and the earlier rungs are part of it.
+        attempts: [...(call.paging?.attempts || []), ...outcome.attempts],
+        lastPagedAt: now,
+      },
+      updatedAt: now,
+    };
+    await kv.set(CALL(call.id), updated);
+    console.log(`[OnCall] ${who.email} paged rung ${next + 1} of call ${call.id}: ${outcome.paged ? "sent" : outcome.reason}`);
+    return c.json({ success: true, call: updated, paged: outcome.paged, reason: outcome.reason });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not page the next rung." }, 500);
+  }
+});
+
+/**
+ * GET /on-call-paging-status — is paging configured at all?
+ *
+ * So a screen can say "Twilio is not set up, nobody is being rung" rather than
+ * showing a rota that looks live. Returns a boolean and nothing else: never the
+ * credentials, never anything derived from them beyond whether they are there.
+ */
+onCallRouter.get(`${PREFIX}/on-call-paging-status`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  return c.json({ success: true, configured: pagingConfigured() });
 });
 
 /* ── routing one emergency ───────────────────────────────────────────────── */
