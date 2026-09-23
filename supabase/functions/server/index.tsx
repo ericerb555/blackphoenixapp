@@ -165,6 +165,7 @@ import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { onCallRouter } from "./on-call.tsx";
+import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
@@ -12317,6 +12318,78 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
 // Owner-created portal access is intentionally free at creation.  The invite
 // initializes a real onboarding record and an access record; no subscription or
 // payment is created until the invited person chooses a plan themselves.
+
+/**
+ * POST /organizations/backfill — give existing accounts the organisation they
+ * should have had.
+ *
+ * WHY A ROUTE RATHER THAN A MIGRATION
+ *
+ * Because the source is the KV store, not another table. `portal_access` is
+ * where a provisioned portal is recorded, and it lives in
+ * `kv_store_57095a78` as JSON. The original back-fill did read it from SQL and
+ * that is exactly what made it brittle: it casts `portalType::org_type`
+ * directly, so a portal type outside the enum aborts the whole statement rather
+ * than skipping one row.
+ *
+ * DRY BY DEFAULT
+ *
+ * Nothing is written unless `apply` is passed. A back-fill that runs the moment
+ * somebody presses a button is a back-fill nobody has read the output of, and
+ * this one creates rows that other tables will hang off permanently.
+ */
+app.post('/make-server-3eae23a6/organizations/backfill', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email || !await intakeIsAdmin(actor)) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const apply = body?.apply === true;
+
+    const rows = ((await kv.getByPrefix('portal_access:')) as any[] || []).filter(Boolean);
+
+    const planned: any[] = [];
+    const skipped: any[] = [];
+    for (const row of rows) {
+      const email = String(row?.email || '').trim().toLowerCase();
+      const portalType = String(row?.portalType || '').trim().toLowerCase();
+      if (!email || !portalType) { skipped.push({ email, portalType, why: 'incomplete record' }); continue; }
+      const type = orgTypeFor(portalType);
+      if (!type) { skipped.push({ email, portalType, why: `${portalType} is not an organisation` }); continue; }
+      planned.push({ email, portalType, type, slug: orgSlug(email, portalType), name: row?.applicantName || email });
+    }
+
+    if (!apply) {
+      return c.json({
+        success: true,
+        dryRun: true,
+        wouldCreate: planned.length,
+        planned,
+        skipped,
+        note: 'Nothing written. Send { "apply": true } to create these.',
+      });
+    }
+
+    const created: any[] = [];
+    const existing: any[] = [];
+    const failed: any[] = [];
+    for (const row of planned) {
+      // One at a time, because ensureOrganization already answers "does this
+      // one exist" per slug and a partial run is recoverable by running again.
+      const outcome = await ensureOrganization({ email: row.email, name: row.name, portalType: row.portalType });
+      if (outcome.created) created.push({ ...row, orgId: outcome.orgId });
+      else if (outcome.orgId) existing.push({ ...row, orgId: outcome.orgId });
+      else failed.push({ ...row, why: outcome.reason });
+    }
+
+    console.log(`[Orgs] back-fill by ${actor.email}: ${created.length} created, ${existing.length} already there, ${failed.length} failed`);
+    return c.json({ success: true, dryRun: false, created, existing, failed, skipped });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not back-fill organisations.' }, 500);
+  }
+});
+
 const OWNER_PROVISION_PORTALS = new Set(['customer', 'vendor', 'subcontractor', 'employee', 'advertiser', 'investor', 'property_manager', 'condo_manager', 'landlord', 'territory_owner', 'tenant']);
 
 // Maps a portal type to the in-app application page the invitee should land on.
@@ -12501,6 +12574,28 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       : { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
     const access = { id: `ACCESS-${crypto.randomUUID()}`, applicationId, email, portalType, applicantName: name, status: 'onboarding', onboardingStatus: intake.status, freeProvisioned: true, provisionedBy: actor.user.email, createdAt: now, updatedAt: now };
     await kv.set(`intake:onboarding:${applicationId}`, intake); await kv.set(`intake:email:${email}`, applicationId); await kv.set(`portal_access:${email}:${portalType}`, access); await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: 'pending' });
+
+    /**
+     * The organisation, created here rather than never.
+     *
+     * Organisations had only ever been created by one back-fill migration
+     * that ran on 2026-08-15, so every account invited since then has a
+     * portal, a grant and a login — and nothing in Phoenix Exchange, where
+     * everything hangs off org_id. A bid request is owned by an
+     * organisation, an invitation is addressed to one, and the RLS is
+     * written in terms of membership of one. No organisation means no
+     * ability to post work or be invited to quote, silently, because
+     * nothing errors — the screen is simply empty.
+     *
+     * Deliberately NOT awaited into the success of the invite. Eric's rule
+     * is that every path onto the platform must work; an invite that fails
+     * because a row could not be written is worse than an organisation the
+     * back-fill picks up later. It reports itself to the log either way.
+     */
+    const org = await ensureOrganization({ email, name, portalType });
+    if (org.reason && !org.orgId) {
+      console.log(`[Orgs] ${email} (${portalType}) has no organisation: ${org.reason}`);
+    }
     // Feature grant: full access for the trial window, then requires a plan.
     if (grantFullAccess) {
       const trialStart = now; const trialEnd = new Date(Date.now() + trialMonths * 30 * 24 * 60 * 60 * 1000).toISOString();

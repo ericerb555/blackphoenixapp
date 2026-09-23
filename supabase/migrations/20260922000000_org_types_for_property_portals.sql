@@ -1,0 +1,53 @@
+-- ------------------------------------------------------------
+-- org_type: the portals that hold buildings but could not hold an organisation
+--
+-- WHY
+--
+-- `organizations.type` was drawn from live portal_access data on 2026-08-15 and
+-- has six values. The plan catalogue now sells to eight audiences, and three of
+-- the portals that most often raise emergency work — condo associations,
+-- condo managers and property managers — are not among the six. An account with
+-- no organisation cannot own a bid request, cannot be invited to bid on one,
+-- and cannot be the party a contract or an on-call rota hangs off.
+--
+-- Verified against live data on 2026-09-22, the same way the original was:
+--
+--   portal_access by portalType   customer 5 · landlord 5 · employee 2 ·
+--                                 subcontractor 2 · vendor 2 · advertiser 1 ·
+--                                 condo_manager 1 · investor 1 ·
+--                                 property_manager 1 · tenant 1 ·
+--                                 territory_owner 1
+--
+--   organizations by type         customer 4 · landlord 4 · operator 1 ·
+--                                 subcontractor 1 · vendor 1
+--
+-- So condo_manager and property_manager exist as real accounts today with no
+-- organisation behind them. condo_association has no account yet and is added
+-- with them because it is a plan audience and it is the entity that actually
+-- owns common property and signs contracts — the manager acts for it.
+--
+-- WHAT IS DELIBERATELY NOT ADDED
+--
+-- `tenant`, for the same reason `employee` was excluded: a tenant belongs to a
+-- landlord's building. Their emergency is work on that landlord's property and
+-- belongs to the landlord's organisation, exactly as an employee's work belongs
+-- to the operator. Making a tenant their own organisation would read wrong the
+-- moment a bid or an invoice hangs off org_id.
+--
+-- `investor` — an investor funds work and never raises any, so there is nothing
+-- for an organisation to own.
+--
+-- `territory_owner` and `content` — both plausible and neither needed by
+-- anything today. They are left out rather than added speculatively, because an
+-- enum value is easy to add later and impossible to remove.
+--
+-- SAFETY
+--
+-- Adding a value to an enum takes no lock on the table and changes no existing
+-- row. Nothing reads these three yet, so this migration on its own changes no
+-- behaviour anywhere — it only makes the rows possible.
+-- ------------------------------------------------------------
+
+alter type org_type add value if not exists 'condo_association';
+alter type org_type add value if not exists 'condo_manager';
+alter type org_type add value if not exists 'property_manager';
