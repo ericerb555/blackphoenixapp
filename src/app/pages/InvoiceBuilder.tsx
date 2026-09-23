@@ -21,7 +21,27 @@ interface LineItem {
   description: string;
   qty: number;
   rate: number;
+  /**
+   * A credit subtracts instead of adding.
+   *
+   * The case this exists for: the homeowner bought their own flooring and we
+   * installed it, so the invoice gives the material back to them — visibly,
+   * as a line somebody can read a year later, rather than by quietly pricing
+   * the job differently and leaving nobody able to explain why.
+   *
+   * The RATE stays positive and this decides the sign. A negative rate is a
+   * typo waiting to happen: `-1240` and a fat-fingered `1240` look identical
+   * until the total comes out wrong, and on a document already sent to a
+   * customer that is worse than wrong.
+   */
+  kind?: 'charge' | 'credit';
+  /** Why it was given, for whoever reads this later. */
+  reason?: string;
 }
+
+/** One line’s effect on the subtotal, signed by its kind. */
+const signedAmount = (i: LineItem) =>
+  (i.kind === 'credit' ? -1 : 1) * Math.abs(Number(i.qty) || 0) * Math.abs(Number(i.rate) || 0);
 
 interface SubQuote {
   id: string;
@@ -57,7 +77,7 @@ interface Invoice {
 
 /** Line items plus tax — the one place the document's value is worked out. */
 function docTotal(inv: Invoice): number {
-  const sub = (inv.items || []).reduce((s, i) => s + Number(i.qty || 0) * Number(i.rate || 0), 0);
+  const sub = (inv.items || []).reduce((s, i) => s + signedAmount(i), 0);
   return Math.round((sub + sub * (Number(inv.taxRate || 0) / 100)) * 100) / 100;
 }
 
@@ -767,6 +787,8 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
           <tbody>${rows || '<tr><td colspan="4" style="color:#999">No line items</td></tr>'}</tbody>
         </table>
         <div class="totals">
+          ${credits > 0 ? `<div><span>Work</span><span>${money(charges)}</span></div>
+          <div><span>Credits</span><span>-${money(credits)}</span></div>` : ''}
           <div><span>Subtotal</span><span>${money(subtotal)}</span></div>
           <div><span>Tax (${current.taxRate}%)</span><span>${money(tax)}</span></div>
           <div class="grand"><span>Total</span><span>${money(grandTotal)}</span></div>
@@ -803,7 +825,7 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
   function exportJson(delsOverride?: any[]) {
     if (!current) return;
     const dels = delsOverride ?? deliverables;
-    const sub = current.items.reduce((s, i) => s + i.qty * i.rate, 0);
+    const sub = current.items.reduce((s, i) => s + signedAmount(i), 0);
     const t = sub * ((current.taxRate || 0) / 100);
     const payload = {
       exportedAt: new Date().toISOString(),
@@ -852,16 +874,25 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     toast.success('Takeoff data exported as JSON.');
   }
 
-  const subtotal = current?.items.reduce((s, i) => s + i.qty * i.rate, 0) ?? 0;
+  /**
+   * Charges and credits are tracked separately as well as netted.
+   *
+   * A subtotal alone cannot say what was given back, and "what did we allow
+   * them for the flooring" is exactly the question somebody asks months
+   * later. Showing only the net would answer it with a shrug.
+   */
+  const charges = current?.items.reduce((s, i) => s + (i.kind === 'credit' ? 0 : Math.abs(i.qty || 0) * Math.abs(i.rate || 0)), 0) ?? 0;
+  const credits = current?.items.reduce((s, i) => s + (i.kind === 'credit' ? Math.abs(i.qty || 0) * Math.abs(i.rate || 0) : 0), 0) ?? 0;
+  const subtotal = current?.items.reduce((s, i) => s + signedAmount(i), 0) ?? 0;
   const tax = subtotal * ((current?.taxRate ?? 0) / 100);
   const grandTotal = subtotal + tax;
 
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, inv) => {
-    const sub = inv.items.reduce((a, item) => a + item.qty * item.rate, 0);
+    const sub = inv.items.reduce((a, item) => a + signedAmount(item), 0);
     return s + sub + sub * (inv.taxRate / 100);
   }, 0);
   const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'viewed').reduce((s, inv) => {
-    const sub = inv.items.reduce((a, item) => a + item.qty * item.rate, 0);
+    const sub = inv.items.reduce((a, item) => a + signedAmount(item), 0);
     return s + sub + sub * (inv.taxRate / 100);
   }, 0);
 
@@ -1147,20 +1178,51 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
             </div>
 
             <div className="space-y-2">
-              {current.items.map(item => (
-                <div key={item.id} className="grid gap-2 items-center" style={{ gridTemplateColumns: '1fr 56px 80px 24px' }}>
-                  <input value={item.description} onChange={e => setItem(item.id, 'description', e.target.value)}
-                    placeholder="Item description"
-                    className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-700 focus:outline-none focus:border-orange-500/50" />
-                  <input type="number" min="1" value={item.qty} onChange={e => setItem(item.id, 'qty', parseFloat(e.target.value) || 0)}
-                    className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-2 py-2 text-xs text-white text-center focus:outline-none focus:border-orange-500/50" />
-                  <input type="number" min="0" step="0.01" value={item.rate} onChange={e => setItem(item.id, 'rate', parseFloat(e.target.value) || 0)}
-                    className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-2 py-2 text-xs text-white text-right focus:outline-none focus:border-orange-500/50" />
-                  <button onClick={() => removeItem(item.id)} className="flex items-center justify-center w-6 h-6 rounded-lg hover:bg-red-500/20 transition">
-                    <Trash2 className="w-3.5 h-3.5 text-gray-600 hover:text-red-400" />
-                  </button>
+              {current.items.map(item => {
+                const credit = item.kind === 'credit';
+                return (
+                <div key={item.id} className="space-y-1">
+                  <div className="grid gap-2 items-center" style={{ gridTemplateColumns: '1fr 56px 80px 24px' }}>
+                    <input value={item.description} onChange={e => setItem(item.id, 'description', e.target.value)}
+                      placeholder={credit ? 'What they supplied' : 'Item description'}
+                      className={`bg-[#0a0a0a] border rounded-lg px-3 py-2 text-xs text-white placeholder-gray-700 focus:outline-none ${
+                        credit ? 'border-emerald-500/40 focus:border-emerald-500/60' : 'border-[#2a2a2a] focus:border-orange-500/50'
+                      }`} />
+                    <input type="number" min="0" value={item.qty} onChange={e => setItem(item.id, 'qty', Math.abs(parseFloat(e.target.value) || 0))}
+                      className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-2 py-2 text-xs text-white text-center focus:outline-none focus:border-orange-500/50" />
+                    {/* The rate stays positive whatever is typed — the toggle below
+                        decides the sign, so a stray minus cannot give money away. */}
+                    <input type="number" min="0" step="0.01" value={item.rate} onChange={e => setItem(item.id, 'rate', Math.abs(parseFloat(e.target.value) || 0))}
+                      className={`bg-[#0a0a0a] border rounded-lg px-2 py-2 text-xs text-right focus:outline-none ${
+                        credit ? 'border-emerald-500/40 text-emerald-300 focus:border-emerald-500/60' : 'border-[#2a2a2a] text-white focus:border-orange-500/50'
+                      }`} />
+                    <button onClick={() => removeItem(item.id)} className="flex items-center justify-center w-6 h-6 rounded-lg hover:bg-red-500/20 transition">
+                      <Trash2 className="w-3.5 h-3.5 text-gray-600 hover:text-red-400" />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                    <button
+                      onClick={() => setItem(item.id, 'kind', credit ? 'charge' : 'credit')}
+                      className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                        credit
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          : 'text-gray-600 border border-[#2a2a2a] hover:text-gray-400'
+                      }`}
+                      title={credit ? 'This is deducted from the total' : 'Make this a credit'}
+                    >
+                      {credit ? '− Credit' : 'Credit?'}
+                    </button>
+                    {credit && (
+                      <input
+                        value={item.reason || ''}
+                        onChange={e => setItem(item.id, 'reason', e.target.value)}
+                        placeholder="Why — e.g. bought their own at Home Depot"
+                        className="flex-1 min-w-[12rem] bg-transparent border-b border-emerald-500/20 px-1 py-0.5 text-[11px] text-emerald-200/80 placeholder-gray-700 focus:outline-none focus:border-emerald-500/50" />
+                    )}
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Totals */}
@@ -1168,6 +1230,16 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
               <div className="flex justify-between text-xs text-gray-500">
                 <span>Subtotal</span><span className="text-white">${subtotal.toFixed(2)}</span>
               </div>
+              {credits > 0 && (
+                <>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Work</span><span>${charges.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-emerald-400">
+                    <span>Credits</span><span>−${credits.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <div className="flex items-center gap-2">
                   <span>Tax</span>

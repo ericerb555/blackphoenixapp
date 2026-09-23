@@ -232,17 +232,57 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
 
   const preTaxTotal = round2(directCost + overheadAmount + profitAmount + contingencyAmount);
 
-  // Sales tax on materials only (accurate for most US construction contracts).
-  const taxRate = Math.max(0, Math.min(0.15, Number(raw?.taxRatePercent) || 0.08));
-  const taxAmount = round2(materialsSubtotal * taxRate);
+  /**
+   * Credits — material the customer supplied themselves.
+   *
+   * The case: they bought their own flooring and we install it. The honest
+   * treatment is that this is simply not material we are supplying, so it
+   * comes off the MATERIALS figure rather than off the bottom of the quote.
+   * That falls out correctly in three places at once:
+   *
+   *   — no markup on it, because we never bought it and are not carrying it
+   *   — no sales tax on it, because tax here is on materials and this is not
+   *     ours to sell; taxing it would charge them tax on their own purchase
+   *   — it still shows as its own line, so a year later somebody can see
+   *     what was allowed and why
+   *
+   * Taking it off the total instead would leave overhead, profit and tax
+   * calculated on material we did not provide, which quietly overcharges.
+   */
+  const credits = (Array.isArray(raw?.credits) ? raw.credits : [])
+    .map((c: any) => ({
+      description: String(c?.description || 'Customer-supplied material').slice(0, 200),
+      reason: String(c?.reason || '').slice(0, 300) || undefined,
+      // Always positive. The fact that it is a credit is the record type,
+      // not the sign of a number somebody typed.
+      amount: Math.abs(round2(Number(c?.amount) || 0)),
+    }))
+    .filter((c: any) => c.amount > 0);
 
-  const totalCost = round2(preTaxTotal + taxAmount);
+  const creditsSubtotal = round2(credits.reduce((sum: number, c: any) => sum + c.amount, 0));
+
+  // Sales tax on materials only (accurate for most US construction contracts),
+  // and only on the materials we are actually supplying.
+  const taxRate = Math.max(0, Math.min(0.15, Number(raw?.taxRatePercent) || 0.08));
+  const taxableMaterials = Math.max(0, round2(materialsSubtotal - creditsSubtotal));
+  const taxAmount = round2(taxableMaterials * taxRate);
+
+  /**
+   * Not clamped at zero.
+   *
+   * A quote whose credits exceed the work is a real situation and it should
+   * be visible, not rounded away into "nothing to pay". Somebody has to look
+   * at it and decide.
+   */
+  const totalCost = round2(preTaxTotal + taxAmount - creditsSubtotal);
 
   return {
     materials,
     labor,
     processSteps,
     additionalCosts,
+    credits,
+    creditsSubtotal,
     materialsSubtotal,
     laborSubtotal,
     additionalCostsSubtotal,
