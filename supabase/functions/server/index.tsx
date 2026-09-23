@@ -135,16 +135,62 @@ function computeShipping(subtotal: number, cfg: { enabled: boolean; threshold: n
  * nothing can write that key any more, so the lookup went with them rather than
  * costing a wasted read on every item of every checkout.
  */
+/**
+ * Which suppliers the store may currently take money for.
+ *
+ * Eric's instruction after a Zendrop order was paid for and could never be
+ * placed: CJ only, until another provider is added. Stored rather than
+ * hardcoded, because "until we add another" means this changes — adding one
+ * back should be a setting, not a deploy.
+ */
+const SELLABLE_PROVIDERS_KEY = "store_sellable_providers";
+
+async function sellableProviders(): Promise<string[]> {
+  try {
+    const stored = await kv.get(SELLABLE_PROVIDERS_KEY) as any;
+    if (Array.isArray(stored) && stored.length > 0) {
+      return stored.map((v: any) => String(v || "").trim()).filter(Boolean);
+    }
+  } catch {
+    // A list we cannot read falls back to the default rather than to "all",
+    // because "all" is how the unshippable order happened.
+  }
+  return DEFAULT_SELLABLE_PROVIDERS;
+}
+
+/**
+ * What one unit costs, or null when it must not be sold.
+ *
+ * Null already meant "refuse this item" and the checkout already says so to
+ * the shopper, so the supplier check belongs here rather than as a second
+ * gate somewhere else. A product whose supplier we cannot place an order
+ * with is not a pricing problem, but it has exactly the same answer: do not
+ * take the money.
+ *
+ * This is the generalised form of the order that could not be shipped. It is
+ * not enough to have removed those products from the catalogue — nothing
+ * stopped them coming back, and the failure only shows up after somebody has
+ * paid.
+ */
 async function authoritativeUnitPrice(id: string): Promise<number | null> {
   const product = (await kv.get(`product_${id}`))
     || (await kv.get(`live_product_${id}`));
   if (!product) return null;
   const p = product as any;
+
+  if (!providerIsSellable(p, await sellableProviders())) {
+    console.log(
+      `[Store] refused to price ${id}: ${providerOf(p) || "unknown supplier"} is not on the sellable list`,
+    );
+    return null;
+  }
+
   const price = pricingMoney(
     p.price ?? p.retailPrice ?? p.salePrice ?? p.unitPrice ?? p.amount,
   );
   return price > 0 ? price : null;
 }
+
 import { buildPortalInviteEmail, buildPortalInviteSms, PORTAL_LABELS, INVITE_FIELD_DEFS, defaultInviteFields, effectiveInviteFields, type InviteFields } from "./portal-invite-email.ts";
 const INVITE_TEMPLATE_KEY = (portalType: string) => `portal_invite_template:${portalType}`;
 import { cartRouter } from "./ecommerce-cart.tsx";
@@ -168,6 +214,9 @@ import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { unitsCovered } from "./unitsCovered.tsx";
+import {
+  providerIsSellable, providerOf, DEFAULT_SELLABLE_PROVIDERS,
+} from "./sellableProviders.ts";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
@@ -15507,6 +15556,50 @@ app.post('/make-server-3eae23a6/store/fulfillment/run', async (c) => {
 
 // Heartbeat for daily mode. Cheap and idempotent: does nothing unless the mode
 // is 'daily' and today's window has opened without a run.
+/**
+ * GET/PUT the sellable supplier list.
+ *
+ * Adding a supplier here is a commitment that the store can actually place
+ * an order with them, so it is administrator-only and it logs who changed
+ * it. Reading is open to any signed-in staff view that wants to show it.
+ */
+app.get('/make-server-3eae23a6/store/sellable-providers', async (c) => {
+  const actor = await intakeActor(c);
+  if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  return c.json({
+    success: true,
+    providers: await sellableProviders(),
+    defaults: DEFAULT_SELLABLE_PROVIDERS,
+  });
+});
+
+app.put('/make-server-3eae23a6/store/sellable-providers', async (c) => {
+  const actor = await intakeActor(c);
+  if (!actor?.email || !await intakeIsAdmin(actor)) {
+    return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  }
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const providers = (Array.isArray(body?.providers) ? body.providers : [])
+      .map((v: any) => String(v || "").trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 20);
+    if (providers.length === 0) {
+      // An empty list reads as "sell nothing" but behaves as "sell anything",
+      // so it is refused rather than stored.
+      return c.json({
+        success: false,
+        error: 'Name at least one supplier. To stop selling entirely, take the products off sale instead.',
+      }, 400);
+    }
+    await kv.set(SELLABLE_PROVIDERS_KEY, providers);
+    console.log(`[Store] ${actor.email} set the sellable suppliers to: ${providers.join(', ')}`);
+    return c.json({ success: true, providers });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not save that.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/store/fulfillment/tick', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
