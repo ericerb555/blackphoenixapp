@@ -122,12 +122,34 @@ interface ScheduleTask {
   color: string;
 }
 
+/**
+ * Material the customer supplied themselves.
+ *
+ * The case: they bought their own flooring and we install it. Treated as
+ * material we are NOT supplying rather than as a discount off the bottom,
+ * which is why it comes off the materials figure — no markup on it, no tax
+ * on it, and still its own line somebody can read a year later.
+ *
+ * The amount is always positive; being a credit is the record type, not the
+ * sign of a number somebody typed. A negative in a money field is a typo
+ * waiting to happen and it is indistinguishable from the right number until
+ * the total comes out wrong.
+ */
+interface QuoteCredit {
+  id: string;
+  description: string;
+  amount: number;
+  reason?: string;
+}
+
 interface Quote {
   id: string;
   quoteNumber: string;
   materials: MaterialItem[];
   labor: LaborItem[];
   processSteps: ProcessStep[];
+  credits?: QuoteCredit[];
+  creditsSubtotal?: number;
   materialsSubtotal: number;
   laborSubtotal: number;
   taxRate: number;
@@ -741,15 +763,62 @@ export function QuoteToContractEditor({
   const recalculateTotals = (quote: Quote) => {
     const materialsSubtotal = quote.materials.reduce((sum, m) => sum + m.totalCost, 0);
     const laborSubtotal = quote.labor.reduce((sum, l) => sum + l.totalCost, 0);
-    const taxAmount = materialsSubtotal * quote.taxRate;
-    const totalCost = materialsSubtotal + laborSubtotal + taxAmount;
+
+    /**
+     * Credits come off the MATERIALS figure, not off the bottom.
+     *
+     * Tax here is on materials, so crediting after tax would charge the
+     * customer sales tax on flooring they bought themselves. Taking it off
+     * the material first gives the same answer as never having billed it —
+     * which is what actually happened.
+     *
+     * The taxable figure floors at zero so a credit larger than the material
+     * cannot produce a negative tax, while the TOTAL is deliberately not
+     * floored: a quote that ends up in the customer\u2019s favour is a real
+     * situation and somebody should see it rather than have it rounded away.
+     */
+    const creditsSubtotal = (quote.credits || []).reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
+    const taxableMaterials = Math.max(0, materialsSubtotal - creditsSubtotal);
+    const taxAmount = taxableMaterials * quote.taxRate;
+    const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
 
     setEditedQuote({
       ...quote,
       materialsSubtotal,
       laborSubtotal,
+      creditsSubtotal,
       taxAmount,
       totalCost,
+    });
+  };
+
+  /* ── credits: what the customer supplied themselves ─────────────── */
+
+  const addCredit = () => {
+    if (!editedQuote) return;
+    const credit: QuoteCredit = {
+      id: `credit_${Date.now().toString(36)}`,
+      description: '',
+      amount: 0,
+    };
+    recalculateTotals({ ...editedQuote, credits: [...(editedQuote.credits || []), credit] });
+  };
+
+  const updateCredit = (id: string, field: keyof QuoteCredit, value: any) => {
+    if (!editedQuote) return;
+    const credits = (editedQuote.credits || []).map(c => (
+      c.id === id
+        ? { ...c, [field]: field === 'amount' ? Math.abs(Number(value) || 0) : value }
+        : c
+    ));
+    recalculateTotals({ ...editedQuote, credits });
+  };
+
+  const removeCredit = (id: string) => {
+    if (!editedQuote) return;
+    recalculateTotals({
+      ...editedQuote,
+      credits: (editedQuote.credits || []).filter(c => c.id !== id),
     });
   };
 
@@ -768,6 +837,8 @@ export function QuoteToContractEditor({
             materials: editedQuote.materials,
             labor: editedQuote.labor,
             processSteps: editedQuote.processSteps,
+            credits: editedQuote.credits || [],
+            creditsSubtotal: editedQuote.creditsSubtotal || 0,
             materialsSubtotal: editedQuote.materialsSubtotal,
             laborSubtotal: editedQuote.laborSubtotal,
             taxRate: editedQuote.taxRate,
@@ -1185,7 +1256,7 @@ export function QuoteToContractEditor({
                 </div>
 
                 {/* Quote Summary */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className={`grid gap-4 ${(currentQuote.creditsSubtotal || 0) > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                   <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
                     <div className="text-blue-400 text-sm mb-1">Materials</div>
                     <div className="text-2xl font-bold text-white">
@@ -1198,6 +1269,14 @@ export function QuoteToContractEditor({
                       ${(currentQuote.laborSubtotal || 0).toLocaleString()}
                     </div>
                   </div>
+                  {(currentQuote.creditsSubtotal || 0) > 0 && (
+                    <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-lg p-4">
+                      <div className="text-emerald-400 text-sm mb-1">Credits</div>
+                      <div className="text-2xl font-bold text-white">
+                        −${(currentQuote.creditsSubtotal || 0).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
                   <div className="bg-gradient-to-br from-[#ea580c]/10 to-[#fb923c]/10 border border-[#ea580c]/30 rounded-lg p-4">
                     <div className="text-[#ea580c] text-sm mb-1">Total</div>
                     <div className="text-2xl font-bold text-white">
@@ -1205,6 +1284,65 @@ export function QuoteToContractEditor({
                     </div>
                   </div>
                 </div>
+
+                {/* What the customer supplied themselves */}
+                {editMode && (
+                  <details open={(editedQuote?.credits || []).length > 0}
+                    className="mt-6 bg-black/20 border border-emerald-500/30 rounded-lg">
+                    <summary className="px-4 py-3 cursor-pointer font-semibold text-emerald-400 hover:bg-emerald-500/10 rounded-t-lg flex items-center gap-2">
+                      <DollarSign className="w-4 h-4" />
+                      Customer credits ({(editedQuote?.credits || []).length})
+                    </summary>
+                    <div className="p-4 space-y-3">
+                      <p className="text-xs text-gray-500">
+                        For material the customer bought themselves — their own flooring, their own
+                        fixtures. It comes off the materials figure, so there is no markup and no
+                        sales tax on it, and it stays on the quote as its own line.
+                      </p>
+
+                      {(editedQuote?.credits || []).map(credit => (
+                        <div key={credit.id} className="bg-black/30 border border-emerald-500/20 rounded-lg p-3 space-y-2">
+                          <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 8rem 2rem' }}>
+                            <input
+                              value={credit.description}
+                              onChange={e => updateCredit(credit.id, 'description', e.target.value)}
+                              placeholder="What they supplied — e.g. hardwood flooring"
+                              className="bg-black/40 border border-emerald-500/20 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500/50" />
+                            {/* Always positive: the credit is the record type, not a minus sign. */}
+                            <input
+                              type="number" min="0" step="0.01"
+                              value={credit.amount || ''}
+                              onChange={e => updateCredit(credit.id, 'amount', e.target.value)}
+                              placeholder="0.00"
+                              className="bg-black/40 border border-emerald-500/20 rounded px-3 py-2 text-sm text-emerald-300 text-right focus:outline-none focus:border-emerald-500/50" />
+                            <button onClick={() => removeCredit(credit.id)}
+                              className="flex items-center justify-center rounded hover:bg-red-500/20 transition"
+                              aria-label="Remove this credit">
+                              <Trash2 className="w-4 h-4 text-gray-600 hover:text-red-400" />
+                            </button>
+                          </div>
+                          <input
+                            value={credit.reason || ''}
+                            onChange={e => updateCredit(credit.id, 'reason', e.target.value)}
+                            placeholder="Why — e.g. bought their own at Home Depot, receipt on file"
+                            className="w-full bg-transparent border-b border-emerald-500/20 px-1 py-1 text-xs text-emerald-200/70 placeholder-gray-700 focus:outline-none focus:border-emerald-500/50" />
+                        </div>
+                      ))}
+
+                      <button onClick={addCredit}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/10 transition">
+                        <Plus className="w-4 h-4" /> Add a credit
+                      </button>
+
+                      {(editedQuote?.totalCost || 0) < 0 && (
+                        <p className="text-xs text-amber-400">
+                          The credits come to more than the work. This quote is in the customer\u2019s
+                          favour — worth a second look before it goes out.
+                        </p>
+                      )}
+                    </div>
+                  </details>
+                )}
 
                 {/* Detailed Materials Breakdown - Always Visible */}
                 <details open className="mt-6 bg-black/20 border border-blue-500/30 rounded-lg">
