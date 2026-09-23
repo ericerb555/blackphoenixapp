@@ -1,0 +1,83 @@
+-- ------------------------------------------------------------
+-- Escalate on-call rotas that have run out of time
+--
+-- NOT APPLIED. The extension `.pending` is deliberate: this file is not picked
+-- up by a migration run until it is renamed to `.sql`, and it should not be
+-- until the three things below are true. What it creates is an UNATTENDED JOB
+-- THAT RINGS PEOPLE'S PHONES and can post somebody's emergency to the open
+-- market, so it is the wrong thing to switch on and find out about.
+--
+-- BEFORE RENAMING THIS TO .sql
+--
+-- 1. Close the row-level security hole on `private_cron_config`, and rotate
+--    `compliance_cron_secret` afterwards. That table is readable and writable
+--    by anyone holding the publishable key today. This migration deliberately
+--    does NOT use it — see below — but adding a second scheduled job to a
+--    system whose first one has an open secret is the wrong order to work in.
+--
+--        alter table "public"."private_cron_config" enable row level security;
+--
+-- 2. Put this job's own secret in Vault, which is encrypted and not reachable
+--    with the publishable key:
+--
+--        select vault.create_secret(
+--          encode(gen_random_bytes(32), 'base64'),
+--          'on_call_cron_secret',
+--          'Authorises POST /on-call/escalate-due'
+--        );
+--
+-- 3. Set the SAME value as the edge-function secret `ON_CALL_CRON_SECRET` in
+--    the Supabase dashboard. The route refuses every request while it is
+--    unset — an endpoint that pages people and posts work to the open market
+--    is not left open while somebody gets round to configuring it.
+--
+--    Read the value back with:
+--        select decrypted_secret from vault.decrypted_secrets
+--        where name = 'on_call_cron_secret';
+--
+-- WHY VAULT RATHER THAN private_cron_config
+--
+-- The existing compliance job keeps its secret as plain text in a table with
+-- row-level security switched off, which is how that hole was found. Vault
+-- stores it encrypted and `vault.decrypted_secrets` is not reachable by the
+-- anon or authenticated roles, so the publishable key that ships in every
+-- visitor's browser cannot read it. pg_cron runs as the job owner and can.
+--
+-- WHY EVERY MINUTE
+--
+-- Because the unit the rota is written in is minutes: "ring Dan, and if he has
+-- not answered in ten minutes ring Ray". A sweep every five would make a
+-- ten-minute wait anything from ten to fifteen, which is a third of the way
+-- into the next person's patience. The sweep is cheap — it reads at most a
+-- hundred calls and acts only on the ones whose clock has run out.
+-- ------------------------------------------------------------
+
+select cron.schedule(
+  'on-call-escalation',
+  '* * * * *',
+  $$
+  select net.http_post(
+    url := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/on-call/escalate-due',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      -- The gateway wants an Authorization header before the request reaches
+      -- our code at all; the publishable key satisfies it and authorises
+      -- nothing. It is read from the existing table rather than Vault on
+      -- purpose: it is a PUBLIC key that ships in every visitor's browser, so
+      -- there is nothing to protect and no reason to make you store it twice.
+      -- The header below is what actually authorises this.
+      'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
+      'X-On-Call-Cron-Secret', (select decrypted_secret from vault.decrypted_secrets where name = 'on_call_cron_secret')
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+
+-- To stop it again:
+--   select cron.unschedule('on-call-escalation');
+--
+-- To see what it has been doing:
+--   select * from cron.job_run_details
+--   where jobid = (select jobid from cron.job where jobname = 'on-call-escalation')
+--   order by start_time desc limit 20;

@@ -472,6 +472,26 @@ const PUBLIC_POST_PATHS = [
   '/compliance/run-reminders',
 
   /**
+   * The on-call escalation sweep, called by the same database scheduler.
+   *
+   * Identical reasoning to the reminder run above, and it was found the same
+   * way: the wall answered "Sign in required." to a request carrying the
+   * publishable key, which is all a scheduler has. Without this entry the job
+   * would run every minute, be refused every minute, and nobody would be told
+   * — the rota would simply never climb, which is indistinguishable from a
+   * rota nobody needed.
+   *
+   * Guarded inside the route by `ON_CALL_CRON_SECRET`, which REFUSES
+   * EVERYTHING while it is unset rather than falling open. That matters more
+   * here than for the reminders: this endpoint rings people's phones and can
+   * post an emergency to the open market.
+   *
+   * Only this exact path. The rest of `/on-call` — somebody's rota, with
+   * every name and mobile number on it — stays behind the wall.
+   */
+  '/on-call/escalate-due',
+
+  /**
    * An invited person setting their password for the first time.
    *
    * This is the last step of every invitation — vendor, subcontractor, tenant,

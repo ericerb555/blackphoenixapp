@@ -43,6 +43,7 @@ import { isEmergency, accountForRequest, tradeOf } from "./onCallIntake.ts";
 import { ensureOrganization } from "./organizations.tsx";
 import { pageContacts, pagingConfigured } from "./onCallPaging.tsx";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
+import { dueAction, escalationGoesToExchange, isStale } from "./onCallEscalation.ts";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -489,6 +490,208 @@ onCallRouter.post(`${PREFIX}/on-call-calls/:id/close`, async (c) => {
   }
 });
 
+
+/**
+ * Post one call to Phoenix Exchange, and record that it went.
+ *
+ * Extracted so the button and the scheduler do the same thing. Two copies of
+ * this would be two things that drift, and the thing they would drift about is
+ * whether an emergency reaches other contractors.
+ *
+ * It does NOT re-decide whether it should be posted. That was settled when the
+ * call was routed and is read by `escalationGoesToExchange`; a second opinion
+ * here would be a third place holding one about the rule that must not bend.
+ */
+async function postToExchange(call: any, byEmail: string): Promise<{
+  ok: boolean; bidRequestId: string | null; error: string | null; call: any;
+}> {
+  const org = await orgForAccount(call.accountEmail);
+  if (!org.id) return { ok: false, bidRequestId: null, error: org.reason, call };
+
+  // Black Phoenix's own organisation, which holds first refusal.
+  const operator = await admin
+    .from("organizations").select("id").eq("type", "operator").limit(1).maybeSingle();
+
+  const until = new Date(Date.now() + FIRST_REFUSAL_MINUTES * 60_000).toISOString();
+  const row: Record<string, any> = {
+    org_id: org.id,
+    title: String(call.title || "Emergency").slice(0, 200),
+    trade: String(call.trade || "").slice(0, 80) || null,
+    description: [
+      call.siteAddress ? `Site: ${call.siteAddress}` : "",
+      call.plan?.reason ? `Routing: ${call.plan.reason}` : "",
+    ].filter(Boolean).join("\n") || null,
+    site_address: String(call.siteAddress || "").slice(0, 300) || null,
+    status: "open",
+    is_emergency: true,
+  };
+  if (operator.data?.id) {
+    row.first_refusal_org_id = operator.data.id;
+    row.first_refusal_until = until;
+  }
+
+  const { data, error } = await admin.from("bid_requests").insert(row).select("id").maybeSingle();
+  if (error) {
+    console.log(`[OnCall] exchange post failed for ${call.id}: ${error.message}`);
+    return { ok: false, bidRequestId: null, error: error.message, call };
+  }
+  const bidRequestId = data?.id ? String(data.id) : null;
+
+  /**
+   * Contracted contractors are invited first, where they can be.
+   *
+   * A non-exclusive contract does not close the exchange off, but it does mean
+   * the account already has somebody for this trade — so they are invited by
+   * name alongside the open posting rather than competing with it unannounced.
+   */
+  const invitable = (call.plan?.contracted || [])
+    .map((v: any) => String(v?.orgId || "").trim())
+    .filter(Boolean);
+  if (bidRequestId && invitable.length) {
+    await admin.from("bid_invitations").insert(
+      invitable.map((orgId: string) => ({ bid_request_id: bidRequestId, org_id: orgId })),
+    );
+  }
+
+  const now = new Date().toISOString();
+  const updated = {
+    ...call,
+    bidRequestId,
+    sentToExchangeAt: now,
+    sentToExchangeBy: byEmail,
+    firstRefusalUntil: operator.data?.id ? until : null,
+    updatedAt: now,
+  };
+  await kv.set(CALL(call.id), updated);
+  console.log(`[OnCall] call ${call.id} posted to the exchange as ${bidRequestId}`);
+  return { ok: true, bidRequestId, error: null, call: updated };
+}
+
+/**
+ * POST /on-call/escalate-due — climb the rotas that have run out of time.
+ *
+ * WHY THIS EXISTS
+ *
+ * A rota is a promise with a clock in it: ring Dan, and if he has not answered
+ * in ten minutes ring Ray, and if nobody answers put it out. Everything after
+ * the first ring has to happen with no person present, which is the one thing a
+ * request-driven server cannot do for itself.
+ *
+ * HOW IT IS GUARDED
+ *
+ * A scheduler has no user, so this is guarded by a shared secret in a header
+ * rather than by a session — the same pattern the compliance reminder uses. It
+ * REFUSES EVERYTHING when `ON_CALL_CRON_SECRET` is unset: an unguarded endpoint
+ * that pages people and posts work to the open market is not something to leave
+ * open while somebody gets round to configuring it.
+ *
+ * WHAT IT WILL NOT DO
+ *
+ * Decide anything. `dueAction` says what each call is owed and
+ * `escalationGoesToExchange` says where, both from the plan made when the call
+ * came in. This walks, applies, and reports.
+ */
+onCallRouter.post(`${PREFIX}/on-call/escalate-due`, async (c) => {
+  const expected = Deno.env.get("ON_CALL_CRON_SECRET") || "";
+  if (!expected) {
+    console.log("[OnCall] escalate-due refused: ON_CALL_CRON_SECRET is not set");
+    return c.json({ success: false, error: "Escalation is not configured on this server." }, 503);
+  }
+  const offered = String(c.req.header("X-On-Call-Cron-Secret") || "");
+  if (offered !== expected) {
+    return c.json({ success: false, error: "Not authorised." }, 403);
+  }
+
+  try {
+    const now = new Date();
+    const index = ((await kv.get(CALL_INDEX)) as string[]) || [];
+    // A bounded window. Everything older than the stale ceiling is skipped
+    // anyway, and reading the whole index every minute would grow without end.
+    const rows = ((await Promise.all(index.slice(0, 100).map((id) => kv.get(CALL(id))))) as any[])
+      .filter(Boolean);
+
+    const acted: any[] = [];
+    for (const call of rows) {
+      if (call.status !== "open") continue;
+      if (isStale(call, now)) continue;
+
+      const due = dueAction(call, now);
+      if (due.action === "none") continue;
+
+      if (due.action === "page-next") {
+        const contacts = call.plan?.steps?.[due.rung]?.contacts || [];
+        const outcome = await pageContacts(call, contacts);
+        const at = new Date().toISOString();
+        await kv.set(CALL(call.id), {
+          ...call,
+          paging: {
+            rung: due.rung,
+            paged: outcome.paged,
+            reason: outcome.reason,
+            // Kept rather than replaced: who was tried and when IS the record
+            // of what was done about an emergency.
+            attempts: [...(call.paging?.attempts || []), ...outcome.attempts],
+            lastPagedAt: at,
+          },
+          updatedAt: at,
+        });
+        acted.push({ id: call.id, action: "page-next", rung: due.rung + 1, paged: outcome.paged });
+        console.log(`[OnCall] escalation paged rung ${due.rung + 1} of ${call.id}: ${due.reason}`);
+        continue;
+      }
+
+      /* the rota is spent */
+      const at = new Date().toISOString();
+      let exchange: any = null;
+      if (escalationGoesToExchange(call)) {
+        exchange = await postToExchange(call, "escalation");
+      }
+      const base = exchange?.ok ? exchange.call : call;
+      await kv.set(CALL(call.id), {
+        ...base,
+        escalatedAt: base.escalatedAt || at,
+        escalationReason: due.reason,
+        updatedAt: at,
+      });
+
+      /**
+       * Told, every time.
+       *
+       * An escalation is the moment the account's own arrangements have failed
+       * and it becomes ours. If nothing announced that, the only record would
+       * be a field on a document nobody is looking at during an emergency.
+       */
+      notifyStaffInBackground("emergency", {
+        subject: `Escalated: ${call.title}`,
+        heading: "🚨 On-call escalated to Black Phoenix",
+        rows: [
+          ["What", call.title],
+          ["Trade", call.trade || "—"],
+          ["Where", call.siteAddress || "—"],
+          ["Account", call.accountEmail || "—"],
+          ["Why", due.reason],
+          ["On the exchange", exchange?.ok ? "yes" : (exchange ? `no — ${exchange.error}` : "not asked for")],
+          ["Job", call.jobId || "—"],
+        ],
+        dedupeKey: `on_call_escalated:${call.id}`,
+      });
+
+      acted.push({
+        id: call.id,
+        action: "escalate",
+        reason: due.reason,
+        bidRequestId: exchange?.bidRequestId || null,
+      });
+      console.log(`[OnCall] escalated ${call.id}: ${due.reason}`);
+    }
+
+    return c.json({ success: true, examined: rows.length, acted });
+  } catch (error: any) {
+    console.log(`[OnCall] escalate-due failed: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || "Escalation sweep failed." }, 500);
+  }
+});
+
 /**
  * POST /on-call-calls/:id/to-exchange — put it out to Phoenix Exchange, for real.
  *
@@ -549,70 +752,13 @@ onCallRouter.post(`${PREFIX}/on-call-calls/:id/to-exchange`, async (c) => {
       }, 409);
     }
 
-    const org = await orgForAccount(call.accountEmail);
-    if (!org.id) {
-      return c.json({ success: false, error: `Cannot post this: ${org.reason}.` }, 409);
+    const posted = await postToExchange(call, who.email);
+    if (!posted.ok) {
+      return c.json({ success: false, error: `Cannot post this: ${posted.error}.` }, 409);
     }
-
-    // Black Phoenix's own organisation, which holds first refusal.
-    const operator = await admin
-      .from("organizations").select("id").eq("type", "operator").limit(1).maybeSingle();
-
-    const until = new Date(Date.now() + FIRST_REFUSAL_MINUTES * 60_000).toISOString();
-    const row: Record<string, any> = {
-      org_id: org.id,
-      title: String(call.title || "Emergency").slice(0, 200),
-      trade: String(call.trade || "").slice(0, 80) || null,
-      description: [
-        call.siteAddress ? `Site: ${call.siteAddress}` : "",
-        call.plan?.reason ? `Routing: ${call.plan.reason}` : "",
-      ].filter(Boolean).join("\n") || null,
-      site_address: String(call.siteAddress || "").slice(0, 300) || null,
-      status: "open",
-      is_emergency: true,
-    };
-    if (operator.data?.id) {
-      row.first_refusal_org_id = operator.data.id;
-      row.first_refusal_until = until;
-    }
-
-    const { data, error } = await admin.from("bid_requests").insert(row).select("id").maybeSingle();
-    if (error) {
-      console.log(`[OnCall] exchange post failed for ${call.id}: ${error.message}`);
-      return c.json({ success: false, error: error.message }, 500);
-    }
-    const bidRequestId = data?.id ? String(data.id) : null;
-
-    /**
-     * Contracted contractors are invited first, where they can be.
-     *
-     * A non-exclusive contract does not close the exchange off, but it does
-     * mean the account already has somebody for this trade — so they are
-     * invited by name alongside the open posting rather than competing with it
-     * unannounced. Only those with an organisation on the platform can be
-     * invited; the rest are already named on the call for whoever is triaging.
-     */
+    const { bidRequestId, call: updated } = posted;
     const invitable = (call.plan?.contracted || [])
-      .map((v: any) => String(v?.orgId || "").trim())
-      .filter(Boolean);
-    if (bidRequestId && invitable.length) {
-      await admin.from("bid_invitations").insert(
-        invitable.map((orgId: string) => ({ bid_request_id: bidRequestId, org_id: orgId })),
-      );
-    }
-
-    const now = new Date().toISOString();
-    const updated = {
-      ...call,
-      bidRequestId,
-      sentToExchangeAt: now,
-      sentToExchangeBy: who.email,
-      firstRefusalUntil: operator.data?.id ? until : null,
-      updatedAt: now,
-    };
-    await kv.set(CALL(call.id), updated);
-
-    console.log(`[OnCall] call ${call.id} posted to the exchange as ${bidRequestId}`);
+      .map((v: any) => String(v?.orgId || "").trim()).filter(Boolean);
     return c.json({
       success: true,
       call: updated,
