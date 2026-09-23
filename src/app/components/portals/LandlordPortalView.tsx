@@ -7,8 +7,10 @@ import {
   TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
   FileText, FileSignature, Send, CreditCard, CheckCircle, ExternalLink,
   Image as ImageIcon, Video, Upload, AlertTriangle, Trash2, Pencil, Brain,
+  PhoneCall,
 } from 'lucide-react';
 import LandlordLeaseManager from './LandlordLeaseManager';
+import OnCallSetup from './OnCallSetup';
 import LandlordFormsManager from './LandlordFormsManager';
 import PropertyInspections from './PropertyInspections';
 import UnitTurnoverChecklist from './UnitTurnoverChecklist';
@@ -69,7 +71,7 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'tenants' | 'rent' | 'applications' | 'renewals' | 'documents' | 'leases' | 'maintenance' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'property-ai' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'tenants' | 'rent' | 'applications' | 'renewals' | 'documents' | 'leases' | 'maintenance' | 'on-call' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'financials' | 'investments' | 'property-ai' | 'messages' | 'settings' | 'revenue-ai' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -81,6 +83,7 @@ const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'documents', label: 'Documents', icon: FileText, badge: 'NEW' },
   { id: 'leases', label: 'Leases', icon: FileSignature },
   { id: 'maintenance', label: 'Maintenance', icon: Wrench },
+  { id: 'on-call', label: 'On-Call', icon: PhoneCall },
   { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
   { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
   { id: 'crm', label: 'CRM', icon: Users },
@@ -700,6 +703,8 @@ export default function LandlordPortalView() {
         )}
 
         {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><div className="space-y-6"><LandlordLeaseManager session={session} tenants={tenants} /><div className="border-t border-[#2A2A2A] pt-6"><LandlordFormsManager session={session} tenants={tenants} /></div></div></FeatureGate>}
+
+        {tab === 'on-call' && <OnCallSetup session={session} accent="teal" />}
 
         {tab === 'maintenance' && (
           <div className="space-y-4">

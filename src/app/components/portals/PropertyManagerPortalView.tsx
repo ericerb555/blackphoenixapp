@@ -5,10 +5,12 @@ import {
   Building2, DollarSign, Users, Wrench, Settings, Bell,
   Home, CreditCard, ChevronRight, ArrowUpRight, CheckCircle, Tag, BarChart3, MessageSquare,
   TrendingUp, Zap, Star, Package, Car, Wifi, Sparkles, LoaderCircle, Plus, FileText,
+  PhoneCall,
 } from 'lucide-react';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import DealsOffersSection from './DealsOffersSection';
+import OnCallSetup from './OnCallSetup';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import CRMSection from './CRMSection';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
@@ -43,12 +45,13 @@ function statusBadge(s: string) {
   return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
 }
 
-type Tab = 'dashboard' | 'properties' | 'work-requests' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'investments' | 'revenue-ai' | 'messages' | 'documents' | 'settings' | 'guide';
+type Tab = 'dashboard' | 'properties' | 'work-requests' | 'on-call' | 'plan-tracker' | 'plan-builder' | 'crm' | 'deals' | 'payments' | 'investments' | 'revenue-ai' | 'messages' | 'documents' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'properties', label: 'Properties', icon: Building2 },
   { id: 'work-requests', label: 'Work Requests', icon: Wrench },
+  { id: 'on-call', label: 'On-Call', icon: PhoneCall },
   { id: 'plan-tracker', label: 'Plan Tracker', icon: BarChart3 },
   { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
   { id: 'crm', label: 'CRM', icon: Users },
@@ -327,6 +330,8 @@ export default function PropertyManagerPortalView() {
             ))}
           </div>
         )}
+
+        {tab === 'on-call' && <OnCallSetup session={session} accent="orange" />}
 
         {tab === 'work-requests' && (
           <div className="space-y-4">

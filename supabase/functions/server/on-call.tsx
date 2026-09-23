@@ -35,6 +35,7 @@ import * as kv from "./kv_store.tsx";
 import { runsOurOnCall } from "./addOnAccess.tsx";
 import {
   normalizeConfig, emptyConfig, readiness, isOnCallNow, ladderMinutes,
+  hoursFor, afterTheRota,
   type OnCallConfig,
 } from "./onCallConfig.ts";
 
@@ -91,8 +92,22 @@ async function describe(config: OnCallConfig) {
      * covering now" rather than leaving somebody to work it out from a
      * timezone and a pair of times.
      */
-    coveringNow: isOnCallNow(config),
-    ladderMinutes: ladderMinutes(config),
+    coveringNow: isOnCallNow(config, null),
+    /**
+     * Each service answered separately, because they differ.
+     *
+     * A lockout line that runs all night and a plumbing line on office hours
+     * are both correct and only one of them is covering at eleven in the
+     * morning. One combined answer would be wrong for whichever it is not.
+     */
+    services: (config.services || []).map((service) => ({
+      id: service.id,
+      name: service.name,
+      coveringNow: isOnCallNow(config, service),
+      ladderMinutes: ladderMinutes(service),
+      hoursMode: hoursFor(config, service).mode,
+      next: afterTheRota(config, service),
+    })),
     /**
      * Whether Black Phoenix answers for this account, and on what basis.
      *
@@ -181,7 +196,9 @@ onCallRouter.get(`${PREFIX}/on-call-configs`, async (c) => {
         audience: config.audience,
         enabled: config.enabled,
         contacts: config.contacts.length,
-        steps: config.ladder.length,
+        // Named rather than counted: "three services" says nothing useful,
+        // whereas "Plumbing, Lockouts" is how somebody recognises the account.
+        services: config.services.filter(s => s.enabled !== false).map(s => s.name),
         ready: state.ready,
         problems: state.problems,
         updatedAt: config.updatedAt || null,

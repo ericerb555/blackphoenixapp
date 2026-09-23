@@ -1,6 +1,7 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import SponsoredMarquee from '../SponsoredMarquee';
 import DealsOffersSection from './DealsOffersSection';
+import OnCallSetup from './OnCallSetup';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import InvestmentTab from './InvestmentTab';
 import { useState, useEffect } from 'react';
@@ -10,6 +11,7 @@ import {
   Bell, ChevronRight, CheckCircle, Shield, Package, Vote, Award,
   Check, X, UserCheck, Key, Clock, AlertTriangle, ArrowUpRight,
   Zap, Star, Megaphone, Car, Sparkles,
+  PhoneCall,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -51,7 +53,7 @@ interface CondoUser {
 }
 
 export default function CondoAssociationPortalView() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'on-call' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [loading, setLoading] = useState(false);
@@ -611,6 +613,7 @@ export default function CondoAssociationPortalView() {
     const baseTabs = [
       { id: 'dashboard', label: 'Dashboard', icon: Home, visible: true },
       { id: 'maintenance', label: 'Maintenance', icon: Wrench, visible: true },
+      { id: 'on-call', label: 'On-Call', icon: PhoneCall, visible: true },
       { id: 'services', label: 'Services & Offers', icon: Sparkles, visible: true },
     ];
 
@@ -1093,6 +1096,8 @@ export default function CondoAssociationPortalView() {
             <p className="text-gray-400">Detailed unit and building management would be displayed here.</p>
           </div>
         )}
+
+        {activeTab === 'on-call' && <OnCallSetup session={session} accent="orange" />}
 
         {activeTab === 'maintenance' && (
           <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
