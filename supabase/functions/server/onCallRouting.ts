@@ -34,6 +34,7 @@ import {
   contractedFor, heldByContract, serviceFor, isOnCallNow,
   ladderWithContacts, ladderMinutes, afterTheRota, extrasFor, calloutCents,
   type OnCallConfig, type OnCallService, type ContractedVendor, type OnCallContact,
+  type CallExtras,
 } from './onCallConfig.ts';
 
 export type RouteOutcome =
@@ -72,8 +73,17 @@ export interface RoutePlan {
   weAnswer: boolean;
   /** Was the account's on-call covering at the moment this was routed? */
   coveringNow: boolean;
-  /** What the callout will cost, from the account's own rates. */
-  charges: { total: number; lines: Array<{ label: string; cents: number }> };
+  /**
+   * What the callout will cost, and whose rate card it came from.
+   *
+   * `chargedBy` matters on an invoice and in a dispute: "your contractor's
+   * rate" and "our rate" are different conversations.
+   */
+  charges: {
+    total: number;
+    lines: Array<{ label: string; cents: number }>;
+    chargedBy: 'platform' | 'account';
+  };
 }
 
 export interface RouteRequest {
@@ -90,6 +100,15 @@ export interface RouteRequest {
   weAnswer?: boolean;
   /** Billable hours, if they are already known. Usually they are not. */
   hours?: number;
+  /**
+   * Our rates, for when we are the ones answering.
+   *
+   * Passed in rather than read, because the account's own record must not
+   * be able to decide what Black Phoenix charges — the customer edits that
+   * record. Without this, a callout we attend is priced from a number the
+   * person being charged it typed in.
+   */
+  platformRates?: CallExtras | null;
 }
 
 const summary = (service: OnCallService | null) =>
@@ -116,6 +135,9 @@ export function routeEmergency(config: OnCallConfig, req: RouteRequest): RoutePl
     // Out-of-hours money follows the same judgement as out-of-hours paging: if
     // the rota is covering, this is out of hours.
     afterHours: coveringNow,
+    // Ours when we answer, theirs otherwise — decided once, in ratesFor.
+    weAnswer,
+    platform: req.platformRates || null,
   });
 
   const base = {

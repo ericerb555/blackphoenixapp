@@ -287,6 +287,8 @@ export default function OnCallSetup({ session, accent = 'orange' }: {
     weAnswer?: boolean;
     services?: Array<{ id: string; name: string; coveringNow: boolean; ladderMinutes: number }>;
   }>({});
+  /** Our published rates, shown read-only when Black Phoenix answers. */
+  const [ourRates, setOurRates] = useState<Extras | null>(null);
 
   const authHeaders = useMemo(
     () => (session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : null),
@@ -312,6 +314,19 @@ export default function OnCallSetup({ session, accent = 'orange' }: {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Could not load your on-call setup.');
       take(payload);
+
+      /**
+       * What we charge, read-only.
+       *
+       * Fetched separately because it is not theirs: it lives on a record only
+       * staff can write. Failing to load it is not worth an error — the
+       * section simply says so.
+       */
+      try {
+        const r = await fetch(`${SERVER}/on-call-platform-rates`, { headers: authHeaders });
+        const rp = await r.json().catch(() => ({}));
+        if (r.ok && rp?.success) setOurRates(rp.rates as Extras);
+      } catch { /* the section says it could not be read */ }
     } catch (e: any) {
       toast.error(e?.message || 'Could not load your on-call setup.');
     } finally {
@@ -804,11 +819,58 @@ export default function OnCallSetup({ session, accent = 'orange' }: {
         <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-white">
           <Wallet className={`h-4 w-4 ${tone.text}`} /> What a callout costs
         </h3>
-        <p className="mb-3 text-xs text-gray-500">
-          Charged per call, on top of the subscription, for every service that has not set its
-          own. Leave a figure blank and it is not charged.
-        </p>
-        <ExtrasEditor extras={config.extras || BLANK_EXTRAS} input={input} onChange={x => edit({ extras: x })} />
+        {state.weAnswer ? (
+          /**
+           * Ours, and therefore not editable here.
+           *
+           * These figures are what Black Phoenix charges to turn out, so the
+           * account being charged them is the last party who should be able to
+           * change them. Shown rather than hidden: a published price somebody
+           * is about to be billed is theirs to see.
+           */
+          <>
+            <p className="mb-3 text-xs text-gray-500">
+              Black Phoenix answers for you, so these are our rates. They are shown here so
+              you know what a callout costs; they are set by us and cannot be edited from
+              this screen.
+            </p>
+            {ourRates ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ['Callout', ourRates.calloutCents],
+                  ['Out of hours, added', ourRates.afterHoursCents],
+                ].map(([label, cents]) => (
+                  <div key={String(label)} className="rounded-lg border border-[#2A2A2A] bg-[#151515] p-3">
+                    <p className="text-xs text-gray-500">{label}</p>
+                    <p className="mt-0.5 text-lg font-bold text-white">
+                      ${toDollars(Number(cents)).toFixed(2)}
+                    </p>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-[#2A2A2A] bg-[#151515] p-3 sm:col-span-2">
+                  <p className="text-xs text-gray-500">Labour, if a technician attends</p>
+                  <p className="mt-0.5 text-sm text-gray-300">
+                    Billed at the technician's tier rate for the work.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Our rates could not be loaded just now.</p>
+            )}
+            {ourRates?.notes && (
+              <p className="mt-3 text-xs text-gray-500">{ourRates.notes}</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-gray-500">
+              What your own people charge to turn out, for every service that has not set its
+              own. Leave a figure blank and it is not charged. These are yours — if Black
+              Phoenix starts answering for you, our rates apply instead.
+            </p>
+            <ExtrasEditor extras={config.extras || BLANK_EXTRAS} input={input} onChange={x => edit({ extras: x })} />
+          </>
+        )}
       </div>
 
       {/* ── escalation ─────────────────────────────────────────────────── */}

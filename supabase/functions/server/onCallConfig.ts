@@ -352,9 +352,43 @@ export function hoursFor(config: OnCallConfig, service?: OnCallService | null): 
   return service?.hours || config.hours;
 }
 
-/** The rates this service charges — its own, or the account's. */
+/** The account's own rates for this service — its own, or the account's default. */
 export function extrasFor(config: OnCallConfig, service?: OnCallService | null): CallExtras {
   return service?.extras || config.extras;
+}
+
+/**
+ * WHOSE rates apply to this callout.
+ *
+ * The account sets rates on its own record, and that is correct for a rota
+ * they run themselves: it is their contractor turning out and their money.
+ * It is exactly wrong when Black Phoenix answers, because then the figures
+ * are OURS and the person being charged them would be the one editing them.
+ * A customer could set our callout to zero from the setup screen.
+ *
+ * So when we answer, the platform rates win and the account's are ignored
+ * entirely — not merged, not used as a floor. A merge would let a customer
+ * influence our pricing through whichever field we happened to read from
+ * their side.
+ *
+ * `platform` is passed in rather than read, because this file is pure and
+ * because the caller is the only thing that knows whether the subscription
+ * has actually been paid for.
+ */
+export function ratesFor(
+  config: OnCallConfig,
+  opts: {
+    service?: OnCallService | null;
+    /** Has this account paid for Black Phoenix to answer? */
+    weAnswer?: boolean;
+    /** Our rates. Required for them to be used at all. */
+    platform?: CallExtras | null;
+  } = {},
+): { rates: CallExtras; owner: 'platform' | 'account' } {
+  if (opts.weAnswer && opts.platform) {
+    return { rates: opts.platform, owner: 'platform' };
+  }
+  return { rates: extrasFor(config, opts.service), owner: 'account' };
 }
 
 /* ── when it covers ──────────────────────────────────────────────────────── */
@@ -566,11 +600,21 @@ export function readiness(config: OnCallConfig): { ready: boolean; problems: str
  */
 export function calloutCents(
   config: OnCallConfig,
-  opts: { service?: OnCallService | null; hours?: number; afterHours?: boolean } = {},
-): { total: number; lines: Array<{ label: string; cents: number }> } {
-  const extras = extrasFor(config, opts.service);
+  opts: {
+    service?: OnCallService | null;
+    hours?: number;
+    afterHours?: boolean;
+    weAnswer?: boolean;
+    platform?: CallExtras | null;
+  } = {},
+): {
+  total: number;
+  lines: Array<{ label: string; cents: number }>;
+  chargedBy: 'platform' | 'account';
+} {
+  const { rates: extras, owner } = ratesFor(config, opts);
   const lines: Array<{ label: string; cents: number }> = [];
-  if (!extras) return { total: 0, lines };
+  if (!extras) return { total: 0, lines, chargedBy: owner };
 
   if (extras.calloutCents > 0) lines.push({ label: 'Callout', cents: extras.calloutCents });
   if (opts.afterHours && extras.afterHoursCents > 0) {
@@ -585,5 +629,5 @@ export function calloutCents(
       });
     }
   }
-  return { total: lines.reduce((sum, l) => sum + l.cents, 0), lines };
+  return { total: lines.reduce((sum, l) => sum + l.cents, 0), lines, chargedBy: owner };
 }

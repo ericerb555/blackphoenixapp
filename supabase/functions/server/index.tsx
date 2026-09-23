@@ -165,6 +165,7 @@ import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
+import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { unitsCovered } from "./unitsCovered.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
@@ -824,6 +825,7 @@ app.route("/", jobsRouter);
 app.route("/", discountGrantsRouter);
 app.route("/", inspectionsRouter);
 app.route("/", onCallRouter);
+app.route("/", onCallRatesRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
 // imported so the module can be deployed and tested on its own — it decides

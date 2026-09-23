@@ -209,3 +209,55 @@ test('every plan explains itself in words', () => {
     assert.ok(plan.reason.length > 20, `"${trade}" produced no readable reason`);
   }
 });
+
+/* ── whose rates apply, which the customer must not decide ───────────────── */
+
+/**
+ * The account edits its own on-call record, and that is right for a rota they
+ * run themselves — their contractor, their money, their rates. It is exactly
+ * wrong when Black Phoenix answers, because then the figures are ours and the
+ * person being charged them would be the one editing them. A customer could
+ * set our callout to zero from the setup screen.
+ */
+
+const OURS = { calloutCents: 12500, afterHoursCents: 0, hourlyCents: 0, minimumHours: 0 };
+
+test('their rates apply to their own rota', () => {
+  const plan = routeEmergency(cfg(), { trade: 'plumbing', at: NIGHT, platformRates: OURS });
+  assert.equal(plan.charges.chargedBy, 'account');
+  assert.equal(plan.charges.total, 15000 + 5000, 'what their contractor charges them');
+});
+
+test('our rates apply when we are the ones answering', () => {
+  const plan = routeEmergency(cfg(), {
+    trade: 'plumbing', at: NIGHT, weAnswer: true, platformRates: OURS,
+  });
+  assert.equal(plan.charges.chargedBy, 'platform');
+  assert.equal(plan.charges.total, 12500, 'ours, not the 15000 on their record');
+});
+
+test('a customer cannot zero our callout by editing their own record', () => {
+  const zeroed = cfg({ extras: { calloutCents: 0, afterHoursCents: 0, hourlyCents: 0, minimumHours: 0 } });
+  const plan = routeEmergency(zeroed, {
+    trade: 'plumbing', at: NIGHT, weAnswer: true, platformRates: OURS,
+  });
+  assert.equal(plan.charges.total, 12500,
+    'their zero must not reach a callout we attend');
+});
+
+test('our rates are used outright, never merged with theirs', () => {
+  // Theirs carries an out-of-hours addition; ours does not. A merge would pick
+  // theirs up and let a customer influence our pricing through a side field.
+  const plan = routeEmergency(cfg(), {
+    trade: 'plumbing', at: NIGHT, weAnswer: true, platformRates: OURS,
+  });
+  assert.equal(plan.charges.lines.length, 1);
+  assert.equal(plan.charges.lines[0].label, 'Callout');
+});
+
+test('with no rates supplied, theirs still apply and nothing is free by accident', () => {
+  const plan = routeEmergency(cfg(), { trade: 'plumbing', at: NIGHT, weAnswer: true });
+  assert.equal(plan.charges.chargedBy, 'account',
+    'we answer but nobody told us our own rates — falling back to theirs beats charging nothing');
+  assert.equal(plan.charges.total, 20000);
+});

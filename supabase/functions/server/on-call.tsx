@@ -44,6 +44,7 @@ import { ensureOrganization } from "./organizations.tsx";
 import { pageContacts, pagingConfigured } from "./onCallPaging.tsx";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 import { dueAction, escalationGoesToExchange, isStale } from "./onCallEscalation.ts";
+import { platformRates } from "./onCallPlatformRates.tsx";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -876,7 +877,16 @@ export async function planFor(
    * last month still has a rota stored; what it no longer has is us.
    */
   const ours = await runsOurOnCall(address);
-  const plan = routeEmergency(config, { trade, at, weAnswer: ours.held, hours });
+  /**
+   * Our rate card, read only when it can apply.
+   *
+   * Passed into the routing so the account's own record cannot decide what
+   * Black Phoenix charges. The customer edits that record.
+   */
+  const ourRates = ours.held ? await platformRates() : null;
+  const plan = routeEmergency(config, {
+    trade, at, weAnswer: ours.held, hours, platformRates: ourRates,
+  });
 
   return {
     plan,
