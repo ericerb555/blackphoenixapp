@@ -262,9 +262,33 @@ the quote, the purchase orders and the invoice all sit on one job.
       **The two refusals come from the routing, not from the posting route** —
       an exclusive contract and an in-hours request. Re-deciding them there
       would be two places disagreeing about the one rule that must not bend.
-- [ ] **9. Expiry that runs with nobody watching.** The first-refusal window
-      has to lapse on its own, which means pg_cron rather than a request — read
-      the security note below before anything is added there.
+- [x] **9. Escalation that runs with nobody watching** — the logic and the
+      guard. **The scheduled job itself is written and deliberately not
+      applied.**
+
+      `onCallEscalation.ts` is pure and pinned by 18 tests, and deliberately
+      conservative: every action it returns wakes somebody or broadcasts
+      somebody's emergency, so it answers `none` for anything it is not certain
+      about. An answered call stops the climb; a rota never paged escalates
+      rather than skipping the first person; a backwards clock waits; a call
+      older than twelve hours is left alone.
+
+      `POST /on-call/escalate-due` does the acting. **Found while testing it:**
+      the auth wall answered "Sign in required." to a request carrying the
+      publishable key, which is all a scheduler has — the job would have run
+      every minute, been refused every minute, and nobody would have been told.
+      Exempted by exact path like the compliance reminder run, guarded by
+      `ON_CALL_CRON_SECRET`, which refuses everything while unset. The rest of
+      `/on-call` stays behind the wall.
+
+      **`20260923000000_schedule_on_call_escalation.sql.pending`** is the cron
+      job. The extension keeps it out of a migration run. Switch it on only
+      after the `private_cron_config` RLS line, and after putting this job's
+      secret in **Vault** — it deliberately does not use that table, which is
+      where the existing hole is. The file carries the three steps.
+
+      The first-refusal window itself needs nothing: `first_refusal_until` is a
+      timestamp the exchange reads, so it lapses on its own.
 
 Suggested first slice: **1, 2 and 3.** Until on-call is sellable, has somewhere
 to keep a rota, and the three missing portals can own an organisation, every
@@ -296,3 +320,33 @@ I have not run it. It is your database and your call.
 Item 0 is done. This audit corrected two things I had wrong earlier: the
 portal-settings route is unreachable rather than an open hole, and the real
 exchange is the SQL tables rather than the KV `bid_opportunity` records.
+
+## Where this stands — 2026-09-23
+
+Items 0 through 9 are done. The chain runs end to end in code: an urgent work
+request from any portal opens a call on its job, the call is routed through
+contracted vendors, the account's own rota and then escalation, the first rung
+is paged by SMS and phone, the portal shows what happened and why, and an
+unanswered rota climbs and then goes to Phoenix Exchange as a real bid request
+with Black Phoenix holding first refusal for fifteen minutes.
+
+**Four things are yours, and three of them gate the rest.**
+
+1. **Close `private_cron_config`.** `alter table "public"."private_cron_config"
+   enable row level security;` — then rotate `compliance_cron_secret`, which
+   has been readable with the publishable key.
+2. **Confirm the Twilio secrets exist**: `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`. Until they do, every page logs
+   `NOT PAGED` and nobody is rung.
+3. **Switch on the escalation job** by following the three steps in
+   `20260923000000_schedule_on_call_escalation.sql.pending` and renaming it to
+   `.sql`. Until then the rota's later rungs only advance when somebody presses
+   the button.
+4. **Run the organisations back-fill** — `POST /organizations/backfill`, dry by
+   default, five rows to create.
+
+**Nothing here has been watched working with real data.** Every piece is
+typechecked, tested and deployed, and the routing and paging have never had a
+real emergency through them. The first one should be a deliberate test on your
+own account, at a time you choose, with your own phone as the rota — not a
+tenant's burst pipe at three in the morning.
