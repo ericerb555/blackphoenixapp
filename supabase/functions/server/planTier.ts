@@ -258,6 +258,18 @@ export interface PlanAddOn extends Sellable {
    * about when a new tier is published.
    */
   availableOn?: string[];
+  /**
+   * Billed once per unit covered rather than once per subscription.
+   *
+   * On-call is the case this exists for: a four-unit house and a
+   * hundred-and-twenty-unit block do not cost the same to cover, so the price
+   * is per unit and the quantity is the count. The count comes from the
+   * platform own records, never from the customer — see unitsCovered.
+   *
+   * priceCents is therefore the price PER UNIT for these, which is why
+   * anything displaying it has to say so.
+   */
+  perUnit?: boolean;
   sortOrder?: number;
 }
 
@@ -449,6 +461,43 @@ export function holdsAddOn(
   if (!id) return false;
   if (resolveEntitlement(grant).source !== 'subscription') return false;
   return heldAddOnIds(grant, tier).includes(id);
+}
+
+/**
+ * How many of this add-on to bill for.
+ *
+ * One, for everything sold per subscription. For a per-unit add-on it is the
+ * number of units covered — a four-unit house and a hundred-and-twenty-unit
+ * block do not cost the same to keep an on-call rota for.
+ *
+ * The floor of one is deliberate and is not a count. Stripe refuses a
+ * quantity of zero on a subscription item, and an account that has bought
+ * on-call before recording a single property still owes the minimum: they
+ * can ring us tonight. Callers that display this should say when it was a
+ * floor rather than a measurement.
+ */
+export function addOnQuantity(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  unitsCovered = 0,
+): number {
+  if (!addOn?.perUnit) return 1;
+  const units = Math.floor(Number(unitsCovered));
+  return Number.isFinite(units) && units > 0 ? units : 1;
+}
+
+/**
+ * What this add-on costs per month, given what it covers.
+ *
+ * Separate from `priceCents`, which for a per-unit add-on is the price of ONE
+ * unit. Anything showing a customer a figure has to use this, or it shows a
+ * hundred-unit association a four-dollar subscription.
+ */
+export function addOnMonthlyCents(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  unitsCovered = 0,
+): number {
+  const each = Math.max(0, Number(addOn?.priceCents ?? 0) || 0);
+  return each * addOnQuantity(addOn, unitsCovered);
 }
 
 /** An add-on as a customer may see it — never a Stripe price id. */

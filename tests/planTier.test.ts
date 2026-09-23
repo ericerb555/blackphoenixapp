@@ -20,6 +20,7 @@ import {
   readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
   addOnsForTier, publicAddOn, type PlanAddOn,
   selectableAddOns, holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
+  addOnQuantity, addOnMonthlyCents,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
 
@@ -535,4 +536,39 @@ test('a cancelled subscription holds nothing, whatever ids are left on the grant
 test('no grant at all holds nothing', () => {
   assert.ok(!holdsAddOn(ON_CALL_ADD_ON_ID, null, tier()));
   assert.ok(!holdsAddOn('', paid({ addOnIds: [''] }), tier()));
+});
+
+/* ── priced per unit, because a block is not a house ─────────────────────── */
+
+/**
+ * On-call is priced on the call, the hours worked and the number of units
+ * covered. The third is the subscription, and the failure it invites is
+ * quiet: a flat quantity of one bills a hundred-and-twenty-unit association
+ * the same as a four-unit house, and the invoice looks perfectly normal.
+ */
+
+test('an ordinary add-on is billed once, whatever the portfolio', () => {
+  assert.equal(addOnQuantity(addOn(), 120), 1);
+});
+
+test('a per-unit add-on is billed for the units covered', () => {
+  assert.equal(addOnQuantity(addOn({ perUnit: true }), 120), 120);
+});
+
+test('a per-unit add-on with nothing recorded still bills the minimum', () => {
+  assert.equal(addOnQuantity(addOn({ perUnit: true }), 0), 1,
+    'they can still ring us tonight, and Stripe refuses a quantity of zero');
+});
+
+test('a nonsense unit count cannot produce a nonsense bill', () => {
+  for (const units of [-5, NaN, Infinity, undefined as any]) {
+    assert.equal(addOnQuantity(addOn({ perUnit: true }), units), 1);
+  }
+});
+
+test('the monthly figure multiplies, so nobody is shown a per-unit price as the total', () => {
+  const perUnit = addOn({ perUnit: true, priceCents: 400 });
+  assert.equal(addOnMonthlyCents(perUnit, 120), 48000, '$4 a unit across 120 units is $480');
+  assert.equal(addOnMonthlyCents(perUnit, 0), 400, 'the floor of one unit');
+  assert.equal(addOnMonthlyCents(addOn({ priceCents: 4900 }), 120), 4900, 'flat stays flat');
 });

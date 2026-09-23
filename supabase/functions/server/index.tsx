@@ -166,11 +166,12 @@ import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx"
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
+import { unitsCovered } from "./unitsCovered.tsx";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
-  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn,
+  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnQuantity,
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -10992,10 +10993,23 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
      * pointing at a Price — which is why every add-on carries its own Price
      * rather than a number we add up.
      */
+    /**
+     * The units this account covers, counted once for the whole checkout.
+     *
+     * Only read when something in the basket is actually priced per unit,
+     * because it walks their portfolios and most checkouts do not need it.
+     */
+    const needsUnits = addOns.some((a) => a.perUnit);
+    const covered = needsUnits ? (await unitsCovered(email)).units : 0;
+
     addOns.forEach((addOn, i) => {
       const at = i + 1;
+      const quantity = addOnQuantity(addOn, covered);
       params.set(`line_items[${at}][price]`, priceIdFor(addOn, mode));
-      params.set(`line_items[${at}][quantity]`, '1');
+      params.set(`line_items[${at}][quantity]`, String(quantity));
+      if (addOn.perUnit) {
+        console.log(`[Subscriptions] ${email} buying ${addOn.id} for ${quantity} unit(s)`);
+      }
     });
 
     /**
@@ -11146,10 +11160,21 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
     };
 
     const subscriptionId = String(grant.stripeSubscriptionId);
+
+    /**
+     * The quantity, for an add-on priced per unit.
+     *
+     * Counted from the account's own properties and associations rather
+     * than asked for. A number the buyer supplies is a number the buyer
+     * chooses, and this one decides a recurring charge.
+     */
+    const covered = addOn.perUnit ? (await unitsCovered(email)).units : 0;
+    const quantity = addOnQuantity(addOn, covered);
+
     await post('subscription_items', new URLSearchParams({
       subscription: subscriptionId,
       price: priceIdFor(addOn, mode),
-      quantity: '1',
+      quantity: String(quantity),
       proration_behavior: 'create_prorations',
     }));
 
