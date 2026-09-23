@@ -150,9 +150,18 @@ the quote, the purchase orders and the invoice all sit on one job.
       Sunday; a contracted vendor missed by a trade-name mismatch sends work
       somebody holds a signed agreement for out to the open market.
 
-      **Not built yet, and item 2 is not usable without it:** the screen a
-      portal holder edits this on. The record, its guard and its rules exist
-      and answer; nothing draws them.
+      **The screen is built**, in the landlord, condo association and property
+      manager portals — the three that actually get emergencies. Each keeps its
+      own accent.
+
+      **The model changed after your note:** an account keeps *several
+      services*, not one rota. A burst pipe and a tenant locked out are not the
+      same emergency and do not wake the same person, so each service has its
+      own rota, its own hours and rates where they differ, and its own answer
+      to whether an unanswered call goes out to Phoenix Exchange. A service
+      with no trades listed is the catch-all; without one, an emergency in an
+      unlisted trade matches nothing, which `readiness` now warns about when
+      escalation is also off.
 - [ ] **3. The org-type enum**, on a branch first, so condo associations and
       property managers can own an organisation.
 - [ ] **4. One routing function** that takes a call and applies the three steps
