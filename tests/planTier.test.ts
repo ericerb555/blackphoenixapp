@@ -664,3 +664,51 @@ test('a band with no price in this mode yields no price id, so the sale is refus
   const charge = addOnCharge(banded(), 4, 'test');
   assert.equal(charge.priceId, '', 'a rehearsal must not quietly bill the live price');
 });
+
+/* ── the sizes we quote for rather than publish ──────────────────────────── */
+
+/**
+ * Say the prices that are set, and let anybody outside them ask. The failure
+ * this guards against is a wording one with real money behind it: somebody
+ * holding a hundred and fifty doors reads "not available" and goes elsewhere.
+ * They read "tell us and we will price it" and get in touch.
+ */
+
+const quoted = () => addOn({
+  id: 'on-call',
+  priceCents: 0,
+  sizeBands: [
+    { id: 'small', label: 'Up to 25 units', upToUnits: 25, priceCents: 75000, stripePriceId: 'price_small' },
+    { id: 'large', label: '26+ units', quoteOnly: true },
+  ],
+});
+
+test('a published size is charged as normal', () => {
+  const charge = addOnCharge(quoted(), 10);
+  assert.equal(charge.shape, 'banded');
+  assert.equal(charge.priceId, 'price_small');
+  assert.equal(charge.monthlyCents, 75000);
+});
+
+test('a size we quote for reports itself as a quote, not as a missing price', () => {
+  const charge = addOnCharge(quoted(), 150);
+  assert.equal(charge.shape, 'quote',
+    'a band awaiting a quote and one missing its price must never look the same');
+  assert.equal(charge.priceId, '');
+  assert.equal(charge.monthlyCents, 0);
+  assert.equal(charge.band?.id, 'large');
+});
+
+test('a quote band is still the band they fall into, so we know what to price', () => {
+  assert.equal(bandForUnits(quoted(), 26)?.id, 'large');
+  assert.equal(bandForUnits(quoted(), 25)?.id, 'small');
+});
+
+test('a priced band with no Stripe price is a fault, and stays distinguishable from a quote', () => {
+  const broken = addOn({
+    sizeBands: [{ id: 'small', upToUnits: 25, priceCents: 75000 }],
+  });
+  const charge = addOnCharge(broken, 10);
+  assert.equal(charge.shape, 'banded', 'it is priced, so it is not a quote');
+  assert.equal(charge.priceId, '', 'and it cannot be sold, which the caller must report differently');
+});

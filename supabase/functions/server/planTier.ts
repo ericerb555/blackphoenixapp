@@ -302,6 +302,21 @@ export interface SizeBand extends Sellable {
   label?: string;
   /** Inclusive ceiling. Absent or zero means no ceiling — the top band. */
   upToUnits?: number;
+  /**
+   * This size is quoted rather than priced.
+   *
+   * Eric's rule: say the prices that are set, and let anybody outside them
+   * ask for a quote. A large portfolio is not a rung on a published ladder —
+   * what it costs to cover depends on how many buildings, how far apart, and
+   * what is in them, and inventing a number for it would either lose the work
+   * or commit to a figure nobody worked out.
+   *
+   * A quote-only band deliberately has no price and no Stripe price. It is
+   * not a misconfigured band, and anything reporting on it must say "ask us"
+   * rather than "not available" — those read completely differently to
+   * somebody holding a hundred-and-fifty doors and a budget.
+   */
+  quoteOnly?: boolean;
 }
 
 /**
@@ -581,9 +596,20 @@ export function addOnCharge(
   quantity: number;
   monthlyCents: number;
   band: SizeBand | null;
-  shape: 'flat' | 'per-unit' | 'banded';
+  shape: 'flat' | 'per-unit' | 'banded' | 'quote';
 } {
   const band = bandForUnits(addOn, units);
+  if (band?.quoteOnly) {
+    /**
+     * Nothing to charge, and that is the answer rather than a failure.
+     *
+     * Reported as its own shape so a caller cannot mistake it for a band
+     * whose price somebody forgot to create. One of those means "ask us",
+     * the other means "we are broken", and a customer must never be shown
+     * the second when it is the first.
+     */
+    return { priceId: '', quantity: 1, monthlyCents: 0, band, shape: 'quote' };
+  }
   if (band) {
     return {
       priceId: priceIdFor(band, mode),

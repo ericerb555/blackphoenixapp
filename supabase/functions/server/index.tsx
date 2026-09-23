@@ -11014,6 +11014,23 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
       const addOn = addOns[i];
       const at = i + 1;
       const charge = addOnCharge(addOn, covered, mode);
+      /**
+       * A size we quote for rather than publish a price for.
+       *
+       * Answered as an invitation, not a failure. Somebody holding a hundred
+       * and fifty doors reads "not available" and goes elsewhere; they read
+       * "tell us about it and we will price it" and get in touch.
+       */
+      if (charge.shape === "quote") {
+        return c.json({
+          quoteRequired: true,
+          addOnId: addOn.id,
+          unitsCovered: covered,
+          error: `${addOn.name} is priced individually at your size`
+            + `${covered > 0 ? ` — ${covered} units` : ""}. Ask us for a quote and we will `
+            + `come back with a figure.`,
+        }, 409);
+      }
       if (!charge.priceId) {
         // Refused rather than skipped: a cheaper checkout that quietly drops
         // what somebody asked for is worse than one that does not open.
@@ -11193,6 +11210,16 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
     const sized = addOn.perUnit || (addOn.sizeBands || []).length > 0;
     const covered = sized ? (await unitsCovered(email)).units : 0;
     const charge = addOnCharge(addOn, covered, mode);
+    if (charge.shape === "quote") {
+      return c.json({
+        quoteRequired: true,
+        addOnId: addOn.id,
+        unitsCovered: covered,
+        error: `${addOn.name} is priced individually at your size`
+          + `${covered > 0 ? ` — ${covered} units` : ""}. Ask us for a quote and we will `
+          + `come back with a figure.`,
+      }, 409);
+    }
     if (!charge.priceId) {
       return c.json({
         error: charge.band
@@ -11254,6 +11281,83 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
   } catch (error: any) {
     console.error('[Subscriptions] add-on error:', error?.message || error);
     return c.json({ error: error?.message || 'Could not add that to your plan.' }, 500);
+  }
+});
+
+
+/**
+ * POST /plan-quote-request — "price this for me".
+ *
+ * WHY THIS EXISTS
+ *
+ * Because not every size has a published price. Eric's rule is to say the
+ * prices that are set and let anybody outside them ask, which only works if
+ * asking actually reaches somebody. A button that opens a mail client does not:
+ * it loses the account, the size and the plan they were looking at, which is
+ * the entire content of the question.
+ *
+ * WHAT IT RECORDS
+ *
+ * The account, what they were trying to buy, and the unit count WE worked out —
+ * not one they typed. That last part is the value of doing it here: whoever
+ * prices it is looking at the same number the billing would have used, so the
+ * quote and the subscription cannot disagree about how big the customer is.
+ */
+app.post('/make-server-3eae23a6/plan-quote-request', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ success: false, error: 'Sign in to ask for a quote.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user?.email) return c.json({ success: false, error: 'Sign in to ask for a quote.' }, 401);
+
+    const email = String(user.email).toLowerCase();
+    const body = await c.req.json().catch(() => ({}));
+    const addOnId = String(body?.addOnId || '').trim();
+    const audience = String(body?.audience || '').trim();
+    const note = String(body?.note || '').slice(0, 2000);
+
+    const grant = await kv.get(`feature_grant:${email}`) as any;
+    const portalType = audience || String(grant?.portalType || '');
+    const counted = await unitsCovered(email);
+
+    const id = `planq_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
+    const now = new Date().toISOString();
+    const request = {
+      id, email, audience: portalType, addOnId, note,
+      unitsCovered: counted.units,
+      // Kept so whoever prices it can see WHICH buildings make up the number,
+      // rather than a total they have to take on trust.
+      sources: counted.sources,
+      tierId: grant?.tierId || null,
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await kv.set(`plan_quote_request:${id}`, request);
+
+    notifyStaffInBackground('signup', {
+      subject: `Quote request: ${addOnId || 'a plan'} for ${email}`,
+      heading: '💬 Somebody wants a price',
+      rows: [
+        ['Account', email],
+        ['Portal', portalType || '—'],
+        ['Wants', addOnId || '—'],
+        ['Units covered', String(counted.units) + (counted.units === 0 ? ' (nothing recorded)' : '')],
+        ['On plan', grant?.tierId || '—'],
+        ['They said', note || '—'],
+      ],
+      dedupeKey: `plan_quote:${id}`,
+    });
+
+    console.log(`[PlanCatalog] quote request ${id}: ${email} wants ${addOnId} for ${counted.units} unit(s)`);
+    return c.json({
+      success: true,
+      request,
+      message: 'Thanks — we have your details and the size of what you need covered. '
+        + 'We will come back to you with a price.',
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not send that request.' }, 500);
   }
 });
 
