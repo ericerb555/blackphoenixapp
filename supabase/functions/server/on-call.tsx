@@ -40,6 +40,7 @@ import {
 } from "./onCallConfig.ts";
 import { routeEmergency, goesToExchange, escalateAfterMinutes } from "./onCallRouting.ts";
 import { isEmergency, accountForRequest, tradeOf } from "./onCallIntake.ts";
+import { ensureOrganization } from "./organizations.tsx";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -305,6 +306,266 @@ onCallRouter.get(`${PREFIX}/on-call-calls`, async (c) => {
     return c.json({ success: true, calls: visible, scopedTo: who.isAdmin ? null : who.email });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || "Could not read the call log." }, 500);
+  }
+});
+
+
+/**
+ * How long Black Phoenix holds first refusal on an emergency.
+ *
+ * Fifteen minutes: long enough to answer a phone, short enough that a burst
+ * pipe is not waiting on us. The exchange model gives Black Phoenix first
+ * refusal inside fifty miles on all construction work, and an emergency is the
+ * case where that window has to be short or the privilege becomes a delay.
+ */
+const FIRST_REFUSAL_MINUTES = 15;
+
+/** One stored call, or null. */
+async function readCall(id: string): Promise<any | null> {
+  if (!id) return null;
+  return (await kv.get(CALL(id))) as any;
+}
+
+/** May this actor act on this call? Their own, or staff. */
+function mayTouch(call: any, who: { email: string; isAdmin: boolean }): boolean {
+  if (!call) return false;
+  if (who.isAdmin) return true;
+  return String(call.accountEmail || "").toLowerCase() === who.email;
+}
+
+/**
+ * The organisation that owns this account's work in the exchange.
+ *
+ * Everything in Phoenix Exchange hangs off org_id, so an account with no
+ * organisation cannot post at all. One is created on the spot rather than
+ * refusing — provisioning creates them now, but accounts invited before that
+ * still have none, and an emergency is the wrong moment to discover it.
+ */
+async function orgForAccount(email: string): Promise<{ id: string | null; reason: string | null }> {
+  const address = String(email || "").trim().toLowerCase();
+  if (!address) return { id: null, reason: "no account on this call" };
+
+  let portalType = "";
+  try {
+    const grant = (await kv.get(`feature_grant:${address}`)) as any;
+    portalType = String(grant?.portalType || "");
+  } catch { /* an audience we cannot read is an empty one */ }
+
+  const found = await admin
+    .from("organizations")
+    .select("id, type")
+    .eq("email", address)
+    .limit(5);
+
+  if (found.data?.length) {
+    // Prefer the one matching the portal they actually hold; a person can be a
+    // landlord and a customer, and their landlord org is the one with buildings.
+    const match = portalType
+      ? found.data.find((o: any) => String(o.type) === portalType) || found.data[0]
+      : found.data[0];
+    return { id: String(match.id), reason: null };
+  }
+
+  if (!portalType) return { id: null, reason: "this account has no portal type, so no organisation can be made for it" };
+  const made = await ensureOrganization({ email: address, portalType });
+  return made.orgId
+    ? { id: made.orgId, reason: null }
+    : { id: null, reason: made.reason || "could not create an organisation" };
+}
+
+/**
+ * POST /on-call-calls/:id/take — somebody has it.
+ *
+ * Recorded rather than inferred. "Who picked this up and when" is the first
+ * question asked about any emergency afterwards, and a status that only ever
+ * says open or closed cannot answer it.
+ */
+onCallRouter.post(`${PREFIX}/on-call-calls/:id/take`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const call = await readCall(c.req.param("id"));
+    if (!call) return c.json({ success: false, error: "No such call." }, 404);
+    if (!mayTouch(call, who)) return c.json({ success: false, error: "That is not your call." }, 403);
+    if (call.status === "closed") return c.json({ success: false, error: "That call is already closed." }, 409);
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...call,
+      status: "answered",
+      takenBy: who.email,
+      takenAt: call.takenAt || now,
+      updatedAt: now,
+    };
+    await kv.set(CALL(call.id), updated);
+    console.log(`[OnCall] ${who.email} took call ${call.id}`);
+    return c.json({ success: true, call: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not take that call." }, 500);
+  }
+});
+
+/**
+ * POST /on-call-calls/:id/close — it is dealt with.
+ */
+onCallRouter.post(`${PREFIX}/on-call-calls/:id/close`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const call = await readCall(c.req.param("id"));
+    if (!call) return c.json({ success: false, error: "No such call." }, 404);
+    if (!mayTouch(call, who)) return c.json({ success: false, error: "That is not your call." }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+    const updated = {
+      ...call,
+      status: "closed",
+      closedBy: who.email,
+      closedAt: now,
+      resolution: String(body?.resolution || "").slice(0, 1000) || call.resolution || "",
+      updatedAt: now,
+    };
+    await kv.set(CALL(call.id), updated);
+    return c.json({ success: true, call: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not close that call." }, 500);
+  }
+});
+
+/**
+ * POST /on-call-calls/:id/to-exchange — put it out to Phoenix Exchange, for real.
+ *
+ * WHAT THIS REPLACES
+ *
+ * The on-call screen pushed a job into `localStorage['bidRoomJobs']`, a key
+ * nothing in this codebase has ever read, and then said "sent successfully".
+ * The real exchange keeps its work in `bid_requests`, so that is what this
+ * writes.
+ *
+ * THE CONTRACT CHECK IS THE POINT
+ *
+ * A call whose plan came back `contracted` is refused outright, and so is one
+ * inside office hours. The routing already decided both — re-deciding them here
+ * would be two places disagreeing about the one rule that must not bend. An
+ * account that holds an exclusive agreement for a trade must never have that
+ * work broadcast to other contractors, and this is the exact door through which
+ * it would happen.
+ *
+ * BLACK PHOENIX GOES FIRST
+ *
+ * Posted with `first_refusal_org_id` set to the operator organisation and a
+ * fifteen-minute window, which is the exchange model applied to an emergency:
+ * we see it first and choose, then it opens to subscribers.
+ */
+onCallRouter.post(`${PREFIX}/on-call-calls/:id/to-exchange`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const call = await readCall(c.req.param("id"));
+    if (!call) return c.json({ success: false, error: "No such call." }, 404);
+    if (!mayTouch(call, who)) return c.json({ success: false, error: "That is not your call." }, 403);
+    if (call.bidRequestId) {
+      return c.json({
+        success: false,
+        error: "This call is already on the exchange.",
+        bidRequestId: call.bidRequestId,
+      }, 409);
+    }
+
+    /**
+     * The two refusals, taken from the routing rather than recomputed.
+     */
+    if (call.plan?.outcome === "contracted") {
+      const holders = (call.plan?.contracted || [])
+        .filter((v: any) => v?.exclusive).map((v: any) => v?.name).filter(Boolean).join(", ");
+      return c.json({
+        success: false,
+        error: `${holders || "A contractor"} holds an exclusive contract for this work, so it `
+          + "cannot be put out to other contractors.",
+      }, 409);
+    }
+    if (call.plan?.outcome === "office-hours") {
+      return c.json({
+        success: false,
+        error: "This came in during working hours, so it is an ordinary request rather than "
+          + "an emergency for the exchange.",
+      }, 409);
+    }
+
+    const org = await orgForAccount(call.accountEmail);
+    if (!org.id) {
+      return c.json({ success: false, error: `Cannot post this: ${org.reason}.` }, 409);
+    }
+
+    // Black Phoenix's own organisation, which holds first refusal.
+    const operator = await admin
+      .from("organizations").select("id").eq("type", "operator").limit(1).maybeSingle();
+
+    const until = new Date(Date.now() + FIRST_REFUSAL_MINUTES * 60_000).toISOString();
+    const row: Record<string, any> = {
+      org_id: org.id,
+      title: String(call.title || "Emergency").slice(0, 200),
+      trade: String(call.trade || "").slice(0, 80) || null,
+      description: [
+        call.siteAddress ? `Site: ${call.siteAddress}` : "",
+        call.plan?.reason ? `Routing: ${call.plan.reason}` : "",
+      ].filter(Boolean).join("\n") || null,
+      site_address: String(call.siteAddress || "").slice(0, 300) || null,
+      status: "open",
+      is_emergency: true,
+    };
+    if (operator.data?.id) {
+      row.first_refusal_org_id = operator.data.id;
+      row.first_refusal_until = until;
+    }
+
+    const { data, error } = await admin.from("bid_requests").insert(row).select("id").maybeSingle();
+    if (error) {
+      console.log(`[OnCall] exchange post failed for ${call.id}: ${error.message}`);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    const bidRequestId = data?.id ? String(data.id) : null;
+
+    /**
+     * Contracted contractors are invited first, where they can be.
+     *
+     * A non-exclusive contract does not close the exchange off, but it does
+     * mean the account already has somebody for this trade — so they are
+     * invited by name alongside the open posting rather than competing with it
+     * unannounced. Only those with an organisation on the platform can be
+     * invited; the rest are already named on the call for whoever is triaging.
+     */
+    const invitable = (call.plan?.contracted || [])
+      .map((v: any) => String(v?.orgId || "").trim())
+      .filter(Boolean);
+    if (bidRequestId && invitable.length) {
+      await admin.from("bid_invitations").insert(
+        invitable.map((orgId: string) => ({ bid_request_id: bidRequestId, org_id: orgId })),
+      );
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...call,
+      bidRequestId,
+      sentToExchangeAt: now,
+      sentToExchangeBy: who.email,
+      firstRefusalUntil: operator.data?.id ? until : null,
+      updatedAt: now,
+    };
+    await kv.set(CALL(call.id), updated);
+
+    console.log(`[OnCall] call ${call.id} posted to the exchange as ${bidRequestId}`);
+    return c.json({
+      success: true,
+      call: updated,
+      bidRequestId,
+      firstRefusalUntil: updated.firstRefusalUntil,
+      invited: invitable.length,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not post that to the exchange." }, 500);
   }
 });
 
