@@ -162,6 +162,14 @@ interface PipelineItem {
     processSteps: any[];
     materialsSubtotal: number;
     laborSubtotal: number;
+    /**
+     * Material the customer supplied themselves — their own flooring, their
+     * own fixtures. Subtracted from the materials figure rather than from the
+     * bottom of the quote, so no markup and no sales tax ride on something we
+     * never bought.
+     */
+    credits?: Array<{ id: string; description: string; amount: number; reason?: string }>;
+    creditsSubtotal?: number;
     taxRate: number;
     taxAmount: number;
     totalCost: number;
@@ -559,14 +567,26 @@ export default function UnifiedProjectPipeline() {
                 // Calculate totals
                 const materialsSubtotal = materials.reduce((sum: number, m: any) => sum + (m.totalPrice || 0), 0);
                 const laborSubtotal = labor.reduce((sum: number, l: any) => sum + (l.totalPrice || 0), 0);
-                const taxAmount = (materialsSubtotal + laborSubtotal) * 0.08;
-                const totalCost = materialsSubtotal + laborSubtotal + taxAmount;
+
+                /**
+                 * Credits survive a materials re-sync.
+                 *
+                 * This runs when somebody re-prices the job from the Materials
+                 * Hub, which rebuilds the material lines wholesale. A credit is
+                 * not a material line and must not be swept away with them —
+                 * the customer still bought their own flooring.
+                 */
+                const credits = item.quote?.credits || [];
+                const creditsSubtotal = credits.reduce(
+                  (sum: number, c: any) => sum + Math.abs(Number(c?.amount) || 0), 0);
+                const taxAmount = Math.max(0, materialsSubtotal + laborSubtotal - creditsSubtotal) * 0.08;
+                const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
                 
                 toast.success(`Updated ${materials.length} materials in quote #${item.itemNumber}`);
                 
                 const updated = {
                   ...item,
-                  quote: item.quote ? { ...item.quote, materials, labor, materialsSubtotal, laborSubtotal, taxAmount, totalCost } : undefined,
+                  quote: item.quote ? { ...item.quote, materials, labor, materialsSubtotal, laborSubtotal, credits, creditsSubtotal, taxAmount, totalCost } : undefined,
                   lastModified: new Date().toISOString()
                 };
                 void saveItemToBackend(updated).catch((error) => toast.error(error.message || 'Unable to save materials to the quote.'));
@@ -598,6 +618,18 @@ export default function UnifiedProjectPipeline() {
       materials: item.quote.materials || [],
       labor: item.quote.labor || item.quote.laborItems || [],
       processSteps: item.quote.processSteps || [],
+      /**
+       * Carried, because this function builds a fresh object and anything it
+       * does not name is destroyed on the round trip.
+       *
+       * Without this a credit entered in the editor would survive until the
+       * quote was next opened from the pipeline and then silently vanish,
+       * putting the material back on the bill. The customer would be charged
+       * for flooring they bought themselves, and the only trace would be a
+       * total that quietly went up.
+       */
+      credits: item.quote.credits || [],
+      creditsSubtotal: item.quote.creditsSubtotal || 0,
       materialsSubtotal: item.quote.materialsSubtotal || 0,
       laborSubtotal: item.quote.laborSubtotal || 0,
       taxRate: item.quote.taxRate || 0.08,
