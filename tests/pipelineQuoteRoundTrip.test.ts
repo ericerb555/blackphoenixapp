@@ -61,3 +61,44 @@ test('a materials re-sync does not sweep the credits away with the material line
     'the re-sync must preserve credits — the customer still bought their own flooring');
   assert.match(block, /creditsSubtotal/);
 });
+
+/* ── quote to invoice ────────────────────────────────────────────────────── */
+
+/**
+ * The invoice hand-off had the same shape of bug as the editor conversion, and
+ * a worse consequence. It sent `estimatedValue` — the customer's stated budget,
+ * not the quoted price. The note at the top of UnifiedProjectPipeline describes
+ * that confusion costing a pipeline total: a job quoted at $49,674.82 against a
+ * budget of $500,000 reading as $500,000. Here it would have invoiced it.
+ *
+ * It also flattened the whole quote into one "Project Work" line, losing both
+ * the breakdown the customer approved and the one thing an invoice line cannot
+ * work out for itself: whether tax applies to it.
+ */
+
+test('the invoice hand-off sends the quoted price, not the budget', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/app/pages/UnifiedProjectPipeline.tsx', 'utf8');
+  const start = source.indexOf("sessionStorage.setItem('pendingInvoiceData'");
+  assert.ok(start > 0, 'the invoice hand-off has moved');
+  const block = source.slice(Math.max(0, start - 3000), start);
+
+  assert.match(block, /amount:\s*quoteTotal\(item\.quote\)/,
+    'the invoice amount must come from the quote, not from estimatedValue');
+  assert.match(block, /lineItems:/,
+    'the quote\u2019s lines must travel with it, or the breakdown is lost');
+});
+
+test('materials go across taxable and labour does not', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync('src/app/pages/UnifiedProjectPipeline.tsx', 'utf8');
+  const start = source.indexOf('const materialLines = (q.materials');
+  assert.ok(start > 0, 'the line conversion has moved');
+  const block = source.slice(start, start + 1600);
+
+  const materials = block.slice(block.indexOf('materialLines'), block.indexOf('laborLines'));
+  const labour = block.slice(block.indexOf('laborLines'));
+
+  assert.match(materials, /is_taxable:\s*true/, 'materials carry sales tax');
+  assert.match(labour, /is_taxable:\s*false/, 'labour is a service and does not');
+});

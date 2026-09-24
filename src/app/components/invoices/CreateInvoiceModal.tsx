@@ -122,8 +122,29 @@ export default function CreateInvoiceModal({
         notes: projectData.title ? `Project: ${projectData.title}\n\n${projectData.description || ''}` : prev.notes,
       }));
       
-      // Pre-fill a line item with the project amount if available
-      if (projectData.amount) {
+      /**
+       * The quote’s own lines, where there are any.
+       *
+       * Each arrives already marked for tax by what it is — materials taxable,
+       * labour not — because the quote knows the difference and an invoice
+       * line, being a description and a number, cannot work it out. Flattening
+       * the quote into a single "Project Work" line loses that, and loses the
+       * breakdown the customer was shown when they approved it.
+       *
+       * The single-line fallback is kept for a job with no quote behind it,
+       * which is a real case — somebody invoicing a small piece of work
+       * directly.
+       */
+      const quoted = Array.isArray(projectData.lineItems) ? projectData.lineItems : [];
+      if (quoted.length > 0) {
+        setLineItems(quoted.map((line: any, i: number) => ({
+          line_number: i + 1,
+          description: String(line.description || 'Line item'),
+          quantity: Number(line.quantity) || 1,
+          unit_price: Number(line.unit_price) || 0,
+          is_taxable: line.is_taxable !== false,
+        })));
+      } else if (projectData.amount) {
         setLineItems([
           {
             line_number: 1,

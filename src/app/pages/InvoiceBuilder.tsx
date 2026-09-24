@@ -460,12 +460,17 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
         description: `${m.name}${m.unit ? ` (${m.unit})` : ''}`,
         qty: Number(m.quantity) || 1,
         rate: Number(m.unitCost) || 0,
+        // Materials carry sales tax.
+        taxable: true,
       }));
       const laborLines: LineItem[] = (quote.labor || []).map((l: any) => ({
         id: crypto.randomUUID(),
         description: `Labor — ${l.role}`,
         qty: Number(l.hours) || 1,
         rate: Number(l.hourlyRate) || 0,
+        // Labour is a service and is not taxed here. Marked as the line is
+        // built, so nobody has to remember to press the toggle on each one.
+        taxable: false,
       }));
       setCurrent(prev => prev ? {
         ...prev,
