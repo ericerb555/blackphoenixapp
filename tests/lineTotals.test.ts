@@ -129,3 +129,66 @@ test('a credit alone is a document entirely in their favour', () => {
   assert.equal(t.total, -1240);
   assert.ok(t.inCustomersFavour);
 });
+
+/* ── tax per line, because an invoice has no material/labour field ───────── */
+
+/**
+ * Construction tax here is on materials, not labour. An invoice line is just a
+ * description and a number, so which lines are taxable has to be said per
+ * line — and the default has to preserve every invoice already issued, because
+ * changing the tax on paper somebody is holding is not a bug fix.
+ */
+
+test('a line with no flag is taxable, so existing invoices do not move', () => {
+  const t = totalsFor([{ qty: 1, rate: 1000 }], 8);
+  assert.equal(t.taxableSubtotal, 1000);
+  assert.equal(t.tax, 80);
+});
+
+test('labour marked non-taxable is not taxed, but is still charged', () => {
+  const t = totalsFor([
+    { description: 'Flooring', qty: 1, rate: 2000 },
+    { description: 'Fitting, 8 hrs', qty: 8, rate: 75, taxable: false },
+  ], 8);
+  assert.equal(t.subtotal, 2600, 'the labour is still billed');
+  assert.equal(t.taxableSubtotal, 2000, 'but tax is on the material only');
+  assert.equal(t.tax, 160);
+  assert.equal(t.total, 2760);
+});
+
+test('a credit takes its tax with it', () => {
+  const t = totalsFor([
+    { description: 'Flooring', qty: 1, rate: 2000 },
+    { description: 'Customer supplied flooring', qty: 1, rate: 2000, kind: 'credit' },
+  ], 8);
+  assert.equal(t.taxableSubtotal, 0);
+  assert.equal(t.tax, 0, 'we are not charging for the material, so not for its tax either');
+});
+
+test('a non-taxable credit reduces the bill without touching the tax', () => {
+  const t = totalsFor([
+    { description: 'Flooring', qty: 1, rate: 2000 },
+    { description: 'Goodwill allowance', qty: 1, rate: 500, kind: 'credit', taxable: false },
+  ], 8);
+  assert.equal(t.taxableSubtotal, 2000);
+  assert.equal(t.tax, 160, 'the material was still sold, so its tax stands');
+  assert.equal(t.total, 2000 - 500 + 160);
+});
+
+test('credits larger than the taxable charges cannot produce a negative tax', () => {
+  const t = totalsFor([
+    { qty: 1, rate: 500 },
+    { qty: 1, rate: 900, kind: 'credit' },
+  ], 8);
+  assert.equal(t.tax, 0, 'a negative tax would quietly add money back');
+  assert.equal(t.total, -400);
+});
+
+test('an all-labour invoice carries no tax at all', () => {
+  const t = totalsFor([
+    { description: 'Labour', qty: 10, rate: 85, taxable: false },
+  ], 8);
+  assert.equal(t.subtotal, 850);
+  assert.equal(t.tax, 0);
+  assert.equal(t.total, 850);
+});

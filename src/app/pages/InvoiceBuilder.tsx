@@ -37,7 +37,23 @@ interface LineItem {
   kind?: 'charge' | 'credit';
   /** Why it was given, for whoever reads this later. */
   reason?: string;
+  /**
+   * Does sales tax apply to this line?
+   *
+   * Construction tax here is on materials, not on labour, so eight hours of
+   * fitting should carry none. An invoice line is only a description and a
+   * number, so it has to be said per line.
+   *
+   * ABSENT MEANS TAXABLE. Every invoice already written has no such field,
+   * and defaulting the other way would silently reduce the tax on documents
+   * that have already gone to customers — changing money on paper somebody
+   * is holding, which is not a bug fix.
+   */
+  taxable?: boolean;
 }
+
+/** Absent means taxable — see the field. */
+const isTaxable = (i: LineItem) => i.taxable !== false;
 
 /** One line’s effect on the subtotal, signed by its kind. */
 const signedAmount = (i: LineItem) =>
@@ -78,7 +94,9 @@ interface Invoice {
 /** Line items plus tax — the one place the document's value is worked out. */
 function docTotal(inv: Invoice): number {
   const sub = (inv.items || []).reduce((s, i) => s + signedAmount(i), 0);
-  return Math.round((sub + sub * (Number(inv.taxRate || 0) / 100)) * 100) / 100;
+  const taxBase = Math.max(0, (inv.items || []).reduce(
+    (s, i) => s + (isTaxable(i) ? signedAmount(i) : 0), 0));
+  return Math.round((sub + taxBase * (Number(inv.taxRate || 0) / 100)) * 100) / 100;
 }
 
 const BLANK_ITEM = (): LineItem => ({ id: crypto.randomUUID(), description: '', qty: 1, rate: 0 });
@@ -826,7 +844,10 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
     if (!current) return;
     const dels = delsOverride ?? deliverables;
     const sub = current.items.reduce((s, i) => s + signedAmount(i), 0);
-    const t = sub * ((current.taxRate || 0) / 100);
+    // Tax on the taxable lines only — labour is a service and is not taxed.
+    const taxBase = Math.max(0, current.items.reduce(
+      (s, i) => s + (isTaxable(i) ? signedAmount(i) : 0), 0));
+    const t = taxBase * ((current.taxRate || 0) / 100);
     const payload = {
       exportedAt: new Date().toISOString(),
       type: current.type,
@@ -884,16 +905,29 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
   const charges = current?.items.reduce((s, i) => s + (i.kind === 'credit' ? 0 : Math.abs(i.qty || 0) * Math.abs(i.rate || 0)), 0) ?? 0;
   const credits = current?.items.reduce((s, i) => s + (i.kind === 'credit' ? Math.abs(i.qty || 0) * Math.abs(i.rate || 0) : 0), 0) ?? 0;
   const subtotal = current?.items.reduce((s, i) => s + signedAmount(i), 0) ?? 0;
-  const tax = subtotal * ((current?.taxRate ?? 0) / 100);
+  /**
+   * Only the taxable lines, floored at zero.
+   *
+   * A credit against material takes its tax with it; credits larger than the
+   * taxable charges must not produce a negative tax that quietly adds money
+   * back to the bill.
+   */
+  const taxBase = Math.max(0, current?.items.reduce(
+    (s, i) => s + (isTaxable(i) ? signedAmount(i) : 0), 0) ?? 0);
+  const tax = taxBase * ((current?.taxRate ?? 0) / 100);
   const grandTotal = subtotal + tax;
 
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, inv) => {
     const sub = inv.items.reduce((a, item) => a + signedAmount(item), 0);
-    return s + sub + sub * (inv.taxRate / 100);
+    const base = Math.max(0, inv.items.reduce(
+      (a, item) => a + (isTaxable(item) ? signedAmount(item) : 0), 0));
+    return s + sub + base * (inv.taxRate / 100);
   }, 0);
   const outstanding = invoices.filter(i => i.status === 'sent' || i.status === 'viewed').reduce((s, inv) => {
     const sub = inv.items.reduce((a, item) => a + signedAmount(item), 0);
-    return s + sub + sub * (inv.taxRate / 100);
+    const base = Math.max(0, inv.items.reduce(
+      (a, item) => a + (isTaxable(item) ? signedAmount(item) : 0), 0));
+    return s + sub + base * (inv.taxRate / 100);
   }, 0);
 
   return (
@@ -961,7 +995,9 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
           <div className="space-y-2">
             {invoices.filter(inv => filter === 'all' || !inv.customerId).map(inv => {
               const sub = inv.items.reduce((a, i) => a + i.qty * i.rate, 0);
-              const total = sub + sub * (inv.taxRate / 100);
+              const base = Math.max(0, inv.items.reduce(
+                (s, item) => s + (isTaxable(item) ? signedAmount(item) : 0), 0));
+              const total = sub + base * (inv.taxRate / 100);
               const sc = STATUS_CONFIG[inv.status];
               return (
                 <button key={inv.id} onClick={() => openEdit(inv)}
@@ -1212,6 +1248,21 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
                     >
                       {credit ? '− Credit' : 'Credit?'}
                     </button>
+                    {/* Construction tax is on materials, not labour. Untaxed
+                        lines still bill in full — they just carry no tax. */}
+                    <button
+                      onClick={() => setItem(item.id, 'taxable', item.taxable === false)}
+                      className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                        item.taxable === false
+                          ? 'text-gray-600 border border-[#2a2a2a] hover:text-gray-400'
+                          : 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                      }`}
+                      title={item.taxable === false
+                        ? 'No sales tax on this line — labour and services'
+                        : 'Sales tax applies to this line'}
+                    >
+                      {item.taxable === false ? 'No tax' : 'Taxed'}
+                    </button>
                     {credit && (
                       <input
                         value={item.reason || ''}
@@ -1239,6 +1290,14 @@ export default function InvoiceBuilder({ onNavigate }: { onNavigate?: (page: str
                     <span>Credits</span><span>−${credits.toFixed(2)}</span>
                   </div>
                 </>
+              )}
+              {/* Only when it differs from the subtotal, since otherwise it is
+                  noise — but when it differs somebody WILL ask why the tax is
+                  not the rate times the subtotal. */}
+              {Math.abs(taxBase - subtotal) > 0.005 && (
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>Taxed on</span><span>${taxBase.toFixed(2)}</span>
+                </div>
               )}
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <div className="flex items-center gap-2">

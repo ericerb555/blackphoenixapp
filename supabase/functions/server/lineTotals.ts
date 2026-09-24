@@ -21,12 +21,19 @@
  * wrong. So the AMOUNT is always positive and the KIND decides the sign. A
  * credit cannot be created by accident, and a charge cannot become one.
  *
- * WHY TAX IS CHARGED ON THE NET
+ * WHAT TAX IS CHARGED ON
  *
- * Because we did not sell them the flooring. Taxing the gross and then
- * crediting the material would charge them tax on somebody else's sale. The
- * credit reduces the taxable base, which is the same answer as never having
- * billed the material in the first place — which is what actually happened.
+ * The taxable lines, net of any credits against them. Two rules meet here.
+ *
+ * Construction tax is on materials, not on labour, and an invoice line is only
+ * a description and a number — so each line says whether it is taxable. Absent
+ * means taxable, which preserves every invoice already issued rather than
+ * silently reducing the tax on paper somebody is holding.
+ *
+ * And a credit takes its tax with it: we did not sell them the flooring, so
+ * taxing the gross and crediting the material would charge them tax on
+ * somebody else's sale. Netting first gives the same answer as never having
+ * billed it — which is what actually happened.
  */
 
 export type LineKind = 'charge' | 'credit';
@@ -40,6 +47,20 @@ export interface MoneyLine {
   kind?: LineKind;
   /** Free text for a credit: "supplied own flooring — Home Depot receipt". */
   reason?: string;
+  /**
+   * Does sales tax apply to this line?
+   *
+   * Construction tax here is on materials, not on labour — so a line for
+   * eight hours of fitting should not carry any. An invoice line has no
+   * material-or-labour field to read that from, so it is said per line.
+   *
+   * ABSENT MEANS TAXABLE, deliberately. Every invoice already written has no
+   * such field, and defaulting the other way would silently reduce the tax on
+   * documents that have already gone to customers — changing money on paper
+   * somebody is holding. The default preserves them exactly; new lines get
+   * the flag set as they are created.
+   */
+  taxable?: boolean;
 }
 
 export interface Totals {
@@ -49,6 +70,14 @@ export interface Totals {
   credits: number;
   /** charges − credits. */
   subtotal: number;
+  /**
+   * The part of the subtotal that tax is actually charged on.
+   *
+   * Reported rather than left implicit, because "why is the tax not eight
+   * per cent of the subtotal" is a question somebody will ask about every
+   * invoice that has a labour line on it.
+   */
+  taxableSubtotal: number;
   taxRatePercent: number;
   tax: number;
   total: number;
@@ -68,6 +97,11 @@ const money = (c: number) => Math.round(c) / 100;
 
 export function isCredit(line: MoneyLine | null | undefined): boolean {
   return String(line?.kind || 'charge') === 'credit';
+}
+
+/** Absent means taxable — see the note on the field. */
+export function isTaxable(line: MoneyLine | null | undefined): boolean {
+  return line?.taxable !== false;
 }
 
 /**
@@ -102,21 +136,35 @@ export function totalsFor(
 ): Totals {
   let chargeCents = 0;
   let creditCents = 0;
+  let taxableCents = 0;
 
   for (const line of lines || []) {
     const amount = lineAmountCents(line);
     if (amount < 0) creditCents += -amount;
     else chargeCents += amount;
+    /**
+     * Credits count towards the taxable base too, with their sign.
+     *
+     * A credit for customer-supplied flooring is material leaving the bill,
+     * so it should take its tax with it. Marking that credit non-taxable
+     * instead would reduce the total but leave the tax on material we are no
+     * longer charging for.
+     */
+    if (isTaxable(line)) taxableCents += amount;
   }
 
   const rate = Number(taxRatePercent) || 0;
   const subtotalCents = chargeCents - creditCents;
-  const taxCents = Math.round(subtotalCents * (rate / 100));
+  // Floored at zero: credits larger than the taxable charges must not
+  // produce a negative tax that quietly adds money back.
+  const taxBaseCents = Math.max(0, taxableCents);
+  const taxCents = Math.round(taxBaseCents * (rate / 100));
 
   return {
     charges: money(chargeCents),
     credits: money(creditCents),
     subtotal: money(subtotalCents),
+    taxableSubtotal: money(taxBaseCents),
     taxRatePercent: rate,
     tax: money(taxCents),
     total: money(subtotalCents + taxCents),
