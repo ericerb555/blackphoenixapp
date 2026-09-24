@@ -14,6 +14,7 @@ import {
   getTapes,
   getMiscConsumables
 } from './comprehensiveMaterialsList';
+import { constructionTax } from './constructionTax';
 
 interface PipelineItem {
   id: string;
@@ -442,7 +443,9 @@ function calculateQuoteTotals(data: { materials: any[], labor: any[], processSte
   const materialsSubtotal = data.materials.reduce((sum, m) => sum + m.totalCost, 0);
   const laborSubtotal = data.labor.reduce((sum, l) => sum + l.totalCost, 0);
   const taxRate = 0.08;
-  const taxAmount = (materialsSubtotal + laborSubtotal) * taxRate;
+  // Materials only — labour is a service. See constructionTax for why this
+  // is not spelled out here a second time.
+  const taxAmount = constructionTax({ materials: materialsSubtotal, rate: taxRate });
   const totalCost = materialsSubtotal + laborSubtotal + taxAmount;
   
   return {

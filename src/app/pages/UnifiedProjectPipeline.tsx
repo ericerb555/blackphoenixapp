@@ -52,6 +52,7 @@ import {
   type DesignProjectSummary,
 } from '../lib/designProjectService';
 import { useNavigate } from '../hooks/useNavigate';
+import { constructionTax } from '../lib/constructionTax';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -579,7 +580,18 @@ export default function UnifiedProjectPipeline() {
                 const credits = item.quote?.credits || [];
                 const creditsSubtotal = credits.reduce(
                   (sum: number, c: any) => sum + Math.abs(Number(c?.amount) || 0), 0);
-                const taxAmount = Math.max(0, materialsSubtotal + laborSubtotal - creditsSubtotal) * 0.08;
+                /**
+                 * Materials only. Labour is a service and is not taxed, which
+                 * is what the quote generator and the quote editor have always
+                 * done — this screen was the one taxing labour as well, so the
+                 * same job came out at two totals depending on which screen
+                 * touched it last.
+                 */
+                const taxAmount = constructionTax({
+                  materials: materialsSubtotal,
+                  credits: creditsSubtotal,
+                  rate: item.quote?.taxRate ?? 0.08,
+                });
                 const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
                 
                 toast.success(`Updated ${materials.length} materials in quote #${item.itemNumber}`);

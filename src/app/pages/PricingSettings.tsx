@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Settings, Save, RotateCcw, Wrench, Package } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import { constructionTax } from '../lib/constructionTax';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { loadPricingConfig, savePricingConfig, loadPricingConfigFromServer, savePricingConfigToServer, defaultPricingConfig, PricingConfig } from '../lib/pricingConfig';
 import { projectId } from '../utils/supabase/info';
@@ -333,7 +334,11 @@ export default function PricingSettings() {
               const overhead = subtotal * (config.overheadPercentage / 100);
               const profit = subtotal * (config.profitMargin / 100);
               const subtotalWithProfitOverhead = subtotal + overhead + profit;
-              const tax = subtotalWithProfitOverhead * (config.taxRate / 100);
+              // Materials only, with their share of overhead and profit — the
+              // preview has to produce the figure a real quote would, or it is
+              // teaching the wrong number.
+              const materialsShare = subtotalWithProfitOverhead * (materials / subtotal);
+              const tax = constructionTax({ materials: materialsShare, rate: config.taxRate });
               const grandTotal = subtotalWithProfitOverhead + tax;
 
               return (

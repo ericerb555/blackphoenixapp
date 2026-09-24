@@ -21,6 +21,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/mod
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { constructionTax } from '../lib/constructionTax';
 
 interface ChangeOrder {
   id: string;
@@ -658,7 +659,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
             materialsSubtotal,
             laborSubtotal,
             taxRate: 0.08,
-            taxAmount: (materialsSubtotal + laborSubtotal) * 0.08,
+            taxAmount: constructionTax({ materials: materialsSubtotal, rate: 0.08 }),
             totalCost: estValue,
             generatedAt: new Date().toISOString(),
             approvalStatus: 'pending',
@@ -711,7 +712,17 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
       const subtotal = materialsTotal + laborTotal;
       const markupPercent = 15;
       const markupAmount = subtotal * 0.15;
-      const tax = (subtotal + markupAmount) * 0.08;
+      /**
+       * Materials only, and the markup on them.
+       *
+       * Taxing the whole subtotal charged the customer tax on labour hours,
+       * which is not taxable here. The markup on materials IS part of what
+       * they are being sold, so it stays in the base.
+       */
+      const tax = constructionTax({
+        materials: materialsTotal * 1.15,
+        rate: 0.08,
+      });
       const totalCost = subtotal + markupAmount + tax;
 
       const changeOrder = {
