@@ -83,22 +83,26 @@ test('the invoice hand-off sends the quoted price, not the budget', async () => 
   assert.ok(start > 0, 'the invoice hand-off has moved');
   const block = source.slice(Math.max(0, start - 3000), start);
 
-  assert.match(block, /amount:\s*quoteTotal\(item\.quote\)/,
+  assert.match(block, /amount:\s*invoiceAmountFromQuote\(/,
     'the invoice amount must come from the quote, not from estimatedValue');
   assert.match(block, /lineItems:/,
     'the quote\u2019s lines must travel with it, or the breakdown is lost');
 });
 
-test('materials go across taxable and labour does not', async () => {
+test('the conversion goes through the tested module, not a second copy', async () => {
   const fs = await import('node:fs');
   const source = fs.readFileSync('src/app/pages/UnifiedProjectPipeline.tsx', 'utf8');
-  const start = source.indexOf('const materialLines = (q.materials');
-  assert.ok(start > 0, 'the line conversion has moved');
-  const block = source.slice(start, start + 1600);
 
-  const materials = block.slice(block.indexOf('materialLines'), block.indexOf('laborLines'));
-  const labour = block.slice(block.indexOf('laborLines'));
-
-  assert.match(materials, /is_taxable:\s*true/, 'materials carry sales tax');
-  assert.match(labour, /is_taxable:\s*false/, 'labour is a service and does not');
+  /**
+   * The taxability rules themselves are proven with numbers in
+   * quoteToInvoice.test.ts. This asserts the page actually CALLS that module
+   * rather than growing its own copy — which is the only thing that makes
+   * those proofs mean anything about what a customer receives.
+   */
+  assert.match(source, /invoiceLinesFromQuote\(item\.quote/,
+    'the lines must come from the tested conversion');
+  assert.match(source, /invoiceAmountFromQuote\(item\.quote/,
+    'and so must the amount, or the budget creeps back in');
+  assert.ok(!/const materialLines = \(q\.materials/.test(source),
+    'a second inline copy is how the two drift apart');
 });

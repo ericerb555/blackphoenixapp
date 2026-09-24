@@ -53,6 +53,7 @@ import {
 } from '../lib/designProjectService';
 import { useNavigate } from '../hooks/useNavigate';
 import { constructionTax } from '../lib/constructionTax';
+import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInvoice';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -1586,47 +1587,22 @@ export default function UnifiedProjectPipeline() {
                           {stage === 'contract' && (
                             <button
                               onClick={() => {
-                                /**
+                                  /**
                                  * The QUOTE goes to the invoice, not the budget.
                                  *
-                                 * This sent `estimatedValue`, which is the
-                                 * customer’s stated budget and not a price — the
-                                 * same confusion the note at the top of this file
-                                 * describes, where a job quoted at $49,674.82
-                                 * against a budget of $500,000 read as $500,000.
-                                 * There it mis-reported a pipeline total. Here it
-                                 * would have invoiced the wrong number.
+                                 * This sent `estimatedValue`, the customer’s stated
+                                 * budget rather than a price — the same confusion the
+                                 * note at the top of this file describes, where a job
+                                 * quoted at $49,674.82 against a budget of $500,000
+                                 * read as $500,000. There it mis-reported a pipeline
+                                 * total. Here it would have invoiced it.
                                  *
-                                 * The line items go too, each marked for tax by
-                                 * what it is: materials are taxable, labour is a
-                                 * service and is not. The quote already knows the
-                                 * difference and the invoice cannot infer it, so
-                                 * losing it here means somebody re-deciding it by
-                                 * hand on every line.
+                                 * Built by `quoteToInvoice` rather than inline, because
+                                 * what it decides — which lines carry sales tax, and what
+                                 * figure a customer is billed — could otherwise only be
+                                 * checked by clicking through the app signed in.
                                  */
-                                const q: any = item.quote || {};
-                                const materialLines = (q.materials || []).map((m: any) => ({
-                                  description: `${m.name || m.description || 'Material'}${m.unit ? ` (${m.unit})` : ''}`,
-                                  quantity: Number(m.quantity) || 1,
-                                  unit_price: Number(m.unitCost ?? m.unitPrice) || 0,
-                                  is_taxable: true,
-                                }));
-                                const laborLines = (q.labor || q.laborItems || []).map((l: any) => ({
-                                  description: `Labor — ${l.role || l.description || 'work'}`,
-                                  quantity: Number(l.hours) || 1,
-                                  unit_price: Number(l.hourlyRate ?? l.unitPrice) || 0,
-                                  is_taxable: false,
-                                }));
-                                const creditLines = (q.credits || []).map((c: any) => ({
-                                  description: c.description || 'Customer-supplied material',
-                                  quantity: 1,
-                                  // Negative here because this invoice model has no
-                                  // credit kind of its own; the amount stays the
-                                  // record of what was allowed.
-                                  unit_price: -Math.abs(Number(c.amount) || 0),
-                                  is_taxable: true,
-                                }));
-
+                                const quoteLines = invoiceLinesFromQuote(item.quote as any);
                                 const projectData = {
                                   id: item.id,
                                   customerName: item.customerName,
@@ -1637,10 +1613,10 @@ export default function UnifiedProjectPipeline() {
                                   description: item.description,
                                   // The quoted price, falling back to the budget
                                   // only when nothing has been quoted at all.
-                                  amount: quoteTotal(item.quote) ?? item.estimatedValue,
+                                  amount: invoiceAmountFromQuote(item.quote as any, item.estimatedValue),
                                   quotedAmount: quoteTotal(item.quote),
-                                  taxRate: q.taxRate,
-                                  lineItems: [...materialLines, ...laborLines, ...creditLines],
+                                  taxRate: (item.quote as any)?.taxRate,
+                                  lineItems: quoteLines,
                                   itemNumber: item.itemNumber
                                 };
                                 sessionStorage.setItem('pendingInvoiceData', JSON.stringify(projectData));
