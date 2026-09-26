@@ -879,7 +879,127 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  investor: { title: "Your investor portal guide", summary: "Review your portfolio, opportunities, reports, distributions, documents, plan information, and communications.", start: "Begin with Portfolio, then review Opportunities and Documents before making a decision.", sections: [{ name: "Portfolio & reports", detail: "Follow portfolio activity and available reporting.", status: "Investment visibility" }, { name: "Opportunities", detail: "Explore active offerings and their supporting details.", status: "Decision support" }, { name: "Distributions & documents", detail: "Review distribution information and important records.", status: "Investor records" }, { name: "Plans & messages", detail: "Access plan benefits and communicate securely.", status: "Account support" }] },
+  investor: {
+    title: "Your investor portal guide",
+    summary:
+      "What you have committed, what has been paid back to you, what is currently open, and the documents behind each of them. Every figure here is counted from your own records.",
+    start:
+      "Portfolio tells you where you stand. Opportunities is what is open. Read Documents before committing to anything.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "Where your holdings stand, and what is currently raising.",
+        steps: [
+          "Portfolio Performance charts total value and return over time; Export Report takes the figures out.",
+          "Investment Properties lists what you hold, each showing what you invested, its current value, its return and any monthly income.",
+          "New Investment Opportunities runs underneath, split into Company Equity and Property, each with its minimum, projected return and how much is funded so far.",
+          "Learn More opens the full detail on one.",
+        ],
+        note:
+          "“No performance history yet” means nothing has been recorded against your holdings so far, not that they are worth nothing. Projected return is a projection: it is what the offering document states, not a measurement of anything that has happened.",
+      },
+      {
+        name: "Portfolio",
+        purpose: "The detail behind the dashboard: every commitment you have made and what has come back.",
+        steps: [
+          "Invested and Received are totalled at the top.",
+          "Each line shows the investment, what you committed, what has been returned and its current status.",
+        ],
+        note:
+          "A commitment is created as pending and with nothing received against it — money paid back to you is recorded separately, as a distribution, so a commitment can never quietly declare itself part-paid.",
+      },
+      {
+        name: "Opportunities",
+        purpose: "Everything currently open, in full.",
+        steps: [
+          "Filter by All, Company Equity or Real Estate.",
+          "Each opportunity shows its minimum investment, projected return, term, and how many investors are in.",
+          "Key Benefits lists what the offering claims for itself.",
+          "View Full Details & Invest opens the offering and the commitment form.",
+        ],
+        note:
+          "Anything shown as a sample is exactly that, and the server refuses commitments against it — you will be told the listing is a sample rather than having a pledge recorded against terms that were written to fill a screen.",
+      },
+      {
+        name: "Reports",
+        purpose: "Your position summarised, and any analysis prepared for you.",
+        steps: [
+          "Position Summary totals capital invested, distributions received, current value, return to date, active investments, completed investments, distributions paid and documents held.",
+          "Analysis Reports lists anything prepared for your account.",
+        ],
+        note: "“No analysis reports yet” means none have been produced for you. The position summary above it is always live.",
+      },
+      {
+        name: "Distributions",
+        purpose: "Every payment made to you against your commitments.",
+        steps: [
+          "Total received sits at the top.",
+          "Each payment is listed with its date, description, amount and status.",
+        ],
+        note:
+          "Only you and Black Phoenix can see this. Distribution records are written by Black Phoenix, never by an investor — a payment appears here because it was made, not because it was claimed.",
+      },
+      {
+        name: "Documents",
+        purpose: "The paperwork behind each investment, and anything waiting on your signature.",
+        steps: [
+          "Each document shows whether it is Signed or Awaiting signature.",
+          "Open reads it.",
+          "Signing is done here; there is nothing to print or post.",
+        ],
+        note:
+          "Read these before committing rather than after. The terms in the document are the agreement; the projected return on the opportunity card is a summary of it.",
+      },
+      {
+        name: "Fee Tracker",
+        purpose: "Any subscription or fee arrangement attached to your account.",
+        steps: [
+          "The top panel shows the plan, its monthly fee and what has been used.",
+          "Each logged item is listed with its date, description and cost.",
+        ],
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change what you subscribe to, or add extras.",
+        steps: [
+          "Your Active Plans shows what you hold.",
+          "Take a standard tier, or describe what you need and have one proposed.",
+        ],
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: [
+          "Featured reels play at the top; offers are listed below with what they include and when they end.",
+        ],
+      },
+      {
+        name: "Referral Rewards",
+        purpose: "Your referral link and what it has earned.",
+        steps: [
+          "Copy Link, or share by email, SMS or WhatsApp.",
+          "Rewards are 5% of project value, shown as Potential until the referred project is paid.",
+        ],
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+        ],
+        note:
+          "Anything about terms, timing or a distribution belongs here rather than in a phone call, because it stays attached to your account where it can be found again.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run across the top.",
+          "If a figure here does not match what you expected, ask in Messages rather than assuming — every number in this portal is counted from a record that can be shown to you.",
+        ],
+      },
+    ],
+  },
   property_manager: { title: "Your property management hub", summary: "Manage properties, work requests, CRM contacts, financial activity, maintenance plans, and operational communication.", start: "Review Work Requests first, then use Properties and CRM to keep the account organized.", sections: [{ name: "Properties & work requests", detail: "Track your portfolio and approve or reject assigned work.", status: "Property operations" }, { name: "CRM", detail: "Maintain tenants, owners, vendors, prospects, and interaction history.", status: "Relationship management" }, { name: "Plans & financials", detail: "Monitor maintenance plan use, invoices, payments, and property revenue tools.", status: "Account control" }, { name: "Messages & settings", detail: "Keep decisions and account preferences in one place.", status: "Collaboration" }] },
   condo_manager: { title: "Your condo management hub", summary: "Manage units, owners, work requests, CRM, financials, maintenance plans, and association communication.", start: "Use Work Requests for approvals, then keep units and owners current.", sections: [{ name: "Units, owners & requests", detail: "Manage the association roster and assigned maintenance decisions.", status: "Association operations" }, { name: "CRM", detail: "Track owner, tenant, vendor, and prospect relationships.", status: "Relationship management" }, { name: "Plans & financials", detail: "Review plan usage, financial activity, and revenue tools.", status: "Financial visibility" }, { name: "Messages & settings", detail: "Coordinate decisions and maintain account settings.", status: "Collaboration" }] },
   landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },

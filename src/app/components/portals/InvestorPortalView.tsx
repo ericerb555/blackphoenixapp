@@ -34,7 +34,7 @@ export default function InvestorPortalView() {
   
   // Messages system
   const { unread: unreadMessages, clearUnread } = usePortalMessages('', '');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'opportunities' | 'reports' | 'distributions' | 'documents' | 'plan-tracker' | 'plan-builder' | 'referrals' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'opportunities' | 'reports' | 'distributions' | 'documents' | 'plan-tracker' | 'plan-builder' | 'deals' | 'referrals' | 'messages' | 'guide'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [opportunityFilter, setOpportunityFilter] = useState<'all' | 'company' | 'property'>('all');
@@ -248,6 +248,8 @@ export default function InvestorPortalView() {
     { id: 'plan-tracker', label: 'Fee Tracker', icon: BarChart3 },
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
+    // Messages was rendered and had no button, so an investor could not reach it.
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
