@@ -614,29 +614,30 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
           "Filter narrows the view; Add Event adds an entry.",
         ],
         note:
-          "This tab is a demonstration layout built on example entries written into the page — a stand-up meeting in Conference Room A and the like. Nothing here comes from the database and nothing you add is saved. What you are actually assigned is on the Dashboard as Work Orders, and in the Timesheet dropdown.",
+          "This tab is a demonstration layout built on example entries written into the page — a stand-up meeting in Conference Room A and the like. Nothing here comes from the database and nothing you add is saved. What you are actually assigned is on the Tasks tab, which is real.",
       },
       {
         name: "Tasks",
-        purpose: "Intended as your assigned work, with progress against each item.",
+        purpose: "The work orders assigned to you \u2014 the jobs you can bill hours against.",
         steps: [
-          "Each task shows its project, priority, due date and progress.",
-          "Filter and Search narrow the list; View Details opens one.",
+          "Each card is a job dispatched to you, with its customer, its site and its current status.",
+          "These are the same jobs the Timesheet offers in its work-order dropdown, so anything listed here is something you can be paid for.",
+          "A job appears here when the office dispatches it to you. There is nothing to accept or claim.",
         ],
         note:
-          "Like Schedule, this is a demonstration layout over example rows held in the page rather than your real assignments. The jobs genuinely assigned to you are the ones counted on the Dashboard and offered in the Timesheet's work-order dropdown — trust those.",
+          "An empty list means nothing is assigned to you right now, not that something failed. If it says no employee record is linked to this account, that is the real problem \u2014 work cannot be assigned to you until Black Phoenix attaches your login.",
       },
-      {
-        name: "Performance",
-        purpose: "Intended as your rating, completed tasks and goals.",
+      {        name: "Performance",
+        purpose: "Your record, counted from your own timesheet.",
         steps: [
-          "Three cards: Overall Rating, Tasks Completed, Goals Achieved.",
+          "Hours this week, with anything past forty named as overtime.",
+          "Shifts recorded, and how many hours are not yet split to a job.",
+          "Work orders assigned to you right now.",
         ],
         note:
-          "The figures here are written into the page, not measured — the tasks count, the goals and the improvement captions beneath them are all examples. Nobody is rating you on this screen. The one honest measure of your work in this portal is your timesheet.",
+          "Nothing on this screen is an opinion and nobody is scoring you on it. It used to show an overall rating, 142 tasks completed and 8 of 10 goals, all written into the page rather than measured \u2014 they are gone. The hours not yet split to a job are the number worth acting on: until they are attributed, they are not billable to anyone.",
       },
-      {
-        name: "Documents",
+      {        name: "Documents",
         purpose: "Your employment documents — contracts, certifications, handbooks, anything you need to keep.",
         steps: [
           "Upload Document adds a file and asks for a Category.",
@@ -663,7 +664,15 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
         ],
       },
       {
-        name: "Referrals",
+        name: "Messages",
+        purpose: "Your thread with the office.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+        ],
+        note:
+          "This screen existed for a while with no way to open it \u2014 there was no tab. There is now. Anything about a job\u2019s scope or your hours is better here than in a text message, because it stays attached to your account.",
+      },
+      {        name: "Referrals",
         purpose: "Referring people you have worked with, and what it earns.",
         steps: [
           "Copy your referral link, or share it by email, SMS or WhatsApp.",
@@ -685,10 +694,10 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
         purpose: "This page.",
         steps: [
           "Each card above is one tab of your workspace, in the order they run across the top.",
-          "Where a tab says it is a demonstration layout, that is the current truth about that tab and not a warning about your hours — the punch card and timesheet are real.",
+          "Your punch card, timesheet, work orders and record are all real. Schedule is the one tab that is not yet.",
         ],
         note:
-          "There is no Messages tab here yet. If you need to reach the office, use the phone number you already have rather than looking for it in the portal.",
+          "Schedule is the only tab still marked as a demonstration layout. Everything else here reads from your real record.",
       },
     ],
   },

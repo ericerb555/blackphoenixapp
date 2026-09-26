@@ -450,6 +450,12 @@ export default function EmployeePortalView() {
               { id: 'plan-tracker', label: 'Hour Banking', icon: BarChart3 },
               { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
               { id: 'performance', label: 'Performance', icon: BarChart3 },
+              /*
+                Messages was rendered and unreachable: the case existed, the state
+                allowed it, and nothing ever set it. An employee had no way to
+                reach the office from the portal at all.
+              */
+              { id: 'messages', label: 'Messages', icon: MessageSquare },
               { id: 'referrals', label: 'Referrals', icon: Award },
               { id: 'investments', label: 'Investments', icon: DollarSign },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
@@ -803,82 +809,69 @@ export default function EmployeePortalView() {
         {/* Tasks Tab */}
         {activeTab === 'tasks' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-white mb-1">My Tasks</h2>
-                <p className="text-sm text-gray-400">Manage your assigned tasks</p>
-              </div>
-              <div className="flex gap-3">
-                <SecondaryButton>
-                  <Filter className="w-4 h-4" />
-                  Filter
-                </SecondaryButton>
-                <SecondaryButton>
-                  <Search className="w-4 h-4" />
-                  Search
-                </SecondaryButton>
-              </div>
+            {/*
+              This listed four example jobs written into the page — a safety
+              inspection at 75% progress and the like — while the work orders
+              genuinely assigned to this employee sat in `myWorkOrders`, already
+              loaded, already counted on the dashboard, and shown nowhere.
+
+              These are the same records the admin Dispatch board assigns and the
+              same ones the timesheet will let you bill against, so a job shown
+              here is a job you can actually be paid for.
+            */}
+            <div>
+              <h2 className="text-2xl font-bold text-white mb-1">My Work Orders</h2>
+              <p className="text-sm text-gray-400">The jobs assigned to you. Bill your hours to these on the Timesheet.</p>
             </div>
 
+            {timeLoading && (
+              <div className="rounded-xl border border-gray-800 bg-[#1a1a1a] p-8 text-center text-sm text-gray-400">
+                Loading your work orders…
+              </div>
+            )}
+
+            {!timeLoading && !employeeId && (
+              <div className="rounded-xl border border-yellow-500/25 bg-yellow-500/5 p-6 text-center">
+                <p className="text-sm text-yellow-400">No employee record is linked to this account yet.</p>
+                <p className="mt-1 text-xs text-gray-400">Work cannot be assigned to you until Black Phoenix attaches your login.</p>
+              </div>
+            )}
+
+            {!timeLoading && employeeId && myWorkOrders.length === 0 && (
+              <div className="rounded-xl border border-gray-800 bg-[#1a1a1a] p-8 text-center">
+                <ClipboardList className="mx-auto mb-2 h-6 w-6 text-gray-600" />
+                <p className="text-sm font-semibold text-white">Nothing is assigned to you right now.</p>
+                <p className="mx-auto mt-1 max-w-sm text-xs text-gray-500">
+                  Jobs appear here when the office dispatches one to you.
+                </p>
+              </div>
+            )}
+
             <div className="grid gap-4">
-              {activeTasks.map((task) => (
-                <div key={task.id} className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6 hover:border-gray-700 transition-colors">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-bold text-white">{task.title}</h3>
-                        <span className={`px-3 py-1 text-xs rounded-full border ${getPriorityColor(task.priority)}`}>
-                          {task.priority}
-                        </span>
-                        <span className={`px-3 py-1 text-xs rounded-full border ${getStatusColor(task.status)}`}>
-                          {task.status}
-                        </span>
+              {myWorkOrders.map((wo: any) => (
+                <div key={wo.id} className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6 hover:border-gray-700 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-3 mb-2">
+                        <h3 className="text-lg font-bold text-white">{wo.title}</h3>
+                        {wo.status && (
+                          <span className={`px-3 py-1 text-xs rounded-full border ${getStatusColor(String(wo.status))}`}>
+                            {String(wo.status).replace(/[-_]/g, ' ')}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-400 mb-1">{task.project}</p>
-                      <p className="text-xs text-gray-500">{task.id}</p>
+                      {wo.customer && <p className="text-sm text-gray-400">{wo.customer}</p>}
+                      {wo.location && (
+                        <p className="mt-0.5 text-xs text-gray-500">{wo.location}</p>
+                      )}
+                      <p className="mt-2 text-xs text-gray-600">{wo.id}</p>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Due Date</p>
-                      <p className="text-sm text-white">{task.dueDate}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">Progress</p>
-                      <p className="text-sm text-white">{task.progress}%</p>
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                      <span>Overall Progress</span>
-                      <span>{task.progress}% Complete</span>
-                    </div>
-                    <div className="bg-gray-800 rounded-full h-3">
-                      <div 
-                        className="bg-gradient-to-r from-[#ea580c] to-orange-600 h-3 rounded-full transition-all"
-                        style={{ width: `${task.progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <PrimaryButton size="sm">
-                      <ClipboardList className="w-4 h-4" />
-                      View Details
-                    </PrimaryButton>
-                    <SecondaryButton size="sm">
-                      <MessageSquare className="w-4 h-4" />
-                      Comments
-                    </SecondaryButton>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-
         {/* Timesheet Tab */}
         {activeTab === 'timesheet' && (
           <div className="space-y-6">
@@ -1160,21 +1153,35 @@ export default function EmployeePortalView() {
         {activeTab === 'investments' && <InvestmentTab portalType="employee" ownerName={employeeInfo.name} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">
+            {/*
+              This read: Overall Rating (blank, because the rating field is null)
+              above "+0.3 this quarter"; Tasks Completed 142, "+15% from last
+              month"; Goals Achieved 8/10. Every one of those was typed into this
+              file. An employee seeing a performance tab assumes somebody is
+              measuring them, which made it worse than showing nothing.
+
+              Your timesheet is the only record of your work this portal actually
+              holds, so these are counted from it.
+            */}
             <div>
-              <h2 className="text-2xl font-bold text-white mb-1">Performance Dashboard</h2>
-              <p className="text-sm text-gray-400">Track your performance metrics and goals</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Your Record</h2>
+              <p className="text-sm text-gray-400">Counted from your timesheet. Nothing here is an opinion.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-yellow-500/20 rounded-lg">
-                    <Star className="w-5 h-5 text-yellow-400" />
+                  <div className="p-3 bg-orange-500/20 rounded-lg">
+                    <Clock className="w-5 h-5 text-orange-400" />
                   </div>
-                  <span className="text-sm text-gray-400">Overall Rating</span>
+                  <span className="text-sm text-gray-400">Hours this week</span>
                 </div>
-                <p className="text-3xl font-bold text-white mb-1">{employeeInfo.rating}</p>
-                <p className="text-xs text-green-400">+0.3 this quarter</p>
+                <p className="text-3xl font-bold text-white mb-1">{hoursThisWeek}</p>
+                <p className="text-xs text-gray-500">
+                  {hoursThisWeek > 40
+                    ? `${Math.round((hoursThisWeek - 40) * 100) / 100} over forty`
+                    : 'No overtime this week'}
+                </p>
               </div>
 
               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6">
@@ -1182,10 +1189,14 @@ export default function EmployeePortalView() {
                   <div className="p-3 bg-green-500/20 rounded-lg">
                     <CheckCircle className="w-5 h-5 text-green-400" />
                   </div>
-                  <span className="text-sm text-gray-400">Tasks Completed</span>
+                  <span className="text-sm text-gray-400">Shifts recorded</span>
                 </div>
-                <p className="text-3xl font-bold text-white mb-1">142</p>
-                <p className="text-xs text-green-400">+15% from last month</p>
+                <p className="text-3xl font-bold text-white mb-1">{entries.length}</p>
+                <p className="text-xs text-gray-500">
+                  {unbilledHours > 0
+                    ? `${unbilledHours} hours not yet split to a job`
+                    : 'Every hour assigned to a work order'}
+                </p>
               </div>
 
               <div className="bg-[#1a1a1a] border border-gray-800 rounded-xl p-6">
@@ -1193,15 +1204,16 @@ export default function EmployeePortalView() {
                   <div className="p-3 bg-blue-500/20 rounded-lg">
                     <Target className="w-5 h-5 text-blue-400" />
                   </div>
-                  <span className="text-sm text-gray-400">Goals Achieved</span>
+                  <span className="text-sm text-gray-400">Work orders assigned</span>
                 </div>
-                <p className="text-3xl font-bold text-white mb-1">8/10</p>
-                <p className="text-xs text-gray-400">80% completion rate</p>
+                <p className="text-3xl font-bold text-white mb-1">{myWorkOrders.length}</p>
+                <p className="text-xs text-gray-500">
+                  {myWorkOrders.length ? 'Billable on your timesheet' : 'Nothing assigned right now'}
+                </p>
               </div>
             </div>
           </div>
         )}
-
         {/* Referrals Tab */}
 
         {activeTab === 'messages' && (
