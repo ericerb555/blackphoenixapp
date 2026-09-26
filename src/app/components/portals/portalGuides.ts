@@ -1000,7 +1000,160 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  property_manager: { title: "Your property management hub", summary: "Manage properties, work requests, CRM contacts, financial activity, maintenance plans, and operational communication.", start: "Review Work Requests first, then use Properties and CRM to keep the account organized.", sections: [{ name: "Properties & work requests", detail: "Track your portfolio and approve or reject assigned work.", status: "Property operations" }, { name: "CRM", detail: "Maintain tenants, owners, vendors, prospects, and interaction history.", status: "Relationship management" }, { name: "Plans & financials", detail: "Monitor maintenance plan use, invoices, payments, and property revenue tools.", status: "Account control" }, { name: "Messages & settings", detail: "Keep decisions and account preferences in one place.", status: "Collaboration" }] },
+  property_manager: {
+    title: "Your property management hub",
+    summary:
+      "Your portfolio, the work requests waiting on your decision, who to call out of hours, and the money either way. Approving a request is the action that actually starts work.",
+    start:
+      "Properties first — nothing else has anything to attach to until your portfolio is in. Then Work Requests, which is where decisions wait on you.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "The state of the portfolio and what needs a decision.",
+        steps: [
+          "Four figures across the top: total properties, active tenants, units managed and open work requests. All four are counted from your own records.",
+          "Recent Work Requests lists what has come in; View All opens the tab.",
+          "Properties lists your portfolio with units, occupancy and address.",
+        ],
+        note:
+          "One of these used to be a Monthly Revenue card reading $45,200, typed into the page and sitting between three real counts, which is the arrangement that makes an invented figure believable. It is gone.",
+      },
+      {
+        name: "Properties",
+        purpose: "Your managed portfolio. Everything else in this portal hangs off it.",
+        steps: [
+          "Add property takes a property name, street address, total units and occupied units.",
+          "Each property then shows its units, how many are occupied and its address.",
+          "Total Units is summed across the portfolio.",
+        ],
+        note:
+          "Keep occupied units current — it is what the active tenants figure counts, and it is the number an owner asks about first.",
+      },
+      {
+        name: "Work Requests",
+        purpose: "Requests assigned to you, waiting on your approval or rejection.",
+        steps: [
+          "Each request shows what is being asked for and its current status.",
+          "Approve sends it forward to be scheduled and priced.",
+          "Reject closes it.",
+          "Your decision is saved on the request itself, not only on this screen.",
+        ],
+        note:
+          "You only ever see requests assigned to your management account — the server filters them and checks again on the decision, so another manager's portfolio cannot appear here and you cannot act on one. Approving is what lets work actually begin, so a request sitting undecided is a job not happening.",
+      },
+      {
+        name: "On-Call",
+        purpose: "Who gets called out of hours, and for what.",
+        steps: [
+          "Set up one rota per kind of emergency — heating, water, lock-outs — rather than one rota for everything.",
+          "For each, give the hours it covers and the people to ring, in order.",
+          "A call that nobody answers escalates down the list.",
+          "If you have no cover for something, it can be sent to Black Phoenix instead.",
+        ],
+        note:
+          "This is your rota, not ours: your own people are called first, and Black Phoenix is the backup. Set up the escalation before you need it — the first night something floods is the wrong time to find out the list is empty.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your maintenance plan: hours included, used and remaining, and what overage costs.",
+        steps: [
+          "Plan name, monthly fee, hours this period, hours remaining and the overage rate at the top.",
+          "Every logged visit beneath, with its date, description, technician, hours and cost.",
+          "Invoices & Payments covers bills raised against the plan.",
+        ],
+        note:
+          "Hours are logged by Black Phoenix as work is completed. There is also a New Hampshire compliance note on this tab: RSA 331-A requires managers handling trust funds to keep a documentation trail, and this log is part of yours.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change your plan or add extras.",
+        steps: [
+          "Your Active Plans shows what you hold.",
+          "Take a standard tier, or describe your portfolio and have one built.",
+          "Add to plan and Remove from plan assemble the package.",
+        ],
+      },
+      {
+        name: "CRM",
+        purpose: "Tenants, owners, vendors and prospects, with the history of what was said.",
+        steps: [
+          "Add a contact and set what they are to you.",
+          "Record interactions against them so the next conversation starts where the last one ended.",
+          "Search across the whole list.",
+        ],
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: [
+          "Featured reels play at the top; offers are listed beneath with what they include and when they end.",
+        ],
+      },
+      {
+        name: "Payments",
+        purpose: "Payments and invoices between you and Black Phoenix.",
+        steps: [
+          "Each row is either a payment or an invoice, labelled as such.",
+          "Each shows its reference, amount, date and status.",
+        ],
+        note: "This is the account between you and us. It is not rent collection and not owner disbursements.",
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available, with projected return, minimum and term.",
+          "Invest Now opens the interest form.",
+        ],
+        note: "Submitting interest registers it and moves no money.",
+      },
+      {
+        name: "Revenue AI",
+        purpose: "Ways to earn more from the properties you already manage.",
+        steps: [
+          "Each programme — parking, bulk internet resale, EV charging, maintenance subscriptions, performance reports — shows a revenue range per property or unit, how hard it is to start, and a note on how it works in New Hampshire specifically.",
+          "Open Full AI Revenue Analysis runs the detailed version against your own portfolio.",
+        ],
+        note:
+          "The Portfolio Scenario panel is a worked example for three properties running three programmes, not a projection for your portfolio. Treat the +$20,640 as an illustration of how the arithmetic goes; the full analysis is the one that uses your properties.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+          "The tab shows unread replies; opening it clears the count.",
+        ],
+        note: "Decisions about scope or cost belong here, attached to the account, rather than in a phone call nobody can look up later.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your vault — management agreements, insurance, inspection reports, owner statements.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a property or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file. Visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Settings",
+        purpose: "Your name, email and notification preferences.",
+        steps: [
+          "Update the property manager name and email shown on your account.",
+          "Save Changes commits them.",
+        ],
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run down the side.",
+          "If a step stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
   condo_manager: { title: "Your condo management hub", summary: "Manage units, owners, work requests, CRM, financials, maintenance plans, and association communication.", start: "Use Work Requests for approvals, then keep units and owners current.", sections: [{ name: "Units, owners & requests", detail: "Manage the association roster and assigned maintenance decisions.", status: "Association operations" }, { name: "CRM", detail: "Track owner, tenant, vendor, and prospect relationships.", status: "Relationship management" }, { name: "Plans & financials", detail: "Review plan usage, financial activity, and revenue tools.", status: "Financial visibility" }, { name: "Messages & settings", detail: "Coordinate decisions and maintain account settings.", status: "Collaboration" }] },
   landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },
   territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },

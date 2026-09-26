@@ -258,7 +258,18 @@ export default function PropertyManagerPortalView() {
               {[
                 { label: 'Total Properties', value: String(properties.length), icon: Building2 },
                 { label: 'Active Tenants', value: String(properties.reduce((sum, property) => sum + Number(property.occupied || 0), 0)), icon: Users },
-                { label: 'Monthly Revenue', value: '$45,200', icon: DollarSign },
+                /*
+                  This read $45,200, typed into the file, sitting between three
+                  counted figures that lent it credibility. There is no revenue
+                  number this portal can honestly produce on the dashboard: the
+                  payment records it could compute one from are only fetched when
+                  the Payments tab opens, so a card built on them would read zero
+                  until you went looking.
+
+                  Units managed is real, already loaded, and the figure a property
+                  manager is actually measured by.
+                */
+                { label: 'Units Managed', value: String(properties.reduce((sum, property) => sum + Number(property.units || 0), 0)), icon: Building2 },
                 { label: 'Work Requests', value: String(requests.filter(r => ['open', 'pending', 'pending_approval'].includes(r.status)).length), icon: Wrench },
               ].map((s, i) => {
                 const Icon = s.icon;
