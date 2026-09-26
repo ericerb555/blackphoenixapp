@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner@2.0.3';
 import {
-  Send, RefreshCw, CheckCircle2, Clock, AlertTriangle, Mail, Phone, Search, Users,
+  Send, RefreshCw, CheckCircle2, Clock, AlertTriangle, Mail, Phone, Search, Users, Ban, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
@@ -66,7 +66,64 @@ export default function SentInvitesPanel() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [resending, setResending] = useState<string | null>(null);
+
+  /**
+   * Which accounts are switched off, and which row is mid-confirmation.
+   *
+   * The deactivated set is read from the server rather than inferred from the
+   * invite record, because an account can be switched off long after its
+   * invitation was accepted and the two have nothing to do with each other.
+   */
+  const [deactivated, setDeactivated] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [working, setWorking] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+
+  const loadDeactivated = useCallback(async () => {
+    const token = session?.access_token;
+    if (!token) return;
+    try {
+      const res = await fetch(`${SERVER}/accounts/deactivated`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;                       // not an administrator, or nothing to show
+      const body = await res.json();
+      const emails = (body?.accounts || [])
+        .map((a: any) => String(a?.email || a?.targetEmail || '').toLowerCase())
+        .filter(Boolean);
+      setDeactivated(new Set(emails));
+    } catch { /* the roster is still useful without it */ }
+  }, [session?.access_token]);
+
+  useEffect(() => { void loadDeactivated(); }, [loadDeactivated]);
+
+  /** Switch an account off, or back on. The server decides who may. */
+  async function setActive(email: string, active: boolean) {
+    const token = session?.access_token;
+    if (!token) { toast.error('Sign in again.'); return; }
+    const address = String(email || '').toLowerCase();
+    if (!address) { toast.error('That invite has no email address.'); return; }
+    setWorking(address);
+    try {
+      const res = await fetch(`${SERVER}/accounts/${active ? 'reactivate' : 'deactivate'}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: address, reason }),
+      });
+      const body = await res.json().catch(() => null);
+      // A refusal carries the reason — an administrator may not switch off an owner.
+      if (!res.ok || body?.success === false) throw new Error(body?.error || 'Could not change that account.');
+      setDeactivated((prev) => {
+        const next = new Set(prev);
+        if (active) next.delete(address); else next.add(address);
+        return next;
+      });
+      toast.success(active ? `${address} can sign in again` : `${address} has been deactivated`);
+      setConfirming(null);
+      setReason('');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not change that account.');
+    } finally { setWorking(null); }
+  }
 
   const load = useCallback(async () => {
     if (!session?.access_token) { setLoading(false); return; }
@@ -197,10 +254,64 @@ export default function SentInvitesPanel() {
                   <span>Sent {invite.sentCount}× · last {timeAgo(invite.lastSentAt)}</span>
                   {invite.acceptedAt && <span className="text-green-400">Accepted {timeAgo(invite.acceptedAt)}</span>}
                 </div>
+                {deactivated.has(String(invite.email || '').toLowerCase()) && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-400">
+                    <Ban className="w-3.5 h-3.5" /> Deactivated — cannot sign in
+                  </div>
+                )}
                 {(invite.inviteNotice || invite.smsNotice) && invite.inviteStatus !== 'accepted' && (
                   <div className="mt-2 text-xs text-amber-400/90">{invite.inviteNotice || invite.smsNotice}</div>
                 )}
               </div>
+              {/*
+                Deactivation applies to an account that exists, so it is offered
+                on accepted invitations only. There is nothing to switch off for
+                somebody who has never signed in — cancel the invitation instead.
+              */}
+              {invite.inviteStatus === 'accepted' && (
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  {deactivated.has(String(invite.email || '').toLowerCase()) ? (
+                    <button
+                      onClick={() => setActive(invite.email, true)}
+                      disabled={working === String(invite.email || '').toLowerCase()}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2A2A2A] text-white text-sm font-medium hover:bg-[#333] transition-colors disabled:opacity-50"
+                    >
+                      <RotateCcw className="w-4 h-4" /> Reactivate
+                    </button>
+                  ) : confirming === invite.applicationId ? (
+                    <div className="flex flex-col items-end gap-2">
+                      <input
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        placeholder="Reason (optional)"
+                        className="w-56 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-1.5 text-sm text-white outline-none focus:border-red-500"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setConfirming(null); setReason(''); }}
+                          className="px-3 py-2 rounded-lg bg-[#2A2A2A] text-white text-sm font-medium hover:bg-[#333]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => setActive(invite.email, false)}
+                          disabled={working === String(invite.email || '').toLowerCase()}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-500 disabled:opacity-50"
+                        >
+                          <Ban className="w-4 h-4" /> Confirm deactivate
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setConfirming(invite.applicationId); setReason(''); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/10 transition-colors"
+                    >
+                      <Ban className="w-4 h-4" /> Deactivate
+                    </button>
+                  )}
+                </div>
+              )}
               {invite.inviteStatus !== 'accepted' && (
                 <div className="flex items-center gap-2 shrink-0">
                   <button

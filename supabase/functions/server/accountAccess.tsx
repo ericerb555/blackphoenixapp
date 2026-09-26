@@ -112,15 +112,31 @@ accountAccessRouter.get(`${PREFIX}/account-standing`, async (c) => {
  * own view of those accounts. Nothing about who may do what comes from the
  * request body — that is the whole point of the check.
  */
-async function resolveTargetRole(email: string, admin: any): Promise<string> {
+async function resolveTargetRole(email: string, admin: any): Promise<string | null> {
+  const wanted = String(email || '').toLowerCase();
   try {
-    const { data } = await admin.auth.admin.listUsers();
-    const match = (data?.users || []).find(
-      (u: any) => String(u.email || '').toLowerCase() === email.toLowerCase(),
-    );
-    return match ? trustedRole(match) : '';
+    /**
+     * Paged, because listUsers returns fifty at a time.
+     *
+     * Reading only the first page would have meant an administrator could not
+     * deactivate an employee who happened to sit beyond it: the role would come
+     * back empty, and an empty role is not an employee, so the request would be
+     * refused with a message about owners. Silent, and worse the bigger the
+     * platform gets.
+     */
+    const perPage = 200;
+    for (let page = 1; page <= 50; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+      if (error) return null;
+      const users = data?.users || [];
+      const match = users.find((u: any) => String(u.email || '').toLowerCase() === wanted);
+      if (match) return trustedRole(match);
+      if (users.length < perPage) break;             // that was the last page
+    }
+    // Looked everywhere and found nobody.
+    return null;
   } catch {
-    return '';
+    return null;
   }
 }
 
@@ -137,6 +153,16 @@ export function registerAccountAccessRoutes(app: any, adminClient: any) {
     if (!targetEmail) return c.json({ success: false, error: 'Which account?' }, 400);
 
     const targetRole = await resolveTargetRole(targetEmail, adminClient);
+    /**
+     * No such account, or the directory could not be read.
+     *
+     * Refused either way rather than guessed at. Writing a deactivation for an
+     * address that belongs to nobody leaves a record that looks like a decision
+     * and blocks whoever is invited to that address later.
+     */
+    if (targetRole === null) {
+      return c.json({ success: false, error: 'No account with that email address.' }, 404);
+    }
     const verdict = mayDeactivate(
       { role: trustedRole(actor), email: String(actor.email) },
       { role: targetRole, email: targetEmail },
@@ -144,6 +170,9 @@ export function registerAccountAccessRoutes(app: any, adminClient: any) {
     if (!verdict.allowed) return c.json({ success: false, error: verdict.reason }, 403);
 
     const record = {
+      // Stored on the record as well as in the key, so a listing can say who
+      // each row is about without parsing keys back apart.
+      email: targetEmail,
       active: true,
       reason,
       by: String(actor.email).toLowerCase(),
@@ -171,6 +200,16 @@ export function registerAccountAccessRoutes(app: any, adminClient: any) {
      * account they were never allowed to touch in the first place.
      */
     const targetRole = await resolveTargetRole(targetEmail, adminClient);
+    /**
+     * No such account, or the directory could not be read.
+     *
+     * Refused either way rather than guessed at. Writing a deactivation for an
+     * address that belongs to nobody leaves a record that looks like a decision
+     * and blocks whoever is invited to that address later.
+     */
+    if (targetRole === null) {
+      return c.json({ success: false, error: 'No account with that email address.' }, 404);
+    }
     const verdict = mayDeactivate(
       { role: trustedRole(actor), email: String(actor.email) },
       { role: targetRole, email: targetEmail },
@@ -180,6 +219,7 @@ export function registerAccountAccessRoutes(app: any, adminClient: any) {
     const prior = (await kv.get(DEACTIVATION_KEY(targetEmail))) as any;
     await kv.set(DEACTIVATION_KEY(targetEmail), {
       ...(prior || {}),
+      email: targetEmail,
       active: false,
       reactivatedBy: String(actor.email).toLowerCase(),
       reactivatedAt: new Date().toISOString(),
