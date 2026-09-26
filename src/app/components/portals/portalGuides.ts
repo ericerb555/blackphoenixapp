@@ -1509,8 +1509,283 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },
-  condo_association: { title: "Your condo association portal", summary: "Review maintenance, approvals, financials, units, vendors, documents, team access, and referral tools.", start: "Start with Maintenance and Approvals, then use Units and Documents to keep the association organized.", sections: [{ name: "Maintenance & approvals", detail: "Submit and review association work requests.", status: "Association care" }, { name: "Financials & vendors", detail: "Review financial details and vendor activity.", status: "Operations control" }, { name: "Units, documents & team", detail: "Maintain association records and collaboration resources.", status: "Association records" }, { name: "Deals & referrals", detail: "Access member opportunities and referral benefits.", status: "Member benefits" }] },
+  territory: {
+    title: "Your territory owner portal",
+    summary:
+      "Your customers, your subcontractors, and the work moving between them. You approve who joins your territory and who gets each job; Black Phoenix handles advertising, vendor partnerships and subscription pricing.",
+    start:
+      "Dashboard, where anything waiting on your approval sits. Then Pipeline, which is the work itself.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "What is waiting on you, and how the territory is doing.",
+        steps: [
+          "Four figures: your customers, active subscriptions, monthly recurring revenue and how many approvals are pending.",
+          "Pending Approvals lists customers and subcontractors waiting to join your territory — Approve or Reject each one here.",
+          "Active Subscriptions shows what is being paid, with total MRR; View All opens the tab.",
+          "Open Pipeline jumps to the work.",
+        ],
+        note:
+          "The division of labour is stated on this page and worth taking literally: Black Phoenix manages advertising, vendor partnerships and subscription pricing. You control your customers, your subcontractors and your territory's operations. Pricing is not yours to set, and advertising is not yours to buy.",
+      },
+      {
+        name: "Pipeline",
+        purpose: "Live work requests from your customers, and what to do with each.",
+        steps: [
+          "Each request shows what is being asked for and where it stands.",
+          "Build Quote prices the job.",
+          "Assign Sub gives it to one of your subcontractors.",
+        ],
+        note:
+          "These are real work requests, not a summary of them — the same records the rest of the platform is working from. A request with no quote and no sub assigned is a job nobody is doing.",
+      },
+      {
+        name: "Analytics",
+        purpose: "How the territory is actually performing.",
+        steps: [
+          "Total revenue year to date, active customers, jobs completed, and the average payment value.",
+          "Top Subcontractors by Jobs ranks who is carrying the work.",
+        ],
+        note: "Every figure here is counted from your own customers, subscriptions and payments. None of it is estimated.",
+      },
+      {
+        name: "My Customers",
+        purpose: "The customers in your territory.",
+        steps: [
+          "Add Customer brings somebody in directly.",
+          "Approve or Reject anybody waiting to join.",
+          "Search the list by name or contact.",
+        ],
+        note:
+          "Approving a customer is what puts their work into your pipeline. Somebody left pending is somebody whose requests have nowhere to go.",
+      },
+      {
+        name: "Subcontractors",
+        purpose: "The trades you can assign work to.",
+        steps: [
+          "Add Subcontractor brings one in.",
+          "Approve or Reject those waiting.",
+          "Assigning work to them happens on the Pipeline tab.",
+        ],
+        note:
+          "Only approved subcontractors can be assigned a job, so approve them before you need them rather than in the middle of scheduling one.",
+      },
+      {
+        name: "Subscriptions",
+        purpose: "What your customers are paying for, and what is outstanding.",
+        steps: [
+          "Active subscriptions, monthly recurring revenue, hours available across plans, and invoices due.",
+          "Each subscription record is listed beneath.",
+        ],
+        note: "Subscription pricing is set by Black Phoenix, not here. This tab is the record of what has been sold in your territory.",
+      },
+      {
+        name: "CRM",
+        purpose: "Customers, subcontractors, vendors and prospects, with the history of what was said.",
+        steps: [
+          "Add a contact and set what they are to you.",
+          "Record interactions so the next conversation starts where the last one ended.",
+        ],
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your own plan: hours included, used and remaining.",
+        steps: [
+          "Plan, monthly fee, hours this period and what is left, with every logged item beneath.",
+        ],
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: ["Featured reels play at the top; offers are listed beneath with what they include and when they end."],
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: ["All Opportunities lists what is available; Invest Now opens the interest form."],
+        note: "Submitting interest registers it and moves no money.",
+      },
+      {
+        name: "Referrals",
+        purpose: "Your referral link and what it has earned.",
+        steps: [
+          "Copy Link, or share by email, SMS or WhatsApp.",
+          "Rewards are 5% of project value, Potential until the referred project is paid.",
+        ],
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+          "The tab shows unread replies; opening it clears the count.",
+        ],
+      },
+      {
+        name: "Documents",
+        purpose: "Your vault — territory agreements, subcontractor paperwork, insurance.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a job or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file. Visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Settings",
+        purpose: "Your territory details, and adding people.",
+        steps: [
+          "Update your territory's own details.",
+          "Add Customer and Add Subcontractor are here as well as on their own tabs.",
+        ],
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run across the top.",
+          "If a step stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
+  condo_association: {
+    title: "Your condo association portal",
+    summary:
+      "What you see here depends on what you are to the association — board president, board member, property manager or resident. That part is real and enforced. Much of the rest is still being built, and this guide says which is which.",
+    start:
+      "Check the tabs you have. If Financials, Approvals and Vendors are missing, your account is not recorded as governing the association, and that is a permissions question rather than a fault.",
+    sections: [
+      {
+        name: "Your role, and why tabs differ",
+        purpose: "The one thing to understand before anything else on this portal.",
+        steps: [
+          "Your role comes from the grant the association issues — it is fetched from the server, not chosen here.",
+          "Board presidents and board members can approve expenses, so they see Approvals and Team.",
+          "Governing roles, which includes the property manager, can see Financials, Vendors, Units & Buildings and Revenue AI.",
+          "A resident sees the dashboard, maintenance, on-call, services, documents, deals, investments and referrals.",
+        ],
+        note:
+          "The association issues these roles and can withdraw them. Nothing you can set in your own browser changes what you may see — an earlier version of this portal did work that way, and it does not any more.",
+      },
+      {
+        name: "Dashboard",
+        purpose: "Intended as the association at a glance: budget allocation, buildings, open work orders and vendor contracts.",
+        steps: [
+          "Monthly Budget Allocation charts where the money goes.",
+          "Buildings Status shows occupancy and average HOA fee.",
+          "Active Work Orders lists what is in progress with its vendor and estimated cost.",
+          "Active Vendor Contracts shows monthly fee, end date and rating.",
+        ],
+        note:
+          "The figures on this page are demonstration data loaded into the screen, not your association's records. The layout is what the finished page will look like; the numbers are not yours. Your role and your access, shown at the top, are real.",
+      },
+      {
+        name: "Maintenance",
+        purpose: "Intended as the association's work requests.",
+        steps: ["Raise and follow work on the common areas and the building."],
+        note:
+          "This tab is not built yet — it says so on the page. To get work done in the meantime, raise it through Black Phoenix directly and it will reach the same people.",
+      },
+      {
+        name: "On-Call",
+        purpose: "Who gets called out of hours, and for what. This one is real and worth setting up.",
+        steps: [
+          "Set up one rota per kind of emergency — heating, water, lifts, lock-outs — rather than one rota for everything.",
+          "For each, give the hours it covers and the people to ring, in order.",
+          "A call nobody answers escalates down the list.",
+          "Anything you have no cover for can be sent to Black Phoenix instead.",
+        ],
+        note:
+          "This is the most useful tab on the portal today, because it works and because common-area emergencies are the thing an association is judged on. Set it up before you need it.",
+      },
+      {
+        name: "Services & Offers",
+        purpose: "Services and offers available to the association.",
+        steps: ["Browse what is on offer and act on anything relevant to the building."],
+      },
+      {
+        name: "Approvals",
+        purpose: "Expenses waiting on a board decision. Board president and board members only.",
+        steps: [
+          "Each item shows its category, who submitted it, and the estimated cost.",
+          "Approve or Reject each one.",
+        ],
+        note:
+          "The items listed at the moment come from the same demonstration data as the dashboard. The approval controls and who may use them are real; what they are approving is not yet.",
+      },
+      {
+        name: "Financials",
+        purpose: "Intended as budget tracking, HOA fees and financial reporting. Governing roles only.",
+        steps: ["Budgets, fees and reports for the association."],
+        note: "Not built yet — the page says so. Your plan tracker and Black Phoenix invoices are the real financial records today.",
+      },
+      {
+        name: "Vendors",
+        purpose: "Intended as the association's vendor list and contracts. Governing roles only.",
+        steps: ["Contracts, fees and performance for each vendor."],
+        note: "Not built yet.",
+      },
+      {
+        name: "Units & Buildings",
+        purpose: "Intended as the unit and building register. Governing roles only.",
+        steps: ["Units, buildings and their details."],
+        note: "Not built yet. If you need a unit register today, your condo manager's portal has one that works.",
+      },
+      {
+        name: "Documents",
+        purpose: "Intended as the association's records — bylaws, minutes, insurance, reserve studies.",
+        steps: ["Upload, categorise and find association paperwork."],
+        note: "Not built yet. Send anything that must not be lost to Black Phoenix in the meantime.",
+      },
+      {
+        name: "Team",
+        purpose: "Who holds which role on the association. Board president and board members only.",
+        steps: ["Each person is listed with the role they hold."],
+        note: "The names shown at present are examples rather than your board.",
+      },
+      {
+        name: "Revenue AI",
+        purpose: "Ways for the association to earn, or to hold fees down. Governing roles only.",
+        steps: [
+          "Top Opportunities lists what is worth considering, each showing whether it needs a board vote and what it does to the reserve fund.",
+          "The Condo Fee Impact Estimator shows what a programme would mean per unit.",
+          "Open Full AI Revenue Analysis runs the detailed version.",
+        ],
+        note:
+          "It carries a note on RSA 356-B, the New Hampshire Condominium Act, and what a board may decide without a vote. Read that before proposing any of it — the estimator is arithmetic, not authority.",
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: ["Featured reels play at the top; offers are listed beneath with what they include and when they end."],
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: ["All Opportunities lists what is available; Invest Now opens the interest form."],
+        note: "Submitting interest registers it and moves no money.",
+      },
+      {
+        name: "Referral Rewards",
+        purpose: "Your referral link and what it has earned.",
+        steps: [
+          "Copy Link, or share by email, SMS or WhatsApp.",
+          "Rewards are 5% of project value, Potential until the referred project is paid.",
+        ],
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, and several of them say plainly that they are not finished.",
+          "That is deliberate. A guide that described unbuilt tabs as working would have you waiting on a screen that cannot help.",
+        ],
+        note:
+          "The two tabs to rely on today are On-Call, which works, and your role at the top of the portal, which is real and enforced. Everything marked as not built is coming.",
+      },
+    ],
+  },
   admin: {
     title: "Your operations portal guide",
     summary:
