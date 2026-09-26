@@ -41,6 +41,13 @@ export type Guide = {
   sections: GuideSection[];
 };
 
+/**
+ * Said in one place because it is said on four tabs, and the four must not
+ * drift apart into four different admissions of the same thing.
+ */
+const DEMO_TAB =
+  "This tab is a demonstration layout built on sample rows held in the page itself. Nothing here is read from the database and nothing you do to it is saved — reload the page and it returns to the same examples. It shows the shape the screen will take; it is not yet the screen.";
+
 export const GUIDES: Record<PortalGuideKey, Guide> = {
   customer: {
     title: "Your customer portal, explained",
@@ -265,5 +272,141 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
   landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },
   territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },
   condo_association: { title: "Your condo association portal", summary: "Review maintenance, approvals, financials, units, vendors, documents, team access, and referral tools.", start: "Start with Maintenance and Approvals, then use Units and Documents to keep the association organized.", sections: [{ name: "Maintenance & approvals", detail: "Submit and review association work requests.", status: "Association care" }, { name: "Financials & vendors", detail: "Review financial details and vendor activity.", status: "Operations control" }, { name: "Units, documents & team", detail: "Maintain association records and collaboration resources.", status: "Association records" }, { name: "Deals & referrals", detail: "Access member opportunities and referral benefits.", status: "Member benefits" }] },
-  admin: { title: "Your operations portal guide", summary: "Dispatch work, review plan records, monitor alerts, and support customers and employees from one operational view.", start: "Begin with Dispatch for active operations, then use Alerts to handle issues requiring attention.", sections: [{ name: "Dispatch", detail: "Coordinate operational work and assignments.", status: "Live operations" }, { name: "Plans", detail: "Review subscription and maintenance plan records.", status: "Plan oversight" }, { name: "Alerts", detail: "Respond to system and workflow notifications.", status: "Command Center support" }, { name: "Customer & employee support", detail: "Handle account questions and internal assistance.", status: "Service quality" }] },
+  admin: {
+    title: "Your operations portal guide",
+    summary:
+      "The portal you run the company from: provisioning everybody else's access, watching what they are paying, publishing job photos, and — once it is wired to real records — dispatching the work.",
+    start:
+      "Create Portal is the tab that matters most: it is how every other person on this platform gets in. Sent Invites tells you whether they actually did.",
+    sections: [
+      {
+        name: "Overview",
+        purpose: "The landing view: job photos, the alert and ticket panels, and the way through to the Unified Dashboard.",
+        steps: [
+          "Job photos sits at the top. Add job photos uploads straight from here — the files go to the gallery and stay private until you publish them.",
+          "Manage & publish opens the job photos page, where you choose which ones appear on the website.",
+          "Critical Alerts, Recent Tickets and Pending Employee Support summarise the three support tabs; View All opens the tab behind each.",
+          "User Management, Revenue Analytics and System Analytics are shortcuts at the bottom.",
+        ],
+        note:
+          "Those three shortcut cards all open the same place — the Unified Dashboard. They are three doors into one room, not three destinations. The panels above them summarise the sample data described below, so treat the counts as illustrations.",
+      },
+      {
+        name: "Create Portal",
+        purpose: "How every other person on this platform gets an account. This is the most important tab in the portal.",
+        steps: [
+          "Enter their full name, email and phone number.",
+          "Choose the portal type: Customer, Landlord, Property Manager, Condo Manager, Vendor, Subcontractor, Employee, Advertiser, Investor or Territory Owner.",
+          "Decide on “Grant full access to all features”. Left on, they get complete control of every feature for the trial window, then must choose a plan to keep access.",
+          "Set the trial length in months — anything from 1 to 24; it starts at 6.",
+          "Choose how the invite reaches them: email the secure sign-in link, text it by SMS, generate a QR code, or any combination.",
+          "Preview email shows exactly what they will receive, before you send it.",
+          "Create portal & send sign-in link provisions the account and sends it.",
+          "The result panel confirms each channel separately and gives you Copy sign-in link, Copy email and Download QR code.",
+        ],
+        note:
+          "Tenants are deliberately missing from the portal type list. A tenant is invited by their landlord, from the Tenants tab of the landlord portal, because the landlord holds the relationship — a tenant invited by us has no landlord attached and their work requests route nowhere. If a send fails, the panel prints the provider's exact reason with a Copy reason button; that reason is the thing to act on, not a retry.",
+      },
+      {
+        name: "Sent Invites",
+        purpose: "Whether the people you invited actually got in — the other half of Create Portal.",
+        steps: [
+          "Total sent and Awaiting are counted at the top.",
+          "Each invite carries a status: Accepted, “Invited · awaiting”, or Needs attention.",
+          "Search by name, email, phone or portal to find one.",
+          "Resend email sends the sign-in link again; Text sends it by SMS instead.",
+          "Refresh pulls the latest state in.",
+        ],
+        note:
+          "“Needs attention” means the send itself did not succeed — that person has never received a link and is not waiting on you, they are stuck. Work that list before it grows.",
+      },
+      {
+        name: "Dispatch Center",
+        purpose: "Intended as the board where incoming work orders are assigned to the field team.",
+        steps: [
+          "The four counters across the top are Unassigned, Assigned, In Progress and Completed Today; the filter buttons below narrow the list to one of them.",
+          "Click a work order to expand it and see the address, trade, priority, submitted time and notes.",
+          "Assign to Employee lists the field team with their trade and whether they are available or on-job — anyone marked off is left out of the list.",
+          "Field Team down the side lists everyone with their rating, job count and phone number; clicking the number copies it.",
+        ],
+        note:
+          DEMO_TAB +
+          " Assigning somebody, changing a status, and the Call Customer, Message Tech and Flag Urgent buttons all show a confirmation message and change nothing — no call is placed, no technician is messaged, no urgency is recorded. Real work requests live in the pipeline, not here.",
+      },
+      {
+        name: "Maintenance Plans",
+        purpose: "Every maintenance plan on the platform, who holds it, and what it is worth.",
+        steps: [
+          "The cards across the top are Total Plans, Active, MRR, Gift Cards Issued, and Hours Used against hours included.",
+          "The table lists each plan with its owner, portal, monthly price, hours and status.",
+          "The Links column expands to show the gift cards, promotions and offers attached to that plan, with their codes.",
+          "Search covers plans, owners, service, gift codes and promo codes together, so a code somebody quotes you finds the plan it belongs to.",
+          "Refresh reloads from the server.",
+        ],
+        note:
+          "This is real data. MRR here is the recurring plan revenue only — it does not include store orders or one-off construction work.",
+      },
+      {
+        name: "System Alerts",
+        purpose: "Intended as the feed of platform problems needing attention, filterable by critical, warning and unread.",
+        steps: [
+          "Filter by All, Critical, Warning or Unread.",
+          "Each alert shows its type, source, message and how long ago it fired.",
+        ],
+        note: DEMO_TAB + " Nothing on this platform currently raises an alert into it.",
+      },
+      {
+        name: "Customer Service",
+        purpose: "Intended as the customer ticket queue.",
+        steps: [
+          "The table lists customer, subject, priority, status, who it is assigned to and when it last moved.",
+          "Search tickets narrows the list.",
+          "New Ticket raises one.",
+        ],
+        note:
+          DEMO_TAB +
+          " Real customer conversations are in the Messages tab of each customer's own portal, and those are live.",
+      },
+      {
+        name: "Employee Support",
+        purpose: "Intended as the internal queue for staff requests.",
+        steps: [
+          "The table lists employee, department, category, subject, status and created date.",
+          "Search requests narrows the list; New Request raises one.",
+        ],
+        note: DEMO_TAB,
+      },
+      {
+        name: "Investments",
+        purpose: "The same investment opportunities customers and investors see, from your side.",
+        steps: [
+          "All Opportunities lists what is published, searchable by name, location or category.",
+          "Each card shows projected ROI, the minimum and the term.",
+          "My Investments and Recent Distributions show holdings and what has been paid out.",
+        ],
+        note:
+          "Anything marked “SAMPLE — not a real offer” is an illustration of the format. Before inviting an investor, check that what they will see is what you meant to publish.",
+      },
+      {
+        name: "Documents",
+        purpose: "The company document vault.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” to file it against a project or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of this portal, in the order they run down the side.",
+          "Where a tab says it is a demonstration layout, that is the current truth about it and not a warning about your data.",
+        ],
+        note:
+          "The guides for the other portals are written the same way, from each portal's real tabs. If a step here stops matching the screen, the step is the thing that is wrong.",
+      },
+    ],
+  },
 };
