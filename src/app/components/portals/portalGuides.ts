@@ -701,7 +701,184 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  advertiser: { title: "Your advertiser command space", summary: "Manage campaigns, placements, media, previews, billing, analytics, plan benefits, and communications.", start: "Use Campaigns for active promotion work and Analytics to measure results.", sections: [{ name: "Campaigns & placements", detail: "Manage live advertising activity and available placements.", status: "Campaign delivery" }, { name: "Media & live previews", detail: "Review creative assets and how ads are presented.", status: "Creative control" }, { name: "Analytics & billing", detail: "Monitor results and account financial activity.", status: "Performance reporting" }, { name: "Plans, referrals & messages", detail: "Understand included features and stay connected with the team.", status: "Account growth" }] },
+  advertiser: {
+    title: "Your advertiser command space",
+    summary:
+      "Creatives go into the media library, campaigns decide where and when they run, and analytics tells you which ones earn their place. Everything counted here is counted — nothing on these screens is estimated.",
+    start:
+      "Media Library first: a campaign has nothing to serve until a creative exists. Then Campaigns to run it, then Performance to see which one to keep.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "The summary: campaign performance over time, what is running, and your best creatives.",
+        steps: [
+          "Campaign Performance charts impressions and clicks over time; Export Report takes the figures out.",
+          "Active Campaigns lists what is running now with its budget, impressions and clicks; View All opens Campaigns.",
+          "Top Performing Ads ranks your creatives by click-through rate; View Library opens the media library.",
+          "Current Plan shows the tier you are on, resolved from your actual subscription.",
+        ],
+        note:
+          "There are no conversion or return-on-spend figures anywhere in this portal, and their absence is deliberate: nothing on this platform attributes a sale back to an ad, so any such number would be invented. What you see is impressions and clicks, which are genuinely counted every time an ad is served.",
+      },
+      {
+        name: "Media Library",
+        purpose: "Your creatives. A campaign has nothing to serve until one exists here.",
+        steps: [
+          "Add a creative with its headline, body text and the link it should open.",
+          "Choose the placement it is built for: marquee strip, banner, or reel.",
+          "Each creative shows how many times it has been shown, its clicks and its CTR.",
+          "“Not served yet” means exactly that — it exists but has never been put in front of anyone.",
+          "Submit a Reel to the Landing Page sits at the top of this tab for reels you want on the public site; those go to Black Phoenix for approval first.",
+        ],
+        note:
+          "Your link is checked before it is stored — only http and https are accepted. That is not fussiness: these links render inside the strip that runs across other people's portals, so a bad scheme there would run in somebody else's browser.",
+      },
+      {
+        name: "Campaigns",
+        purpose: "What is running, where, and for how long.",
+        steps: [
+          "Create a campaign with a name and, if it helps you, an objective.",
+          "Attach the creatives it should serve.",
+          "Pause stops a running campaign without deleting it; Resume starts it again; End closes it.",
+          "Each campaign shows what it has been shown, its clicks and its CTR.",
+        ],
+        note: "Pausing is reversible and immediate. Ending is the one to think about, because the campaign stops being a thing you can resume.",
+      },
+      {
+        name: "Advertising Hub",
+        purpose: "The catalogue of what can be bought — placements, cohort pricing and what each is worth.",
+        steps: [
+          "Cohort Pricing Tiers shows how price moves with the number of platform users.",
+          "Each offering lists its base price, current price, impressions and average CTR.",
+          "Filter by All Status, Active, Draft or Paused; Add New creates an offering.",
+          "Revenue Breakdown totals what the current line-up is worth per month.",
+        ],
+        note: "Prices here move with platform reach, which is why the current price and the base price are shown separately.",
+      },
+      {
+        name: "Ad Placements",
+        purpose: "The slots you can buy, with what each one delivers.",
+        steps: [
+          "Each placement shows its impressions, CTR, duration, monthly price and format.",
+          "Select chooses one; Placement Details opens what it covers.",
+        ],
+      },
+      {
+        name: "Live Previews",
+        purpose: "Your ad in position, on the portal it would actually appear in.",
+        steps: [
+          "Select Portal picks which portal to preview.",
+          "Device Preview switches between screen sizes.",
+          "The page shows each placement in context — inline, sidebar, vendor feed widget — with the portal's reach, available slots, mobile share and average engagement.",
+          "Open Portal opens the real thing.",
+        ],
+        note: "This is the tab to use before buying a placement rather than after — it is much easier to judge a slot in position than from a price list.",
+      },
+      {
+        name: "Analytics",
+        purpose: "What happened, day by day.",
+        steps: [
+          "Day by day charts impressions and clicks over the period.",
+          "Every figure is counted from real ad serves.",
+        ],
+        note:
+          "Analytics and Performance are the same numbers cut two ways on purpose. This one is the trend — what happened. The other is the decision — what to keep.",
+      },
+      {
+        name: "Performance",
+        purpose: "Which creative earns its place, and which one to kill.",
+        steps: [
+          "What is working ranks your creatives by how they perform against your own average.",
+          "Each shows what it was shown, its clicks and its CTR.",
+          "“Still gathering” means it is running but has not been shown enough times to judge yet.",
+          "“Never served” means it has had no exposure at all — check it is attached to a live campaign.",
+        ],
+        note: "“Against average” compares a creative to your other creatives, not to an industry figure nobody measured.",
+      },
+      {
+        name: "Billing",
+        purpose: "Your plan, what you have used of it, and what else is available.",
+        steps: [
+          "Your plan shows the tier you are on.",
+          "What you have used shows impressions consumed and how many campaigns are active.",
+          "Change your plan lists the alternatives; switch between monthly and weekly pricing.",
+          "Switch to this asks your account manager to move you.",
+        ],
+        note:
+          "Switching does not charge anything and does not take effect on its own — it tells your account manager, and they move you. The message on screen says so.",
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Deals and video reels published to Black Phoenix customers.",
+        steps: [
+          "Create Deal opens the form: title, description, discount type, value, optional original price, optional promo code, expiry and image.",
+          "Post Deal publishes it; your live deals are listed with their status.",
+          "Featured reels play above them.",
+        ],
+        note: "Deals need an active plan. Without one the tab says so and offers the plans rather than publishing.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your subscription and any service hours attached to it.",
+        steps: [
+          "Plan, monthly fee, hours used and hours remaining at the top.",
+          "Each logged item beneath, with date, description, hours and cost.",
+        ],
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change what you subscribe to, or add extras.",
+        steps: [
+          "Your Active Plans shows what you hold now.",
+          "Take a standard tier, or describe what you need and have one built.",
+          "Add to plan and Remove from plan assemble the package.",
+        ],
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available, with projected ROI, minimum and term.",
+          "Invest Now opens the interest form.",
+        ],
+        note: "Submitting interest registers it and moves no money. Cards marked “SAMPLE” are format illustrations.",
+      },
+      {
+        name: "Referral Rewards",
+        purpose: "Your referral link and what it has earned.",
+        steps: [
+          "Copy Link, or share by email, SMS or WhatsApp.",
+          "Rewards are 5% of project value, Potential until the referred project is paid.",
+        ],
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+        ],
+        note: "Placement and pricing questions belong here, where they stay attached to your account.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your document vault — contracts, insertion orders, brand assets.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a campaign or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run across the top.",
+          "If a step stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
   investor: { title: "Your investor portal guide", summary: "Review your portfolio, opportunities, reports, distributions, documents, plan information, and communications.", start: "Begin with Portfolio, then review Opportunities and Documents before making a decision.", sections: [{ name: "Portfolio & reports", detail: "Follow portfolio activity and available reporting.", status: "Investment visibility" }, { name: "Opportunities", detail: "Explore active offerings and their supporting details.", status: "Decision support" }, { name: "Distributions & documents", detail: "Review distribution information and important records.", status: "Investor records" }, { name: "Plans & messages", detail: "Access plan benefits and communicate securely.", status: "Account support" }] },
   property_manager: { title: "Your property management hub", summary: "Manage properties, work requests, CRM contacts, financial activity, maintenance plans, and operational communication.", start: "Review Work Requests first, then use Properties and CRM to keep the account organized.", sections: [{ name: "Properties & work requests", detail: "Track your portfolio and approve or reject assigned work.", status: "Property operations" }, { name: "CRM", detail: "Maintain tenants, owners, vendors, prospects, and interaction history.", status: "Relationship management" }, { name: "Plans & financials", detail: "Monitor maintenance plan use, invoices, payments, and property revenue tools.", status: "Account control" }, { name: "Messages & settings", detail: "Keep decisions and account preferences in one place.", status: "Collaboration" }] },
   condo_manager: { title: "Your condo management hub", summary: "Manage units, owners, work requests, CRM, financials, maintenance plans, and association communication.", start: "Use Work Requests for approvals, then keep units and owners current.", sections: [{ name: "Units, owners & requests", detail: "Manage the association roster and assigned maintenance decisions.", status: "Association operations" }, { name: "CRM", detail: "Track owner, tenant, vendor, and prospect relationships.", status: "Relationship management" }, { name: "Plans & financials", detail: "Review plan usage, financial activity, and revenue tools.", status: "Financial visibility" }, { name: "Messages & settings", detail: "Coordinate decisions and maintain account settings.", status: "Collaboration" }] },

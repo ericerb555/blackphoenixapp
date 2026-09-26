@@ -23,7 +23,6 @@ import AdPlacementShowcase from '../AdPlacementShowcase';
 import LivePortalPreviews from '../LivePortalPreviews';
 import AdvertisingHub from '../AdvertisingHub';
 import PortalUpgradeModal from './PortalUpgradeModal';
-import { useUserData } from '../../lib/hooks/useUserData';
 import SubmitReelForApproval from '../SubmitReelForApproval';
 import {
   AdvertiserCampaignsTab, AdvertiserMediaTab, AdvertiserAnalyticsTab,
@@ -54,12 +53,45 @@ export default function AdvertiserPortalView() {
 
   // Subscription tier - determines feature access
   // Tiers: 'starter', 'growth', 'enterprise'
-  const [subscriptionTier, setSubscriptionTier] = useUserData<string>('advertiser_subscription_tier', 'starter');
+  /**
+   * The tier this advertiser is actually on.
+   *
+   * This was localStorage, with a "Change (Demo)" link beside it on the
+   * dashboard. It decided the five flags below AND what the Billing tab shows
+   * as "Your plan" — so the browser was telling an advertiser what they were
+   * subscribed to, on the screen where they check what they are subscribed to.
+   *
+   * It now comes from `/my-plan`, resolved on the server, and fails closed:
+   * anything unreadable leaves them on the entry tier rather than granting
+   * what could not be verified.
+   */
+  const [subscriptionTier, setSubscriptionTier] = useState('starter');
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = session?.access_token;
+      if (!token) return;
+      try {
+        const res = await fetch(`${AD_API}/my-plan`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const body = await res.json();
+        const level = String(body?.entitlement?.level || '').toLowerCase();
+        // A full-access trial is everything, until it ends.
+        if (level === 'full') { if (!cancelled) setSubscriptionTier('enterprise'); return; }
+        const named = `${body?.tier?.name || ''} ${body?.tier?.id || ''} ${level}`.toLowerCase();
+        const match = ['enterprise', 'professional', 'starter'].find((t) => named.includes(t));
+        if (!cancelled && match) setSubscriptionTier(match);
+      } catch {
+        /* Left on starter. An unreadable plan is not a reason to hand out access. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
 
   // Check if premium features are accessible based on subscription
-  const hasContentCenterAccess = ['growth', 'enterprise'].includes(subscriptionTier);
-  const hasABTesting = ['growth', 'enterprise'].includes(subscriptionTier);
-  const hasAdvancedTargeting = ['growth', 'enterprise'].includes(subscriptionTier);
+  const hasContentCenterAccess = ['professional', 'enterprise'].includes(subscriptionTier);
+  const hasABTesting = ['professional', 'enterprise'].includes(subscriptionTier);
+  const hasAdvancedTargeting = ['professional', 'enterprise'].includes(subscriptionTier);
   const hasUnlimitedImpressions = subscriptionTier === 'enterprise';
   const hasCustomCampaigns = subscriptionTier === 'enterprise';
 
@@ -287,6 +319,12 @@ export default function AdvertiserPortalView() {
     { id: 'plan-builder', label: 'Plans & Add-ons', icon: Sparkles },
     { id: 'performance', label: 'Performance', icon: TrendingUp },
     { id: 'investments', label: 'Investments', icon: DollarSign },
+    /*
+      Deals was rendered and had no button. An advertiser could not reach the
+      screen where deals and reels are published, which is most of the point of
+      the portal.
+    */
+    { id: 'deals', label: 'Deals & Reels', icon: Megaphone },
     { id: 'referrals', label: 'Referral Rewards', icon: Award },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'documents', label: 'Documents', icon: FileText },
@@ -611,21 +649,14 @@ export default function AdvertiserPortalView() {
                   <span className="text-gray-500">Current Plan:</span>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-white capitalize">{subscriptionTier}</span>
-                    <button
-                      onClick={() => {
-                        // Cycle through tiers for demo
-                        const tiers = ['basic', 'professional', 'premium', 'elite'];
-                        const currentIndex = tiers.indexOf(subscriptionTier);
-                        const nextTier = tiers[(currentIndex + 1) % tiers.length];
-                        setSubscriptionTier(nextTier);
-                        toast.success(`Subscription changed to ${nextTier.toUpperCase()}`);
-                      }}
-                      className="text-xs text-orange-400 hover:text-orange-300 underline"
-                    >
-                      Change (Demo)
-                    </button>
-                  </div>
-                </div>
+                    {/*
+                      A "Change (Demo)" link cycled this through basic, professional,
+                      premium and elite — three of which are not advertiser tiers at
+                      all, so clicking it left the account matching nothing and the
+                      Billing tab showing the cheapest plan as theirs. Changing plan
+                      happens on Billing.
+                    */}
+                  </div>                </div>
               </div>
             </div>
           </>
