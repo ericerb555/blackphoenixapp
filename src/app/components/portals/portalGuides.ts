@@ -1,0 +1,269 @@
+/**
+ * What every portal can do, and exactly how to do it.
+ *
+ * Kept apart from the renderer because this is writing, not code: it is read
+ * far more often than it is executed, and it is the one file where a wrong
+ * sentence reaches a customer directly.
+ *
+ * THE RULE FOR EDITING THIS FILE
+ *
+ * Every step below must describe a control that actually exists, named the way
+ * the screen names it. A guide written from imagination is worse than a vague
+ * one — it promises features nobody built, and the person following it decides
+ * the software is broken rather than the guide. When a tab changes, the steps
+ * for it change in the same commit.
+ *
+ * The customer guide is written against the seventeen tabs in
+ * `CustomerPortalView.tsx`. The remaining portals are still in the older,
+ * four-bullet shape and are being rewritten one at a time.
+ */
+
+export type PortalGuideKey = "customer" | "vendor" | "subcontractor" | "employee" | "advertiser" | "investor" | "property_manager" | "condo_manager" | "landlord" | "territory" | "condo_association" | "admin";
+
+export type GuideSection = {
+  /** The tab label, spelled exactly as the portal spells it. */
+  name: string;
+  /** One line: what this tab is for. */
+  purpose?: string;
+  /** How to actually use it, in the order you would do it. */
+  steps?: string[];
+  /** The thing that trips people up, or the limit worth knowing before they hit it. */
+  note?: string;
+  /** The older one-line shape, still used by the portals not yet rewritten. */
+  detail?: string;
+  status?: string;
+};
+
+export type Guide = {
+  title: string;
+  summary: string;
+  start: string;
+  sections: GuideSection[];
+};
+
+export const GUIDES: Record<PortalGuideKey, Guide> = {
+  customer: {
+    title: "Your customer portal, explained",
+    summary:
+      "Everything Black Phoenix does for you runs through these tabs: requesting work, approving the price, signing, paying, watching your plan hours, designing the job, and seeing it on your own house before anybody picks up a tool.",
+    start:
+      "If you want work done, start at Projects → New Request. If work is already under way, start at Quotes & Invoices to see what is waiting on you. Everything else supports those two.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose:
+          "The front page of your account — plan hours, live projects, recent replies, current offers, and the four buttons that start most jobs.",
+        steps: [
+          "The strip across the top is your maintenance plan: hours Included, Used, Rollover, Gifted and Available. With no plan, it shows an Upgrade button instead.",
+          "Quick Actions holds the four shortcuts: New Work Request starts a job, Pick Products opens a product-led quote request, View Quotes jumps to anything awaiting your decision, and Shop Products opens the store.",
+          "Active Projects lists your most recent work requests with their status; View All opens the Projects tab.",
+          "Recent Messages shows the latest replies from your team — click through to Messages to answer.",
+          "Featured Reels, Featured Services and Active Giveaways run down the page; Get Quote on a service raises a request for that service directly.",
+        ],
+        note:
+          "Before you have submitted anything, Active Projects reads “Create your first request →”. That link does the same job as New Work Request.",
+      },
+      {
+        name: "Projects",
+        purpose:
+          "Every work request you have submitted, and the place a new one starts.",
+        steps: [
+          "Click New Request at the top right of the list.",
+          "Choose how you want to start: Quick Request takes a few lines and gets us talking; Full Details walks through the whole job and produces the most accurate quote.",
+          "Pick the project type — Simple Service, Kitchen/Bath Remodel, Full Renovation, New Construction, or Trash & Demo Removal. The questions that follow change with the type you choose.",
+          "Answer the specifics it asks for. A kitchen or bath, for example, asks about the current layout, layout type, cabinet style and finish, countertop material and which appliances to include.",
+          "If you would rather just describe the job in your own words, use the AI Project Assistant at the top of the form — it fills the fields in and you check them before continuing.",
+          "Submit. The request appears in this list immediately, showing its service, priority and timeline.",
+        ],
+        note:
+          "The request is the job. Your quote, contract, invoice and any materials ordered all attach to it, so raise one request per piece of work rather than one per conversation.",
+      },
+      {
+        name: "Quotes & Invoices",
+        purpose:
+          "Prices waiting on your decision, and the bills for work already done.",
+        steps: [
+          "Quotes are listed first, each showing the quote amount and how many line items it contains. View Details opens the full breakdown — materials, labour, and anything credited back to you.",
+          "Read the breakdown before signing. Materials carry sales tax; labour does not, so the taxed figure is smaller than the subtotal and that is correct.",
+          "If you bought something yourself — your own flooring, say — it appears as its own credit line, negative, deducted from the total.",
+          "Review & Sign Quote accepts the price. Signing is what lets us schedule the work.",
+          "Pay 30% Deposit books the job in. The balance is invoiced as the work progresses.",
+          "Invoices sit below the quotes, each with the address of service, the amount due, and whether it is Paid. Download PDF gives you a copy for your records.",
+        ],
+        note:
+          "A signed quote does not change afterwards — that is deliberate, so the price you agreed stays the price. If the job needs to change, ask your project manager for a change order and the difference is priced on its own.",
+      },
+      {
+        name: "Contracts",
+        purpose: "Service contracts waiting for your signature, and the ones already signed.",
+        steps: [
+          "Each contract card shows its title, when it was created, the amount, and its status.",
+          "The terms are printed on the card — read them there; there is nothing to download first.",
+          "Review & sign signs it in place. Nothing needs printing, scanning or posting.",
+          "Once signed, the button is replaced by Signed and the date.",
+        ],
+        note:
+          "“No contracts are awaiting your signature” means exactly that. Contracts are only raised after a quote has been accepted, so an empty list early on is normal.",
+      },
+      {
+        name: "Payments",
+        purpose: "What you owe now, what is late, and what has already been settled.",
+        steps: [
+          "The three figures at the top are Due now, Overdue and Settled.",
+          "Each outstanding item has a Pay now button.",
+          "Pay now opens a secure checkout page hosted by our payment processor.",
+          "Once the payment clears, the item moves into Settled and the figures at the top update.",
+        ],
+        note:
+          "Card details are entered on the processor's own page, never inside the portal — Black Phoenix never sees or stores your card number.",
+      },
+      {
+        name: "My Plan",
+        purpose:
+          "Your maintenance plan in full: hours included, hours used, what is left, and what going over costs.",
+        steps: [
+          "The panel at the top shows your plan name, Monthly Fee, hours This Period, Hours Remaining, Overage Hours, Overage Rate and Total Balance Due.",
+          "Below it, every visit is listed — date, description, technician, tier, hours and cost — so you can see where each hour went.",
+          "Refresh records pulls the latest in if work has just been completed.",
+          "Invoices & Payments lists bills raised against the plan; Pay Securely settles one.",
+          "Digital Add-ons & Resources shows what your plan includes beyond labour; Browse All opens the whole list.",
+        ],
+        note:
+          "You cannot log hours here yourself — our office logs them as work is completed, which is what makes this record the one to argue from. If you pass your plan limit the tracker says Plan Limit Exceeded and offers Upgrade Plan.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Where you change plan, add extras, or have a plan built around what you actually own.",
+        steps: [
+          "Your Active Plans at the top shows what you are on now and the service hours it carries.",
+          "To take a standard plan, use Start with a set plan — View details shows what is in one, Use this plan selects it.",
+          "To have one built for you, use Build Your Own Plan with AI and describe your situation in plain words (for example, “I own a 3-unit rental in Manchester”).",
+          "Set Technician Level and Billing Frequency — the estimated total updates as you change them.",
+          "Add to plan and Remove from plan on each add-on build the package; Start over clears it and begins again.",
+          "“Need something we don't list?” sends us a description of anything the builder does not cover.",
+        ],
+        note:
+          "Nothing is charged while you are building — the figure shown is an estimate until you confirm.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team, attached to your project.",
+        steps: [
+          "Open Messages to read the conversation, newest at the bottom.",
+          "Type in the reply box and send.",
+          "The tab carries a count of unread replies; opening it clears the count.",
+        ],
+        note:
+          "Keep decisions here rather than in text messages. Anything agreed in this thread stays attached to the job, where whoever picks the work up can see it.",
+      },
+      {
+        name: "Shop",
+        purpose: "The Black Phoenix store — products sold outright, separate from any construction work.",
+        steps: [
+          "Browse the Featured Collection and Trending Now, or search.",
+          "Sort by Featured, Rating, Price low to high, Price high to low, or Newest.",
+          "Add what you want to the Cart, then check out.",
+        ],
+        note:
+          "Store orders are their own thing — they are not billed against your maintenance plan and do not appear under Projects.",
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Current offers, giveaways and short videos from Black Phoenix and its partners.",
+        steps: [
+          "Featured reels play at the top; tap one to watch it full size.",
+          "Offers below each show what they include and when they end.",
+          "Anything you want to act on links through to the request or store page for it.",
+        ],
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "Some detail sits behind Investor Access — Join subscription or Subscribe opens the Investor Intelligence subscription.",
+          "All Opportunities lists what is available; search by name, location or category, or filter by category.",
+          "Each card shows projected ROI, the minimum, and the term.",
+          "Invest Now opens the interest form — enter an amount and Submit Investment Interest.",
+          "My Investments and Recent Distributions track what you already hold.",
+        ],
+        note:
+          "Submitting interest registers it with us; it does not move any money. Cards marked “SAMPLE — not a real offer” are illustrations of the format, not live offerings.",
+      },
+      {
+        name: "Referrals",
+        purpose: "Your referral link, and what it has earned.",
+        steps: [
+          "Your Referral Link is at the top — Copy Link, or share it by Email, SMS or WhatsApp.",
+          "Each person you refer is listed with the date referred, whether their project completed, whether payment was received, and the project value.",
+          "Rewards are 5% of the project value. They show as Potential until the project is paid, then as Earned.",
+          "Total Earnings at the top adds up everything that has actually landed.",
+        ],
+        note:
+          "A referral stays Pending until the referred project is both completed and paid — that is why a reward can sit there for weeks on a large job.",
+      },
+      {
+        name: "Design Your Project",
+        purpose:
+          "The designs you have built in the design centre — decks, kitchens, bathrooms, siding, doors and windows.",
+        steps: [
+          "Your designs lists everything you have saved.",
+          "Open reopens one to keep working on it.",
+          "Send to Black Phoenix hands it over for pricing; the card then reads Sent to us.",
+        ],
+        note:
+          "Send it once the layout and measurements are right. We price from what the model actually says, so an unfinished design produces an unfinished price.",
+      },
+      {
+        name: "See It On Your Home",
+        purpose: "A picture of the proposed work on your actual house, rather than someone else's.",
+        steps: [
+          "Take a photo of the part of your home you have in mind, or Choose one you already have.",
+          "Describe what you want to see — for example, “a deck across the back with steps down to the garden”.",
+          "Generate the image and look at it.",
+          "“I like this — talk to me about it” sends it to us, and the page confirms somebody will be in touch.",
+        ],
+        note:
+          "This is a picture to think with, not a plan to build from. The measured version is the design centre.",
+      },
+      {
+        name: "Try a Floor",
+        purpose: "The same idea for flooring — a new floor in a photo of your own room.",
+        steps: [
+          "Add a photo under Your room.",
+          "Choose which floors to try under “Which floors shall we try?”.",
+          "Compare the results side by side before you commit to a material.",
+        ],
+      },
+      {
+        name: "Documents",
+        purpose: "Your vault — plans, permits, warranties, photographs, anything to do with your jobs.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a particular project, so it files itself against that job.",
+          "Search by name, project or reference to find something later.",
+        ],
+        note:
+          "25MB per file. What you put here is visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they appear across the top.",
+          "If something you need is not described here, ask in Messages — the guide is kept up to date from what people ask.",
+        ],
+      },
+    ],
+  },
+  vendor: { title: "Your vendor operations portal", summary: "Use this workspace to manage orders, products, promotions, invoices, payments, integrations, and account plan features.", start: "Begin with Orders for fulfillment activity and Products to keep your catalog current.", sections: [{ name: "Orders & products", detail: "Track orders and maintain your product catalog.", status: "Commerce operations" }, { name: "Promotions & performance", detail: "Manage promotion activity and review performance.", status: "Growth tools" }, { name: "Invoices, payments & plans", detail: "See financial activity and your plan features in one place.", status: "Account billing" }, { name: "API settings & messages", detail: "Manage approved integrations and communicate with the Black Phoenix team.", status: "Connected operations" }] },
+  subcontractor: { title: "Your subcontractor work hub", summary: "Review jobs, submit secure bids with files, track payment records, plan benefits, performance, and messages.", start: "Open Dashboard to find available bid opportunities, then use My Bids to follow each submission.", sections: [{ name: "Job opportunities", detail: "Review work scope, timing, budget ranges, and requirements.", status: "Work pipeline" }, { name: "Secure bids", detail: "Submit pricing, notes, duration, and private image/video attachments.", status: "Bid workflow" }, { name: "Payments & performance", detail: "Monitor payment records, work performance, and plan activity.", status: "Business health" }, { name: "Messages", detail: "Keep project communication in the portal.", status: "Collaboration" }] },
+  employee: { title: "Your employee workspace", summary: "Access schedules, assigned tasks, time records, documents, performance, plan information, and support messages.", start: "Check Schedule first, then use Tasks and Timesheet throughout the workday.", sections: [{ name: "Schedule & tasks", detail: "See upcoming work and assigned responsibilities.", status: "Daily operations" }, { name: "Timesheet", detail: "Review and submit tracked work hours.", status: "Work hours" }, { name: "Documents & messages", detail: "Find shared documents and communicate with support.", status: "Team resources" }, { name: "Plans, performance & referrals", detail: "Review eligible account benefits and performance tools.", status: "Benefits" }] },
+  advertiser: { title: "Your advertiser command space", summary: "Manage campaigns, placements, media, previews, billing, analytics, plan benefits, and communications.", start: "Use Campaigns for active promotion work and Analytics to measure results.", sections: [{ name: "Campaigns & placements", detail: "Manage live advertising activity and available placements.", status: "Campaign delivery" }, { name: "Media & live previews", detail: "Review creative assets and how ads are presented.", status: "Creative control" }, { name: "Analytics & billing", detail: "Monitor results and account financial activity.", status: "Performance reporting" }, { name: "Plans, referrals & messages", detail: "Understand included features and stay connected with the team.", status: "Account growth" }] },
+  investor: { title: "Your investor portal guide", summary: "Review your portfolio, opportunities, reports, distributions, documents, plan information, and communications.", start: "Begin with Portfolio, then review Opportunities and Documents before making a decision.", sections: [{ name: "Portfolio & reports", detail: "Follow portfolio activity and available reporting.", status: "Investment visibility" }, { name: "Opportunities", detail: "Explore active offerings and their supporting details.", status: "Decision support" }, { name: "Distributions & documents", detail: "Review distribution information and important records.", status: "Investor records" }, { name: "Plans & messages", detail: "Access plan benefits and communicate securely.", status: "Account support" }] },
+  property_manager: { title: "Your property management hub", summary: "Manage properties, work requests, CRM contacts, financial activity, maintenance plans, and operational communication.", start: "Review Work Requests first, then use Properties and CRM to keep the account organized.", sections: [{ name: "Properties & work requests", detail: "Track your portfolio and approve or reject assigned work.", status: "Property operations" }, { name: "CRM", detail: "Maintain tenants, owners, vendors, prospects, and interaction history.", status: "Relationship management" }, { name: "Plans & financials", detail: "Monitor maintenance plan use, invoices, payments, and property revenue tools.", status: "Account control" }, { name: "Messages & settings", detail: "Keep decisions and account preferences in one place.", status: "Collaboration" }] },
+  condo_manager: { title: "Your condo management hub", summary: "Manage units, owners, work requests, CRM, financials, maintenance plans, and association communication.", start: "Use Work Requests for approvals, then keep units and owners current.", sections: [{ name: "Units, owners & requests", detail: "Manage the association roster and assigned maintenance decisions.", status: "Association operations" }, { name: "CRM", detail: "Track owner, tenant, vendor, and prospect relationships.", status: "Relationship management" }, { name: "Plans & financials", detail: "Review plan usage, financial activity, and revenue tools.", status: "Financial visibility" }, { name: "Messages & settings", detail: "Coordinate decisions and maintain account settings.", status: "Collaboration" }] },
+  landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },
+  territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },
+  condo_association: { title: "Your condo association portal", summary: "Review maintenance, approvals, financials, units, vendors, documents, team access, and referral tools.", start: "Start with Maintenance and Approvals, then use Units and Documents to keep the association organized.", sections: [{ name: "Maintenance & approvals", detail: "Submit and review association work requests.", status: "Association care" }, { name: "Financials & vendors", detail: "Review financial details and vendor activity.", status: "Operations control" }, { name: "Units, documents & team", detail: "Maintain association records and collaboration resources.", status: "Association records" }, { name: "Deals & referrals", detail: "Access member opportunities and referral benefits.", status: "Member benefits" }] },
+  admin: { title: "Your operations portal guide", summary: "Dispatch work, review plan records, monitor alerts, and support customers and employees from one operational view.", start: "Begin with Dispatch for active operations, then use Alerts to handle issues requiring attention.", sections: [{ name: "Dispatch", detail: "Coordinate operational work and assignments.", status: "Live operations" }, { name: "Plans", detail: "Review subscription and maintenance plan records.", status: "Plan oversight" }, { name: "Alerts", detail: "Respond to system and workflow notifications.", status: "Command Center support" }, { name: "Customer & employee support", detail: "Handle account questions and internal assistance.", status: "Service quality" }] },
+};
