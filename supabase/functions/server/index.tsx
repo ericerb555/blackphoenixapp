@@ -7490,6 +7490,63 @@ app.post('/make-server-3eae23a6/landlord/tenants', async (c) => {
 // Provision (or refresh) a tenant's login so they can reach their sub-portal.
 // Creates a Supabase auth user with the tenant role, confirms the email (no mail
 // server configured), and returns a temporary password for the landlord to share.
+/**
+ * Remove a tenant from a landlord’s portal.
+ *
+ * WHY THE LANDLORD AND NOT US
+ *
+ * A tenant is invited by their landlord rather than by Black Phoenix, because
+ * the landlord is the party that holds the relationship. Ending it is the same
+ * decision in reverse, so it belongs to the same person.
+ *
+ * SCOPE COMES FROM THE KEY, NOT FROM THE REQUEST
+ *
+ * The roster is stored under the signed-in landlord’s own address, so a
+ * landlord can only ever look at, and therefore only ever remove from, their
+ * own list. There is no tenant id that could reach somebody else’s tenant.
+ *
+ * WHAT IT DOES NOT DO
+ *
+ * It does not delete the person’s Black Phoenix account. Removing a tenant is
+ * a landlord ending a tenancy; closing an account is a decision for an owner
+ * or administrator, and conflating the two would let any landlord shut down
+ * somebody who is also a customer somewhere else.
+ */
+app.delete('/make-server-3eae23a6/landlord/tenants/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to remove a tenant.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+
+    const id = String(c.req.param('id') || '');
+    const key = landlordTenantsKey(actor.user.email);
+    const tenants = ((await kv.get(key)) as any[]) || [];
+    const tenant = tenants.find((t: any) => String(t?.id) === id);
+    if (!tenant) return c.json({ success: false, error: 'That tenant is not on your roster.' }, 404);
+
+    await kv.set(key, tenants.filter((t: any) => String(t?.id) !== id));
+
+    /**
+     * Clear the routing, but only if it still points here.
+     *
+     * `tenant_landlord:` is what sends a tenant’s work requests to the right
+     * landlord. Leaving it behind would route their requests to a landlord who
+     * no longer has them. Clearing it blindly would be worse: if they have
+     * since moved to another landlord, that mapping belongs to somebody else
+     * now and deleting it would break a live tenancy.
+     */
+    const tenantEmail = String(tenant.email || '').trim().toLowerCase();
+    if (tenantEmail) {
+      const mapping = (await kv.get(`tenant_landlord:${tenantEmail}`)) as any;
+      if (String(mapping?.landlordEmail || '').toLowerCase() === String(actor.user.email).toLowerCase()) {
+        await kv.del(`tenant_landlord:${tenantEmail}`);
+      }
+    }
+
+    console.log(`[landlord] ${actor.user.email} removed tenant ${tenantEmail || id}`);
+    return c.json({ success: true, removed: { id, email: tenantEmail || null, name: tenant.name || null } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to remove that tenant.' }, 500); }
+});
 app.post('/make-server-3eae23a6/landlord/tenants/:id/invite', async (c) => {
   try {
     const actor = await landlordActor(c);

@@ -1311,7 +1311,204 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },
+  landlord: {
+    title: "Your landlord portal guide",
+    summary:
+      "Your properties, your tenants and their own portals, rent in, maintenance out, and the paperwork that keeps all of it defensible. The tenant roster is the piece everything else leans on.",
+    start:
+      "Properties, then Tenants — rent, leases, renewals and maintenance all read from those two. Then Settings to switch on rent collection, because nothing can be charged until it is.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "The portfolio at a glance and what is waiting on you.",
+        steps: [
+          "Four figures: properties, total units, monthly revenue and vacancies.",
+          "Tenants lists your roster; View All opens the tab.",
+          "Maintenance Requests shows what tenants have raised and what needs a decision.",
+        ],
+        note:
+          "Monthly revenue is your real rent roll — the rents on your tenants where you have entered them, falling back to the rent listed on the properties themselves until you have. It is not an estimate.",
+      },
+      {
+        name: "Properties",
+        purpose: "Your portfolio. Everything else in this portal attaches to it.",
+        steps: [
+          "Add property takes the basics: name, street address, property type — single-family, multi-family, condo, townhouse, apartment building, commercial or other — year built, total units and vacant units.",
+          "Then the specifics: bedrooms, bathrooms, square footage and lot size.",
+          "Each property shows its units and occupancy once saved.",
+        ],
+        note: "Keep vacant units honest; the vacancy figure on the dashboard counts them, and so does anybody you show it to.",
+      },
+      {
+        name: "Tenants",
+        purpose: "Your tenants, and the sub-portals they sign into.",
+        steps: [
+          "Add tenant takes their full name, an email for portal login, their unit or address, and the monthly rent.",
+          "Invite emails them a link; they set their own password from it. The row then reads Portal active, and Invite becomes Resend.",
+          "Rent status shows as Current, Late or Pending against each tenant.",
+          "Remove takes a tenant off your portal. It asks once to confirm, because it is not something to do by accident.",
+        ],
+        note:
+          "Tenants are invited by you and removed by you — Black Phoenix does not do either, because the tenancy is your relationship rather than ours. Removing a tenant takes them off your roster and stops their requests routing to you; it does not close their Black Phoenix account, which is deliberate, since they may be a customer elsewhere. How many tenant portals you may run is set by your plan.",
+      },
+      {
+        name: "Rent",
+        purpose: "Collecting rent online, and seeing what has come in.",
+        steps: [
+          "Charge a tenant, or set up autopay so it collects itself.",
+          "Each payment shows its status as it moves.",
+        ],
+        note:
+          "Nothing can be charged until online rent collection is connected on the Settings tab and your payouts are enabled. If the buttons look inert, that is where to look first.",
+      },
+      {
+        name: "Applications",
+        purpose: "Prospective tenants applying to your properties.",
+        steps: [
+          "Review each application as it arrives.",
+          "Accepting one adds that person to your tenant roster, ready to be invited.",
+        ],
+      },
+      {
+        name: "Renewals",
+        purpose: "Leases coming up for renewal, and the offers you make on them.",
+        steps: [
+          "See which tenancies are approaching their end.",
+          "Send a renewal offer with the terms you want.",
+        ],
+        note: "Renewal offers are made against a tenant's lease terms, so keep those current on the lease itself rather than in your head.",
+      },
+      {
+        name: "Leases",
+        purpose: "The leases themselves, and the forms that go with them.",
+        steps: [
+          "Create and manage a lease against a tenant and unit.",
+          "The forms manager holds the standard documents you send.",
+        ],
+      },
+      {
+        name: "Documents",
+        purpose: "Your vault — leases, insurance, inspections, notices, correspondence.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set what it relates to so it files against the right property or tenant.",
+          "Search by name, property or reference.",
+        ],
+        note:
+          "This is the tab that matters in a dispute. Keep notices and inspection records here rather than in email, where they are one deleted account away from gone.",
+      },
+      {
+        name: "Maintenance",
+        purpose: "Requests from your tenants, waiting on your approval or rejection.",
+        steps: [
+          "Each request shows what is being asked for and its status.",
+          "Approve sends it forward to be scheduled and priced; Reject closes it.",
+          "The unit turnover checklist is here too, for readying a unit between tenancies.",
+        ],
+        note:
+          "Approving is what lets work begin, so an undecided request is a repair not happening. New Hampshire's RSA 540 requires you to keep a rental habitable and to give written notice before entering — a request sitting unanswered is the kind of thing that gets read back to you later.",
+      },
+      {
+        name: "On-Call",
+        purpose: "Who gets called out of hours, and for what.",
+        steps: [
+          "Set up one rota per kind of emergency — heating, water, lock-outs — rather than one rota for everything.",
+          "For each, give the hours it covers and the people to ring, in order.",
+          "A call nobody answers escalates down the list.",
+          "Anything you have no cover for can be sent to Black Phoenix instead.",
+        ],
+        note:
+          "Your own people are called first and Black Phoenix is the backup. Set the escalation up before you need it; the night a pipe bursts is the wrong time to find the list empty.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your maintenance plan: hours included, used and remaining, and what overage costs.",
+        steps: [
+          "Plan name, monthly fee, hours this period, hours remaining and the overage rate.",
+          "Every logged visit beneath, with date, description, technician, hours and cost.",
+        ],
+        note:
+          "This tab carries the New Hampshire note for landlords: RSA 540 obliges you to maintain habitable conditions and to document service history, and this log is that documentation.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change your plan or add extras.",
+        steps: [
+          "Your Active Plans shows what you hold.",
+          "Take a standard tier, or describe your portfolio and have one built.",
+        ],
+        note: "Your plan also sets how many tenant sub-portals you may run.",
+      },
+      {
+        name: "CRM",
+        purpose: "Tenants, prospects, vendors and owners, with the history of what was said.",
+        steps: [
+          "Add a contact and set what they are to you.",
+          "Record interactions so the next conversation starts where the last one ended.",
+        ],
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: ["Featured reels play at the top; offers are listed beneath with what they include and when they end."],
+      },
+      {
+        name: "Financials",
+        purpose: "The money between your account and Black Phoenix.",
+        steps: [
+          "Verified Payments, Pending Payments and Open Invoice Balance are totalled at the top.",
+          "Each payment and invoice is listed beneath.",
+        ],
+        note: "This is your account with us. Rent from tenants is on the Rent tab and is a different ledger.",
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: ["All Opportunities lists what is available; Invest Now opens the interest form."],
+        note: "Submitting interest registers it and moves no money.",
+      },
+      {
+        name: "Property AI Enterprise",
+        purpose: "The deeper analysis tools for a portfolio.",
+        steps: ["Open it against your own properties to get the detailed reading."],
+      },
+      {
+        name: "Revenue AI",
+        purpose: "Ways to earn more from the properties you already own.",
+        steps: [
+          "Each programme shows a revenue range and how hard it is to start, with a note on how it works in New Hampshire.",
+          "Open Full AI Revenue Analysis runs the detailed version against your own portfolio.",
+        ],
+        note:
+          "The “12-unit property adding three quick wins” panel is a worked example, not a projection for your portfolio. The full analysis is the one that uses your properties.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: ["Read the conversation, reply in the box, send."],
+        note: "Anything a tenant might later dispute belongs here or in Documents, not in a phone call.",
+      },
+      {
+        name: "Settings",
+        purpose: "Your details, rent collection, and what you get notified about.",
+        steps: [
+          "Update your landlord name.",
+          "Online Rent Collection connects your payouts — this is what has to be done before rent can be charged.",
+          "Notification preferences decide what reaches you and how.",
+        ],
+        note:
+          "Your account email cannot be changed here; ask Black Phoenix. It is the address your portal and your tenants' invitations are tied to, so changing it is not a settings toggle.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run down the side.",
+          "If a step stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
   territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },
   condo_association: { title: "Your condo association portal", summary: "Review maintenance, approvals, financials, units, vendors, documents, team access, and referral tools.", start: "Start with Maintenance and Approvals, then use Units and Documents to keep the association organized.", sections: [{ name: "Maintenance & approvals", detail: "Submit and review association work requests.", status: "Association care" }, { name: "Financials & vendors", detail: "Review financial details and vendor activity.", status: "Operations control" }, { name: "Units, documents & team", detail: "Maintain association records and collaboration resources.", status: "Association records" }, { name: "Deals & referrals", detail: "Access member opportunities and referral benefits.", status: "Member benefits" }] },
   admin: {

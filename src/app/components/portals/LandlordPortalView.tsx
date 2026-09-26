@@ -7,7 +7,7 @@ import {
   TrendingUp, Zap, Package, Droplets, Car, Wifi, Star, Sparkles, LoaderCircle, Plus,
   FileText, FileSignature, Send, CreditCard, CheckCircle, ExternalLink,
   Image as ImageIcon, Video, Upload, AlertTriangle, Trash2, Pencil, Brain,
-  PhoneCall,
+  PhoneCall, UserMinus,
 } from 'lucide-react';
 import LandlordLeaseManager from './LandlordLeaseManager';
 import OnCallSetup from './OnCallSetup';
@@ -268,6 +268,36 @@ export default function LandlordPortalView() {
   }
 
   const [invitingId, setInvitingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+
+  /**
+   * Remove a tenant from this portal.
+   *
+   * The landlord invited them, so the landlord ends it. The server scopes the
+   * roster to the signed-in landlord, so there is no tenant id here that could
+   * reach somebody else’s tenant.
+   *
+   * This does not close the person’s Black Phoenix account — that is an owner
+   * or administrator decision, and a tenant may be a customer elsewhere.
+   */
+  async function removeTenant(tenant: any) {
+    if (!session?.access_token || removingId) return;
+    setRemovingId(tenant.id);
+    try {
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/landlord/tenants/${encodeURIComponent(tenant.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || body?.success === false) throw new Error(body?.error || 'Could not remove that tenant.');
+      setTenants(cur => cur.filter((t: any) => t.id !== tenant.id));
+      toast.success(`${tenant.name || 'Tenant'} removed from your portal.`);
+      setConfirmRemoveId(null);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not remove that tenant.');
+    } finally { setRemovingId(null); }
+  }
   async function inviteTenant(tenant: any) {
     if (!session?.access_token || invitingId) return;
     if (!tenant.email) { toast.error('Add an email to this tenant first, then invite them.'); return; }
@@ -671,7 +701,20 @@ export default function LandlordPortalView() {
               </div>
             )}
             {showTenantForm && <form onSubmit={addTenant} className="grid grid-cols-1 gap-3 rounded-xl border border-teal-500/25 bg-[#151515] p-5 sm:grid-cols-2"><input required value={tenantDraft.name} onChange={event => setTenantDraft(value => ({ ...value, name: event.target.value }))} placeholder="Tenant full name" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input type="email" value={tenantDraft.email} onChange={event => setTenantDraft(value => ({ ...value, email: event.target.value }))} placeholder="Tenant email (for portal login)" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required value={tenantDraft.unit} onChange={event => setTenantDraft(value => ({ ...value, unit: event.target.value }))} placeholder="Unit / address" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><input required min="0" step="0.01" type="number" value={tenantDraft.rent} onChange={event => setTenantDraft(value => ({ ...value, rent: event.target.value }))} placeholder="Monthly rent" className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500" /><select value={tenantDraft.status} onChange={event => setTenantDraft(value => ({ ...value, status: event.target.value }))} className="rounded-lg border border-[#363636] bg-[#0A0A0A] px-3 py-2.5 text-sm text-white outline-none focus:border-teal-500"><option value="current">Current</option><option value="late">Late</option><option value="pending">Pending</option></select><div className="flex gap-2 sm:col-span-2"><button disabled={savingTenant} className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{savingTenant ? 'Saving…' : 'Save tenant'}</button><button type="button" onClick={() => setShowTenantForm(false)} className="rounded-lg border border-[#3a3a3a] px-4 py-2 text-sm font-semibold text-gray-300">Cancel</button></div></form>}
-            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{tenantsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading tenants…</div> : tenants.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No tenants have been added to this account yet.</div> : tenants.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div className="min-w-0"><p className="font-bold">{t.name}{t.invited && <span className="ml-2 inline-flex items-center rounded border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-300">Portal active</span>}</p><p className="text-gray-500 text-sm">{t.unit}{t.email ? ` · ${t.email}` : ''}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(t.rent || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span><button type="button" onClick={() => inviteTenant(t)} disabled={invitingId === t.id || !t.email} title={t.email ? '' : 'Add an email to invite this tenant'} className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/40 px-3 py-1.5 text-xs font-bold text-teal-300 transition hover:bg-teal-500/10 disabled:cursor-not-allowed disabled:opacity-40">{invitingId === t.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{t.invited ? 'Resend' : 'Invite'}</button></div></div>)}</div>
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl divide-y divide-[#2A2A2A]">{tenantsLoading ? <div className="p-8 flex items-center justify-center gap-2 text-sm text-gray-400"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading tenants…</div> : tenants.length === 0 ? <div className="p-8 text-center text-sm text-gray-400">No tenants have been added to this account yet.</div> : tenants.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 p-5"><div className="min-w-0"><p className="font-bold">{t.name}{t.invited && <span className="ml-2 inline-flex items-center rounded border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-300">Portal active</span>}</p><p className="text-gray-500 text-sm">{t.unit}{t.email ? ` · ${t.email}` : ''}</p></div><div className="flex items-center gap-3"><span className="text-lg font-bold">${Number(t.rent || 0).toLocaleString()}/mo</span><span className={`px-2 py-0.5 rounded text-xs font-bold border ${rentBadge(t.status)}`}>{t.status}</span><button type="button" onClick={() => inviteTenant(t)} disabled={invitingId === t.id || !t.email} title={t.email ? '' : 'Add an email to invite this tenant'} className="inline-flex items-center gap-1.5 rounded-lg border border-teal-500/40 px-3 py-1.5 text-xs font-bold text-teal-300 transition hover:bg-teal-500/10 disabled:cursor-not-allowed disabled:opacity-40">{invitingId === t.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{t.invited ? 'Resend' : 'Invite'}</button>
+{confirmRemoveId === t.id ? (
+  <span className="inline-flex items-center gap-1.5">
+    <button type="button" onClick={() => setConfirmRemoveId(null)} className="rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:bg-white/5">Cancel</button>
+    <button type="button" onClick={() => removeTenant(t)} disabled={removingId === t.id} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-red-500 disabled:opacity-50">
+      {removingId === t.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <UserMinus className="h-3.5 w-3.5" />}Remove?
+    </button>
+  </span>
+) : (
+  <button type="button" onClick={() => setConfirmRemoveId(t.id)} title="Remove this tenant from your portal" className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-bold text-red-400 transition hover:bg-red-500/10">
+    <UserMinus className="h-3.5 w-3.5" />Remove
+  </button>
+)}
+</div></div>)}</div>
           </div>
           </FeatureGate>
         )}
