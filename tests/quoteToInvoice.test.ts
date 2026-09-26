@@ -14,17 +14,15 @@
  *   Fitting           16 hrs   @ $85.00   = $1,360.00  NOT taxable
  *   Credit: their own flooring            − $1,240.00  taxable
  *
- *   Materials sold        680.00
- *   Less their flooring −1,240.00  → taxable base floors at 0
- *   Labour              1,360.00
- *   Subtotal              800.00
- *   Tax at 8%               0.00
- *   Total                 800.00
+ * The totals those lines produce are asserted where they are actually
+ * computed — on the screens. What is proven here is the conversion: that
+ * every part of the quote arrives, and that each line carries the right
+ * answer to "is this taxable", which nothing downstream can work out.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  invoiceLinesFromQuote, invoiceAmountFromQuote, invoiceTotals,
+  invoiceLinesFromQuote, invoiceAmountFromQuote,
 } from '../src/app/lib/quoteToInvoice.ts';
 
 const job = {
@@ -78,37 +76,6 @@ test('the credit arrives negative, and taxable, so it takes its tax with it', ()
   assert.match(credit.description, /Customer-supplied flooring/);
 });
 
-/* ── the money ───────────────────────────────────────────────────────────── */
-
-test('the totals come out to the figures on the quote', () => {
-  const totals = invoiceTotals(invoiceLinesFromQuote(job), job.taxRate);
-  assert.equal(totals.subtotal, 800, '680 material − 1240 credit + 1360 labour');
-  assert.equal(totals.taxableSubtotal, 0, 'they supplied more material than we did');
-  assert.equal(totals.tax, 0);
-  assert.equal(totals.total, 800);
-});
-
-test('the same job without the credit is taxed on its materials only', () => {
-  const totals = invoiceTotals(
-    invoiceLinesFromQuote({ ...job, credits: [] }),
-    job.taxRate,
-  );
-  assert.equal(totals.subtotal, 2040, '680 material + 1360 labour');
-  assert.equal(totals.taxableSubtotal, 680, 'not 2040 — labour is not taxed');
-  assert.equal(totals.tax, 54.4, '8% of 680');
-  assert.equal(totals.total, 2094.4);
-});
-
-test('the old bug would have taxed the labour too, and it does not', () => {
-  const totals = invoiceTotals(invoiceLinesFromQuote({ ...job, credits: [] }), 0.08);
-  assert.notEqual(totals.tax, 163.2, '8% of 2040 — $108.80 the customer never owed');
-});
-
-test('a rate written as a percent gives the same answer as a fraction', () => {
-  const lines = invoiceLinesFromQuote({ ...job, credits: [] });
-  assert.equal(invoiceTotals(lines, 8).tax, invoiceTotals(lines, 0.08).tax);
-});
-
 /* ── what the invoice is for ─────────────────────────────────────────────── */
 
 test('the invoice bills the quoted price, never the budget', () => {
@@ -142,5 +109,5 @@ test('an empty quote produces no lines rather than a phantom one', () => {
 test('a missing quantity bills one, not zero', () => {
   const lines = invoiceLinesFromQuote({ materials: [{ name: 'Delivery', unitCost: 75 }] });
   assert.equal(lines[0].quantity, 1, 'defaulting to zero would silently drop the charge');
-  assert.equal(invoiceTotals(lines, 0).subtotal, 75);
+  assert.equal(lines[0].unit_price, 75);
 });

@@ -19,6 +19,13 @@
  * The taxability of a line. Materials are taxable, labour is not, and credits
  * carry the tax treatment of the thing being credited. That is knowable here,
  * from the quote's own structure, and nowhere downstream.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO
+ *
+ * Add the lines up. It carried an `invoiceTotals` for a while and nothing ever
+ * called it — the screens each total their own lines. A second implementation
+ * of the arithmetic, tested and unused, is worse than none: it reads as the
+ * authority while the real answer is computed somewhere else entirely.
  */
 
 export interface QuoteLikeMaterial {
@@ -127,40 +134,4 @@ export function invoiceAmountFromQuote(
 ): number {
   const quoted = Number(quote?.totalCost ?? quote?.total);
   return Number.isFinite(quoted) && quoted > 0 ? quoted : num(estimatedValue);
-}
-
-/**
- * What those lines come to, by the invoice's own rules.
- *
- * Here so a conversion can be checked end to end without a browser: the lines
- * and the totals are produced by the same code the screens use, so a test of
- * this is a test of what actually happens.
- *
- * `taxRate` accepts a fraction or a percent, because quotes store 0.08 and
- * invoices store 8 — the same trap `constructionTax` handles.
- */
-export function invoiceTotals(lines: InvoiceLine[], taxRate: number) {
-  const round2 = (v: number) => Math.round(v * 100) / 100;
-  const rateValue = num(taxRate);
-  const rate = rateValue <= 1 ? rateValue : rateValue / 100;
-
-  let subtotal = 0;
-  let taxable = 0;
-  for (const line of lines || []) {
-    const amount = num(line.quantity, 1) * num(line.unit_price);
-    subtotal += amount;
-    if (line.is_taxable !== false) taxable += amount;
-  }
-
-  // Floored: credits larger than the taxable charges must not produce a
-  // negative tax that quietly adds money back to the bill.
-  const taxableSubtotal = Math.max(0, round2(taxable));
-  const tax = round2(taxableSubtotal * rate);
-
-  return {
-    subtotal: round2(subtotal),
-    taxableSubtotal,
-    tax,
-    total: round2(subtotal + tax),
-  };
 }
