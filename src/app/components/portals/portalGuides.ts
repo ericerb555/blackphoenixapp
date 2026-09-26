@@ -572,7 +572,126 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  employee: { title: "Your employee workspace", summary: "Access schedules, assigned tasks, time records, documents, performance, plan information, and support messages.", start: "Check Schedule first, then use Tasks and Timesheet throughout the workday.", sections: [{ name: "Schedule & tasks", detail: "See upcoming work and assigned responsibilities.", status: "Daily operations" }, { name: "Timesheet", detail: "Review and submit tracked work hours.", status: "Work hours" }, { name: "Documents & messages", detail: "Find shared documents and communicate with support.", status: "Team resources" }, { name: "Plans, performance & referrals", detail: "Review eligible account benefits and performance tools.", status: "Benefits" }] },
+  employee: {
+    title: "Your employee workspace",
+    summary:
+      "Punch in, punch out, say which work orders your hours went to, and send the week to payroll. Everything else here supports getting paid correctly for what you did.",
+    start:
+      "Dashboard, and the big green Punch in button. Everything on your timesheet starts from a punch.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "Your punch card and the shape of your week.",
+        steps: [
+          "The large button punches you in. While the clock is running it turns red and reads Punch out, and the timer beside it counts up live.",
+          "Hours this week and the number of shifts recorded sit next to the clock.",
+          "Weekly Hours charts what you have actually worked; Export Report takes it out.",
+          "Work Orders tells you how many jobs are currently assigned to you.",
+          "Add job photos uploads pictures from site without leaving the page.",
+        ],
+        note:
+          "If the button is greyed out and the page says no employee record is linked to this account, your login has not been attached to your employee record yet — you cannot punch in until it is, and only Black Phoenix can do it. Say so straight away rather than working an untracked day. After eight hours on the clock a reminder appears; it is a nudge, not a cut-off, and nothing shortens your day automatically.",
+      },
+      {
+        name: "Timesheet",
+        purpose:
+          "Turning the hours you punched into hours payroll can pay, split across the work orders you actually worked on.",
+        steps: [
+          "Shifts & work-order split lists your completed shifts, newest first.",
+          "For a shift, choose a work order from the dropdown and enter the hours that went to it.",
+          "Add as many work orders as the shift needs; Remove takes one off. The split is how a day across three jobs gets billed to three jobs.",
+          "Send to payroll submits the shift. It then reads Sent to payroll, and Approved by payroll once it has been accepted.",
+          "Export Timesheet takes the record out for your own files.",
+        ],
+        note:
+          "You can only bill to work orders assigned to you — that is what the dropdown lists, and the server checks it again. “Waiting on a real finish time” means the shift is still open: punch out first, then it can be sent. A shift already sent cannot be quietly edited, which protects you as much as anyone.",
+      },
+      {
+        name: "Schedule",
+        purpose: "Intended as your calendar of jobs, meetings and site visits.",
+        steps: [
+          "Today's Schedule lists the day's entries with their time, duration and location.",
+          "Filter narrows the view; Add Event adds an entry.",
+        ],
+        note:
+          "This tab is a demonstration layout built on example entries written into the page — a stand-up meeting in Conference Room A and the like. Nothing here comes from the database and nothing you add is saved. What you are actually assigned is on the Dashboard as Work Orders, and in the Timesheet dropdown.",
+      },
+      {
+        name: "Tasks",
+        purpose: "Intended as your assigned work, with progress against each item.",
+        steps: [
+          "Each task shows its project, priority, due date and progress.",
+          "Filter and Search narrow the list; View Details opens one.",
+        ],
+        note:
+          "Like Schedule, this is a demonstration layout over example rows held in the page rather than your real assignments. The jobs genuinely assigned to you are the ones counted on the Dashboard and offered in the Timesheet's work-order dropdown — trust those.",
+      },
+      {
+        name: "Performance",
+        purpose: "Intended as your rating, completed tasks and goals.",
+        steps: [
+          "Three cards: Overall Rating, Tasks Completed, Goals Achieved.",
+        ],
+        note:
+          "The figures here are written into the page, not measured — the tasks count, the goals and the improvement captions beneath them are all examples. Nobody is rating you on this screen. The one honest measure of your work in this portal is your timesheet.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your employment documents — contracts, certifications, handbooks, anything you need to keep.",
+        steps: [
+          "Upload Document adds a file and asks for a Category.",
+          "Search finds one by name or reference.",
+          "Download takes a copy.",
+        ],
+        note: "25MB per file. Visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Hour Banking",
+        purpose: "Banked hours held against your account, and what has been drawn from them.",
+        steps: [
+          "The top panel shows hours included, used and remaining.",
+          "Every logged item is listed with its date, description, hours and cost.",
+        ],
+        note: "These are logged by the office as work is recorded. Your own worked hours are on the Timesheet, which is a different thing.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Any plan or extras attached to your account.",
+        steps: [
+          "Your Active Plans shows what you are on.",
+          "Set plans and add-ons can be browsed and priced; the estimated total updates as you go.",
+        ],
+      },
+      {
+        name: "Referrals",
+        purpose: "Referring people you have worked with, and what it earns.",
+        steps: [
+          "Copy your referral link, or share it by email, SMS or WhatsApp.",
+          "Each referral is listed with its date and whether the work completed and was paid.",
+          "Rewards show as Potential until the referred project is paid, then Earned.",
+        ],
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available, with projected ROI, minimum and term.",
+          "Invest Now opens the interest form.",
+        ],
+        note: "Submitting interest registers it and moves no money. Cards marked “SAMPLE” are format illustrations.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your workspace, in the order they run across the top.",
+          "Where a tab says it is a demonstration layout, that is the current truth about that tab and not a warning about your hours — the punch card and timesheet are real.",
+        ],
+        note:
+          "There is no Messages tab here yet. If you need to reach the office, use the phone number you already have rather than looking for it in the portal.",
+      },
+    ],
+  },
   advertiser: { title: "Your advertiser command space", summary: "Manage campaigns, placements, media, previews, billing, analytics, plan benefits, and communications.", start: "Use Campaigns for active promotion work and Analytics to measure results.", sections: [{ name: "Campaigns & placements", detail: "Manage live advertising activity and available placements.", status: "Campaign delivery" }, { name: "Media & live previews", detail: "Review creative assets and how ads are presented.", status: "Creative control" }, { name: "Analytics & billing", detail: "Monitor results and account financial activity.", status: "Performance reporting" }, { name: "Plans, referrals & messages", detail: "Understand included features and stay connected with the team.", status: "Account growth" }] },
   investor: { title: "Your investor portal guide", summary: "Review your portfolio, opportunities, reports, distributions, documents, plan information, and communications.", start: "Begin with Portfolio, then review Opportunities and Documents before making a decision.", sections: [{ name: "Portfolio & reports", detail: "Follow portfolio activity and available reporting.", status: "Investment visibility" }, { name: "Opportunities", detail: "Explore active offerings and their supporting details.", status: "Decision support" }, { name: "Distributions & documents", detail: "Review distribution information and important records.", status: "Investor records" }, { name: "Plans & messages", detail: "Access plan benefits and communicate securely.", status: "Account support" }] },
   property_manager: { title: "Your property management hub", summary: "Manage properties, work requests, CRM contacts, financial activity, maintenance plans, and operational communication.", start: "Review Work Requests first, then use Properties and CRM to keep the account organized.", sections: [{ name: "Properties & work requests", detail: "Track your portfolio and approve or reject assigned work.", status: "Property operations" }, { name: "CRM", detail: "Maintain tenants, owners, vendors, prospects, and interaction history.", status: "Relationship management" }, { name: "Plans & financials", detail: "Monitor maintenance plan use, invoices, payments, and property revenue tools.", status: "Account control" }, { name: "Messages & settings", detail: "Keep decisions and account preferences in one place.", status: "Collaboration" }] },
