@@ -961,8 +961,21 @@ investmentsRouter.put(`${PREFIX}/investments/commitments/:id`, async (c) => {
 
 // ── Payouts / distributions ──────────────────────────────────────────────
 investmentsRouter.get(`${PREFIX}/investments/payouts/investor/:email`, async (c) => {
+  /**
+   * Your own distributions, or anybody’s if you are staff.
+   *
+   * This read the email straight from the URL, so any signed-in account could
+   * page through another investor’s payment history — amounts, dates and
+   * descriptions — by typing their address into it. Its two siblings,
+   * commitments and portfolio analytics, were already doing this correctly;
+   * this one was missed.
+   *
+   * Refusal returns an empty list rather than a 403, matching those siblings:
+   * the caller learns nothing about whether that investor exists.
+   */
   try {
-    const email = c.req.param('email');
+    const email = await permittedInvestorEmail(c, c.req.param('email'));
+    if (!email) return c.json({ payouts: [] });
     const all = ((await kv.getByPrefix(PAYOUT_PREFIX)) || []) as any[];
     const payouts = all
       .filter((x) => x.investor_email === email)
@@ -974,6 +987,12 @@ investmentsRouter.get(`${PREFIX}/investments/payouts/investor/:email`, async (c)
 });
 
 investmentsRouter.post(`${PREFIX}/investments/payouts`, async (c) => {
+  /**
+   * Staff only. A payout is a statement that the company paid an investor;
+   * an investor must not be able to record one against their own name.
+   */
+  const denial = await requireInvestmentStaff(c);
+  if (denial) return denial;
   try {
     const body = await c.req.json();
     const now = new Date().toISOString();
@@ -994,6 +1013,9 @@ investmentsRouter.post(`${PREFIX}/investments/payouts`, async (c) => {
 });
 
 investmentsRouter.put(`${PREFIX}/investments/payouts/:id`, async (c) => {
+  // Staff only, for the same reason as creating one.
+  const denial = await requireInvestmentStaff(c);
+  if (denial) return denial;
   try {
     const id = c.req.param('id');
     const existing = await kv.get(PAYOUT(id));
