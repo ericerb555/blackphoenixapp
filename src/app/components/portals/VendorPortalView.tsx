@@ -220,7 +220,52 @@ export default function VendorPortalView() {
 
   // Subscription tier - determines feature access
   // Tiers: 'basic', 'professional', 'premium', 'elite'
-  const [subscriptionTier, setSubscriptionTier] = useUserData<string>('vendor_subscription_tier', 'basic');
+  /**
+   * The tier this vendor is actually on.
+   *
+   * This was `useUserData('vendor_subscription_tier')` — localStorage — with a
+   * "Change (Demo)" link beside it on the dashboard that cycled basic →
+   * professional → premium → elite and announced "Subscription changed to
+   * PREMIUM".
+   *
+   * The five flags below it decide whether the Content Center, the API
+   * settings tab and enterprise reporting open. So the browser was deciding
+   * what the vendor had paid for: four clicks, or one line in the console,
+   * bought elite. Authority read from a place the user can edit is the same
+   * bug the condo portal had, and it does not become safe by being cosmetic —
+   * whatever is behind those doors has to be the thing that refuses.
+   *
+   * It now comes from `/my-plan`, which resolves the grant on the server, and
+   * it fails closed: anything we cannot read leaves the vendor on `basic`
+   * rather than granting access we could not verify.
+   */
+  const [subscriptionTier, setSubscriptionTier] = useState('basic');
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = session?.access_token;
+      if (!token) return;
+      try {
+        const res = await fetch(`${VENDOR_API}/my-plan`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const body = await res.json();
+        const level = String(body?.entitlement?.level || '').toLowerCase();
+        /**
+         * A full-access trial is exactly that — everything, until it ends.
+         * That is what Create Portal's "grant full access" issues, and a
+         * vendor on one should not be shown upgrade prompts for what they
+         * already have.
+         */
+        if (level === 'full') { if (!cancelled) setSubscriptionTier('elite'); return; }
+        const named = `${body?.tier?.name || ''} ${body?.tier?.id || ''} ${level}`.toLowerCase();
+        const match = ['elite', 'premium', 'professional', 'basic'].find((t) => named.includes(t));
+        if (!cancelled && match) setSubscriptionTier(match);
+      } catch {
+        /* Left on basic. An unreadable plan is not a reason to hand out access. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token]);
 
   // Check if premium features are accessible based on subscription
   const hasContentCenterAccess = ['premium', 'elite'].includes(subscriptionTier);
@@ -751,21 +796,12 @@ export default function VendorPortalView() {
                   <span className="text-gray-500">Current Plan:</span>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-white capitalize">{subscriptionTier}</span>
-                    <button
-                      onClick={() => {
-                        // Cycle through tiers for demo
-                        const tiers = ['basic', 'professional', 'premium', 'elite'];
-                        const currentIndex = tiers.indexOf(subscriptionTier);
-                        const nextTier = tiers[(currentIndex + 1) % tiers.length];
-                        setSubscriptionTier(nextTier);
-                        toast.success(`Subscription changed to ${nextTier.toUpperCase()}`);
-                      }}
-                      className="text-xs text-orange-400 hover:text-orange-300 underline"
-                    >
-                      Change (Demo)
-                    </button>
-                  </div>
-                </div>
+                    {/*
+                      A "Change (Demo)" link used to sit here and cycle the tier in
+                      localStorage. Changing plan happens on the Plans & Add-ons tab,
+                      against the subscription that is actually billed.
+                    */}
+                  </div>                </div>
               </div>
             </div>
           </>

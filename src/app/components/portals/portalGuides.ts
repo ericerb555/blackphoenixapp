@@ -432,7 +432,146 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  subcontractor: { title: "Your subcontractor work hub", summary: "Review jobs, submit secure bids with files, track payment records, plan benefits, performance, and messages.", start: "Open Dashboard to find available bid opportunities, then use My Bids to follow each submission.", sections: [{ name: "Job opportunities", detail: "Review work scope, timing, budget ranges, and requirements.", status: "Work pipeline" }, { name: "Secure bids", detail: "Submit pricing, notes, duration, and private image/video attachments.", status: "Bid workflow" }, { name: "Payments & performance", detail: "Monitor payment records, work performance, and plan activity.", status: "Business health" }, { name: "Messages", detail: "Keep project communication in the portal.", status: "Collaboration" }] },
+  subcontractor: {
+    title: "Your subcontractor work hub",
+    summary:
+      "Work comes to you through the bid room: jobs are posted, you price them, and the ones you win become your active jobs. The rest of this portal keeps you eligible to bid and tracks what you are owed.",
+    start:
+      "Insurance & Licences first — it takes five minutes and it is what keeps you eligible. Then Dashboard, where the open jobs are.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "Open jobs you can bid on, and the state of your own work at a glance.",
+        steps: [
+          "The four figures across the top are Active Jobs, Awarded This Month, Bids Submitted and Jobs Won.",
+          "Open Jobs lists what is currently posted — title, trade, site address and when bids are due.",
+          "A job you have already priced reads Bid Sent instead of offering the button again.",
+          "Submit Bid opens the bid form for that job.",
+          "Revenue Overview charts your monthly performance; Export takes the figures out. Recent Payments shows what has come in.",
+        ],
+        note:
+          "Jobs marked “Requested from you” were put in front of you specifically rather than opened to everyone. They are worth answering first, even if only to decline.",
+      },
+      {
+        name: "Submitting a bid",
+        purpose: "The form behind every Submit Bid button — the single most important thing in this portal.",
+        steps: [
+          "Check the location, budget and deadline shown at the top of the form; they are the job as posted.",
+          "Enter your bid amount.",
+          "Give an estimated duration in your own words — “3-4 days” is a perfectly good answer.",
+          "Write proposal notes: your approach, the materials you would use, what warranty you carry. This is what separates two bids at the same price.",
+          "Attach photos or videos if they help your case — JPG, PNG, MP4 or MOV, up to 50MB each.",
+          "Submit the bid. The job then reads Bid Sent, and it appears under My Bids.",
+        ],
+        note:
+          "Your bid goes into the bid room itself, which is what Black Phoenix reads and what awards are run from. Your attachments are part of your bid and are not shown to other bidders.",
+      },
+      {
+        name: "Active Jobs",
+        purpose: "The work you have won and are carrying out.",
+        steps: [
+          "Each job shows what it is, where it is and its current state.",
+          "A job arrives here when your bid is accepted — there is nothing to claim or confirm.",
+        ],
+        note: "Empty means nothing has been awarded to you yet, not that something failed to load.",
+      },
+      {
+        name: "My Bids",
+        purpose: "Every bid you have submitted and where it stands.",
+        steps: [
+          "Each entry shows the job, your amount, your notes and the status of the bid.",
+          "A bid stays listed after a decision, so you can see what you priced and what it went for.",
+          "With nothing submitted yet, Go to Dashboard takes you to the open jobs.",
+        ],
+      },
+      {
+        name: "Insurance & Licences",
+        purpose: "Your cover and credentials. This is what keeps you eligible to be awarded work.",
+        steps: [
+          "General liability insurance and workers' compensation are required — for workers' comp, your exemption counts if you have no employees.",
+          "Commercial auto liability, a trade licence and a surety bond are asked for when they apply: driving to site, the trade you work in, and whether you carry a bond.",
+          "For each one, record the insurer or issuer, the policy or licence number, and the expiry date.",
+          "The panel colours each entry — valid, expiring, or expired — and tells you when nothing expires in the next 30 days.",
+        ],
+        note:
+          "Keep the expiry dates honest. An expired certificate is the ordinary reason a subcontractor stops being offered work, and it is entirely avoidable — the panel warns you a month ahead.",
+      },
+      {
+        name: "Payments",
+        purpose: "What you are owed and what has been paid.",
+        steps: [
+          "The payment schedule lists each payment with its date and amount.",
+          "Export takes the schedule out for your own books.",
+        ],
+        note: "“No payments to show yet” is the honest state until a job you have completed has been paid.",
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available; each card shows projected ROI, the minimum and the term.",
+          "Invest Now opens the interest form; My Investments tracks anything you hold.",
+        ],
+        note: "Submitting interest registers it and moves no money. Cards marked “SAMPLE” are format illustrations.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your subscription and any service hours it carries.",
+        steps: [
+          "The top panel shows your plan, monthly fee, hours used and hours remaining.",
+          "Each logged item is listed with its date, description, hours and cost.",
+        ],
+        note: "Hours are logged by Black Phoenix as work is done; you are reading the record, not writing it.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change what you subscribe to, or add extras.",
+        steps: [
+          "Your Active Plans shows what you are on.",
+          "Start with a set plan to take a standard tier, or describe what you need and have one built.",
+          "Add to plan and Remove from plan assemble the package; the estimated total updates as you go.",
+        ],
+      },
+      {
+        name: "Performance",
+        purpose: "Your record, counted from your actual bids.",
+        steps: [
+          "Jobs Won and Bids Submitted are straight counts.",
+          "Bid Win Rate is the first divided by the second, and names the two numbers underneath it so you can check it.",
+        ],
+        note:
+          "On-Time Rate reads “not measured yet” because nothing currently timestamps when a subcontractor finishes. It used to show 96%, which was typed into the page rather than counted — a figure you cannot check is worth less than an honest blank, so it is blank until there is something real behind it.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+          "“Messages from Black Phoenix will appear here” means the thread has not started yet.",
+        ],
+        note: "Questions about a job's scope belong here rather than in the bid notes, so the answer reaches whoever picks the job up.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your document vault — certificates, W-9s, signed agreements, job photographs.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a particular job or reference.",
+          "Search by name, project or reference.",
+        ],
+        note:
+          "25MB per file. Insurance certificates belong on the Insurance & Licences tab as well — that tab is what tracks expiry; this one only stores the paper.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, plus the bid form, which is the part you will use most.",
+          "If something here stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
   employee: { title: "Your employee workspace", summary: "Access schedules, assigned tasks, time records, documents, performance, plan information, and support messages.", start: "Check Schedule first, then use Tasks and Timesheet throughout the workday.", sections: [{ name: "Schedule & tasks", detail: "See upcoming work and assigned responsibilities.", status: "Daily operations" }, { name: "Timesheet", detail: "Review and submit tracked work hours.", status: "Work hours" }, { name: "Documents & messages", detail: "Find shared documents and communicate with support.", status: "Team resources" }, { name: "Plans, performance & referrals", detail: "Review eligible account benefits and performance tools.", status: "Benefits" }] },
   advertiser: { title: "Your advertiser command space", summary: "Manage campaigns, placements, media, previews, billing, analytics, plan benefits, and communications.", start: "Use Campaigns for active promotion work and Analytics to measure results.", sections: [{ name: "Campaigns & placements", detail: "Manage live advertising activity and available placements.", status: "Campaign delivery" }, { name: "Media & live previews", detail: "Review creative assets and how ads are presented.", status: "Creative control" }, { name: "Analytics & billing", detail: "Monitor results and account financial activity.", status: "Performance reporting" }, { name: "Plans, referrals & messages", detail: "Understand included features and stay connected with the team.", status: "Account growth" }] },
   investor: { title: "Your investor portal guide", summary: "Review your portfolio, opportunities, reports, distributions, documents, plan information, and communications.", start: "Begin with Portfolio, then review Opportunities and Documents before making a decision.", sections: [{ name: "Portfolio & reports", detail: "Follow portfolio activity and available reporting.", status: "Investment visibility" }, { name: "Opportunities", detail: "Explore active offerings and their supporting details.", status: "Decision support" }, { name: "Distributions & documents", detail: "Review distribution information and important records.", status: "Investor records" }, { name: "Plans & messages", detail: "Access plan benefits and communicate securely.", status: "Account support" }] },

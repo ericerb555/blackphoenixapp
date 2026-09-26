@@ -666,10 +666,30 @@ export default function SubcontractorPortal() {
             <h2 className="text-xl font-bold">Performance Metrics</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
+                /*
+                  On-Time Rate read 96% and Bid Win Rate 68%, both typed into this
+                  file, both captioned with an improvement nobody measured. A
+                  subcontractor reading their own record has no way to tell an
+                  invented number from a counted one, which is what makes it worse
+                  than showing nothing.
+
+                  The win rate is countable from the bids already loaded, so it is
+                  counted. Nothing timestamps when a subcontractor finished a job,
+                  so on-time cannot be answered at all and says so.
+                */
                 { label: 'Jobs Won', value: String(wonJobs.length), sub: 'Bids accepted', icon: Star },
                 { label: 'Bids Submitted', value: String(submittedBids.length), sub: 'All time', icon: CheckCircle },
-                { label: 'On-Time Rate', value: '96%', sub: '+2% improvement', icon: Clock },
-                { label: 'Bid Win Rate', value: '68%', sub: '+5% from avg', icon: TrendingUp },
+                {
+                  label: 'Bid Win Rate',
+                  value: submittedBids.length
+                    ? `${Math.round((wonJobs.length / submittedBids.length) * 100)}%`
+                    : '—',
+                  sub: submittedBids.length
+                    ? `${wonJobs.length} of ${submittedBids.length} bids`
+                    : 'No bids submitted yet',
+                  icon: TrendingUp,
+                },
+                { label: 'On-Time Rate', value: '—', sub: 'Not measured yet', icon: Clock },
               ].map((s, i) => {
                 const Icon = s.icon;
                 return (
@@ -679,7 +699,7 @@ export default function SubcontractorPortal() {
                     </div>
                     <p className="text-2xl font-bold mb-1">{s.value}</p>
                     <p className="text-sm text-gray-400">{s.label}</p>
-                    <p className="text-xs text-green-400 mt-0.5">{s.sub}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{s.sub}</p>
                   </div>
                 );
               })}
