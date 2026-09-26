@@ -1154,7 +1154,163 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  condo_manager: { title: "Your condo management hub", summary: "Manage units, owners, work requests, CRM, financials, maintenance plans, and association communication.", start: "Use Work Requests for approvals, then keep units and owners current.", sections: [{ name: "Units, owners & requests", detail: "Manage the association roster and assigned maintenance decisions.", status: "Association operations" }, { name: "CRM", detail: "Track owner, tenant, vendor, and prospect relationships.", status: "Relationship management" }, { name: "Plans & financials", detail: "Review plan usage, financial activity, and revenue tools.", status: "Financial visibility" }, { name: "Messages & settings", detail: "Coordinate decisions and maintain account settings.", status: "Collaboration" }] },
+  condo_manager: {
+    title: "Your condo management hub",
+    summary:
+      "The associations you manage, their units and owners, the work requests waiting on your decision, and the money moving through the account. Approving a request is what starts work.",
+    start:
+      "Associations first, then Units — nothing else has anything to attach to until the roster exists. Then Work Requests, where decisions wait on you.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "The state of the association and what needs a decision.",
+        steps: [
+          "Four figures across the top: total units, occupancy rate, HOA dues collected and open work requests. All four are counted from your own records.",
+          "Recent Work Requests lists what has come in; View All opens the tab.",
+          "Recent HOA Dues shows the latest payments received, with the unit, the owner and the amount.",
+        ],
+        note:
+          "The dues total used to read $48K, typed into the page, while the dues panel beside it always said none had been recorded — the payments it needed were only fetched once you opened the Financials tab. Both now come from the same real records, loaded when the portal opens.",
+      },
+      {
+        name: "Associations",
+        purpose: "The associations you manage, who is on each one, and how many sub-portals your plan allows.",
+        steps: [
+          "Add an association with its name, address and number of units.",
+          "Say what you are to it — property manager, or board president.",
+          "Add members with their name, email, unit where it applies, and role.",
+          "Sub-portals shows how many you have used against what your plan allows.",
+        ],
+        note:
+          "An association may show “awaiting board” — that means no board president has yet confirmed who administers it. You can carry on working in the meantime; it is a record of authority, not a lock. Getting it confirmed matters because it is what puts the arrangement on record.",
+      },
+      {
+        name: "Units",
+        purpose: "The unit and owner roster. Occupancy and dues status live here.",
+        steps: [
+          "Add unit takes the unit number, the owner's name, whether it is occupied or vacant, and whether dues are current or overdue.",
+          "Each unit shows those four things at a glance.",
+        ],
+        note:
+          "Keep occupancy and dues current — the occupancy rate on the dashboard is computed from this roster, and it is the figure a board asks about first.",
+      },
+      {
+        name: "Owners",
+        purpose: "The owners behind the units, drawn from the same roster.",
+        steps: [
+          "Each owner is listed with their unit and its current status.",
+        ],
+      },
+      {
+        name: "Work Requests",
+        purpose: "Requests assigned to you, waiting on your approval or rejection.",
+        steps: [
+          "Each request shows what is being asked for and its status.",
+          "Approve sends it forward to be scheduled and priced; Reject closes it.",
+          "The decision is written to the request itself, not only to this screen.",
+        ],
+        note:
+          "You only see requests assigned to your management account. The server filters them and checks again when you decide, so another association's work cannot appear here and cannot be acted on. Work on the building's common areas and exterior belongs to the association; work inside a unit belongs to that owner — which account a request sits against decides who is billed for it.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your maintenance plan: hours included, used and remaining, and what overage costs.",
+        steps: [
+          "Plan name, monthly fee, hours this period, hours remaining and the overage rate at the top.",
+          "Every logged visit beneath, with its date, description, technician, hours and cost.",
+        ],
+        note:
+          "This tab carries a New Hampshire note worth reading: RSA 356-B requires associations to keep common areas in good repair, and a logged service history is what supports a reserve-fund case and answers a board asking where the money went.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change your plan or add extras.",
+        steps: [
+          "Your Active Plans shows what you hold.",
+          "Take a standard tier, or describe the associations you manage and have one built.",
+        ],
+        note: "Your plan is also what sets how many sub-portals you may create, which the Associations tab shows.",
+      },
+      {
+        name: "CRM",
+        purpose: "Owners, tenants, vendors and prospects, with the history of what was said.",
+        steps: [
+          "Add a contact and set what they are to you.",
+          "Record interactions so the next conversation starts where the last one ended.",
+        ],
+      },
+      {
+        name: "Deals & Reels",
+        purpose: "Offers and short videos from Black Phoenix and its partners.",
+        steps: [
+          "Featured reels play at the top; offers are listed beneath with what they include and when they end.",
+        ],
+      },
+      {
+        name: "Financials",
+        purpose: "The money between the association account and Black Phoenix.",
+        steps: [
+          "Verified Payments, Pending Payments and Open Invoice Balance are totalled at the top.",
+          "Each payment and invoice is listed beneath with its amount, date and status.",
+        ],
+        note: "Pending means recorded but not yet verified. Do not treat it as collected when reporting to a board.",
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available, with projected return, minimum and term.",
+          "Invest Now opens the interest form.",
+        ],
+        note: "Submitting interest registers it and moves no money.",
+      },
+      {
+        name: "Revenue AI",
+        purpose: "Ways for the association to earn, or to hold fees down.",
+        steps: [
+          "Each programme shows what it could bring in annually and what that means per unit in dues.",
+          "Open Full AI Revenue Analysis runs the detailed version against your own associations.",
+        ],
+        note:
+          "The Condo Fee Impact panel is a worked example for 180 units running two programmes — an illustration of how the arithmetic goes, not a projection for your association. The tab also carries a note on RSA 356-B and what a manager may decide without a board vote, which is worth reading before proposing any of it.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+          "The tab shows unread replies; opening it clears the count.",
+        ],
+        note: "Anything a board might later ask you to evidence belongs here rather than in a phone call.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your vault — bylaws, insurance, minutes, reserve studies, inspection reports.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to an association or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file. Visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Settings",
+        purpose: "Your name, email and notification preferences.",
+        steps: [
+          "Update the condo manager name and email shown on your account.",
+          "Save Changes commits them.",
+        ],
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run down the side.",
+          "If a step stops matching the screen, say so in Messages.",
+        ],
+      },
+    ],
+  },
   landlord: { title: "Your landlord portal guide", summary: "Keep properties, tenants, maintenance decisions, CRM records, plan usage, and financial activity together.", start: "Start with Maintenance to act on requests, then keep Properties and Tenants updated.", sections: [{ name: "Properties & tenants", detail: "Maintain your portfolio and tenant roster.", status: "Portfolio management" }, { name: "Maintenance", detail: "Review, approve, or reject work requests assigned to you.", status: "Maintenance workflow" }, { name: "CRM & financials", detail: "Track relationships, payments, invoices, and plan information.", status: "Account records" }, { name: "Messages & settings", detail: "Coordinate with Black Phoenix and manage preferences.", status: "Collaboration" }] },
   territory: { title: "Your territory owner portal", summary: "Manage customer and subcontractor activity, work pipeline, subscriptions, CRM, analytics, referrals, and territory operations.", start: "Review Pipeline for work activity, then use Customers and Subcontractors to manage your network.", sections: [{ name: "Pipeline & analytics", detail: "Track request movement and territory performance.", status: "Territory operations" }, { name: "Customers & subcontractors", detail: "Manage the people and partners in your territory.", status: "Network management" }, { name: "Subscriptions & plans", detail: "Review account plan activity and member benefits.", status: "Recurring services" }, { name: "CRM, deals & referrals", detail: "Grow relationships and track referrals.", status: "Growth tools" }] },
   condo_association: { title: "Your condo association portal", summary: "Review maintenance, approvals, financials, units, vendors, documents, team access, and referral tools.", start: "Start with Maintenance and Approvals, then use Units and Documents to keep the association organized.", sections: [{ name: "Maintenance & approvals", detail: "Submit and review association work requests.", status: "Association care" }, { name: "Financials & vendors", detail: "Review financial details and vendor activity.", status: "Operations control" }, { name: "Units, documents & team", detail: "Maintain association records and collaboration resources.", status: "Association records" }, { name: "Deals & referrals", detail: "Access member opportunities and referral benefits.", status: "Member benefits" }] },

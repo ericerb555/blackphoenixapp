@@ -164,8 +164,16 @@ export default function CondoManagerPortalView() {
     } catch (error: any) { toast.error(error?.message || 'Unable to add unit.'); } finally { setSavingUnit(false); }
   }
 
+  /**
+   * Financials load with the portal, not with the Financials tab.
+   *
+   * The dashboard reads from them too — the dues panel and the dues total are
+   * both built from `financials.payments` — so gating the fetch on that one
+   * tab left the dashboard permanently claiming no dues had ever been
+   * recorded, until you happened to visit Financials and come back.
+   */
   useEffect(() => {
-    if (tab !== 'financials' || !session?.access_token) return;
+    if (!session?.access_token) return;
     let cancelled = false;
     const loadFinancials = async () => {
       setFinancialsLoading(true);
@@ -179,7 +187,7 @@ export default function CondoManagerPortalView() {
     };
     void loadFinancials();
     return () => { cancelled = true; };
-  }, [tab, session?.access_token]);
+  }, [session?.access_token]);
 
   async function decide(id: string, decision: 'approved' | 'rejected') {
     if (!session?.access_token || decisionId) return; setDecisionId(id);
@@ -240,7 +248,16 @@ export default function CondoManagerPortalView() {
               {[
                 { label: 'Total Units', value: String(units.length), icon: Building2 },
                 { label: 'Occupancy Rate', value: units.length ? `${Math.round((units.filter(unit => unit.status === 'occupied').length / units.length) * 100)}%` : '—', icon: CheckCircle },
-                { label: 'HOA Dues Collected', value: '$48K', icon: DollarSign },
+                /*
+                  This read $48K, typed into the file. It is now the verified
+                  payments total the Financials tab shows, which is the same
+                  number counted from the same records.
+                */
+                {
+                  label: 'HOA Dues Collected',
+                  value: `${Number(financials.paidTotal || 0).toLocaleString()}`,
+                  icon: DollarSign,
+                },
                 { label: 'Open Requests', value: String(requests.filter(r => ['open', 'pending', 'pending_approval'].includes(r.status)).length), icon: Wrench },
               ].map((s, i) => {
                 const Icon = s.icon;
